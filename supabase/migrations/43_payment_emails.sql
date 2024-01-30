@@ -1,15 +1,15 @@
 begin;
 
-create or replace view internal.alert_free_tier_exceeded_firing as
+create or replace view internal.free_trial_tenants as
 select
-  'free_tier_exceeded' as alert_type,
-  tenants.tenant || 'alerts/free_tier_exceeded' as catalog_name,
+  'free_trial' as alert_type,
+  (tenants.tenant || 'alerts/free_trial')::catalog_name as catalog_name,
   alert_subscriptions.email,
   auth.users.raw_user_meta_data->>'full_name' as full_name,
   tenants.tenant,
-  tenants.trial_start,
-  tenants.trial_start + interval '1 month' as trial_end,
-  stripe.customers."name" is null as has_credit_card
+  tenants.trial_start::date,
+  (tenants.trial_start + interval '1 month')::date as trial_end,
+  stripe.customers."invoice_settings/default_payment_method" is not null as has_credit_card
 from tenants
   left join alert_subscriptions on alert_subscriptions.catalog_prefix ^@ tenants.tenant and email is not null
   left join stripe.customers on stripe.customers."name" = tenants.tenant
@@ -27,18 +27,19 @@ group by
     tenants.trial_start,
     alert_subscriptions.email,
     customers.name,
-    users.raw_user_meta_data;
+    users.raw_user_meta_data,
+    stripe.customers."invoice_settings/default_payment_method";
 
 -- Trigger 5 days before trial ends
-create or replace view internal.alert_free_trial_ending_firing as
+create or replace view internal.free_trial_ending_tenants as
 select
   'free_trial_ending' as alert_type,
-  tenants.tenant || 'alerts/free_trial_ending' as catalog_name,
+  (tenants.tenant || 'alerts/free_trial_ending')::catalog_name as catalog_name,
   alert_subscriptions.email,
   auth.users.raw_user_meta_data->>'full_name' as full_name,
   tenants.tenant,
-  tenants.trial_start,
-  tenants.trial_start + interval '1 month' as trial_end,
+  tenants.trial_start::date,
+  (tenants.trial_start + interval '1 month')::date as trial_end,
   stripe.customers."name" is null as has_credit_card
 from tenants
   left join alert_subscriptions on alert_subscriptions.catalog_prefix ^@ tenants.tenant and email is not null
@@ -58,45 +59,16 @@ group by
     customers.name,
     users.raw_user_meta_data;
 
-create or replace view internal.alert_free_trial_ended_firing as
-select
-  'free_trial_ended' as alert_type,
-  tenants.tenant || 'alerts/free_trial_ended' as catalog_name,
-  alert_subscriptions.email,
-  auth.users.raw_user_meta_data->>'full_name' as full_name,
-  tenants.tenant,
-  tenants.trial_start,
-  tenants.trial_start + interval '1 month' as trial_end,
-  stripe.customers."name" is null as has_credit_card
-from tenants
-  left join alert_subscriptions on alert_subscriptions.catalog_prefix ^@ tenants.tenant and email is not null
-  left join stripe.customers on stripe.customers."name" = tenants.tenant
-  -- Filter out sso users because auth.users is only guarinteed unique when that is false:
-  -- CREATE UNIQUE INDEX users_email_partial_key ON auth.users(email text_ops) WHERE is_sso_user = false;
-  left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
-where tenants.trial_start is not null and
-  (now() - tenants.trial_start) >= interval '1 month' and
-  (now() - tenants.trial_start) < (interval '1 month' + interval '1 day') and
-  -- Filter out unexpected future start dates
-  tenants.trial_start <= now()
-group by
-    tenants.tenant,
-    tenants.trial_start,
-    alert_subscriptions.email,
-    customers.name,
-    users.raw_user_meta_data;
-
 -- Alert us internally when they go past 5 days over the trial
-create or replace view internal.alert_free_trial_grace_period_over_firing as
+create or replace view internal.delinquent_tenants as
 select
-  'free_trial_grace_period_over' as alert_type,
-  tenants.tenant || 'alerts/free_trial_grace_period_over' as catalog_name,
+  'delinquent_tenant' as alert_type,
+  (tenants.tenant || 'alerts/delinquent_tenant')::catalog_name as catalog_name,
   alert_subscriptions.email,
   auth.users.raw_user_meta_data->>'full_name' as full_name,
   tenants.tenant,
-  tenants.trial_start,
-  tenants.trial_start + interval '1 month' as trial_end,
-  stripe.customers."name" is null as has_credit_card
+  tenants.trial_start::date,
+  (tenants.trial_start + interval '1 month')::date as trial_end
 from tenants
   left join alert_subscriptions on alert_subscriptions.catalog_prefix ^@ tenants.tenant and email is not null
   left join stripe.customers on stripe.customers."name" = tenants.tenant
@@ -105,9 +77,9 @@ from tenants
   left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
 where tenants.trial_start is not null and
   (now() - tenants.trial_start) >= interval '1 month' + interval '5 days' and
-  (now() - tenants.trial_start) < (interval '1 month' + interval '6 days') and
-  -- Filter out unexpected future start dates
-  tenants.trial_start <= now()
+    -- Filter out unexpected future start dates
+  tenants.trial_start <= now() and
+  stripe.customers."invoice_settings/default_payment_method" is null
 group by
     tenants.tenant,
     tenants.trial_start,
@@ -115,16 +87,15 @@ group by
     customers.name,
     users.raw_user_meta_data;
 
--- Alert us internally when they go past 5 days over the trial
-create or replace view internal.provided_payment_method_firing as
+create or replace view internal.paid_tenants as
 select
-  'provided_payment_method' as alert_type,
-  tenants.tenant || 'alerts/provided_payment_method' as catalog_name,
+  'paid_tenant' as alert_type,
+  (tenants.tenant || 'alerts/paid_tenant')::catalog_name as catalog_name,
   alert_subscriptions.email,
   auth.users.raw_user_meta_data->>'full_name' as full_name,
   tenants.tenant,
-  tenants.trial_start,
-  tenants.trial_start + interval '1 month' as trial_end,
+  tenants.trial_start::date,
+  (tenants.trial_start + interval '1 month')::date as trial_end,
   -- if tenants.trial_start is null, that means they entered their cc
   -- while they're still in the free tier
   coalesce((now() - tenants.trial_start) < interval '1 month', false) as in_trial,
@@ -191,7 +162,7 @@ with data_processing as (
     evaluation_interval,
     spec_type
 ),
-free_tier_exceeded as (
+free_trial as (
   select
     catalog_name,
     alert_type,
@@ -205,30 +176,7 @@ free_tier_exceeded as (
       'trial_end', trial_end,
       'has_credit_card', has_credit_card
       ) as arguments
-  from internal.alert_free_tier_exceeded_firing
-  group by
-    catalog_name,
-    tenant,
-    alert_type,
-    trial_start,
-    trial_end,
-    has_credit_card
-),
-free_trial_ended as (
-  select
-    catalog_name,
-    alert_type,
-    json_build_object(
-      'tenant', tenant,
-      'recipients', array_agg(json_build_object(
-        'email', email,
-        'full_name', full_name
-      )),
-      'trial_start', trial_start,
-      'trial_end', trial_end,
-      'has_credit_card', has_credit_card
-      ) as arguments
-  from internal.alert_free_trial_ended_firing
+  from internal.free_trial_tenants
   group by
     catalog_name,
     tenant,
@@ -251,7 +199,7 @@ free_trial_ending as (
       'trial_end', trial_end,
       'has_credit_card', has_credit_card
       ) as arguments
-  from internal.alert_free_trial_ending_firing
+  from internal.free_trial_ending_tenants
   group by
     catalog_name,
     tenant,
@@ -260,7 +208,7 @@ free_trial_ending as (
     trial_end,
     has_credit_card
 ),
-free_trial_grace_period_over as (
+delinquent_tenants as (
   select
     catalog_name,
     alert_type,
@@ -271,19 +219,17 @@ free_trial_grace_period_over as (
         'full_name', full_name
       )),
       'trial_start', trial_start,
-      'trial_end', trial_end,
-      'has_credit_card', has_credit_card
+      'trial_end', trial_end
       ) as arguments
-  from internal.alert_free_trial_grace_period_over_firing
+  from internal.delinquent_tenants
   group by
     catalog_name,
     tenant,
     alert_type,
     trial_start,
-    trial_end,
-    has_credit_card
+    trial_end
 ),
-provided_payment_method_firing as (
+paid_tenants as (
   select
     catalog_name,
     alert_type,
@@ -298,22 +244,21 @@ provided_payment_method_firing as (
       'in_trial', in_trial,
       'straight_from_free_tier', straight_from_free_tier
       ) as arguments
-  from internal.alert_free_trial_grace_period_over_firing
+  from internal.paid_tenants
   group by
     catalog_name,
     tenant,
     alert_type,
     trial_start,
     trial_end,
-    in_trial
+    in_trial,
     straight_from_free_tier
 )
 select * from data_processing
-union all select * from free_tier_exceeded
+union all select * from free_trial
 union all select * from free_trial_ending
-union all select * from free_trial_ended
-union all select * from free_trial_grace_period_over
-union all select * from provided_payment_method_firing
+union all select * from delinquent_tenants
+union all select * from paid_tenants
 order by catalog_name asc;
 
 create or replace function internal.send_alerts()
@@ -334,10 +279,10 @@ if new.alert_type = 'data_not_processed_in_interval' then
 -- Skip all of the past events that got triggered when we added these new event types
 -- NOTE: Change this so that the date is the day (or time) that it's deployed
 -- so that only "real" events that happen after deployment get sent
-else if new.fired_at > '2024-01-30'
+else-- if new.fired_at > '2024-01-30'
   perform
     net.http_post(
-      'https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alerts',
+      'http://host.docker.internal:5431/functions/v1/alerts',
       to_jsonb(new.*),
       headers:=format('{"Content-Type": "application/json", "Authorization": "Basic %s"}', token)::jsonb
     );
@@ -347,12 +292,10 @@ return null;
 end;
 $trigger$ LANGUAGE plpgsql;
 
-drop trigger "Send alerts" on alert_history;
-
-create trigger "Send email after alert fired" after insert on alert_history
+create or replace trigger "Send email after alert fired" after insert on alert_history
   for each row execute procedure internal.send_alerts();
 
-create trigger "Send email after alert resolved" after update on alert_history
+create or replace trigger "Send email after alert resolved" after update on alert_history
   for each row when (old.resolved_at is null and new.resolved_at is not null) execute procedure internal.send_alerts();
 
 commit;

@@ -1,41 +1,36 @@
 import { AlertRecord, EmailConfig } from "../index.ts";
+import { Recipient } from "../template.ts";
 import { commonTemplate } from "../template.ts";
 
-interface FreeTrialGracePeriodOver {
+interface DelinquentTenantArguments {
     // This feels like it should apply to all alert types, and doesn't belong here..
-    recipients: {
-        email: string;
-        full_name: string | null;
-    }[];
+    recipients: Recipient[];
     trial_start: string;
     trial_end: string;
     tenant: string;
-    has_credit_card: boolean;
 }
 
-type FreeTrialGracePeriodOverRecord = AlertRecord<"free_trial_grace_period_over", FreeTrialGracePeriodOver>;
+type DelinquentTenantRecord = AlertRecord<"delinquent_tenant", DelinquentTenantArguments>;
 
-const freeTrialGracePeriodOver = (req: FreeTrialGracePeriodOverRecord): EmailConfig[] => {
+const delinquentTenant = (req: DelinquentTenantRecord, started: boolean): EmailConfig[] => {
     return req.arguments.recipients.map((recipient) => ({
         // emails: [recipient.email],
         // TODO(jshearer): Remove joseph@estuary.dev after testing
         emails: ["dave@estuary.dev", "joseph@estuary.dev"],
-        subject: `Free Tier Grace Period for ${req.arguments.tenant}: ${req.arguments.has_credit_card ? "CC Entered 💳✅" : "No CC 💳❌"}`,
-        content: commonTemplate(`
+        subject: `Free Tier Grace Period for ${req.arguments.tenant}: ${started ? "No CC 💳❌" : "CC Entered 💳✅"}`,
+        content: commonTemplate(
+            `
                 <mj-text font-size="20px" color="#512d0b"><strong>Name:</strong> ${recipient.full_name}</mj-text>
                 <mj-text font-size="20px" color="#512d0b"><strong>Email:</strong> ${recipient.email}</mj-text>
                 <mj-text font-size="20px" color="#512d0b"><strong>Tenant:</strong> ${req.arguments.tenant}</mj-text>
                 <mj-text font-size="20px" color="#512d0b"><strong>Trial Start:</strong> ${req.arguments.trial_start}, <strong>Trial End:</strong> ${req.arguments.trial_end}</mj-text>
-                <mj-text font-size="20px" color="#512d0b"><strong>Credit Card</strong>: ${req.arguments.has_credit_card ? "✅" : "❌"} </mj-text>
-            `),
+                <mj-text font-size="20px" color="#512d0b"><strong>Credit Card</strong>: ${started ? "❌" : "✅"} </mj-text>
+            `,
+            null,
+        ),
     }));
 };
 
-export const freeTrialGracePeriodOverEmail = (request: FreeTrialGracePeriodOverRecord): EmailConfig[] => {
-    if (request.resolved_at) {
-        // Do we want to send a "cc confirmed" email when this alert stops firing?
-        return [];
-    } else {
-        return freeTrialGracePeriodOver(request);
-    }
+export const delinquentTenantEmail = (request: DelinquentTenantRecord): EmailConfig[] => {
+    return delinquentTenant(request, request.resolved_at !== null);
 };
