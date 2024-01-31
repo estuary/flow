@@ -20,6 +20,7 @@ pub async fn serve<Request, Response, StartRpc, Attach>(
     start_rpc: StartRpc,      // Begins RPC over a started container channel.
     task_name: &str,          // Name of this task, used to label container.
     task_type: ops::TaskType, // Type of this task, for labeling container.
+    allow_local: bool,        // Whether we're running in local dev or not.
 ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>> + Send>
 where
     Request: serde::Serialize + Send + 'static,
@@ -36,6 +37,7 @@ where
         &network,
         &task_name,
         task_type,
+        allow_local,
     )
     .await?;
 
