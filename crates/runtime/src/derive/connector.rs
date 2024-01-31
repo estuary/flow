@@ -57,6 +57,7 @@ pub async fn start<L: LogHandler>(
                 start_rpc,
                 &runtime.task_name,
                 ops::TaskType::Derivation,
+                runtime.allow_local,
             )
             .await?
             .boxed()
