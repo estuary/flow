@@ -22,7 +22,7 @@ create policy "Users access their discovers"
   using (draft_id in (select id from drafts));
 
 grant select on discovers to authenticated;
-grant insert (capture_name, connector_tag_id, draft_id, endpoint_config)
+grant insert (capture_name, connector_tag_id, draft_id, endpoint_config, update_only)
   on discovers to authenticated;
 
 comment on table discovers is
