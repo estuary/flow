@@ -102,6 +102,17 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 			metrics.bytesTotal += spec.ContentLength()
 
 			if !overlapsAnySegment(segments, spec) {
+				if spec.ModTime == 0 {
+					// This shouldn't ever happen, as long as the label selector covers all shards that are using
+					// each journal. But we don't validate that up front, so failing fast is the next best thing.
+					log.WithFields(log.Fields{
+						"journal":        spec.Journal,
+						"name":           spec.ContentName(),
+						"begin":          spec.Begin,
+						"end":            spec.End,
+						"hintedSegments": segments,
+					}).Fatal("unpersisted fragment does not overlap any hinted segments (the label selector argument does not include all shards using this log)")
+				}
 				log.WithFields(log.Fields{
 					"log":  spec.Journal,
 					"name": spec.ContentName(),
