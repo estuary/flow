@@ -175,10 +175,11 @@ impl Format {
             Self::Integer => ValidationResult::from(
                 BigDecimal::from_str(val)
                     .map(|d| d.is_integer())
-                    .unwrap_or(false),
+                    .unwrap_or(false)
+                    && !val.contains("_"),
             ),
             Self::Number => ValidationResult::from(
-                BigDecimal::from_str(val).is_ok()
+                BigDecimal::from_str(val).is_ok() && !val.contains("_")
                     || ["NaN", "Infinity", "-Infinity"].contains(&val),
             ),
         }
@@ -264,14 +265,14 @@ mod test {
             ("integer", "1234", true),
             ("integer", "1234.00", true),
             ("integer", "-1234", true),
-            ("integer", "1_234", true),
+            ("integer", "1_234", false),
             ("integer", "1.234", false),
             ("integer", " 1234", false),
             ("uint32", "1234", true),
             ("uint64", "1234", true),
             ("number", "1234", true),
             ("number", "-1234", true),
-            ("number", "1_234", true),
+            ("number", "1_234", false),
             ("number", "1.234", true),
             ("number", "-1.234", true),
             ("number", " 1234", false),
