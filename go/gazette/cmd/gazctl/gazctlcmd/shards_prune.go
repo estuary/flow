@@ -49,6 +49,8 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	var metrics = shardsPruneMetrics{}
 	var logSegmentSets = make(map[pb.Journal][]recoverylog.Segment)
 	var skipRecoveryLogs = make(map[pb.Journal]bool)
+	// Retain the raw hints responses, so that we can log them if they're used to prune fragments
+	var rawHintsResponses = make(map[pb.Journal][]pc.GetHintsResponse)
 
 	for _, shard := range listShards(rsc, cmd.Selector).Shards {
 		metrics.shardsTotal++
@@ -59,6 +61,7 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 		mbp.Must(err, "failed to fetch hints")
 
 		var recoveryLog = shard.Spec.RecoveryLog()
+		rawHintsResponses[recoveryLog] = append(rawHintsResponses[recoveryLog], *allHints)
 
 		for _, curHints := range append(allHints.BackupHints, allHints.PrimaryHints) {
 			var hints = curHints.Hints
@@ -82,7 +85,7 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 					"shard":   shard.Spec.Id,
 					"reason":  reason,
 					"journal": recoveryLog,
-				}).Warn("will skip pruning recovery log journal")
+				}).Debug("will skip pruning recovery log journal")
 
 				break
 			}
@@ -91,10 +94,11 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 
 	for journal, segments := range logSegmentSets {
 		if skipRecoveryLogs[journal] {
-			log.WithField("journal", journal).Warn("skipping journal because another shard is missing hints that cover it")
+			log.WithField("journal", journal).Warn("skipping journal because a shard is missing hints that cover it")
 			continue
 		}
 		log.WithField("journal", journal).Debug("checking fragments of journal")
+		var prunedFragments []pb.Fragment
 		for _, f := range fetchFragments(ctx, rjc, journal) {
 			var spec = f.Spec
 
@@ -114,23 +118,35 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 					}).Fatal("unpersisted fragment does not overlap any hinted segments (the label selector argument does not include all shards using this log)")
 				}
 				log.WithFields(log.Fields{
-					"log":  spec.Journal,
-					"name": spec.ContentName(),
-					"size": spec.ContentLength(),
-					"mod":  spec.ModTime,
-				}).Info("pruning fragment")
+					"log":   spec.Journal,
+					"name":  spec.ContentName(),
+					"size":  spec.ContentLength(),
+					"mod":   spec.ModTime,
+					"begin": spec.Begin,
+					"end":   spec.End,
+				}).Debug("pruning fragment")
 
 				metrics.fragmentsPruned++
 				metrics.bytesPruned += spec.ContentLength()
+				prunedFragments = append(prunedFragments, spec)
 
 				if !cmd.DryRun {
 					mbp.Must(fragment.Remove(ctx, spec), "error removing fragment", "path", spec.ContentPath())
 				}
 			}
 		}
+		if len(prunedFragments) > 0 {
+			log.WithFields(log.Fields{
+				"journal":         journal,
+				"allHints":        rawHintsResponses[journal],
+				"liveSegments":    segments,
+				"prunedFragments": prunedFragments,
+			}).Info("pruned fragments")
+		}
 		logShardsPruneMetrics(metrics, journal.String(), "finished pruning log")
 	}
 	logShardsPruneMetrics(metrics, "", "finished pruning logs for all shards")
+
 	return nil
 }
 
@@ -140,6 +156,12 @@ func overlapsAnySegment(segments []recoverylog.Segment, fragment pb.Fragment) bo
 			(seg.LastOffset > fragment.Begin || seg.LastOffset == 0) {
 			return true
 		}
+	}
+	if len(segments) == 0 {
+		log.WithFields(log.Fields{
+			"log": fragment.Journal,
+		}).Warn("no live segments for log")
+		return true
 	}
 	return false
 }
