@@ -289,10 +289,10 @@ pub fn merge_collections(
 }
 
 fn normalize_recommended_name(name: &str) -> String {
-    let parts: Vec<_> = models::Collection::regex()
+    use itertools::Itertools;
+    let mut parts = models::Collection::regex()
         .find_iter(name)
-        .map(|m| m.as_str())
-        .collect();
+        .map(|m| models::collate::normalize(m.as_str().chars()).collect::<String>());
 
     parts.join("_")
 }
@@ -681,8 +681,10 @@ mod tests {
         for (name, expect) in [
             ("Foo", "Foo"),
             ("foo/bar", "foo/bar"),
+            ("Faſt/Carſ", "Fast/Cars"), // First form is denormalized, assert that it gets NFKC normalized
+            ("/", ""),                  // just documenting a weird edge case
             ("/foo/bar//baz/", "foo/bar_baz"), // Invalid leading, middle, & trailing slash.
-            ("#੫൬    , bar-_!", "੫൬_bar-_"),   // Invalid leading, middle, & trailing chars.
+            ("#੫൬    , bar-_!", "੫൬_bar-_"), // Invalid leading, middle, & trailing chars.
             ("One! two/_three", "One_two/_three"),
         ] {
             assert_eq!(
