@@ -20,6 +20,7 @@ pub async fn create(
     Ok(row.id)
 }
 
+#[tracing::instrument(err, skip(spec, txn))]
 pub async fn upsert_spec<S>(
     draft_id: Id,
     catalog_name: &str,
@@ -53,7 +54,6 @@ where
     )
     .fetch_one(&mut *txn)
     .await?;
-
     Ok(())
 }
 
