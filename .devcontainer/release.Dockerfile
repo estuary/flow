@@ -28,7 +28,7 @@ RUN apt update -y \
      jq \
      nodejs \
      docker-ce-cli \
-     google-cloud-sdk \
+     google-cloud-cli \
      && rm -rf /var/lib/apt/lists/*
 
 # Create a non-privileged "flow" user.
