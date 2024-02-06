@@ -248,6 +248,25 @@ impl DiscoverHandler {
             specs::parse_response(endpoint_config, image_name, image_tag, discover_output)
                 .context("converting discovery response into specs")?;
 
+        if discovered_bindings
+            .iter()
+            .any(|b| b.recommended_name.is_empty())
+        {
+            tracing::error!(
+                ?discovered_bindings,
+                %capture_name,
+                %draft_id,
+                %image_name,
+                %image_tag,
+                "connector discovered response includes a binding with an empty recommended_name"
+            );
+            return Ok(Err(vec![draft::Error {
+                catalog_name: capture_name.to_string(),
+                scope: None,
+                detail: "connector protocol error: a binding was missing 'recommended_name'. Please contact support for assistance".to_string(),
+            }]));
+        }
+
         // Catalog we'll build up with the merged capture and collections.
         let mut catalog = models::Catalog::default();
 
