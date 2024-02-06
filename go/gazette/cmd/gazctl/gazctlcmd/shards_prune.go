@@ -126,12 +126,21 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 					"end":   spec.End,
 				}).Debug("pruning fragment")
 
-				metrics.fragmentsPruned++
-				metrics.bytesPruned += spec.ContentLength()
-				prunedFragments = append(prunedFragments, spec)
-
+				var removed = true
 				if !cmd.DryRun {
-					mbp.Must(fragment.Remove(ctx, spec), "error removing fragment", "path", spec.ContentPath())
+					if err := fragment.Remove(ctx, spec); err != nil {
+						removed = false
+						metrics.failedToRemove++
+						log.WithFields(log.Fields{
+							"fragment": spec,
+							"error":    err,
+						}).Warn("failed to remove fragment (skipping)")
+					}
+				}
+				if removed {
+					metrics.fragmentsPruned++
+					metrics.bytesPruned += spec.ContentLength()
+					prunedFragments = append(prunedFragments, spec)
 				}
 			}
 		}
@@ -147,6 +156,9 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	}
 	logShardsPruneMetrics(metrics, "", "finished pruning logs for all shards")
 
+	if metrics.failedToRemove > 0 {
+		log.WithField("failures", metrics.failedToRemove).Fatal("failed to remove fragments")
+	}
 	return nil
 }
 
@@ -203,6 +215,7 @@ type shardsPruneMetrics struct {
 	bytesTotal      int64
 	bytesPruned     int64
 	skippedJournals int64
+	failedToRemove  int64
 }
 
 func logShardsPruneMetrics(m shardsPruneMetrics, journal, message string) {
@@ -215,6 +228,7 @@ func logShardsPruneMetrics(m shardsPruneMetrics, journal, message string) {
 		"bytesPruned":     m.bytesPruned,
 		"bytesKept":       m.bytesTotal - m.bytesPruned,
 		"skippedJournals": m.skippedJournals,
+		"failedToRemove":  m.failedToRemove,
 	}
 	if journal != "" {
 		fields["journal"] = journal
