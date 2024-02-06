@@ -17,7 +17,7 @@ impl Display for Number {
         match self {
             Unsigned(n) => write!(f, "{}", n),
             Signed(n) => write!(f, "{}", n),
-            Float(n) => write!(f, "{}", n)
+            Float(n) => write!(f, "{}", n),
         }
     }
 }
@@ -71,10 +71,12 @@ impl Ord for Number {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Unsigned(lhs), Unsigned(rhs)) => lhs.cmp(rhs),
-            (Unsigned(lhs), Signed(rhs)) => (*lhs as i64).cmp(rhs),
+            (Unsigned(_), Signed(rhs)) if *rhs < 0 => Ordering::Greater,
+            (Unsigned(lhs), Signed(rhs)) => lhs.cmp(&(*rhs as u64)),
             (Unsigned(lhs), Float(rhs)) => f64_cmp(&(*lhs as f64), rhs),
 
-            (Signed(lhs), Unsigned(rhs)) => lhs.cmp(&(*rhs as i64)),
+            (Signed(lhs), Unsigned(_)) if *lhs < 0 => Ordering::Less,
+            (Signed(lhs), Unsigned(rhs)) => (*lhs as u64).cmp(&rhs),
             (Signed(lhs), Signed(rhs)) => lhs.cmp(rhs),
             (Signed(lhs), Float(rhs)) => f64_cmp(&(*lhs as f64), rhs),
 
@@ -268,6 +270,19 @@ mod test {
         // and equal to itself, in order to provide a total ordering.
         is_lt(Float(NAN), Signed(10));
         is_lt(Float(NAN), Float(NEG_INFINITY));
+
+        // Test cases where an unsigned integer is greater than i64::MAX
+        is_lt(Signed(-20), Unsigned(10000000000000000000u64));
+        is_lt(Signed(0), Unsigned(10000000000000000000u64));
+        is_lt(Unsigned(12), Signed(i64::MAX));
+        is_lt(Signed(i64::MIN), Unsigned(u64::MAX));
+        is_lt(Signed(i64::MAX), Unsigned(u64::MAX));
+        is_lt(Float(-20.0), Unsigned(10000000000000000000u64));
+        is_lt(Float(NEG_INFINITY), Unsigned(10000000000000000000u64));
+        is_lt(
+            Unsigned(10000000000000000000u64),
+            Float(11000000000000000000.0),
+        );
     }
 
     #[test]
