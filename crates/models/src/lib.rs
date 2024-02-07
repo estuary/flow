@@ -26,8 +26,8 @@ pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
 pub use journals::{
-    BucketAndPrefix, CompressionCodec, CustomStore, FragmentTemplate, JournalTemplate, StorageDef,
-    Store, BUCKET_RE,
+    CompressionCodec, CustomStore, FragmentTemplate, JournalTemplate, S3BucketAndPrefix,
+    StorageDef, Store, AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
