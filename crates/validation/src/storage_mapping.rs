@@ -1,5 +1,8 @@
 use super::{indexed, Error, Scope};
-use models::{Store, BUCKET_RE, CATALOG_PREFIX_RE, TOKEN_RE};
+use models::{
+    Store, AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, CATALOG_PREFIX_RE, GCS_BUCKET_RE,
+    S3_BUCKET_RE, TOKEN_RE,
+};
 use superslice::Ext;
 
 pub fn walk_all_storage_mappings(
@@ -48,12 +51,30 @@ pub fn walk_all_storage_mappings(
             }
 
             match store {
-                Store::S3(cfg) | Store::Gcs(cfg) => {
+                Store::S3(cfg) => {
                     indexed::walk_name(
                         scope.push_prop("bucket"),
                         "storage mapping bucket",
                         &cfg.bucket,
-                        &BUCKET_RE,
+                        &S3_BUCKET_RE,
+                        errors,
+                    );
+                    if let Some(prefix) = &cfg.prefix {
+                        indexed::walk_name(
+                            scope.push_prop("prefix"),
+                            "storage mapping prefix",
+                            prefix,
+                            &CATALOG_PREFIX_RE,
+                            errors,
+                        );
+                    }
+                }
+                Store::Gcs(cfg) => {
+                    indexed::walk_name(
+                        scope.push_prop("bucket"),
+                        "storage mapping bucket",
+                        &cfg.bucket,
+                        &GCS_BUCKET_RE,
                         errors,
                     );
                     if let Some(prefix) = &cfg.prefix {
@@ -67,11 +88,12 @@ pub fn walk_all_storage_mappings(
                     }
                 }
                 Store::Custom(cfg) => {
+                    // The GCS bucket naming rules are the most permissive, so we use those for any custom storage providers
                     indexed::walk_name(
                         scope.push_prop("bucket"),
                         "custom storage mapping bucket",
                         &cfg.bucket,
-                        &BUCKET_RE,
+                        &GCS_BUCKET_RE,
                         errors,
                     );
                     if let Some(prefix) = &cfg.prefix {
@@ -89,7 +111,7 @@ pub fn walk_all_storage_mappings(
                         scope.push_prop("storage_account_name"),
                         "azure storage account name",
                         &cfg.storage_account_name,
-                        &BUCKET_RE,
+                        &AZURE_STORAGE_ACCOUNT_RE,
                         errors,
                     );
                     indexed::walk_name(
@@ -103,7 +125,7 @@ pub fn walk_all_storage_mappings(
                         scope.push_prop("container_name"),
                         "azure storage container name",
                         &cfg.container_name,
-                        &TOKEN_RE,
+                        &AZURE_CONTAINER_RE,
                         errors,
                     );
 
