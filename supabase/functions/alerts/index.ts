@@ -1,10 +1,10 @@
 import { serve } from "https://deno.land/std@0.184.0/http/server.ts";
 
 import { corsHeaders } from "../_shared/cors.ts";
-import { dataNotProcessedInIntervalEmail } from "./alert_types/data_not_processed_in_interval.ts";
-import { delinquentTenantEmail } from "./alert_types/delinquent_tenant.ts";
+import { dataMovementStalledEmail } from "./alert_types/data_movement_stalled.ts";
+import { freeTrialStalledEmail } from "./alert_types/free_trial_stalled.ts";
 import { freeTrialEndingEmail } from "./alert_types/free_trial_ending.ts";
-import { paidTenantEmail } from "./alert_types/paid_tenant.ts";
+import { missingPaymentMethodEmail } from "./alert_types/missing_payment_method.ts";
 import { freeTrialEmail } from "./alert_types/free_trial.ts";
 
 export interface AlertRecord<T extends keyof typeof emailTemplates, A> {
@@ -22,11 +22,11 @@ export interface EmailConfig {
 }
 
 const emailTemplates = {
-    "delinquent_tenant": delinquentTenantEmail,
-    "free_trial_ending": freeTrialEndingEmail,
     "free_trial": freeTrialEmail,
-    "paid_tenant": paidTenantEmail,
-    "data_not_processed_in_interval_v2": dataNotProcessedInIntervalEmail,
+    "free_trial_ending": freeTrialEndingEmail,
+    "free_trial_stalled": freeTrialStalledEmail,
+    "missing_payment_method": missingPaymentMethodEmail,
+    "data_movement_stalled": dataMovementStalledEmail,
 };
 
 // This is a temporary type guard for the POST request that provides shallow validation
@@ -144,19 +144,19 @@ serve(async (rawRequest: Request): Promise<Response> => {
     // templates have different arguments, that looks like (never)=>EmailConfig[].
     // [1]: https://github.com/microsoft/TypeScript/issues/30581
     switch (request.alert_type) {
-        case "data_not_processed_in_interval_v2":
-            pendingEmails = emailTemplates[request.alert_type](request);
-            break;
         case "free_trial":
-            pendingEmails = emailTemplates[request.alert_type](request);
-            break;
-        case "paid_tenant":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
         case "free_trial_ending":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
-        case "delinquent_tenant":
+        case "free_trial_stalled":
+            pendingEmails = emailTemplates[request.alert_type](request);
+            break;
+        case "missing_payment_method":
+            pendingEmails = emailTemplates[request.alert_type](request);
+            break;
+        case "data_movement_stalled":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
         default: {

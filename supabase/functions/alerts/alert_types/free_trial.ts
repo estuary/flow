@@ -3,11 +3,11 @@ import { Recipient } from "../template.ts";
 import { commonTemplate } from "../template.ts";
 
 interface FreeTrialArguments {
+    tenant: string;
     // This feels like it should apply to all alert types, and doesn't belong here..
     recipients: Recipient[];
     trial_start: string;
     trial_end: string;
-    tenant: string;
     has_credit_card: boolean;
 }
 
