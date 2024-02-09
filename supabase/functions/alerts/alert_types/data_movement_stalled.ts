@@ -3,14 +3,14 @@ import { isFinite } from "https://cdn.skypack.dev/lodash";
 import { commonTemplate } from "../template.ts";
 import { Recipient } from "../template.ts";
 
-interface DataProcessingArguments {
+interface DataMovementStalledArguments {
     bytes_processed: number;
     recipients: Recipient[];
     evaluation_interval: string;
     spec_type: string;
 }
 
-type DataNotProcessedRecord = AlertRecord<"data_not_processed_in_interval_v2", DataProcessingArguments>;
+type DataMovementStalledRecord = AlertRecord<"data_movement_stalled", DataMovementStalledArguments>;
 
 const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
     `https://dashboard.estuary.dev/${specType}s/details/overview?catalogName=${catalogName}`;
@@ -18,7 +18,7 @@ const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
 const formatAlertEmail = ({
     arguments: { recipients, evaluation_interval, spec_type },
     catalog_name,
-}: DataNotProcessedRecord): EmailConfig[] => {
+}: DataMovementStalledRecord): EmailConfig[] => {
     let formattedEvaluationInterval = evaluation_interval;
 
     // A postgresql interval in hour increments has the following format: 'HH:00:00'.
@@ -54,7 +54,7 @@ const formatAlertEmail = ({
 const formatConfirmationEmail = ({
     arguments: { recipients, spec_type },
     catalog_name,
-}: DataNotProcessedRecord): EmailConfig[] => {
+}: DataMovementStalledRecord): EmailConfig[] => {
     const subject = `Estuary Flow: Alert resolved for ${spec_type} ${catalog_name}`;
 
     const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
@@ -73,7 +73,7 @@ const formatConfirmationEmail = ({
     }));
 };
 
-export const dataNotProcessedInIntervalEmail = (request: DataNotProcessedRecord): EmailConfig[] => {
+export const dataMovementStalledEmail = (request: DataMovementStalledRecord): EmailConfig[] => {
     if (request.resolved_at) {
         return formatConfirmationEmail(request);
     } else {
