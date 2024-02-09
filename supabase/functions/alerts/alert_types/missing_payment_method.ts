@@ -48,12 +48,22 @@ const paymentMethodProvided = (req: MissingPaymentRecord): EmailConfig[] => {
             <mj-divider border-width="1px" border-style="dashed" border-color="lightgrey" padding-top="40px" padding-bottom="10px" />
             <mj-text align="center" font-weight="bold" font-size="22px">Frequently Asked Questions</mj-text>
             <mj-divider border-width="1px" border-style="dashed" border-color="lightgrey" padding-bottom="20px" />
+            </mj-column></mj-section>
             ${
                 faq.map(({ question, answer }) => `
-                    <mj-text font-weight="bold" font-size="19px">${question}</mj-text>
-                    <mj-text font-size="17px">${answer}</mj-text>
+                    <mj-section padding-top="15px" padding-bottom="5px">
+                        <mj-column>
+                            <mj-text font-weight="bold" font-size="19px">${question}</mj-text>
+                        </mj-column>
+                    </mj-section>
+                    <mj-section border-left="4px solid lightgrey">
+                        <mj-column padding-left="12px">
+                            <mj-text font-size="17px" padding-bottom="0px">${answer}</mj-text>
+                        </mj-column>
+                    </mj-section>
                 `).join("\n")
             }
+            <mj-section><mj-column>
         `,
             recipient,
         ),
