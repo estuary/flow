@@ -1,11 +1,12 @@
 begin;
 
-create type alert_type as enum (
+create or replace type alert_type as enum (
   'free_trial',
   'free_trial_ending',
   'free_trial_stalled',
   'missing_payment_method',
-  'data_movement_stalled'
+  'data_movement_stalled',
+  'data_not_processed_in_interval' -- Old alert type
 );
 
 -- In order to allow alerts to contain arguments after they're done firing
@@ -20,7 +21,7 @@ create type alert_snapshot as (
 
 create or replace view internal.alert_free_trial as
 select
-  'free_trial' as alert_type,
+  'free_trial'::alert_type as alert_type,
   (tenants.tenant || 'alerts/free_trial')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
@@ -59,7 +60,7 @@ group by
 -- Trigger 5 days before trial ends
 create or replace view internal.alert_free_trial_ending as
 select
-  'free_trial_ending' as alert_type,
+  'free_trial_ending'::alert_type as alert_type,
   (tenants.tenant || 'alerts/free_trial_ending')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
@@ -94,7 +95,7 @@ group by
 -- Alert us internally when they go past 5 days over the trial
 create or replace view internal.alert_free_trial_stalled as
 select
-  'free_trial_stalled' as alert_type,
+  'free_trial_stalled'::alert_type as alert_type,
   (tenants.tenant || 'alerts/free_trial_stalled')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
@@ -128,7 +129,7 @@ group by
 -- when a tenant provides a payment method.
 create or replace view internal.alert_missing_payment_method as
 select
-  'missing_payment_method' as alert_type,
+  'missing_payment_method'::alert_type as alert_type,
   (tenants.tenant || 'alerts/missing_payment_method')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
@@ -165,7 +166,7 @@ group by
 -- Have to update this to join in auth.users for full_name support
 create or replace view internal.alert_data_movement_stalled as
 select
-  'data_movement_stalled' as alert_type,
+  'data_movement_stalled'::alert_type as alert_type,
   alert_data_processing.catalog_name as catalog_name,
   json_build_object(
     'bytes_processed', coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint,
@@ -194,14 +195,16 @@ group by
 having coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint = 0;
 
 create or replace view alert_all as
-  select row(internal.alert_free_trial.*)::alert_snapshot from internal.alert_free_trial
-  union all select row(internal.alert_free_trial_ending.*)::alert_snapshot from internal.alert_free_trial_ending
-  union all select row(internal.alert_free_trial_stalled.*)::alert_snapshot from internal.alert_free_trial_stalled
-  union all select row(internal.alert_missing_payment_method.*)::alert_snapshot from internal.alert_missing_payment_method
-  union all select row(internal.alert_data_movement_stalled.*)::alert_snapshot from internal.alert_data_movement_stalled;
+  select * from internal.alert_free_trial
+  union all select * from internal.alert_free_trial_ending
+  union all select * from internal.alert_free_trial_stalled
+  union all select * from internal.alert_missing_payment_method
+  union all select * from internal.alert_data_movement_stalled;
 
 -- Keep track of the alert arguments at the time it was resolved
-alter table alert_history add column resolved_arguments jsonb;
+alter table alert_history
+  add column resolved_arguments jsonb,
+  alter column alert_type type alert_type using alert_type::alert_type;
 
 create or replace function internal.evaluate_alert_events()
 returns void as $$
@@ -213,28 +216,34 @@ begin
     where resolved_at is null
   )
   insert into alert_history (alert_type, catalog_name, fired_at, arguments)
-    select alert_type, catalog_name, now(), arguments from alert_all
-    where alert_all_firing.firing and
-          (alert_type, catalog_name) not in (select * from open_alerts);
+    select alert_all.alert_type, alert_all.catalog_name, now(), alert_all.arguments
+    from alert_all
+    left join open_alerts on
+      alert_all.alert_type = open_alerts.alert_type and
+      alert_all.catalog_name = open_alerts.catalog_name
+    where alert_all.firing and open_alerts.alert_type is null;
 
   -- Resolve alerts that have transitioned from firing => !firing
   with open_alerts as (
-    select alert_type, catalog_name, fired_at from alert_history
+    select
+      alert_history.alert_type,
+      alert_history.catalog_name,
+      fired_at
+    from alert_history
     where resolved_at is null
   ),
   -- Find all open_alerts for which either there is not a row in alerts_all,
   -- or there is but its firing field is false.
   closing_alerts as (
     select
-      alert_type,
-      catalog_name,
+      open_alerts.alert_type,
+      open_alerts.catalog_name,
       fired_at,
-      coalesce(allert_all.arguments, null)
+      coalesce(alert_all.arguments, null) as arguments
     from open_alerts
     left join alert_all on
       alert_all.alert_type = open_alerts.alert_type and
       alert_all.catalog_name = open_alerts.catalog_name
-      and not alert_all.firing
     where
       -- The open alert is no longer in alert_all, therefore it's no longer firing
       alert_all.alert_type is null or

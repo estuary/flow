@@ -23,6 +23,7 @@ export const commonTemplate = (body: string, recipient: Recipient | null) => {
               padding: 2px 3px;
               border-radius: 2px;
               font-family: monospace;
+              font-weight: bold;
             }
           </mj-style>
         </mj-head>
