@@ -2,19 +2,20 @@ import { AlertRecord, EmailConfig } from "../index.ts";
 import { Recipient } from "../template.ts";
 import { commonTemplate } from "../template.ts";
 
-interface DelinquentTenantArguments {
+interface FreeTrialStalledArguments {
+    tenant: string;
     // This feels like it should apply to all alert types, and doesn't belong here..
     recipients: Recipient[];
     trial_start: string;
     trial_end: string;
-    tenant: string;
 }
 
-type DelinquentTenantRecord = AlertRecord<"delinquent_tenant", DelinquentTenantArguments>;
+type FreeTrialStalledRecord = AlertRecord<"free_trial_stalled", FreeTrialStalledArguments>;
 
-const delinquentTenant = (req: DelinquentTenantRecord, started: boolean): EmailConfig[] => {
+// This alert only fires if they don't have a CC entered and they're >=5 days after the end of their trial
+// So this alert resolving implicitly means they entered a CC.
+const freeTrialStalled = (req: FreeTrialStalledRecord, started: boolean): EmailConfig[] => {
     return req.arguments.recipients.map((recipient) => ({
-        // emails: [recipient.email],
         // TODO(jshearer): Remove joseph@estuary.dev after testing
         emails: ["dave@estuary.dev", "joseph@estuary.dev"],
         subject: `Free Tier Grace Period for ${req.arguments.tenant}: ${started ? "No CC 💳❌" : "CC Entered 💳✅"}`,
@@ -31,6 +32,6 @@ const delinquentTenant = (req: DelinquentTenantRecord, started: boolean): EmailC
     }));
 };
 
-export const delinquentTenantEmail = (request: DelinquentTenantRecord): EmailConfig[] => {
-    return delinquentTenant(request, request.resolved_at !== null);
+export const freeTrialStalledEmail = (request: FreeTrialStalledRecord): EmailConfig[] => {
+    return freeTrialStalled(request, request.resolved_at !== null);
 };
