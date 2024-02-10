@@ -33,5 +33,5 @@ const freeTrialStalled = (req: FreeTrialStalledRecord, started: boolean): EmailC
 };
 
 export const freeTrialStalledEmail = (request: FreeTrialStalledRecord): EmailConfig[] => {
-    return freeTrialStalled(request, request.resolved_at !== null);
+    return freeTrialStalled(request, request.resolved_at === null);
 };
