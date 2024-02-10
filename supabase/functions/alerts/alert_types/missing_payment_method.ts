@@ -33,14 +33,19 @@ const faq = [
 type MissingPaymentRecord = AlertRecord<"missing_payment_method", MissingPaymentMethodArguments>;
 
 const paymentMethodProvided = (req: MissingPaymentRecord): EmailConfig[] => {
-    return req.arguments.recipients.map((recipient) => ({
+    const args = req.resolved_arguments;
+    if (!args) {
+        throw new Error("Resolved arguments are required for this alert type.");
+    }
+
+    return args.recipients.map((recipient) => ({
         emails: [recipient.email],
         subject: `Estuary: Thanks for Adding a Payment Method🎉`,
         content: commonTemplate(
             `
-            <mj-text font-size="17px">We hope you are enjoying Estuary Flow. We have received your payment method for your account <a class="identifier">${req.arguments.tenant}</a>. ${
-                req.arguments.plan_state === "free_trial"
-                    ? `After your free trial ends on <strong>${req.arguments.trial_end}</strong>, you will automatically be switched the paid tier.`
+            <mj-text font-size="17px">We hope you are enjoying Estuary Flow. We have received your payment method for your account <a class="identifier">${args.tenant}</a>. ${
+                args.plan_state === "free_trial"
+                    ? `After your free trial ends on <strong>${args.trial_end}</strong>, you will automatically be switched the paid tier.`
                     : `you are now on the paid tier.`
             }</mj-text>
             <mj-button href="https://dashboard.estuary.dev/admin/billing">📈 See your bill</mj-button>
