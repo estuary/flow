@@ -13,6 +13,7 @@ export interface AlertRecord<T extends keyof typeof emailTemplates, A> {
     fired_at: string;
     resolved_at: string | null;
     arguments: A;
+    resolved_arguments: A | null;
 }
 
 export interface EmailConfig {
@@ -74,8 +75,9 @@ const emailNotifications = (
                 },
                 body: JSON.stringify({
                     from: senderAddress,
-                    to: `resend@josephshearer.net`,
-                    subject: `TO: ${email}: ${subject}`,
+                    to: email,
+                    // to: `resend@josephshearer.net`,
+                    subject,
                     html: content,
                 }),
             });

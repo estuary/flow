@@ -1,6 +1,6 @@
 begin;
 
-create or replace type alert_type as enum (
+create type alert_type as enum (
   'free_trial',
   'free_trial_ending',
   'free_trial_stalled',
@@ -36,19 +36,20 @@ select
   -- Since we don't need to communicate post-alert arguments, we can instead
   -- simply omit tenants that are no longer in their free trial, and mark the
   -- those that are as firing.
-  true as firing
+  (
+    tenants.trial_start is not null and
+    -- Select for tenants currently in their free trials
+    -- meaning trial start is at most 1 month ago
+    (now() - tenants.trial_start) < interval '1 month' and
+    -- Filter out unexpected future start dates
+    tenants.trial_start <= now()
+  ) as firing
 from tenants
   left join alert_subscriptions on alert_subscriptions.catalog_prefix ^@ tenants.tenant and email is not null
   left join stripe.customers on stripe.customers."name" = tenants.tenant
   -- Filter out sso users because auth.users is only guarinteed unique when that is false:
   -- CREATE UNIQUE INDEX users_email_partial_key ON auth.users(email text_ops) WHERE is_sso_user = false;
   left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
-where tenants.trial_start is not null and
-  -- Select for tenants currently in their free trials
-  -- meaning trial start is at most 1 month ago
-  (now() - tenants.trial_start) < interval '1 month' and
-  -- Filter out unexpected future start dates
-  tenants.trial_start <= now()
 group by
     tenants.tenant,
     tenants.trial_start,
@@ -72,19 +73,20 @@ select
     'trial_end', (tenants.trial_start + interval '1 month')::date,
     'has_credit_card', stripe.customers."invoice_settings/default_payment_method" is not null
   ) as arguments,
-  true as firing
+  (
+    tenants.trial_start is not null and
+    -- e.g "You're >= 25 days into your trial but < 26 days"
+    (now() - tenants.trial_start) >= (interval '1 month' - interval '5 days') and
+    (now() - tenants.trial_start) < (interval '1 month' - interval '4 days') and
+    -- Filter out unexpected future start dates
+    tenants.trial_start <= now()
+  ) as firing
 from tenants
   left join alert_subscriptions on alert_subscriptions.catalog_prefix ^@ tenants.tenant and email is not null
   left join stripe.customers on stripe.customers."name" = tenants.tenant
   -- Filter out sso users because auth.users is only guarinteed unique when that is false:
   -- CREATE UNIQUE INDEX users_email_partial_key ON auth.users(email text_ops) WHERE is_sso_user = false;
   left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
-where tenants.trial_start is not null and
-  -- e.g "You're >= 25 days into your trial but < 26 days"
-  (now() - tenants.trial_start) >= (interval '1 month' - interval '5 days') and
-  (now() - tenants.trial_start) < (interval '1 month' - interval '4 days') and
-  -- Filter out unexpected future start dates
-  tenants.trial_start <= now()
 group by
     tenants.tenant,
     tenants.trial_start,
@@ -114,8 +116,9 @@ from tenants
   -- CREATE UNIQUE INDEX users_email_partial_key ON auth.users(email text_ops) WHERE is_sso_user = false;
   left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
 where tenants.trial_start is not null and
+  -- e.g You're 5 days past the end of your trial and you haven't entered a credit card
   (now() - tenants.trial_start) >= (interval '1 month' + interval '5 days') and
-    -- Filter out unexpected future start dates
+  -- Filter out unexpected future start dates
   tenants.trial_start <= now() and
   stripe.customers."invoice_settings/default_payment_method" is null
 group by
