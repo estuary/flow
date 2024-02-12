@@ -536,7 +536,8 @@ fn walk_materialization_response(
         ) {
             // Selector / connector constraints conflict internally:
             (true, true, _) => panic!("included and excluded (should have been filtered)"),
-            (_, _, Type::Unsatisfiable) => Err(format!(
+            // Unsatisfiable is OK only if the field is explicitly excluded
+            (_, false, Type::Unsatisfiable) => Err(format!(
                 "connector reports as unsatisfiable with reason: {}",
                 reason
             )),
