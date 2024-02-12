@@ -2,7 +2,8 @@ begin;
 
 create type payment_provider_type as enum (
   'stripe',
-  'external'
+  'external',
+  'gcm'
 );
 
 comment on type payment_provider_type is '
