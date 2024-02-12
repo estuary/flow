@@ -270,18 +270,13 @@ declare
   token text;
 begin
   select decrypted_secret into token from vault.decrypted_secrets where name = 'alert-email-fn-shared-secret' limit 1;
-    -- Skip all of the past events that got triggered when we added these new event types
-    -- NOTE: Change this so that the date is the day (or time) that it's deployed
-    -- so that only "real" events that happen after deployment get sent
-    -- if new.fired_at > '2024-01-30'
-  perform
-    net.http_post(
-      'http://host.docker.internal:5431/functions/v1/alerts',
-      -- 'https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alerts',
-      to_jsonb(new.*),
-      headers:=format('{"Content-Type": "application/json", "Authorization": "Basic %s"}', token)::jsonb
-    );
-  -- end if;
+    perform
+      net.http_post(
+        -- 'http://host.docker.internal:5431/functions/v1/alerts',
+        'https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alerts',
+        to_jsonb(new.*),
+        headers:=format('{"Content-Type": "application/json", "Authorization": "Basic %s"}', token)::jsonb
+      );
   return null;
 end;
 $trigger$ LANGUAGE plpgsql;

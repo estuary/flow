@@ -75,8 +75,9 @@ const emailNotifications = (
                 },
                 body: JSON.stringify({
                     from: senderAddress,
-                    to: email,
-                    // to: `resend@josephshearer.net`,
+                    // to: email,
+                    // TODO: Remove this line after we make sure alerts are going out correctly
+                    to: `joseph@estuary.dev`,
                     subject,
                     html: content,
                 }),
@@ -165,7 +166,7 @@ serve(async (rawRequest: Request): Promise<Response> => {
             // This checks that we have an exhaustive match. If this line has a
             // type error, make sure you have a case above for every key in `emailTemplates`.
             const exhaustiveCheck: never = request;
-            throw new Error(`Unhandled color case: ${exhaustiveCheck}`);
+            throw new Error(`Unhandled alert type: ${exhaustiveCheck}`);
         }
     }
 
