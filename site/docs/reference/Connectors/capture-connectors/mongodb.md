@@ -35,7 +35,7 @@ You'll need:
       that specific database. Note that we require access on the _database_ and
       not individual collections. This is to so that we can run a change stream on
       the database which allows for better consistency guarantees.
-    
+
     In order to create a user with access to all databases, use a command like so:
     ```
     use admin;
@@ -45,14 +45,14 @@ You'll need:
      roles: [ "readAnyDatabase" ]
    })
     ```
-    
+
     If you are using a user with access to all databases, then in your mongodb
     address, you must specify `?authSource=admin` parameter so that
     authentication is done through your admin database.
 
     In order to create a user with access to a specific database and the `local` database,
     use a command like so:
-    
+
     ```
     use <your-db>;
     db.createUser({
@@ -112,6 +112,15 @@ captures:
           database: test
         target: ${PREFIX}/users
 ```
+
+## SSH Tunneling
+
+As an alternative to connecting to your MongoDB instance directly, you can allow secure connections via SSH tunneling. To do so:
+
+1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
+
+2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+
 
 ## Backfill and real-time updates
 
