@@ -775,6 +775,69 @@ driver:
 }
 
 #[test]
+fn test_materialization_constraints_on_excluded_fields() {
+    let ((_, validations), errors) = run_test(
+        serde_yaml::from_str(
+            r#"
+test://example/catalog.yaml:
+  collections:
+    testing/constraints:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+          naughty_u: { type: string }
+          naughty_f: { type: string }
+        required: [id]
+      key: [/id]
+  materializations:
+    testing/db-views:
+      endpoint:
+        connector:
+          image: an/image:test
+          config: {}
+      bindings:
+        - source: testing/constraints
+          resource: {table: anything}
+          fields:
+            recommended: true
+            exclude:
+              - naughty_u
+              - naughty_f
+  storageMappings:
+    testing/:
+        stores: [{ provider: S3, bucket: data-bucket }]
+    recovery/testing/:
+        stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+driver:
+  materializations:
+    testing/db-views:
+      connectorType: IMAGE
+      config:
+        image: an/image:test
+        config: {}
+      bindings:
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            id: { type: 1, reason: "location required" }
+            naughty_u: { type: 6, reason: "field unsatisfiable" }
+            naughty_f: { type: 5, reason: "field forbidden" }
+          resourcePath: [anything]
+"#,
+        )
+        .unwrap(),
+        "constraints-excluded-fields",
+    );
+    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
+
+    let fields = validations.built_materializations[0].spec.bindings[0]
+        .field_selection
+        .as_ref()
+        .unwrap();
+    assert!(!fields.values.iter().any(|f| f.starts_with("naughty_")));
+}
+
+#[test]
 fn test_schema_fragment_not_found() {
     let errors = run_test_errors(
         &GOLDEN,
