@@ -77,9 +77,13 @@ begin
 
   --  Assert that the three-hour capture is the only task that is returned by the view and that a row exists for the two subscribed users.
   return query select results_eq(
-    $i$ select * from internal.alert_data_processing_firing $i$,
-    $i$ values ('aliceCo/capture/three-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'alice@example.com', 'capture'::catalog_spec_type, 0::bigint),
-          ('aliceCo/capture/three-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'bob@example.com', 'capture'::catalog_spec_type, 0::bigint)
+    $i$ select catalog_name, arguments::text, alert_type::alert_type, firing from internal.alert_data_movement_stalled $i$,
+    $i$ values (
+      'aliceCo/capture/three-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}',
+      'data_movement_stalled'::alert_type,
+      true
+    )
     $i$
   );
 
@@ -88,11 +92,19 @@ begin
   --  Assert that the three-hour capture and the four-hour materialization are the only tasks returned by the view
   -- and that a row exists for the two subscribed users per task.
   return query select results_eq(
-    $i$ select * from internal.alert_data_processing_firing $i$,
-    $i$ values ('aliceCo/capture/three-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'alice@example.com', 'capture'::catalog_spec_type, 0::bigint),
-          ('aliceCo/capture/three-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'bob@example.com', 'capture'::catalog_spec_type, 0::bigint),
-          ('aliceCo/materialization/four-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'alice@example.com', 'materialization'::catalog_spec_type, 0::bigint),
-          ('aliceCo/materialization/four-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'bob@example.com', 'materialization'::catalog_spec_type, 0::bigint)
+    $i$ select catalog_name, arguments::text, alert_type::alert_type, firing from internal.alert_data_movement_stalled $i$,
+    $i$ values (
+      'aliceCo/capture/three-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}',
+      'data_movement_stalled'::alert_type,
+      true
+    ),
+    (
+      'aliceCo/materialization/four-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "materialization"}',
+      'data_movement_stalled'::alert_type,
+      true
+    )
     $i$
   );
 
@@ -101,9 +113,19 @@ begin
   --  Assert that the three-hour capture and the four-hour materialization are the only tasks returned by the view
   -- and that a row exists for the only subscribed user.
   return query select results_eq(
-    $i$ select * from internal.alert_data_processing_firing $i$,
-    $i$ values ('aliceCo/capture/three-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'alice@example.com', 'capture'::catalog_spec_type, 0::bigint),
-          ('aliceCo/materialization/four-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'alice@example.com', 'materialization'::catalog_spec_type, 0::bigint)
+    $i$ select catalog_name, arguments::text, alert_type::alert_type, firing from internal.alert_data_movement_stalled $i$,
+    $i$ values (
+      'aliceCo/capture/three-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}',
+      'data_movement_stalled'::alert_type,
+      true
+    ),
+    (
+      'aliceCo/materialization/four-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "materialization"}',
+      'data_movement_stalled'::alert_type,
+      true
+    )
     $i$
   );
 
@@ -112,8 +134,13 @@ begin
 
   --  Assert that the three-hour capture is the only task that is returned by the view and that a row exists for the only subscribed user.
   return query select results_eq(
-    $i$ select * from internal.alert_data_processing_firing $i$,
-    $i$ values ('aliceCo/capture/three-hours'::catalog_name, '2 hours'::interval, 'data_not_processed_in_interval', 'alice@example.com', 'capture'::catalog_spec_type, 0::bigint) $i$
+    $i$ select catalog_name, arguments::text, alert_type::alert_type, firing from internal.alert_data_movement_stalled $i$,
+    $i$ values (
+      'aliceCo/capture/three-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}',
+      'data_movement_stalled'::alert_type,
+      true
+    ) $i$
   );
 
 end;
@@ -165,15 +192,14 @@ begin
   perform internal.evaluate_alert_events();
 
   return query select results_eq(
-    $i$ select alert_type, catalog_name, fired_at, resolved_at, arguments::text from alert_history $i$,
+    $i$ select catalog_name, arguments::text, alert_type::alert_type, fired_at, resolved_at from alert_history $i$,
     $i$ values (
-          'data_not_processed_in_interval',
-          'aliceCo/capture/three-hours'::catalog_name,
-          now(),
-          null::timestamptz,
-          '{"bytes_processed" : 0, "emails" : ["alice@example.com","bob@example.com"], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}'
-          );
-    $i$,
+      'aliceCo/capture/three-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}',
+      'data_movement_stalled'::alert_type,
+      now(),
+      null::timestamptz
+    ) $i$,
     'standard: capture transitioned from not firing to firing'
   );
 
@@ -182,21 +208,21 @@ begin
   perform internal.evaluate_alert_events();
 
   return query select results_eq(
-    $i$ select alert_type, catalog_name, fired_at, resolved_at, arguments::text from alert_history order by catalog_name $i$,
+    $i$ select catalog_name, arguments::text, alert_type::alert_type, fired_at, resolved_at  from alert_history order by catalog_name $i$,
     $i$ values (
-            'data_not_processed_in_interval',
-            'aliceCo/capture/three-hours'::catalog_name,
-            now(),
-            null::timestamptz,
-            '{"bytes_processed" : 0, "emails" : ["alice@example.com","bob@example.com"], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}'
-          ),
-          (
-            'data_not_processed_in_interval',
-            'aliceCo/materialization/four-hours'::catalog_name,
-            now(),
-            null::timestamptz,
-            '{"bytes_processed" : 0, "emails" : ["alice@example.com","bob@example.com"], "evaluation_interval" : "02:00:00", "spec_type" : "materialization"}'
-          );
+      'aliceCo/capture/three-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}',
+      'data_movement_stalled'::alert_type,
+      now(),
+      null::timestamptz
+    ),
+    (
+      'aliceCo/materialization/four-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "materialization"}',
+      'data_movement_stalled'::alert_type,
+      now(),
+      null::timestamptz
+    );
     $i$,
    'absent catalog stats record: materialization transitioned from not firing to firing'
   );
@@ -207,21 +233,21 @@ begin
   perform internal.evaluate_alert_events();
 
   return query select results_eq(
-    $i$ select alert_type, catalog_name, fired_at, resolved_at, arguments::text from alert_history $i$,
+    $i$ select catalog_name, arguments::text, alert_type::alert_type, fired_at, resolved_at  from alert_history $i$,
     $i$ values (
-            'data_not_processed_in_interval',
-            'aliceCo/capture/three-hours'::catalog_name,
-            now(),
-            null::timestamptz,
-            '{"bytes_processed" : 0, "emails" : ["alice@example.com","bob@example.com"], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}'
-          ),
-          (
-            'data_not_processed_in_interval',
-            'aliceCo/materialization/four-hours'::catalog_name,
-            now(),
-            now(),
-            '{"bytes_processed" : 0, "emails" : ["alice@example.com","bob@example.com"], "evaluation_interval" : "02:00:00", "spec_type" : "materialization"}'
-          );
+      'aliceCo/capture/three-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "capture"}',
+      'data_movement_stalled'::alert_type,
+      now(),
+      null::timestamptz
+    ),
+    (
+      'aliceCo/materialization/four-hours'::catalog_name,
+      '{"bytes_processed" : 0, "recipients" : [{"email": "alice@example.com", "full_name": null},{"email": "bob@example.com", "full_name": null}], "evaluation_interval" : "02:00:00", "spec_type" : "materialization"}',
+      'data_movement_stalled'::alert_type,
+      now(),
+      now()
+    );
     $i$,
     'absent catalog stats record: materialization transitioned from firing to not firing'
   );
