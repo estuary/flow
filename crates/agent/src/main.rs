@@ -44,7 +44,7 @@ struct Args {
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
     /// Allow local connectors. True for local stacks, and false otherwise.
-    #[clap(long = "allow-local", default_value = "false")]
+    #[clap(long = "allow-local")]
     allow_local: bool,
 }
 
@@ -120,11 +120,16 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 &logs_tx,
                 Some(&pg_pool),
             )),
-            Box::new(agent::TagHandler::new(&args.connector_network, &logs_tx)),
+            Box::new(agent::TagHandler::new(
+                &args.connector_network,
+                &logs_tx,
+                args.allow_local,
+            )),
             Box::new(agent::DiscoverHandler::new(
                 &args.connector_network,
                 &bindir,
                 &logs_tx,
+                args.allow_local,
             )),
             Box::new(agent::DirectiveHandler::new(args.accounts_email)),
             Box::new(agent::EvolutionHandler),

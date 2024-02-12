@@ -30,6 +30,7 @@ type apiDiscover struct {
 	Name        string                `long:"name" description:"The Docker container name."`
 	Config      string                `long:"config" description:"Path to the connector endpoint configuration"`
 	Output      string                `long:"output" choice:"json" choice:"proto" default:"json"`
+	AllowLocal  bool                  `long:"allow-local" description:"basically dev mode"`
 }
 
 func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, error) {
@@ -53,7 +54,7 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, er
 		pr.TaskServiceConfig{
 			TaskName:         cmd.Name,
 			ContainerNetwork: cmd.Network,
-			AllowLocal:       false, // TODO(johnny)?
+			AllowLocal:       cmd.AllowLocal,
 		},
 		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: cmd.Name}),
 	)
