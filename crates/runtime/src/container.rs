@@ -48,7 +48,7 @@ pub async fn start(
     network: &str,
     task_name: &str,
     task_type: ops::TaskType,
-    allow_local: bool,
+    publish_ports: bool,
 ) -> anyhow::Result<(runtime::Container, tonic::transport::Channel, Guard)> {
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
@@ -126,7 +126,7 @@ pub async fn start(
         format!("--label=task-type={}", task_type.as_str_name()),
     ];
 
-    if allow_local {
+    if publish_ports {
         docker_args.append(&mut vec![
             // Support Docker Desktop in non-production contexts (for example, `flowctl`)
             // where the container IP is not directly addressable. As an alternative,

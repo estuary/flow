@@ -32,14 +32,21 @@ pub struct DiscoverHandler {
     connector_network: String,
     bindir: String,
     logs_tx: logs::Tx,
+    allow_local: bool,
 }
 
 impl DiscoverHandler {
-    pub fn new(connector_network: &str, bindir: &str, logs_tx: &logs::Tx) -> Self {
+    pub fn new(
+        connector_network: &str,
+        bindir: &str,
+        logs_tx: &logs::Tx,
+        allow_local: bool,
+    ) -> Self {
         Self {
             connector_network: connector_network.to_string(),
             bindir: bindir.to_string(),
             logs_tx: logs_tx.clone(),
+            allow_local,
         }
     }
 }
@@ -124,31 +131,42 @@ impl DiscoverHandler {
             .await
             .context("clearing old errors")?;
 
+        let mut cmd = async_process::Command::new(format!("{}/flowctl-go", &self.bindir));
+        cmd.arg("api")
+            .arg("discover")
+            .arg("--config=/dev/stdin")
+            .arg("--image")
+            .arg(&image_composed)
+            .arg("--network")
+            .arg(&self.connector_network)
+            .arg("--output=json")
+            .arg("--log.level=warn")
+            .arg("--log.format=color");
+        if self.allow_local {
+            cmd.arg("--allow-local");
+        }
         let (discover, discover_output) = jobs::run_with_input_output(
             "discover",
             &self.logs_tx,
             row.logs_token,
             row.endpoint_config.0.get().as_bytes(),
-            async_process::Command::new(format!("{}/flowctl-go", &self.bindir))
-                .arg("api")
-                .arg("discover")
-                .arg("--config=/dev/stdin")
-                .arg("--image")
-                .arg(&image_composed)
-                .arg("--network")
-                .arg(&self.connector_network)
-                .arg("--output=json")
-                .arg("--log.level=warn")
-                .arg("--log.format=color"),
+            &mut cmd,
         )
         .await?;
 
         if !discover.success() {
+            let detail = if discover_output.is_empty() {
+                format!(
+                    "connector exited with status code {:?} and did not write any output",
+                    discover.code()
+                )
+            } else {
+                String::from_utf8(discover_output).context("discover error output is not UTF-8")?
+            };
             let error = draft::Error {
                 catalog_name: row.capture_name,
                 scope: None,
-                detail: String::from_utf8(discover_output)
-                    .context("discover error output is not UTF-8")?,
+                detail,
             };
             draft::insert_errors(row.draft_id, vec![error], txn).await?;
 
