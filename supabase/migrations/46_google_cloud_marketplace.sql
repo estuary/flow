@@ -1,3 +1,5 @@
+begin;
+
 create table gcm_accounts(
   id uuid not null primary key,
   obfuscated_id text,
@@ -20,3 +22,9 @@ comment on column gcm_accounts.logs_token is
 
 create unique index idx_gcm_accounts_id_where_queued on gcm_accounts(id)
   where job_status->>'type' = 'queued';
+
+alter table tenants add column if not exists gcm_account_id uuid references gcm_accounts(id);
+
+alter type payment_provider_type add value if not exists 'gcm';
+
+commit;
