@@ -68,6 +68,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * SFTP
   * [Configuration](./sftp.md)
   * Package - ghcr.io/estuary/source-sftp:dev
+* Snowflake
+  * [Configuration](./snowflake.md)
+  * Package - ghcr.io/estuary/source-snowflake:dev
 
 
 ### Third party connectors
