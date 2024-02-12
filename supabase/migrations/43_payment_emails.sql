@@ -25,7 +25,7 @@ select
   (tenants.tenant || 'alerts/free_trial')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
-    'recipients', array_agg(json_build_object(
+    'recipients', array_agg(distinct jsonb_build_object(
       'email', alert_subscriptions.email,
       'full_name', auth.users.raw_user_meta_data->>'full_name'
     )),
@@ -53,9 +53,6 @@ from tenants
 group by
     tenants.tenant,
     tenants.trial_start,
-    alert_subscriptions.email,
-    customers.name,
-    users.raw_user_meta_data,
     stripe.customers."invoice_settings/default_payment_method";
 
 -- Trigger 5 days before trial ends
@@ -65,7 +62,7 @@ select
   (tenants.tenant || 'alerts/free_trial_ending')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
-    'recipients', array_agg(json_build_object(
+    'recipients', array_agg(distinct jsonb_build_object(
       'email', alert_subscriptions.email,
       'full_name', auth.users.raw_user_meta_data->>'full_name'
     )),
@@ -90,9 +87,7 @@ from tenants
 group by
     tenants.tenant,
     tenants.trial_start,
-    alert_subscriptions.email,
-    customers."invoice_settings/default_payment_method",
-    users.raw_user_meta_data;
+    customers."invoice_settings/default_payment_method";
 
 -- Alert us internally when they go past 5 days over the trial
 create or replace view internal.alert_free_trial_stalled as
@@ -101,7 +96,7 @@ select
   (tenants.tenant || 'alerts/free_trial_stalled')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
-    'recipients', array_agg(json_build_object(
+    'recipients', array_agg(distinct jsonb_build_object(
       'email', alert_subscriptions.email,
       'full_name', auth.users.raw_user_meta_data->>'full_name'
     )),
@@ -123,10 +118,7 @@ where tenants.trial_start is not null and
   stripe.customers."invoice_settings/default_payment_method" is null
 group by
     tenants.tenant,
-    tenants.trial_start,
-    alert_subscriptions.email,
-    customers.name,
-    users.raw_user_meta_data;
+    tenants.trial_start;
 
 -- We created this alert so we can notify when it _stops_ firing, i.e
 -- when a tenant provides a payment method.
@@ -136,7 +128,7 @@ select
   (tenants.tenant || 'alerts/missing_payment_method')::catalog_name as catalog_name,
   json_build_object(
     'tenant', tenants.tenant,
-    'recipients', array_agg(json_build_object(
+    'recipients', array_agg(distinct jsonb_build_object(
       'email', alert_subscriptions.email,
       'full_name', auth.users.raw_user_meta_data->>'full_name'
     )),
@@ -162,9 +154,7 @@ from tenants
 group by
     tenants.tenant,
     tenants.trial_start,
-    alert_subscriptions.email,
-    customers."invoice_settings/default_payment_method",
-    users.raw_user_meta_data;
+    customers."invoice_settings/default_payment_method";
 
 -- Have to update this to join in auth.users for full_name support
 create or replace view internal.alert_data_movement_stalled as
@@ -173,7 +163,7 @@ select
   alert_data_processing.catalog_name as catalog_name,
   json_build_object(
     'bytes_processed', coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint,
-    'recipients', array_agg(json_build_object(
+    'recipients', array_agg(distinct jsonb_build_object(
       'email', alert_subscriptions.email,
       'full_name', auth.users.raw_user_meta_data->>'full_name'
     )),
@@ -192,9 +182,7 @@ where live_specs.created_at <= date_trunc('hour', now() - alert_data_processing.
 group by
   alert_data_processing.catalog_name,
   alert_data_processing.evaluation_interval,
-  alert_subscriptions.email,
-  live_specs.spec_type,
-  users.raw_user_meta_data
+  live_specs.spec_type
 having coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint = 0;
 
 create or replace view alert_all as
@@ -224,7 +212,7 @@ begin
     left join open_alerts on
       alert_all.alert_type = open_alerts.alert_type and
       alert_all.catalog_name = open_alerts.catalog_name
-    where alert_all.firing and open_alerts.alert_type is null;
+    where alert_all.firing and open_alerts is null;
 
   -- Resolve alerts that have transitioned from firing => !firing
   with open_alerts as (
