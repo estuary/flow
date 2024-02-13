@@ -107,11 +107,11 @@ where
     let mut child = spawn(name, cmd)?;
     let stdout = child.stdout.take().unwrap();
 
-    Ok(futures::try_join!(
+    futures::try_join!(
         wait(name, logs_tx, logs_token, stdin, child),
         read_stdout(stdout)
     )
-    .map_err(|err| Error::detail(err, name, cmd))?)
+    .map_err(|err| Error::detail(err, name, cmd))
 }
 
 /// spawn a command with the provided job name, returning its created Child.

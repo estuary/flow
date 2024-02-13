@@ -50,6 +50,7 @@ local_resource('gazette', serve_cmd='%s/flow/.build/package/bin/gazette serve \
     ))
 
 local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
+    --flow.allow-local \
     --broker.address http://localhost:8080 \
     --broker.cache.size 128 \
     --consumer.host localhost \
@@ -71,6 +72,7 @@ local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve
 
 local_resource('agent', serve_cmd='%s/flow/.build/package/bin/agent \
     --connector-network supabase_network_flow \
+    --allow-local \
     --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, REPO_BASE),
     deps=[],
     resource_deps=['reactor', 'gazette'])

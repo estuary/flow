@@ -8,10 +8,10 @@ use std::time::Duration;
 use validator::Validate;
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
-#[schemars(example = "BucketAndPrefix::example")]
-pub struct BucketAndPrefix {
+#[schemars(example = "GcsBucketAndPrefix::example")]
+pub struct GcsBucketAndPrefix {
     /// Bucket into which Flow will store data.
-    #[validate(regex = "BUCKET_RE")]
+    #[validate(regex = "GCS_BUCKET_RE")]
     pub bucket: String,
 
     /// Optional prefix of keys written to the bucket.
@@ -20,13 +20,45 @@ pub struct BucketAndPrefix {
     pub prefix: Option<Prefix>,
 }
 
-impl BucketAndPrefix {
-    fn as_url(&self, scheme: &str) -> url::Url {
+impl GcsBucketAndPrefix {
+    fn as_url(&self) -> url::Url {
         // These are validated when we validate storage mappings
         // to at least be legal characters in a URI
         url::Url::parse(&format!(
-            "{}://{}/{}",
-            scheme,
+            "gs://{}/{}",
+            self.bucket,
+            self.prefix.as_deref().unwrap_or("")
+        ))
+        .expect("parsing as URL should never fail")
+    }
+
+    pub fn example() -> Self {
+        Self {
+            bucket: "my-bucket".to_string(),
+            prefix: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[schemars(example = "S3BucketAndPrefix::example")]
+pub struct S3BucketAndPrefix {
+    /// Bucket into which Flow will store data.
+    #[validate(regex = "S3_BUCKET_RE")]
+    pub bucket: String,
+
+    /// Optional prefix of keys written to the bucket.
+    #[validate]
+    #[serde(default)]
+    pub prefix: Option<Prefix>,
+}
+
+impl S3BucketAndPrefix {
+    fn as_url(&self) -> url::Url {
+        // These are validated when we validate storage mappings
+        // to at least be legal characters in a URI
+        url::Url::parse(&format!(
+            "s3://{}/{}",
             self.bucket,
             self.prefix.as_deref().unwrap_or("")
         ))
@@ -89,7 +121,7 @@ impl AzureStorageConfig {
 #[schemars(example = "CustomStore::example")]
 pub struct CustomStore {
     /// Bucket into which Flow will store data.
-    #[validate(regex = "BUCKET_RE")]
+    #[validate(regex = "GCS_BUCKET_RE")]
     pub bucket: String,
     /// endpoint is required when provider is "custom", and specifies the
     /// address of an s3-compatible storage provider.
@@ -142,9 +174,9 @@ impl CustomStore {
 #[serde(tag = "provider", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Store {
     ///# Amazon Simple Storage Service.
-    S3(BucketAndPrefix),
+    S3(S3BucketAndPrefix),
     ///# Google Cloud Storage.
-    Gcs(BucketAndPrefix),
+    Gcs(GcsBucketAndPrefix),
     ///# Azure object storage service.
     Azure(AzureStorageConfig),
     ///# An S3-compatible endpoint
@@ -154,7 +186,8 @@ pub enum Store {
 impl Validate for Store {
     fn validate(&self) -> Result<(), validator::ValidationErrors> {
         match self {
-            Self::S3(s) | Self::Gcs(s) => s.validate(),
+            Self::S3(s) => s.validate(),
+            Self::Gcs(s) => s.validate(),
             Self::Azure(s) => s.validate(),
             Self::Custom(s) => s.validate(),
         }
@@ -163,12 +196,12 @@ impl Validate for Store {
 
 impl Store {
     pub fn example() -> Self {
-        Self::S3(BucketAndPrefix::example())
+        Self::S3(S3BucketAndPrefix::example())
     }
     pub fn to_url(&self, catalog_name: &str) -> url::Url {
         match self {
-            Self::S3(cfg) => cfg.as_url("s3"),
-            Self::Gcs(cfg) => cfg.as_url("gs"),
+            Self::S3(cfg) => cfg.as_url(),
+            Self::Gcs(cfg) => cfg.as_url(),
             Self::Azure(cfg) => cfg.as_url(),
             // Custom storage endpoints are expected to be s3-compatible, and thus use the s3 scheme
             Self::Custom(cfg) => {
@@ -315,10 +348,24 @@ impl JournalTemplate {
 }
 
 lazy_static! {
-    // BUCKET_RE matches a cloud provider bucket. Simplified from (look-around removed):
-    // https://stackoverflow.com/questions/50480924/regex-for-s3-bucket-name
-    pub static ref BUCKET_RE: Regex =
+    /// S3_BUCKET_RE matches an S3 bucket name. Simplified from (look-around removed):
+    /// https://stackoverflow.com/questions/50480924/regex-for-s3-bucket-name
+    pub static ref S3_BUCKET_RE: Regex =
         Regex::new(r#"(^(([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])\.)*([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])$)"#).unwrap();
+    /// GCS bucket naming rules are a little more lax than the S3 rules, making this a decent
+    /// fit for validating "custom" cloud storage bucket names as well.
+    /// https://cloud.google.com/storage/docs/buckets#naming
+    pub static ref GCS_BUCKET_RE: Regex =
+            Regex::new(r#"(^[a-z0-9][a-z0-9\-_\.]{1,60}[a-z0-9]$)"#).unwrap();
+
+    /// Azure container names are more restrictive, and don't allow dots or underscores.
+    /// https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction#containers
+    pub static ref AZURE_CONTAINER_RE: Regex =
+            Regex::new(r#"(^[a-z0-9][a-z0-9\-]{1,60}[a-z0-9]$)"#).unwrap();
+
+    /// Matches Azure storage account names.
+    /// https://learn.microsoft.com/en-us/azure/storage/common/storage-account-overview#storage-account-name
+    pub static ref AZURE_STORAGE_ACCOUNT_RE: Regex = Regex::new(r#"(^[a-z0-9]{3,24}$)"#).unwrap();
 }
 
 #[cfg(test)]
@@ -326,14 +373,58 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_regexes() {
+    fn test_s3_bucket_regex() {
         for (case, expect) in [
             ("foo.bar.baz", true),
             ("foo-bar-baz", true),
             ("foo/bar/baz", false),
             ("Foo.Bar.Baz", false),
         ] {
-            assert!(BUCKET_RE.is_match(case) == expect);
+            assert!(S3_BUCKET_RE.is_match(case) == expect);
+        }
+    }
+
+    #[test]
+    fn test_gcs_bucket_regex() {
+        for (case, expect) in [
+            ("foo.bar.baz", true),
+            ("foo-bar-baz", true),
+            ("foo_bar_baz", true),
+            ("foo_-.bar_baz", true),
+            ("-foo-bar-baz", false),
+            ("foo/bar/baz", false),
+            ("Foo.Bar.Baz", false),
+        ] {
+            assert!(GCS_BUCKET_RE.is_match(case) == expect);
+        }
+    }
+
+    #[test]
+    fn test_azure_storage_account_regex() {
+        for (case, expect) in [
+            ("foobarbaz", true),
+            ("foo.bar.baz", false),
+            ("foo-bar-baz", false),
+            ("foo_bar_baz", false),
+            ("foo/bar/baz", false),
+            ("Foo.Bar.Baz", false),
+        ] {
+            assert!(AZURE_STORAGE_ACCOUNT_RE.is_match(case) == expect);
+        }
+    }
+
+    #[test]
+    fn test_azure_container_regex() {
+        for (case, expect) in [
+            ("foobarbaz", true),
+            ("foo-bar-baz", true),
+            ("-foo-bar-baz", false),
+            ("foo.bar.baz", false),
+            ("Foo-Bar-Baz", false),
+            ("foo_bar_baz", false),
+            ("foo/bar/baz", false),
+        ] {
+            assert!(AZURE_CONTAINER_RE.is_match(case) == expect);
         }
     }
 
