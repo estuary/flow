@@ -9,16 +9,6 @@ create type alert_type as enum (
   'data_not_processed_in_interval' -- Old alert type
 );
 
--- In order to allow alerts to contain arguments after they're done firing
--- we need to refactor alerts to contain a `firing` boolean, rather than
--- simply omitting no-longer-firing alerts from the view.
-create type alert_snapshot as (
-  alert_type alert_type,
-  catalog_name catalog_name,
-  arguments json,
-  firing boolean
-);
-
 create or replace view internal.alert_free_trial as
 select
   'free_trial'::alert_type as alert_type,
@@ -196,6 +186,10 @@ alter table alert_history
   add column resolved_arguments jsonb,
   alter column alert_type type alert_type using alert_type::alert_type;
 
+
+-- In order to allow alerts to contain arguments after they're done firing
+-- we need to refactor alerts to contain a `firing` boolean, rather than
+-- simply omitting no-longer-firing alerts from the view.
 create or replace function internal.evaluate_alert_events()
 returns void as $$
 begin
