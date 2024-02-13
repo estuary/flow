@@ -31,7 +31,9 @@ select
     )),
     'trial_start', tenants.trial_start::date,
     'trial_end', (tenants.trial_start + interval '1 month')::date,
-    'has_credit_card', stripe.customers."invoice_settings/default_payment_method" is not null
+    -- It's possible for there to be more than one Stripe customer record for a particular tenant
+    -- in that case, all we care about is that _any_ of them have a payment method set.
+    'has_credit_card', bool_or(stripe.customers."invoice_settings/default_payment_method" is not null)
   ) as arguments,
   -- Since we don't need to communicate post-alert arguments, we can instead
   -- simply omit tenants that are no longer in their free trial, and mark the
@@ -52,8 +54,7 @@ from tenants
   left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
 group by
     tenants.tenant,
-    tenants.trial_start,
-    stripe.customers."invoice_settings/default_payment_method";
+    tenants.trial_start;
 
 -- Trigger 5 days before trial ends
 create or replace view internal.alert_free_trial_ending as
@@ -68,7 +69,7 @@ select
     )),
     'trial_start', tenants.trial_start::date,
     'trial_end', (tenants.trial_start + interval '1 month')::date,
-    'has_credit_card', stripe.customers."invoice_settings/default_payment_method" is not null
+    'has_credit_card', bool_or(stripe.customers."invoice_settings/default_payment_method" is not null)
   ) as arguments,
   (
     tenants.trial_start is not null and
@@ -86,8 +87,7 @@ from tenants
   left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
 group by
     tenants.tenant,
-    tenants.trial_start,
-    customers."invoice_settings/default_payment_method";
+    tenants.trial_start;
 
 -- Alert us internally when they go past 5 days over the trial
 create or replace view internal.alert_free_trial_stalled as
@@ -144,7 +144,7 @@ select
       end
     )
   ) as arguments,
-  (stripe.customers."invoice_settings/default_payment_method" is null) as firing
+  bool_or(stripe.customers."invoice_settings/default_payment_method" is null) as firing
 from tenants
   left join alert_subscriptions on alert_subscriptions.catalog_prefix ^@ tenants.tenant and email is not null
   left join stripe.customers on stripe.customers."name" = tenants.tenant
@@ -153,8 +153,7 @@ from tenants
   left join auth.users on auth.users.email = alert_subscriptions.email and auth.users.is_sso_user is false
 group by
     tenants.tenant,
-    tenants.trial_start,
-    customers."invoice_settings/default_payment_method";
+    tenants.trial_start;
 
 -- Have to update this to join in auth.users for full_name support
 create or replace view internal.alert_data_movement_stalled as
