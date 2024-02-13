@@ -31,7 +31,7 @@ export const commonTemplate = (body: string, recipient: Recipient | null) => {
           <mj-section>
             <mj-column width="100%">
               <mj-image
-                src="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_comfy_23a61ec799/estuary_logo_comfy_23a61ec799.jpg"
+                src="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_comfy_14513ca434/estuary_logo_comfy_14513ca434.jpg"
                 alt="Estuary Logo"
                 padding="20px 0 20px 0"
               />

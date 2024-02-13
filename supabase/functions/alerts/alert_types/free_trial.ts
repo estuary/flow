@@ -29,7 +29,7 @@ const freeTrialStarted = (req: FreeTrialRecord): EmailConfig[] => {
             )
             : commonTemplate(
                 `
-                <mj-text>We hope you're enjoying Estuary Flow. Our free tier includes 10 GB / month and 2 connectors and your account <a class="identifier">${args.tenant}</a> has now exceeded that, so it has been transitioned to a 30 day free trial ending on <strong>${args.trial_end}</strong>.</mj-text>
+                <mj-text>We hope you're enjoying Estuary Flow. Our free tier includes 10 GB/month and 2 connectors. Your account <a class="identifier">${args.tenant}</a> has now exceeded that, so it has been transitioned to a 30 day free trial ending on <strong>${args.trial_end}</strong>.</mj-text>
                 <mj-text>Please add payment information in the next 30 days to continue using the platform. If you have any questions, feel free to reach out to <a href="mailto:support@estuary.dev">support@estuary.dev</a></mj-text>
                 <mj-button href="https://dashboard.estuary.dev/admin/billing">Add payment information</mj-button>
             `,
@@ -52,7 +52,7 @@ const freeTrialEnded = (req: FreeTrialRecord): EmailConfig[] => {
                 `
                 <mj-text>We hope you are enjoying Estuary Flow. Your free trial for account <a class="identifier">${args.tenant}</a> is officially over.</mj-text>
                 <mj-text>Since you have already added a payment method, no action is required. If you have any questions, feel free to reach out to <a href="mailto:support@estuary.dev">support@estuary.dev</a> anytime!</mj-text>
-                <mj-button href="https://dashboard.estuary.dev">🌊 View your dataflows</mj-button>
+                <mj-button href="https://dashboard.estuary.dev">🌊 View your data flows</mj-button>
                 `,
                 recipient,
             )
