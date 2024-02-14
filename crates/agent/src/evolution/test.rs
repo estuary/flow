@@ -35,6 +35,7 @@ async fn test_collection_evolution() {
         user_id,
         collections: agent_sql::TextJson(input),
         auto_publish: true,
+        background: false,
     };
 
     let result = super::process_row(evolution_row, &mut txn)
@@ -70,7 +71,8 @@ async fn test_collection_evolution() {
             draft_id as "draft_id: Id",
             dry_run,
             user_id,
-            auto_evolve
+            auto_evolve,
+            background
         from publications where id = $1;"#,
         publication_id as Id
     )
@@ -82,6 +84,7 @@ async fn test_collection_evolution() {
     assert_eq!(user_id, publication.user_id);
     assert!(!publication.dry_run);
     assert!(!publication.auto_evolve);
+    assert!(!publication.background); // should match the value from the evolutions row
 }
 
 #[tokio::test]
@@ -121,6 +124,7 @@ async fn evolution_fails_when_collection_is_deleted() {
         user_id,
         collections: agent_sql::TextJson(input),
         auto_publish: false,
+        background: false,
     };
 
     let result = super::process_row(evolution_row, &mut txn)
@@ -173,6 +177,7 @@ async fn evolution_adds_collections_to_the_draft_if_necessary() {
         user_id,
         collections: agent_sql::TextJson(input),
         auto_publish: false,
+        background: false,
     };
 
     let result = super::process_row(evolution_row, &mut txn)
@@ -255,6 +260,7 @@ async fn evolution_preserves_changes_already_in_the_draft() {
         user_id,
         collections: agent_sql::TextJson(input),
         auto_publish: false,
+        background: false,
     };
 
     let result = super::process_row(evolution_row, &mut txn)
@@ -319,7 +325,7 @@ async fn evolution_affects_specific_materializations_when_requested() {
                       {"source": "evolution/CollectionC", "resource": {"targetThingy": "testTargetThingC"}}
                     ],
                     "endpoint": {"connector": {"image": "matImage:v1", "config": {}}}
-                }' :: json, 
+                }' :: json,
               'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'
             )
         ),
@@ -328,7 +334,7 @@ async fn evolution_affects_specific_materializations_when_requested() {
             (
               'a100000000000000', 'b333000000000000',
               'materialization'
-            ), 
+            ),
             (
               'a200000000000000', 'b333000000000000',
               'materialization'
@@ -350,6 +356,7 @@ async fn evolution_affects_specific_materializations_when_requested() {
         user_id,
         collections: agent_sql::TextJson(input),
         auto_publish: false,
+        background: false,
     };
 
     let result = super::process_row(evolution_row, &mut txn)

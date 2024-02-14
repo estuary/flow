@@ -1,4 +1,4 @@
-use crate::HandlerStatus;
+use crate::HandleResult;
 
 use super::{Handler, Id};
 
@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
 
+pub mod accept_demo_tenant;
 pub mod beta_onboard;
 pub mod click_to_accept;
-pub mod accept_demo_tenant;
 pub mod grant;
 
 /// JobStatus is the possible outcomes of a handled directive operation.
@@ -59,11 +59,15 @@ impl DirectiveHandler {
 
 #[async_trait::async_trait]
 impl Handler for DirectiveHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::directives::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::Idle),
+        let row: Row = match agent_sql::directives::dequeue(&mut txn, allow_background).await? {
+            None => return Ok(HandleResult::NoJobs),
             Some(row) => row,
         };
 
@@ -73,7 +77,7 @@ impl Handler for DirectiveHandler {
         agent_sql::directives::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(HandlerStatus::Active)
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
