@@ -30,4 +30,4 @@ create table stripe.customers (
     flow_document json NOT NULL
 );
 
-end;
+commit;
