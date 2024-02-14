@@ -846,6 +846,7 @@ dependencies = [
  "chrono",
  "clap 4.5.17",
  "futures",
+ "itertools 0.10.5",
  "serde",
  "serde_json",
  "sqlx",
