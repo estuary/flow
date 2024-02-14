@@ -1,5 +1,5 @@
 use super::{
-    connector_tags::LOCAL_IMAGE_TAG, draft, jobs, logs, CatalogType, Handler, HandlerStatus, Id,
+    connector_tags::LOCAL_IMAGE_TAG, draft, jobs, logs, CatalogType, HandleResult, Handler, Id,
 };
 use agent_sql::discovers::Row;
 use anyhow::Context;
@@ -53,11 +53,15 @@ impl DiscoverHandler {
 
 #[async_trait::async_trait]
 impl Handler for DiscoverHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::discovers::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::Idle),
+        let row: Row = match agent_sql::discovers::dequeue(&mut txn, allow_background).await? {
+            None => return Ok(HandleResult::NoJobs),
             Some(row) => row,
         };
 
@@ -67,7 +71,7 @@ impl Handler for DiscoverHandler {
         agent_sql::discovers::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(HandlerStatus::Active)
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
@@ -94,6 +98,7 @@ impl DiscoverHandler {
             %row.protocol,
             %row.updated_at,
             %row.user_id,
+            %row.background,
             "processing discover",
         );
 
@@ -235,6 +240,7 @@ impl DiscoverHandler {
                 row.draft_id,
                 row.auto_evolve,
                 detail,
+                row.background,
             )
             .await?;
             Some(id)

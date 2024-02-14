@@ -14,7 +14,7 @@ pub use connector_tags::TagHandler;
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
 pub use evolution::EvolutionHandler;
-pub use handlers::{serve, Handler, HandlerStatus};
+pub use handlers::{serve, HandleResult, Handler};
 use lazy_static::lazy_static;
 pub use publications::PublishHandler;
 use regex::Regex;

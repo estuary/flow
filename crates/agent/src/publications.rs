@@ -4,7 +4,7 @@ use self::builds::IncompatibleCollection;
 use self::validation::ControlPlane;
 use super::{
     draft::{self, Error},
-    logs, Handler, HandlerStatus, Id,
+    logs, HandleResult, Handler, Id,
 };
 use agent_sql::{connector_tags::UnknownConnector, publications::Row, CatalogType};
 use anyhow::Context;
@@ -98,11 +98,15 @@ impl PublishHandler {
 
 #[async_trait::async_trait]
 impl Handler for PublishHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::publications::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::Idle),
+        let row: Row = match agent_sql::publications::dequeue(&mut txn, allow_background).await? {
+            None => return Ok(HandleResult::NoJobs),
             Some(row) => row,
         };
 
@@ -124,7 +128,7 @@ impl Handler for PublishHandler {
             agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
-        Ok(HandlerStatus::Active)
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
@@ -147,6 +151,7 @@ impl PublishHandler {
             %row.logs_token,
             %row.updated_at,
             %row.user_id,
+            %row.background,
             "processing publication",
         );
 
@@ -486,6 +491,7 @@ async fn stop_with_errors(
                 collections,
                 true, // auto_publish
                 detail,
+                row.background,
             )
             .await
             .context("creating evolutions job")?;

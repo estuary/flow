@@ -344,8 +344,9 @@ async fn create_publication(
         txn,
         agent_user_email,
         draft_id,
-        false,
+        false, // don't auto-evolve
         detail,
+        true, // run as a background job
     )
     .await?;
     Ok(pub_id)

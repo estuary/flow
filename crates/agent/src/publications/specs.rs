@@ -465,12 +465,9 @@ pub async fn apply_updates_for_row(
     .context("insert live_spec_flow edges")?;
 
     if draft_spec.is_none() {
-        agent_sql::publications::delete_data_processing_alerts(
-            catalog_name,
-            txn,
-        )
-        .await
-        .context("delete alert_data_processing rows")?;
+        agent_sql::publications::delete_data_processing_alerts(catalog_name, txn)
+            .await
+            .context("delete alert_data_processing rows")?;
     }
 
     Ok(())
@@ -800,7 +797,10 @@ mod test {
 
         let mut results: Vec<ScenarioResult> = vec![];
 
-        while let Some(row) = agent_sql::publications::dequeue(&mut *txn).await.unwrap() {
+        while let Some(row) = agent_sql::publications::dequeue(&mut *txn, true)
+            .await
+            .unwrap()
+        {
             let row_draft_id = row.draft_id.clone();
             let (pub_id, status) = handler.process(row, &mut *txn, true).await.unwrap();
 

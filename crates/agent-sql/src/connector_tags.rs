@@ -5,7 +5,8 @@ use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::{types::Uuid, FromRow};
 
-// Row is the dequeued task shape of a tag connector operation.
+/// Row is the dequeued task shape of a tag connector operation. Note that `connector_tags` jobs
+/// are expected to all be `background` jobs, so we don't bother to include that field in this struct.
 #[derive(Debug)]
 pub struct Row {
     pub connector_id: Id,
@@ -18,7 +19,13 @@ pub struct Row {
     pub updated_at: DateTime<Utc>,
 }
 
-pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
+#[tracing::instrument(level = "debug", skip(txn))]
+pub async fn dequeue(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    allow_background: bool,
+) -> sqlx::Result<Option<Row>> {
+    // We don't expect to have any interactive connector_tags jobs at this stage, but this function
+    // still handles things as if we may.
     sqlx::query_as!(
         Row,
         r#"select
@@ -32,11 +39,12 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
             t.updated_at
         from connector_tags as t
         join connectors as c on c.id = t.connector_id
-        where t.job_status->>'type' = 'queued'
-        order by t.id asc
+        where t.job_status->>'type' = 'queued' and (t.background = $1 or t.background = false)
+        order by t.background asc, t.id asc
         limit 1
         for update of t skip locked;
-        "#
+        "#,
+        allow_background
     )
     .fetch_optional(txn)
     .await

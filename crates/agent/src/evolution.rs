@@ -1,4 +1,4 @@
-use super::{draft, Handler, HandlerStatus, Id};
+use super::{draft, HandleResult, Handler, Id};
 use agent_sql::{
     evolutions::{Row, SpecRow},
     Capability,
@@ -61,11 +61,15 @@ fn error_status(err: impl Into<String>) -> anyhow::Result<JobStatus> {
 
 #[async_trait::async_trait]
 impl Handler for EvolutionHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
         let mut txn = pg_pool.begin().await?;
 
-        let Some(row) = agent_sql::evolutions::dequeue(&mut txn).await? else {
-            return Ok(HandlerStatus::Idle);
+        let Some(row) = agent_sql::evolutions::dequeue(&mut txn, allow_background).await? else {
+            return Ok(HandleResult::NoJobs);
         };
 
         let id: Id = row.id;
@@ -76,7 +80,7 @@ impl Handler for EvolutionHandler {
         agent_sql::evolutions::resolve(id, &status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(HandlerStatus::Active)
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
@@ -84,7 +88,7 @@ impl Handler for EvolutionHandler {
     }
 }
 
-#[tracing::instrument(err, skip_all, fields(id=?row.id, draft_id=?row.draft_id))]
+#[tracing::instrument(err, skip_all, fields(?row.id, ?row.draft_id, %row.background))]
 async fn process_row(
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -249,9 +253,15 @@ async fn process_row(
         );
         // So that we don't create an infinite loop in case there's continued errors.
         let auto_evolve = false;
-        let id =
-            agent_sql::publications::create(txn, row.user_id, row.draft_id, auto_evolve, detail)
-                .await?;
+        let id = agent_sql::publications::create(
+            txn,
+            row.user_id,
+            row.draft_id,
+            auto_evolve,
+            detail,
+            row.background,
+        )
+        .await?;
         Some(id)
     } else {
         None
