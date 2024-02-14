@@ -137,7 +137,10 @@ mod test {
         let mut handler = DirectiveHandler {
             accounts_user_email: "accounts@example.com".to_string(),
         };
-        while let Some(row) = agent_sql::directives::dequeue(&mut txn).await.unwrap() {
+        while let Some(row) = agent_sql::directives::dequeue(&mut txn, true)
+            .await
+            .unwrap()
+        {
             let (id, status) = handler.process(row, &mut txn).await.unwrap();
             agent_sql::directives::resolve(id, status, &mut txn)
                 .await

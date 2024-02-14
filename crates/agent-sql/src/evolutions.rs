@@ -11,18 +11,20 @@ pub async fn create(
     collections: Vec<serde_json::Value>,
     auto_publish: bool,
     detail: String,
+    background: bool,
 ) -> sqlx::Result<Id> {
     let rec = sqlx::query!(
         r#"
         insert into evolutions
-            ( user_id, draft_id, collections, auto_publish, detail) 
-        values ( $1, $2, $3, $4, $5 ) returning id as "id: Id"
+            ( user_id, draft_id, collections, auto_publish, detail, background)
+        values ( $1, $2, $3, $4, $5, $6 ) returning id as "id: Id"
         "#,
         user_id as Uuid,
         draft_id as Id,
         serde_json::Value::Array(collections),
         auto_publish,
-        detail
+        detail,
+        background,
     )
     .fetch_one(txn)
     .await?;
@@ -41,9 +43,14 @@ pub struct Row {
     pub user_id: Uuid,
     pub collections: Json<Box<RawValue>>,
     pub auto_publish: bool,
+    pub background: bool,
 }
 
-pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
+#[tracing::instrument(level = "debug", skip(txn))]
+pub async fn dequeue(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    allow_background: bool,
+) -> sqlx::Result<Option<Row>> {
     sqlx::query_as!(
         Row,
         r#"select
@@ -55,12 +62,15 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
             updated_at,
             user_id,
             auto_publish,
-            collections as "collections: Json<Box<RawValue>>"
-        from evolutions where job_status->>'type' = 'queued'
-        order by id asc
+            collections as "collections: Json<Box<RawValue>>",
+            background
+        from evolutions
+        where job_status->>'type' = 'queued' and (background = $1 or background = false)
+        order by background asc, id asc
         limit 1
         for update of evolutions skip locked;
-        "#
+        "#,
+        allow_background
     )
     .fetch_optional(txn)
     .await
@@ -146,7 +156,7 @@ pub async fn resolve_specs(
             select catalog_name from drafted
         ),
         live as (
-            select 
+            select
                 ls.catalog_name,
                 ls.spec,
                 ls.spec_type,
@@ -168,7 +178,7 @@ pub async fn resolve_specs(
             spec_type as "spec_type: CatalogType"
         from drafted
         union all
-        select 
+        select
             catalog_name as "catalog_name!: String",
             null as "draft_spec_id: Id",
             id as "live_spec_id: Id",

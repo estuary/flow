@@ -25,9 +25,14 @@ pub struct Row {
     pub user_id: Uuid,
     pub auto_publish: bool,
     pub auto_evolve: bool,
+    pub background: bool,
 }
 
-pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
+#[tracing::instrument(level = "debug", skip(txn))]
+pub async fn dequeue(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    allow_background: bool,
+) -> sqlx::Result<Option<Row>> {
     sqlx::query_as!(
       Row,
       r#"select
@@ -46,16 +51,19 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
           discovers.updated_at,
           discovers.auto_publish,
           discovers.auto_evolve,
-          drafts.user_id
+          drafts.user_id,
+          discovers.background
       from discovers
       join drafts on discovers.draft_id = drafts.id
       join connector_tags on discovers.connector_tag_id = connector_tags.id
       join connectors on connectors.id = connector_tags.connector_id
       where discovers.job_status->>'type' = 'queued' and connector_tags.job_status->>'type' != 'queued'
-      order by discovers.id asc
+          and (discovers.background = $1 or discovers.background = false)
+      order by discovers.background asc, discovers.id asc
       limit 1
       for update of discovers skip locked;
-      "#
+      "#,
+      allow_background
   )
   .fetch_optional(txn).await
 }
