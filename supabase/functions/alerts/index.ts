@@ -63,7 +63,6 @@ const emailNotifications = (
     pendingNotifications: EmailConfig[],
     token: string,
     senderAddress: string,
-    overrideEmail: string | null = null,
 ): Promise<Response[]> => {
     const notificationPromises = pendingNotifications.flatMap(({ content, emails, subject }) =>
         emails.map((email) => {
@@ -78,7 +77,7 @@ const emailNotifications = (
                     from: senderAddress,
                     // to: email,
                     // TODO: Remove this line after we make sure alerts are going out correctly
-                    to: overrideEmail || email,
+                    to: email,
                     bcc: "joseph@estuary.dev",
                     subject,
                     html: content,
@@ -176,7 +175,6 @@ serve(async (rawRequest: Request): Promise<Response> => {
         pendingEmails,
         resendToken,
         senderAddress,
-        request.alert_type === "data_movement_stalled" ? null : "joseph@estuary.dev",
     );
 
     const errors = responses.filter((response) => response.status >= 400);
