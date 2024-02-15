@@ -9,8 +9,8 @@ To use this connector, you'll need:
 * A Snowflake account that includes:
     * A target database containing the tables you want to capture from.
     * A [virtual warehouse](https://docs.snowflake.com/en/user-guide/warehouses) which the connector can use to execute queries.
-    * A [schema](https://docs.snowflake.com/en/sql-reference/ddl-database.html) which will hold [streams](https://docs.snowflake.com/en/user-guide/streams-intro) and staging tables managed by the connector. The default name for this schema is `FLOW` unless overridden in the capture's advanced configuration.
-    * A user with access grants for these resources, as well as authorization to read from the desired source tables, and to create streams and staging tables in the Flow schema based on the source tables.
+    * A [schema](https://docs.snowflake.com/en/sql-reference/ddl-database.html) which will hold [streams](https://docs.snowflake.com/en/user-guide/streams-intro) and staging tables managed by the connector. The default name for this schema is `ESTUARY_STAGING` unless overridden in the capture's advanced configuration.
+    * A user with access grants for these resources, as well as authorization to read from the desired source tables, and to create streams and transient tables in the staging schema based on the source tables.
 * The host URL for your Snowflake account. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used), and might look something like `sg31386.snowflakecomputing.com` or `df98701.us-central1.gcp.snowflakecomputing.com`.
 
 See the [script below](#setup) for details.
