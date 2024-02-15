@@ -32,6 +32,12 @@ from eligible_collections
 end;
 $$ language plpgsql security definer;
 
+comment on function internal.get_collections_eligible_for_deletion is '
+get_collections_eligible_for_deletion facilitates the deletion of a capture and its associated collections
+by identifying the collections eligible for deletion. A collection is eligible for deletion
+if it is not consumed by an active task.
+';
+
 create or replace function draft_collections_eligible_for_deletion(live_spec_id flowid, draft_id flowid)
 returns void as $$
 begin
@@ -44,3 +50,9 @@ insert into draft_specs (draft_id, catalog_name, expect_pub_id, spec, spec_type)
 
 end;
 $$ language plpgsql security definer;
+
+comment on function draft_collections_eligible_for_deletion is '
+draft_collections_eligible_for_deletion facilitates the deletion of a capture and its associated collections
+in the same publication by populating the specified draft with the collections eligible for deletion.
+The specified draft should contain the capture pending deletion.
+';
