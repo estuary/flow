@@ -12,7 +12,8 @@ declare
 
   capture_consumer_id flowid;
   materialization_consumer_id flowid;
-  derivation_consumer_id flowid;
+  derivation_consumer_c_id flowid;
+  derivation_consumer_d_id flowid;
 begin
 
   insert into user_grants (user_id, object_role, capability) values
@@ -72,7 +73,17 @@ begin
         "transforms": []
       }',
       array['carolCo/pending-deletion/collection-C'],
-      null);
+      null),
+    ('carolCo/derivation/consumes-collection-D', 'collection', '{
+        "using": {
+          "sqlite": {
+            "migrations": []
+            }
+        },
+        "transforms": []
+      }',
+      null,
+      array['carolCo/pending-deletion/collection-D']);
 
   target_capture_id := (select id from live_specs where catalog_name = 'carolCo/capture/pending-deletion');
 
@@ -83,9 +94,11 @@ begin
   materialization_consumer_id := (select id from live_specs where catalog_name = 'carolCo/materialization/consumes-collection-B');
 
   collection_c_id := (select id from live_specs where catalog_name = 'carolCo/pending-deletion/collection-C');
-  derivation_consumer_id := (select id from live_specs where catalog_name = 'carolCo/derivation/consumes-collection-C');
+  derivation_consumer_c_id := (select id from live_specs where catalog_name = 'carolCo/derivation/consumes-collection-C');
 
   collection_d_id := (select id from live_specs where catalog_name = 'carolCo/pending-deletion/collection-D');
+  derivation_consumer_d_id := (select id from live_specs where catalog_name = 'carolCo/derivation/consumes-collection-D');
+
   collection_e_id := (select id from live_specs where catalog_name = 'carolCo/pending-deletion/collection-E');
 
 
@@ -97,7 +110,9 @@ begin
     (target_capture_id, collection_e_id, 'capture'),
     (capture_consumer_id, collection_a_id, 'capture'),
     (collection_b_id, materialization_consumer_id, 'materialization'),
-    (derivation_consumer_id, collection_c_id, 'collection');
+    (derivation_consumer_c_id, collection_c_id, 'collection'),
+    (collection_d_id, derivation_consumer_d_id, 'collection');
+
 
 
   insert into drafts (user_id, detail) values
@@ -118,7 +133,7 @@ begin
 
   return query select results_eq(
     $i$ select catalog_name from internal.get_collections_eligible_for_deletion('$i$ || target_capture_id || $i$') $i$,
-    $i$ values ('carolCo/pending-deletion/collection-D'::catalog_name), ('carolCo/pending-deletion/collection-E'::catalog_name) $i$
+    $i$ values ('carolCo/pending-deletion/collection-E'::catalog_name) $i$
   );
 
 end;
