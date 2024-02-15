@@ -1,4 +1,4 @@
-create function tests.test_get_collections_eligible_for_deletion()
+create function tests.test_draft_collections_eligible_for_deletion()
 returns setof text as $$
 declare
   target_capture_id flowid;
@@ -121,19 +121,26 @@ begin
   target_draft_id := (select id from drafts where detail = 'carolCo/capture/pending-deletion');
 
   insert into draft_specs (draft_id, catalog_name, spec_type, spec) values
-    (target_draft_id, 'aliceCo/capture/pending-deletion', 'capture', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }');
+    (target_draft_id, 'carolCo/capture/pending-deletion', null, null);
 
   return query select results_eq(
     $i$ select catalog_name from internal.get_collections_eligible_for_deletion('$i$ || target_capture_id || $i$') $i$,
     $i$ values ('carolCo/pending-deletion/collection-E'::catalog_name) $i$
+  );
+
+  perform draft_collections_eligible_for_deletion(target_capture_id, target_draft_id);
+
+  return query select results_eq(
+    $i$ select catalog_name, spec_type from draft_specs where draft_id = '$i$ || target_draft_id || $i$' $i$,
+    $i$ values (
+      'carolCo/capture/pending-deletion'::catalog_name,
+      null::catalog_spec_type
+      ),
+      (
+        'carolCo/pending-deletion/collection-E'::catalog_name,
+        null::catalog_spec_type
+      );
+    $i$
   );
 
 end;
