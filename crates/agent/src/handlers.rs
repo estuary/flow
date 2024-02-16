@@ -253,6 +253,14 @@ where
                     tracing::debug!(%table_name, "got notification for handler table");
                     handler.status = Status::PollInteractive;
                 }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                    tracing::debug!("polling all handlers, just in case we missed a notification");
+                    for handler in handlers_by_table.values_mut() {
+                        // No need to go through both interactive and background, since this is "extra"
+                        // and handlers should still dequeue interactive jobs even when `allow_background = true`.
+                        handler.status = Status::PollBackground;
+                    }
+                }
             }
         }
     }
