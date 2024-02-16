@@ -60,7 +60,7 @@ grant all on schema identifier($estuary_schema) to identifier($estuary_role);
 create warehouse if not exists identifier($warehouse_name)
 warehouse_size = xsmall
 warehouse_type = standard
-auto_suspend = 60
+auto_suspend = 6
 auto_resume = true
 initially_suspended = true;
 -- grant Estuary role access to warehouse
@@ -190,7 +190,7 @@ To mitigate this, we recommend a two-pronged approach:
    Use a query like the one shown below, being sure to substitute your warehouse name:
 
    ```sql
-   ALTER WAREHOUSE ESTUARY_WH SET auto_suspend = 60;
+   ALTER WAREHOUSE ESTUARY_WH SET auto_suspend = 6;
    ```
 
 * Configure the materialization's **update delay** by setting a value in the advanced configuration.
