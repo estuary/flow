@@ -74,4 +74,28 @@ this function, the next_auto_discovers view will no longer include that capture 
 So its safe to call this function at basically any frequency. The return value of the function is the count of newly
 created discovers jobs.';
 
+-- Re-define these triggers to execute for each row, but only for queued jobs.
+-- This cuts down on extraneous queries resulting from the agents own `update` statements.
+-- This is also an opportunity to use more consistent naming.
+drop trigger "Notify agent about changes to publication" on publications;
+drop trigger "Notify agent about changes to discover requests" on discovers;
+drop trigger "Notify agent of applied directive" on applied_directives;
+drop trigger "Notify agent about changes to connector_tags" on connector_tags;
+drop trigger "Notify agent about changes to evolution" on evolutions;
+
+create trigger publications_agent_notifications after insert or update on publications
+for each row when (NEW.job_status->>'type' = 'queued') execute procedure internal.notify_agent();
+
+create or replace trigger discovers_agent_notifications after insert or update on discovers
+for each row when (NEW.job_status->>'type' = 'queued') execute procedure internal.notify_agent();
+
+create or replace trigger applied_directives_agent_notifications after insert or update on applied_directives
+for each row when (NEW.job_status->>'type' = 'queued') execute procedure internal.notify_agent();
+
+create or replace trigger connector_tags_agent_notifications after insert or update on connector_tags
+for each row when (NEW.job_status->>'type' = 'queued') execute procedure internal.notify_agent();
+
+create or replace trigger evolutions_agent_notifications after insert or update on evolutions
+for each row when (NEW.job_status->>'type' = 'queued') execute procedure internal.notify_agent();
+
 commit;
