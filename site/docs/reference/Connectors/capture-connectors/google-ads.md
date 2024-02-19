@@ -156,3 +156,14 @@ Each generated resource will be mapped to a Flow collection.
 For help generating a valid query, see [Google's query builder documentation](https://developers.google.com/google-ads/api/fields/v11/overview_query_builder).
 
 If a query fails to validate against a given Google Ads account, it will be skipped.
+
+## Stream Limitations
+
+### ClickView
+
+Due to Google Ads API limitations, ClickView stream queries are executed with a time range limited to one day.
+Also, data can only be requested for periods 90 days before the time of the request.
+
+In pratical terms, this means that you can only search ClickView data limited to 3 months ago, anything before this is not returned.
+
+For more information, check [Google's Ads API documentation](https://developers.google.com/google-ads/api/fields/v15/click_view)
