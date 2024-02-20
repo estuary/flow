@@ -20,7 +20,7 @@ pub async fn create(
     Ok(row.id)
 }
 
-#[tracing::instrument(err, skip(spec, txn))]
+#[tracing::instrument(err, level = "debug", skip(spec, txn))]
 pub async fn upsert_spec<S>(
     draft_id: Id,
     catalog_name: &str,
