@@ -10,6 +10,15 @@ use std::collections::BTreeMap;
 use tokio::io::AsyncWriteExt;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
+// on auth:
+// - map refresh token to access token
+// - refresh auth roles & collections but don't fetch partitions
+
+// - on metadata
+//   - if refresh time is > $interval, then refresh collections & auth roles.
+//   - if partition count is 0, fetch partitions and store
+//     as needed, obtain a DPG token for a covering auth role
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let env_filter = EnvFilter::builder()
@@ -40,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
             accept = listener.accept() => {
                 let (socket, addr) = accept?;
 
-                let dekaf = Dekaf{
+                let dekaf = Session{
                     client: client.clone(),
                     cached_collections: BTreeMap::new(),
                     streams: BTreeMap::new(),
@@ -100,7 +109,7 @@ async fn start_topic_stream(
     client: gazette::journal::Client,
     collection: &str,
     offset: i64,
-) -> anyhow::Result<gazette::journal::Docs> {
+) -> anyhow::Result<gazette::journal::ReadDocs> {
     let lr = broker::ListRequest {
         selector: Some(broker::LabelSelector {
             include: Some(labels::build_set([(labels::COLLECTION, collection)])),
@@ -108,6 +117,8 @@ async fn start_topic_stream(
         }),
     };
     let mut listing = client.list(lr).await?;
+
+    // TODO(johnny): Order listing.journals on CreateRevision, then Name.
 
     tracing::info!(collection, offset, journals=?ops::DebugJson(&listing.journals), "starting new stream for topic");
 
@@ -134,13 +145,13 @@ async fn start_topic_stream(
     Ok(stream)
 }
 
-struct Dekaf {
+struct Session {
     client: postgrest::Postgrest,
     cached_collections: BTreeMap<String, ()>,
-    streams: BTreeMap<String, (i64, gazette::journal::Docs)>,
+    streams: BTreeMap<String, (i64, gazette::journal::ReadDocs)>,
 }
 
-impl Dekaf {
+impl Session {
     async fn collections(&mut self) -> anyhow::Result<&BTreeMap<String, ()>> {
         // TODO(johnny): Refresh policy.
         if !self.cached_collections.is_empty() {
@@ -355,7 +366,7 @@ impl Dekaf {
     }
 
     async fn build_record_batch(
-        stream: &mut gazette::journal::Docs,
+        stream: &mut gazette::journal::ReadDocs,
     ) -> Result<bytes::Bytes, gazette::Error> {
         use kafka_protocol::records::{
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
@@ -363,7 +374,7 @@ impl Dekaf {
         let mut records: Vec<Record> = Vec::new();
 
         while let Some(doc) = stream.try_next().await? {
-            let gazette::journal::Doc::Doc { offset, root } = doc else {
+            let gazette::journal::Read::Doc { offset, root } = doc else {
                 continue;
             };
             let ser = serde_json::to_string(&doc::SerPolicy::noop().on(root.get())).unwrap();
@@ -570,7 +581,7 @@ impl Dekaf {
 
 #[tracing::instrument(level = "debug", err(level = "warn"), skip_all)]
 async fn dispatch_request_frame(
-    dekaf: &mut Dekaf,
+    dekaf: &mut Session,
     raw_sasl_auth: &mut bool,
     frame: bytes::BytesMut,
     out: &mut bytes::BytesMut,
@@ -736,7 +747,7 @@ fn enc_resp<
 
 #[tracing::instrument(level = "debug", ret, err(level = "warn"), skip(dekaf, socket, _stop), fields(?addr))]
 async fn serve_connection(
-    mut dekaf: Dekaf,
+    mut dekaf: Session,
     mut socket: tokio::net::TcpStream,
     addr: std::net::SocketAddr,
     _stop: impl futures::Future<Output = ()>, // TODO(johnny): stop.

@@ -1284,6 +1284,7 @@ dependencies = [
  "labels",
  "ops",
  "postgrest",
+ "proto-flow",
  "proto-gazette",
  "serde",
  "serde_json",
@@ -1965,6 +1966,8 @@ dependencies = [
  "doc",
  "futures",
  "futures-core",
+ "hexdump",
+ "ops",
  "pin-project-lite",
  "proto-gazette",
  "proto-grpc",
@@ -1976,6 +1979,8 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "tracing-subscriber",
+ "uuid 1.7.0",
 ]
 
 [[package]]
@@ -4185,6 +4190,7 @@ dependencies = [
  "doc",
  "extractors",
  "futures",
+ "gazette",
  "insta",
  "json",
  "json-patch",
@@ -4198,7 +4204,6 @@ dependencies = [
  "proto-flow",
  "proto-gazette",
  "proto-grpc",
- "rand 0.8.5",
  "rocksdb",
  "serde",
  "serde_json",
@@ -4712,6 +4717,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "xxhash-rust",
 ]
 
 [[package]]

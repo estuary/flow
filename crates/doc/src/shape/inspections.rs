@@ -216,4 +216,83 @@ mod test {
             ]
         );
     }
+
+    #[test]
+    fn test_foobar() {
+        let obj = shape_from(
+            r#"
+        type: object
+        reduce: {strategy: merge}
+        properties:
+            sum-wrong-type:
+                reduce: {strategy: sum}
+                type: [number, string]
+
+            must-exist-but-cannot: false
+            may-not-exist: false
+
+            nested-obj-or-string:
+                type: [object, string]
+                properties:
+                    must-exist-and-cannot-but-parent-could-be-string: false
+                required: [must-exist-and-cannot-but-parent-could-be-string]
+
+            nested-array:
+                type: array
+                items: [true, false, false]
+                minItems: 2
+
+            nested-array-or-string:
+                oneOf:
+                    - $ref: '#/properties/nested-array'
+                    - type: string
+
+        patternProperties:
+            merge-wrong-type:
+                reduce: {strategy: merge}
+                type: boolean
+
+        required: [must-exist-but-cannot, nested-obj-or-string, nested-array, nested-array-or-string]
+
+        additionalProperties:
+            type: object
+            # Valid child, but parent is missing reduce annotation.
+            properties:
+                nested-sum:
+                    reduce: {strategy: sum}
+                    type: integer
+
+        items:
+            # Set without type restriction.
+            - reduce: {strategy: set}
+        additionalItems:
+            type: object
+            properties:
+                add: true
+                intersect: true
+                whoops1: true
+            patternProperties:
+                remove: true
+                whoops2: true
+            reduce: {strategy: set}
+        "#,
+        );
+
+        assert_eq!(
+            obj.inspect(),
+            vec![
+                Error::SetNotObject("/0".to_owned(), types::ANY),
+                Error::SetInvalidProperty("/-/whoops1".to_owned()),
+                Error::SetInvalidProperty("/-/whoops2".to_owned()),
+                Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
+                Error::ImpossibleMustExist("/nested-array/1".to_owned()),
+                Error::SumNotNumber(
+                    "/sum-wrong-type".to_owned(),
+                    types::INT_OR_FRAC | types::STRING
+                ),
+                Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
+                Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
+            ]
+        );
+    }
 }

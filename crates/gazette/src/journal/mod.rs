@@ -5,7 +5,7 @@ use std::sync::Arc;
 mod read;
 
 mod read_docs;
-pub use read_docs::{Doc, Docs};
+pub use read_docs::{Read, ReadDocs};
 
 // Sub is the routed sub-client of Client.
 type Sub = proto_grpc::broker::journal_client::JournalClient<
@@ -35,11 +35,14 @@ impl Client {
         req: broker::ListRequest,
     ) -> Result<broker::ListResponse, crate::Error> {
         let mut client = self.router.route(None, false).await?;
-        Ok(client
+
+        let resp = client
             .list(req)
             .await
             .map_err(crate::Error::Grpc)?
-            .into_inner())
+            .into_inner();
+
+        check_ok(resp.status(), resp)
     }
 }
 
@@ -70,5 +73,13 @@ impl crate::Router<Sub> {
             endpoint,
             zone,
         )
+    }
+}
+
+fn check_ok<R>(status: broker::Status, r: R) -> Result<R, crate::Error> {
+    if status == broker::Status::Ok {
+        Ok(r)
+    } else {
+        Err(crate::Error::BrokerStatus(status))
     }
 }

@@ -1,4 +1,7 @@
+pub use proto_gazette::broker;
+
 pub mod journal;
+pub mod uuid;
 
 mod router;
 pub use router::Router;
@@ -20,7 +23,8 @@ pub enum Error {
     ReadFragment(#[source] std::io::Error),
     #[error("invalid bearer token")]
     BearerToken(#[source] tonic::metadata::errors::InvalidMetadataValue),
-
+    #[error("unexpected broker status: {0:?}")]
+    BrokerStatus(broker::Status),
     #[error("failed to parse document near journal offset {0}")]
     Parsing(i64, #[source] std::io::Error),
 

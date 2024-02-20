@@ -3,17 +3,20 @@ use crate::Error;
 use futures::{stream::BoxStream, StreamExt};
 use proto_gazette::broker;
 
-pub enum Doc {
+/// Read is the enumerated item type of a read_docs() Stream.
+pub enum Read {
+    /// Doc is a document which was parsed at `offset` within the journal.
     Doc {
         offset: i64,
         root: doc::OwnedArchivedNode,
     },
-    Fragment(broker::Fragment),
+    /// Meta is a metadata response which includes the Fragment currently being read.
+    Meta(broker::ReadResponse),
 }
 
 impl Client {
-    pub fn read_docs(self, req: broker::ReadRequest) -> Docs {
-        Docs {
+    pub fn read_docs(self, req: broker::ReadRequest) -> ReadDocs {
+        ReadDocs {
             parsed: simd_doc::output::OwnedIterOut::empty(),
             parser: simd_doc::Parser::new(),
             inner: self.read(req).boxed(),
@@ -22,15 +25,15 @@ impl Client {
 }
 
 pin_project_lite::pin_project! {
-    pub struct Docs {
+    pub struct ReadDocs {
         inner: BoxStream<'static, crate::Result<broker::ReadResponse>>,
         parsed: simd_doc::output::OwnedIterOut,
         parser: simd_doc::Parser,
     }
 }
 
-impl futures::Stream for Docs {
-    type Item = crate::Result<Doc>;
+impl futures::Stream for ReadDocs {
+    type Item = crate::Result<Read>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -41,7 +44,7 @@ impl futures::Stream for Docs {
 
         loop {
             if let Some((offset, root)) = me.parsed.next() {
-                return Poll::Ready(Some(Ok(Doc::Doc { offset, root })));
+                return Poll::Ready(Some(Ok(Read::Doc { offset, root })));
             }
 
             // Poll the inner stream for the next item
@@ -53,8 +56,8 @@ impl futures::Stream for Docs {
                     };
 
                     // This is a non-content Fragment response.
-                    if let Some(fragment) = response.fragment {
-                        return Poll::Ready(Some(Ok(Doc::Fragment(fragment))));
+                    if let Some(_fragment) = &response.fragment {
+                        return Poll::Ready(Some(Ok(Read::Meta(response))));
                     }
 
                     *me.parsed = me

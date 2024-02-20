@@ -33,13 +33,13 @@ async fn foobar() -> gazette::Result<()> {
     let mut bout = std::io::BufWriter::new(std::io::stdout().lock());
 
     while let Some(doc) = stream.try_next().await? {
-        use gazette::journal::Doc;
+        use gazette::journal::Read;
 
         match doc {
-            Doc::Doc { offset: _, root } => {
+            Read::Doc { offset: _, root } => {
                 serde_json::to_writer(&mut bout, &doc::SerPolicy::noop().on(root.get())).unwrap();
             }
-            Doc::Fragment(fragment) => {
+            Read::Meta(fragment) => {
                 tracing::info!(fragment=?ops::DebugJson(fragment), "started reading a new fragment");
             }
         }

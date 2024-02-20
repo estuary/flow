@@ -16,6 +16,7 @@ gazette = { path = "../gazette" }
 labels = { path = "../labels" }
 ops = { path = "../ops" }
 proto-gazette = { path = "../proto-gazette" }
+proto-flow = { path = "../proto-flow" }
 simd-doc = { path = "../simd-doc" }
 
 anyhow = { workspace = true }
