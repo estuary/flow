@@ -54,7 +54,7 @@ pub async fn run(
 }
 
 /// Does the same thing as `run`, but doesn't modify the environment given in `cmd`.
-#[tracing::instrument(err, skip(logs_tx, cmd))]
+#[tracing::instrument(err, level = "debug", skip(logs_tx, cmd))]
 pub async fn run_without_removing_env(
     name: &str,
     logs_tx: &logs::Tx,
@@ -72,7 +72,7 @@ pub async fn run_without_removing_env(
 // run_with_output spawns the provided Command, capturing its stderr
 // into the provided logs_tx identified by |logs_token|
 // and returning its stdout.
-#[tracing::instrument(err, skip(logs_tx, cmd))]
+#[tracing::instrument(err, level = "debug", skip(logs_tx, cmd))]
 pub async fn run_with_output(
     name: &str,
     logs_tx: &logs::Tx,
@@ -93,7 +93,7 @@ pub async fn run_with_output(
 // run_with_input_output spawns the provided Command, capturing its stderr
 // into the provided logs_tx identified by |logs_token| and returning its stdout.
 // stdin is copied into the Command.
-#[tracing::instrument(err, skip(logs_tx, stdin, cmd))]
+#[tracing::instrument(err, level = "debug", skip(logs_tx, stdin, cmd))]
 pub async fn run_with_input_output<I>(
     name: &str,
     logs_tx: &logs::Tx,
