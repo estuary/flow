@@ -102,7 +102,7 @@ For allowing secure connections via SSH tunneling:
 2. Configure your connector as described in the [configuration](#configuration) section above, with
 the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to
 endpoints on secure
-networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional
+networks](../../../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) for additional
 details and a sample.
 
 ## Naming Conventions
@@ -137,7 +137,7 @@ The maximum size of a single input document is 4 MB. Attempting to materialize c
 documents larger than 4 MB will result in an error. To materialize this data you can use a
 [derivation](../../../concepts/derivations.md) to create a derived collection with smaller
 documents, or exclude fields containing excessive amounts of data by [customizing the materialized
-fields](../../../guides/customize-materialization-fields.md#include-desired-fields-in-your-materialization).
+fields](../../../../guides/customize-materialization-fields/#include-desired-fields-in-your-materialization).
 
 ## Delta updates
 
