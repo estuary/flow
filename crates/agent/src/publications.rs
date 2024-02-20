@@ -116,8 +116,10 @@ impl Handler for PublishHandler {
             None
         };
 
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+
         let (id, status) = self.process(row, &mut txn, false).await?;
-        info!(%id, ?status, "finished");
+        info!(%id, %time_queued, ?status, "finished");
 
         agent_sql::publications::resolve(id, &status, &mut txn).await?;
         txn.commit().await?;

@@ -71,8 +71,9 @@ impl Handler for DirectiveHandler {
             Some(row) => row,
         };
 
+        let time_queued = chrono::Utc::now().signed_duration_since(row.apply_updated_at);
         let (id, status) = self.process(row, &mut txn).await?;
-        info!(%id, ?status, "finished");
+        info!(%id, %time_queued, ?status, "finished");
 
         agent_sql::directives::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
