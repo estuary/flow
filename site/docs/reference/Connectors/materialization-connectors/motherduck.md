@@ -75,6 +75,5 @@ materializations:
 
 ## Delta updates
 
-This connector currently supports only [delta
-updates](../../../concepts/materialization.md#delta-updates). Future support for standard updates is
-planned.
+This connector currently supports only [delta updates](../../../../concepts/materialization/#delta-updates).
+Future support for standard updates is planned.

@@ -1,9 +1,11 @@
 // @ts-check
 // Note: type annotations allow type checking and IDEs autocompletion
 
-const lightCodeTheme = require('prism-react-renderer/themes/github');
-const darkCodeTheme = require('prism-react-renderer/themes/dracula');
-const codeImport = require('remark-code-import');
+import { themes } from 'prism-react-renderer';
+import { codeImport } from 'remark-code-import'
+
+const lightCodeTheme = themes.github;
+const darkCodeTheme = themes.dracula;
 
 const BASE_URL = process.env.BASE_URL || "/"
 const URL = process.env.URL || "https://docs.estuary.dev"
@@ -16,8 +18,9 @@ const config = {
   tagline: 'Dinosaurs are cool',
   url: URL,
   baseUrl: BASE_URL,
+  onBrokenAnchors: 'warn', // TODO(johnny): Fix broken links and make this 'throw'.
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
+  onBrokenMarkdownLinks: 'throw',
   favicon: 'img/favicon-2.ico',
   organizationName: 'estuary',
   projectName: 'flow',

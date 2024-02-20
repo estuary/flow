@@ -19,6 +19,7 @@ To keep things simple in this article, we'll be referring only to captures and m
 :::
 
 import Mermaid from '@theme/Mermaid';
+
 <Mermaid chart={`
   graph LR;
     Source[Source System]-->Capture;
