@@ -54,7 +54,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/credentials/credentials` | Credentials method | Type of credentials used. Set to `api-token` | string |  |
 | `/credentials/email` | Email | The user email for your Zendesk account. | string |  |
 | **`/start_date`** | Start Date | The date from which you&#x27;d like to replicate data for Zendesk Support API, in the format YYYY-MM-DDT00:00:00Z. All data generated after this date will be replicated. | string | Required |
-| **`/subdomain`** | Subdomain | This is your Zendesk subdomain that can be found in your account URL. For example, in https:&#x2F;&#x2F;{MY&#x5F;SUBDOMAIN}.zendesk.com&#x2F;, where MY&#x5F;SUBDOMAIN is the value of your subdomain. | string | Required |
+| **`/subdomain`** | Subdomain | This is your Zendesk subdomain that can be found in your account URL. For example, in `https://MY_SUBDOMAIN.zendesk.com/`, where `MY_SUBDOMAIN` is the value of your subdomain. | string | Required |
 
 #### Bindings
 
