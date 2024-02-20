@@ -1,3 +1,12 @@
+alter policy "Users must be authorized to referenced specifications" on live_spec_flows
+  rename to "Users must be authorized to one referenced specification";
+
+alter policy "Users must be authorized to one referenced specification" on live_spec_flows
+  using (
+    source_id in (select id from live_specs) or
+    target_id in (select id from live_specs)
+  );
+
 create or replace function internal.get_collections_eligible_for_deletion(capture_id flowid)
 returns table(id flowid, catalog_name catalog_name, last_pub_id flowid) as $$
 begin
