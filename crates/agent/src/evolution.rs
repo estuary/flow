@@ -72,11 +72,12 @@ impl Handler for EvolutionHandler {
             return Ok(HandleResult::NoJobs);
         };
 
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
         let id: Id = row.id;
         let status = process_row(row, &mut txn).await?;
         let status = serde_json::to_value(status)?;
 
-        tracing::info!(%id, %status, "evolution finished");
+        tracing::info!(%id, %time_queued, %status, "evolution finished");
         agent_sql::evolutions::resolve(id, &status, &mut txn).await?;
         txn.commit().await?;
 

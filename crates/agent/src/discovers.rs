@@ -65,8 +65,9 @@ impl Handler for DiscoverHandler {
             Some(row) => row,
         };
 
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
         let (id, status) = self.process(row, &mut txn).await?;
-        tracing::info!(%id, ?status, "finished");
+        tracing::info!(%id, %time_queued, ?status, "finished");
 
         agent_sql::discovers::resolve(id, status, &mut txn).await?;
         txn.commit().await?;

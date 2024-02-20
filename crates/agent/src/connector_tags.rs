@@ -65,8 +65,9 @@ impl Handler for TagHandler {
             Some(row) => row,
         };
 
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
         let (id, status) = self.process(row, &mut txn).await?;
-        info!(%id, ?status, "finished");
+        info!(%id, %time_queued, ?status, "finished");
 
         agent_sql::connector_tags::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
