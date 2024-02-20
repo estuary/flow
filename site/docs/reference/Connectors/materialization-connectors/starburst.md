@@ -31,26 +31,6 @@ Use the below properties to configure a Starburst materialization, which will di
 
 ### Properties
 
-type config struct {
-Host               string `json:"host" jsonschema:"title=Host and optional port" jsonschema_extras:"order=0"`
-Catalog            string `json:"catalog" jsonschema:"title=Catalog" jsonschema_extras:"order=1"`
-Schema             string `json:"schema" jsonschema:"title=Schema" jsonschema_extras:"order=2"`
-Account            string `json:"account" jsonschema:"title=Account" jsonschema_extras:"order=3"`
-Password           string `json:"password" jsonschema:"title=Password" jsonschema_extras:"secret=true,order=4"`
-AWSAccessKeyID     string `json:"awsAccessKeyId" jsonschema:"title=Access Key ID" jsonschema_extras:"order=5"`
-AWSSecretAccessKey string `json:"awsSecretAccessKey" jsonschema:"title=Secret Access Key" jsonschema_extras:"secret=true,order=6"`
-Region             string `json:"region" jsonschema:"title=Region" jsonschema_extras:"order=7"`
-Bucket             string `json:"bucket" jsonschema:"title=Bucket" jsonschema_extras:"order=8"`
-BucketPath         string `json:"bucketPath" jsonschema:"title=Bucket Path,description=A prefix that will be used to store objects in S3." jsonschema_extras:"order=9"`
-
-	Advanced advancedConfig `json:"advanced,omitempty" jsonschema:"title=Advanced Options,description=Options for advanced users. You should not typically need to modify these." jsonschema_extras:"advanced=true"`
-}
-
-type advancedConfig struct {
-UpdateDelay string `json:"updateDelay,omitempty" jsonschema:"title=Update Delay,description=Potentially reduce active warehouse time by increasing the delay between updates. Defaults to 30 minutes if unset.,enum=0s,enum=15m,enum=30m,enum=1h,enum=2h,enum=4h"`
-}
-
-
 #### Endpoint
 
 | Property                  | Title                  | Description                                                                                                        | Type   | Required/Default |
