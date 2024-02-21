@@ -1,14 +1,14 @@
-use std::collections::HashSet;
-
 use self::builds::IncompatibleCollection;
 use self::validation::ControlPlane;
 use super::{
     draft::{self, Error},
     logs, HandleResult, Handler, Id,
 };
+use crate::CannotAcquireLock;
 use agent_sql::{connector_tags::UnknownConnector, publications::Row, CatalogType};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use tracing::info;
 
 pub mod builds;
@@ -103,34 +103,45 @@ impl Handler for PublishHandler {
         pg_pool: &sqlx::PgPool,
         allow_background: bool,
     ) -> anyhow::Result<HandleResult> {
-        let mut txn = pg_pool.begin().await?;
+        loop {
+            let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::publications::dequeue(&mut txn, allow_background).await? {
-            None => return Ok(HandleResult::NoJobs),
-            Some(row) => row,
-        };
+            let row: Row =
+                match agent_sql::publications::dequeue(&mut txn, allow_background).await? {
+                    None => return Ok(HandleResult::NoJobs),
+                    Some(row) => row,
+                };
+            let background = row.background;
 
-        let delete_draft_id = if !row.dry_run {
-            Some(row.draft_id)
-        } else {
-            None
-        };
+            let delete_draft_id = if !row.dry_run {
+                Some(row.draft_id)
+            } else {
+                None
+            };
 
-        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+            let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+            let id = row.pub_id;
+            let process_result = self.process(row, &mut txn, false).await?;
+            info!(%id, %time_queued, result=?process_result, %background, "finished");
 
-        let (id, status) = self.process(row, &mut txn, false).await?;
-        info!(%id, %time_queued, ?status, "finished");
+            let Ok((id, status)) = process_result else {
+                // Since we failed to acquire a necessary row lock, wait a short while and then
+                // try again.
+                txn.rollback().await?;
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                continue;
+            };
 
-        agent_sql::publications::resolve(id, &status, &mut txn).await?;
-        txn.commit().await?;
+            agent_sql::publications::resolve(id, &status, &mut txn).await?;
+            txn.commit().await?;
 
-        // As a separate transaction, delete the draft if it has no draft_specs.
-        // The user could have raced an insertion of a new spec.
-        if let (Some(delete_draft_id), JobStatus::Success { .. }) = (delete_draft_id, status) {
-            agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
+            // As a separate transaction, delete the draft if it has no draft_specs.
+            // The user could have raced an insertion of a new spec.
+            if let (Some(delete_draft_id), JobStatus::Success { .. }) = (delete_draft_id, status) {
+                agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
+            }
+            return Ok(HandleResult::HadJob);
         }
-
-        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
@@ -145,7 +156,7 @@ impl PublishHandler {
         row: Row,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         test_run: bool,
-    ) -> anyhow::Result<(Id, JobStatus)> {
+    ) -> anyhow::Result<Result<(Id, JobStatus), CannotAcquireLock>> {
         info!(
             %row.created_at,
             %row.draft_id,
@@ -167,8 +178,12 @@ impl PublishHandler {
             .await
             .context("creating savepoint")?;
 
-        let spec_rows =
-            specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?;
+        let Ok(spec_rows) =
+            specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?
+        else {
+            // If unable to lock the spec rows, then bail and leave the job queued so we can try again.
+            return Ok(Err(CannotAcquireLock));
+        };
         tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
 
         // Keep track of which collections are being deleted so that we can account for them
@@ -284,7 +299,13 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
-        let expanded_rows = specs::expanded_specifications(row.user_id, &spec_rows, txn).await?;
+        let Ok(expanded_rows) =
+            specs::expanded_specifications(row.user_id, &spec_rows, txn).await?
+        else {
+            // If unable to lock the spec rows, then bail and leave the job queued so we can try again.
+            return Ok(Err(CannotAcquireLock));
+        };
+
         tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
 
         // Touch all expanded specifications to update their build ID.
@@ -336,7 +357,7 @@ impl PublishHandler {
         }
 
         if test_run {
-            return Ok((row.pub_id, JobStatus::success(Vec::new())));
+            return Ok(Ok((row.pub_id, JobStatus::success(Vec::new()))));
         }
 
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
@@ -413,7 +434,7 @@ impl PublishHandler {
                 .await
                 .context("adding built specs to draft")?;
 
-            return Ok((row.pub_id, JobStatus::success(Vec::new())));
+            return Ok(Ok((row.pub_id, JobStatus::success(Vec::new()))));
         }
 
         // Add built specs to the live spec when publishing a build.
@@ -458,7 +479,7 @@ impl PublishHandler {
         .await
         .context("creating linked materialization publications")?;
 
-        Ok((row.pub_id, JobStatus::success(pub_ids)))
+        Ok(Ok((row.pub_id, JobStatus::success(pub_ids))))
     }
 }
 
@@ -467,7 +488,7 @@ async fn stop_with_errors(
     mut job_status: JobStatus,
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<(Id, JobStatus)> {
+) -> anyhow::Result<Result<(Id, JobStatus), CannotAcquireLock>> {
     agent_sql::publications::rollback_noop(txn)
         .await
         .context("rolling back to savepoint")?;
@@ -501,7 +522,7 @@ async fn stop_with_errors(
         }
     }
 
-    Ok((row.pub_id, job_status))
+    Ok(Ok((row.pub_id, job_status)))
 }
 
 fn create_evolutions_requests(

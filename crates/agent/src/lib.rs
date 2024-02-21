@@ -27,6 +27,20 @@ lazy_static! {
     static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
 }
 
+/// Indicates that a row-level lock could not immediately be acquired.
+/// This is used in conjuction with `for update ... nowait` in SQL queries
+/// to bail out and re-try processing jobs that conflict with other in-progess jobs.
+#[derive(Debug)]
+pub struct CannotAcquireLock;
+
+/// Returns true if the given error represents a failure to acquire a lock, as indicated
+/// by the "sql state" code.
+fn is_acquire_lock_error(err: &sqlx::Error) -> bool {
+    err.as_database_error()
+        .filter(|e| e.code().as_ref().map(|c| c.as_ref()) == Some("55P03"))
+        .is_some()
+}
+
 /// Takes an existing name and returns a new name with an incremeted version suffix.
 /// The name `foo` will become `foo_v2`, and `foo_v2` will become `foo_v3` and so on.
 pub fn next_name(current_name: &str) -> String {

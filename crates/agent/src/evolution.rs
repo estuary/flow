@@ -1,3 +1,5 @@
+use crate::CannotAcquireLock;
+
 use super::{draft, HandleResult, Handler, Id};
 use agent_sql::{
     evolutions::{Row, SpecRow},
@@ -41,6 +43,7 @@ pub enum JobStatus {
         evolved_collections: Vec<EvolvedCollection>,
         publication_id: Option<Id>,
     },
+    Queued,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -55,8 +58,8 @@ pub struct EvolvedCollection {
     pub updated_captures: Vec<String>,
 }
 
-fn error_status(err: impl Into<String>) -> anyhow::Result<JobStatus> {
-    Ok(JobStatus::EvolutionFailed { error: err.into() })
+fn error_status(err: impl Into<String>) -> anyhow::Result<Result<JobStatus, CannotAcquireLock>> {
+    Ok(Ok(JobStatus::EvolutionFailed { error: err.into() }))
 }
 
 #[async_trait::async_trait]
@@ -66,22 +69,37 @@ impl Handler for EvolutionHandler {
         pg_pool: &sqlx::PgPool,
         allow_background: bool,
     ) -> anyhow::Result<HandleResult> {
-        let mut txn = pg_pool.begin().await?;
+        loop {
+            let mut txn = pg_pool.begin().await?;
 
-        let Some(row) = agent_sql::evolutions::dequeue(&mut txn, allow_background).await? else {
-            return Ok(HandleResult::NoJobs);
-        };
+            let Some(row) = agent_sql::evolutions::dequeue(&mut txn, allow_background).await?
+            else {
+                return Ok(HandleResult::NoJobs);
+            };
 
-        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-        let id: Id = row.id;
-        let status = process_row(row, &mut txn).await?;
-        let status = serde_json::to_value(status)?;
+            let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+            let id: Id = row.id;
+            let process_result = process_row(row, &mut txn).await?;
+            let job_status = match process_result {
+                Ok(s) => s,
+                Err(CannotAcquireLock) => {
+                    tracing::info!(%id, %time_queued, "cannot acquire all row locks for evolution (will retry)");
+                    // Since we failed to acquire a necessary row lock, wait a short while and then
+                    // try again. Evolutions jobs will fail _quite_ quickly in this scenario, so
+                    // wait a whole second before re-trying.
+                    txn.rollback().await?;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+            let status = serde_json::to_value(job_status)?;
 
-        tracing::info!(%id, %time_queued, %status, "evolution finished");
-        agent_sql::evolutions::resolve(id, &status, &mut txn).await?;
-        txn.commit().await?;
+            tracing::info!(%id, %time_queued, %status, "evolution finished");
+            agent_sql::evolutions::resolve(id, &status, &mut txn).await?;
+            txn.commit().await?;
 
-        Ok(HandleResult::HadJob)
+            return Ok(HandleResult::HadJob);
+        }
     }
 
     fn table_name(&self) -> &'static str {
@@ -93,7 +111,7 @@ impl Handler for EvolutionHandler {
 async fn process_row(
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<JobStatus> {
+) -> anyhow::Result<Result<JobStatus, CannotAcquireLock>> {
     let Row {
         draft_id,
         user_id,
@@ -134,9 +152,14 @@ async fn process_row(
         .collect::<Vec<Id>>();
 
     // Fetch all of the live_specs that directly read from or write to any of these collections.
-    let expanded_rows = agent_sql::publications::resolve_expanded_rows(user_id, seed_ids, txn)
-        .await
-        .context("expanding specifications")?;
+    let expanded_rows =
+        match agent_sql::publications::resolve_expanded_rows(user_id, seed_ids, txn).await {
+            Ok(rows) => rows,
+            Err(err) if crate::is_acquire_lock_error(&err) => {
+                return Ok(Err(CannotAcquireLock));
+            }
+            Err(other_err) => return Err(other_err).context("expanding specifications"),
+        };
 
     // Build up catalog of all the possibly affected entities, for easy lookups.
     // Note that we put `expanded_rows` first so that `spec_rows` will overwrite
@@ -267,10 +290,10 @@ async fn process_row(
     } else {
         None
     };
-    Ok(JobStatus::Success {
+    Ok(Ok(JobStatus::Success {
         evolved_collections: changed_collections,
         publication_id,
-    })
+    }))
 }
 
 fn validate_evolving_collections(
