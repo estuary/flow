@@ -29,9 +29,10 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
-colored_json = { workspace = true } # Used to render ops::Logs for UI.
+colored_json = { workspace = true }       # Used to render ops::Logs for UI.
 derivative = { workspace = true }
 futures = { workspace = true }
+humantime-serde = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
