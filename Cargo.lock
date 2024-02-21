@@ -49,6 +49,7 @@ dependencies = [
  "derivative",
  "doc",
  "futures",
+ "humantime-serde",
  "insta",
  "itertools 0.10.5",
  "json",

@@ -68,6 +68,9 @@ pub async fn resolve_specifications(
     Ok(spec_rows)
 }
 
+#[derive(Debug)]
+pub struct CannotAcquireLock;
+
 // expanded_specifications returns additional specifications which should be
 // included in this publication's build. These specifications are not changed
 // by the publication and are read with read-committed transaction semantics,
@@ -77,7 +80,7 @@ pub async fn expanded_specifications(
     user_id: Uuid,
     spec_rows: &[SpecRow],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<Vec<ExpandedRow>> {
+) -> anyhow::Result<Result<Vec<ExpandedRow>, CannotAcquireLock>> {
     // We seed expansion with the set of live specifications
     // (that the user must be authorized to administer).
     let seed_ids: Vec<Id> = spec_rows
@@ -88,11 +91,11 @@ pub async fn expanded_specifications(
         })
         .collect();
 
-    let expanded_rows = agent_sql::publications::resolve_expanded_rows(user_id, seed_ids, txn)
-        .await
-        .context("selecting expanded specs")?;
-
-    Ok(expanded_rows)
+    match agent_sql::publications::resolve_expanded_rows(user_id, seed_ids, txn).await {
+        Ok(rows) => Ok(Ok(rows)),
+        Err(err) if crate::is_acquire_lock_error(&err) => Ok(Err(CannotAcquireLock)),
+        Err(other) => Err(anyhow::Error::from(other)).context("selecting expanded specs"),
+    }
 }
 
 pub fn validate_transition(

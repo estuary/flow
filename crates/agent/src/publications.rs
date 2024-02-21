@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use self::builds::IncompatibleCollection;
 use self::validation::ControlPlane;
@@ -21,7 +21,10 @@ mod validation;
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
-    Queued,
+    Queued {
+        #[serde(default, with = "humantime_serde")]
+        backoff: Option<std::time::Duration>,
+    },
     BuildFailed {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         incompatible_collections: Vec<IncompatibleCollection>,
@@ -109,6 +112,7 @@ impl Handler for PublishHandler {
             None => return Ok(HandleResult::NoJobs),
             Some(row) => row,
         };
+        let background = row.background;
 
         let delete_draft_id = if !row.dry_run {
             Some(row.draft_id)
@@ -119,7 +123,15 @@ impl Handler for PublishHandler {
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
 
         let (id, status) = self.process(row, &mut txn, false).await?;
-        info!(%id, %time_queued, ?status, "finished");
+        let result = if let JobStatus::Queued { backoff } = &status {
+            HandleResult::PollAgain(
+                backoff.expect("backoff must be set when deferring job handling"),
+            )
+        } else {
+            HandleResult::HadJob
+        };
+
+        info!(%id, %time_queued, ?status, %background, "finished");
 
         agent_sql::publications::resolve(id, &status, &mut txn).await?;
         txn.commit().await?;
@@ -130,7 +142,7 @@ impl Handler for PublishHandler {
             agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
-        Ok(HandleResult::HadJob)
+        Ok(result)
     }
 
     fn table_name(&self) -> &'static str {
@@ -284,7 +296,20 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
-        let expanded_rows = specs::expanded_specifications(row.user_id, &spec_rows, txn).await?;
+        let Ok(expanded_rows) =
+            specs::expanded_specifications(row.user_id, &spec_rows, txn).await?
+        else {
+            return stop_with_errors(
+                Vec::new(),
+                JobStatus::Queued {
+                    backoff: Some(std::time::Duration::from_secs(2)),
+                },
+                row,
+                txn,
+            )
+            .await;
+        };
+
         tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
 
         // Touch all expanded specifications to update their build ID.

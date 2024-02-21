@@ -9,6 +9,7 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 pub enum HandleResult {
     HadJob,
     NoJobs,
+    PollAgain(Duration),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -119,10 +120,29 @@ struct WrappedHandler {
 }
 
 impl WrappedHandler {
-    async fn handle_next_job(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    async fn handle_next_job(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        task_tx: &UnboundedSender<String>,
+    ) -> anyhow::Result<()> {
         let allow_background = self.status != Status::PollInteractive;
         match self.handler.handle(pg_pool, allow_background).await {
             Ok(HandleResult::HadJob) => Ok(()),
+            Ok(HandleResult::PollAgain(after)) => {
+                let table_name = self.handler.table_name().to_owned();
+                let sender = task_tx.clone();
+                tokio::spawn(async move {
+                    // We're unable to process this job right now, and need to try again after the
+                    // backoff period. Technically, this is racey. Adding a second can help make it more
+                    // likely that the job will be eligible when we poll next, though it can't guarantee
+                    // it. We're relying on regular polling of handlers to guarantee that all deferred jobs
+                    // will get processed.
+                    tokio::time::sleep(after + Duration::from_secs(1)).await;
+                    tracing::debug!(%table_name, "triggering poll of handler after backoff");
+                    let _ = sender.send(table_name);
+                });
+                Ok(())
+            }
             Ok(HandleResult::NoJobs) if self.status == Status::PollInteractive => {
                 tracing::debug!(handler = %self.handler.name(), "handler completed all interactive jobs");
                 self.status = Status::PollBackground;
@@ -217,7 +237,7 @@ where
             .values_mut()
             .filter(|h| h.status == Status::PollInteractive)
         {
-            handler.handle_next_job(&pg_pool).await?;
+            handler.handle_next_job(&pg_pool, &task_tx).await?;
         }
 
         // We only process background jobs if there are no interactive jobs of any type
@@ -232,7 +252,7 @@ where
             .values_mut()
             .filter(|h| h.status == Status::PollBackground)
         {
-            handler.handle_next_job(&pg_pool).await?;
+            handler.handle_next_job(&pg_pool, &task_tx).await?;
         }
 
         if handlers_by_table.values().all(|h| h.status == Status::Idle) {
