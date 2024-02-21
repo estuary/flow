@@ -282,7 +282,7 @@ pub async fn resolve_spec_rows(
             on draft_specs.catalog_name = live_specs.catalog_name
         where draft_specs.draft_id = $1
         order by draft_specs.catalog_name asc
-        for update of draft_specs, live_specs;
+        for update of draft_specs, live_specs nowait;
         "#,
         draft_id as Id,
         user_id,
@@ -447,6 +447,7 @@ pub async fn resolve_expanded_rows(
         -- Strip deleted specs which are still reach-able through a dataflow edge,
         -- and strip rows already part of the seed set.
         where l.spec is not null and l.id not in (select id from seeds)
+        for update of l nowait
         "#,
         seed_ids as Vec<Id>,
         user_id,

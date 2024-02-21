@@ -69,10 +69,10 @@ pub async fn resolve_specifications(
 }
 
 // expanded_specifications returns additional specifications which should be
-// included in this publication's build. These specifications are not changed
-// by the publication and are read with read-committed transaction semantics,
-// but (if not a dry-run) we do re-activate each specification within the
-// data-plane with the outcome of this publication's build.
+// included in this publication's build. Attempts to acquire a lock on each expanded `live_specs`
+// row, with the assumption that we will be updating the `built_spec` and `last_build_id`.
+// Returns `Ok(Err(CannotAcquireLock))` if any locks could not be immediately acquired, so that the
+// publication can be re-tried later.
 pub async fn expanded_specifications(
     user_id: Uuid,
     spec_rows: &[SpecRow],
