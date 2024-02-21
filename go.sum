@@ -236,8 +236,8 @@ github.com/jessevdk/go-flags v1.5.0 h1:1jKYvbxEjfUl0fmqTCOfonvskHHXMjBySTLW4y9LF
 github.com/jessevdk/go-flags v1.5.0/go.mod h1:Fw0T6WPc1dYxT4mKEZRfG5kJhaTDP9pj1c2EWnYs/m4=
 github.com/jgraettinger/cockroach-encoding v1.1.0 h1:TRSWxnWdjgT1hcfn3aFa3dwhzNa8VHifsKj3gj8cD6E=
 github.com/jgraettinger/cockroach-encoding v1.1.0/go.mod h1:gcht+UqiTiDC6NEF7DLHUXQStSlWjogvhlkAttXVtmE=
-github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b h1:ilFm/Eo4sAeoQ9O3r8WT9w8NWy+SwvHRhesnMjLGLdQ=
-github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b/go.mod h1:pF+aV5pQJlgi8ZKGnuUhEzLF1Z74ONYqrn0O2UXLjeQ=
+github.com/jgraettinger/gorocksdb v0.0.0-20240221161858-8f4873ee26e0 h1:sjH3pqBnS8QFYvtJi6cE+t8B4GVK2b8HoA8zMGIHvcA=
+github.com/jgraettinger/gorocksdb v0.0.0-20240221161858-8f4873ee26e0/go.mod h1:pF+aV5pQJlgi8ZKGnuUhEzLF1Z74ONYqrn0O2UXLjeQ=
 github.com/jmespath/go-jmespath v0.4.0 h1:BEgLn5cpjn8UN1mAw4NjwDrS35OdebyEtFe+9YPoQUg=
 github.com/jmespath/go-jmespath v0.4.0/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
 github.com/jmespath/go-jmespath/internal/testify v1.5.1 h1:shLQSRRSCCPj3f2gpwzGwWFoC7ycTf1rcQZHOlsJ6N8=
@@ -368,8 +368,8 @@ go.etcd.io/etcd/client/pkg/v3 v3.5.0 h1:2aQv6F436YnN7I4VbI8PPYrBhu+SmrTaADcf8Mi/
 go.etcd.io/etcd/client/pkg/v3 v3.5.0/go.mod h1:IJHfcCEKxYu1Os13ZdwCwIUTUVGYTSAM3YSwc9/Ac1g=
 go.etcd.io/etcd/client/v3 v3.5.0 h1:62Eh0XOro+rDwkrypAGDfgmNh5Joq+z+W9HZdlXMzek=
 go.etcd.io/etcd/client/v3 v3.5.0/go.mod h1:AIKXXVX/DQXtfTEqBryiLTUXwON+GuvO6Z7lLS/oTh0=
-go.gazette.dev/core v0.89.1-0.20240206214349-338b33984330 h1:ajY4y00aV0rJrH4JngP3dAlQYy9To0zIQ2XwO6PzrYE=
-go.gazette.dev/core v0.89.1-0.20240206214349-338b33984330/go.mod h1:pUISSIdKXHoL5AJHBMrlPS20SF6TrManQlFbu6oV/84=
+go.gazette.dev/core v0.89.1-0.20240221170613-ede1dcce6759 h1:I8E9+AVB8lHnz4qPezK/FhTbD0slzyBcZQLrsSW4USU=
+go.gazette.dev/core v0.89.1-0.20240221170613-ede1dcce6759/go.mod h1:TdjN2Q0A8NsL1C7hFjbl8BzGKobyFNPmhJFi54GvNyU=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
