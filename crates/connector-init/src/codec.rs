@@ -62,7 +62,7 @@ impl Codec {
 
                 out.push(serde_json::from_slice::<M>(&buf[..bound]).with_context(|| {
                     format!(
-                        "could not parse '{}' into JSON response",
+                        "could not parse {:?} into JSON response",
                         String::from_utf8_lossy(&buf[..bound])
                     )
                 })?);

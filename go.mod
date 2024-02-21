@@ -10,7 +10,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/jessevdk/go-flags v1.5.0
-	github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b
+	github.com/jgraettinger/gorocksdb v0.0.0-20240221161858-8f4873ee26e0
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/minio/highwayhash v1.0.2
 	github.com/nsf/jsondiff v0.0.0-20210303162244-6ea32392771e
@@ -19,7 +19,7 @@ require (
 	github.com/stretchr/testify v1.8.3
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
-	go.gazette.dev/core v0.89.1-0.20240206214349-338b33984330
+	go.gazette.dev/core v0.89.1-0.20240221170613-ede1dcce6759
 	golang.org/x/net v0.17.0
 	google.golang.org/api v0.126.0
 	google.golang.org/grpc v1.59.0

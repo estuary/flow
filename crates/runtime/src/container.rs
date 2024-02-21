@@ -535,10 +535,14 @@ mod test {
             }]
         );
 
-        #[cfg(target_os = "linux")]
-        assert_eq!(container.mapped_host_ports, super::BTreeMap::new());
-        #[cfg(not(target_os = "linux"))]
-        assert_ne!(container.mapped_host_ports, super::BTreeMap::new());
+        assert_eq!(
+            container
+                .mapped_host_ports
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![8080, 49092]
+        );
     }
 
     #[tokio::test]
