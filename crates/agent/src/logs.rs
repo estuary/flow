@@ -19,7 +19,7 @@ pub type Tx = tokio::sync::mpsc::Sender<Line>;
 
 // capture_job_logs consumes newline-delimited lines from the AsyncRead and
 // streams each as a Line to the channel Sender.
-#[tracing::instrument(err, skip(tx, reader))]
+#[tracing::instrument(level = "debug", err, skip(tx, reader))]
 pub async fn capture_lines<R>(
     tx: Tx,
     stream: String,

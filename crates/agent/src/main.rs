@@ -3,6 +3,7 @@ use clap::Parser;
 use derivative::Derivative;
 use futures::{FutureExt, TryFutureExt};
 use serde::Deserialize;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 /// Agent is a daemon which runs server-side tasks of the Flow control-plane.
 #[derive(Derivative, Parser)]
@@ -50,7 +51,9 @@ struct Args {
 
 fn main() -> Result<(), anyhow::Error> {
     // Use reasonable defaults for printing structured logs to stderr.
+    // `FmtSpan::Close` emits a log at the end of each span, containing timing info.
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_span_events(FmtSpan::CLOSE)
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use super::{jobs, logs, Handler, HandlerStatus, Id};
+use super::{jobs, logs, HandleResult, Handler, Id};
 use agent_sql::connector_tags::Row;
 use anyhow::Context;
 use proto_flow::flow;
@@ -53,21 +53,26 @@ impl TagHandler {
 
 #[async_trait::async_trait]
 impl Handler for TagHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::connector_tags::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::Idle),
+        let row: Row = match agent_sql::connector_tags::dequeue(&mut txn, allow_background).await? {
+            None => return Ok(HandleResult::NoJobs),
             Some(row) => row,
         };
 
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
         let (id, status) = self.process(row, &mut txn).await?;
-        info!(%id, ?status, "finished");
+        info!(%id, %time_queued, ?status, "finished");
 
         agent_sql::connector_tags::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(HandlerStatus::Active)
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
