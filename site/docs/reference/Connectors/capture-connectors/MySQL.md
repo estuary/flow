@@ -78,9 +78,8 @@ SET PERSIST time_zone = '-05:00'
 
 ### Amazon RDS
 
-Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
-in RDS for use with Flow; however, it's not required.
-You're able to apply the connector directly to the primary instance if you'd like.
+Estuary recommends applying the connector to the primary instance, however creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
+in RDS is also possible to use Flow.
 
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
