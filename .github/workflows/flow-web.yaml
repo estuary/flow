@@ -18,17 +18,15 @@ on:
 jobs:
   buildAndPublish:
     runs-on: ubuntu-20.04
-    permissions: 
+    permissions:
       contents: read
-      packages: write 
+      packages: write
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown
 
       - name: Install wasm-bindgen
         run: |
@@ -42,7 +40,7 @@ jobs:
         run: wasm-pack build --scope estuary crates/flow-web --out-name flow_web
 
       # Fix from: https://github.com/rustwasm/wasm-pack/issues/1039#issuecomment-1712491804
-      # We need to manually insert the main ref until this fix is published 
+      # We need to manually insert the main ref until this fix is published
       # https://github.com/rustwasm/wasm-pack/pull/1061
       - name: Manually update package.json
         run: |
@@ -58,5 +56,3 @@ jobs:
           wasm-pack publish --access=public --tag=dev
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
