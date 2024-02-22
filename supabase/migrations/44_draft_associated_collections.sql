@@ -1,3 +1,5 @@
+begin;
+
 alter policy "Users must be authorized to referenced specifications" on live_spec_flows
   rename to "Users must be authorized to one referenced specification";
 
@@ -39,7 +41,7 @@ from eligible_collections
   join live_specs ls on eligible_collections.target_id = ls.id;
 
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security invoker;
 
 comment on function internal.get_collections_eligible_for_deletion is '
 get_collections_eligible_for_deletion facilitates the deletion of a capture and its associated collections
@@ -65,3 +67,5 @@ draft_collections_eligible_for_deletion facilitates the deletion of a capture an
 in the same publication by populating the specified draft with the collections eligible for deletion.
 The specified draft should contain the capture pending deletion.
 ';
+
+commit;
