@@ -18,7 +18,7 @@ system or endpoint. It requires no endpoint-specific configuration, and can acce
 This is useful primarily if you want to test out Flow or see how your webhook data will come over.
 
 To begin, use the web app to create a capture. Once published, the confirmation dialog displays
-a unique URL for your public endpoint.
+a unique URL for your public endpoint. By default, this will accept webhook requests at `https://<your-public-endpoint>/webhook-data`, but you can customize the path, or even capture from multiple URL paths if you like.
 
 You're now ready to send data to Flow.
 
@@ -31,21 +31,28 @@ You're now ready to send data to Flow.
 3. After sending data, go to the Collections page of the Flow web app and find the collection associated with your capture.
 Click **Details** to view the data preview.
 
-### Configure a webhook
+### Webhook URLs
 
 To configure a webhook in another service, such as Github, Shopify, or Segment, you'll need to paste a webhook URL into the configuration of their service.
 
-You can copy and paste that URL from the Flow web app into a webhook origination service, appending the full name of the collection of the bound collection. This collection name
-is typically determined automatically when you create the capture in the UI, formatted as `prefixes/captureName/webhook-data`.
+To determine the full URL, start with the base URL from the Flow web app (for example `https://abc123-8080.us-central1.v1.estuary-data.dev`), and then append the path.
 
-For example, if you entered `acmeCo/foo` for the capture name, then
-your collection name would default to `acmeCo/foo/webhook-data`, and your full webhook URL would be `https://<your-unique-hostname>/acmeCo/foo/webhook-data`.
+The path will be whatever is in the `paths` endpoint configuration field (`/webhook-data` by default). For example, your full webhook URL would be `https://<your-unique-hostname>/webhook-data`. You can add additional paths to `paths`, and the connector will accept webhook requests on each of them. Each path will correspond to a separate binding. If you're editing the capture via the UI, click the "re-fresh" button after editing the URL paths in the endpoint config to see the resulting collections in the bindings editor. For example, if you set the path to `/my-webhook.json`, then the full URL for that binding would be `https://<your-unique-hostname>/my-webhook.json`.
 
-### URL Paths
+Any URL query parameters that are sent on the request will be captured and serialized under `/_meta/query/*` the in documents. For example, a webhook request that's sent to `/webhook-data?testKey=testValue` would result in a document like:
 
-You can customize the URL path for each binding by setting the `path` option in the [resource configuration](#resource-configuration) when creating the capture. For example, if you set the path to `my-webhook.json`,
-then the full URL for that collection would be `https://<your-unique-hostname>/my-webhook.json`. You can even create multiple bindings to the same collection
-in order to serve webhooks from different URLs.
+```
+{
+  "_meta": {
+    "webhookId": "...",
+    "query": {
+      "testKey": "testValue"
+    },
+    ...
+  }
+  ...
+}
+```
 
 ### Webhook IDs
 
@@ -87,8 +94,10 @@ This connector does not yet support webhook signature verification. If this is a
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **** | EndpointConfig |  | object | Required |
-| `/require_auth_token` |  | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
+| `/require_auth_token` | Authentication token | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
+| `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
 
+List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment.
 ## Resource configuration
 
 | Property | Title | Description | Type | Required/Default |
@@ -96,5 +105,4 @@ This connector does not yet support webhook signature verification. If this is a
 | **** | ResourceConfig |  | object | Required |
 | `/idFromHeader` |  | Set the &#x2F;&#x5F;meta&#x2F;webhookId from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of &#x60;&#x2F;&#x5F;meta&#x2F;webhookId&#x60;. | null, string |  |
 | `/path` |  | The URL path to use for adding documents to this binding. Defaults to the name of the collection. | null, string |  |
-
-
+| `/stream` |  | The name of the binding, which is used as a merge key when doing Discovers. | null, string |  |
