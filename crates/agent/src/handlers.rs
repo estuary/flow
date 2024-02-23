@@ -120,42 +120,32 @@ struct WrappedHandler {
 }
 
 impl WrappedHandler {
-    async fn handle_next_job(
-        &mut self,
-        pg_pool: &sqlx::PgPool,
-        task_tx: &UnboundedSender<String>,
-    ) -> anyhow::Result<()> {
+    async fn handle_next_job(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()> {
         let allow_background = self.status != Status::PollInteractive;
-        match self.handler.handle(pg_pool, allow_background).await {
-            Ok(HandleResult::HadJob) => Ok(()),
-            Ok(HandleResult::PollAgain(after)) => {
-                let table_name = self.handler.table_name().to_owned();
-                let sender = task_tx.clone();
-                tokio::spawn(async move {
-                    // We're unable to process this job right now, and need to try again after the
-                    // backoff period. Technically, this is racey. Adding a second can help make it more
-                    // likely that the job will be eligible when we poll next, though it can't guarantee
-                    // it. We're relying on regular polling of handlers to guarantee that all deferred jobs
-                    // will get processed.
-                    tokio::time::sleep(after + Duration::from_secs(1)).await;
-                    tracing::debug!(%table_name, "triggering poll of handler after backoff");
-                    let _ = sender.send(table_name);
-                });
-                Ok(())
-            }
-            Ok(HandleResult::NoJobs) if self.status == Status::PollInteractive => {
-                tracing::debug!(handler = %self.handler.name(), "handler completed all interactive jobs");
-                self.status = Status::PollBackground;
-                Ok(())
-            }
-            Ok(HandleResult::NoJobs) => {
-                tracing::debug!(handler = %self.handler.name(), "handler completed all background jobs");
-                self.status = Status::Idle;
-                Ok(())
-            }
-            Err(err) => {
-                tracing::error!(handler = %self.handler.name(), error = ?err, "Error invoking handler");
-                Err(err)
+
+        loop {
+            match self.handler.handle(pg_pool, allow_background).await {
+                Ok(HandleResult::HadJob) => return Ok(()),
+                Ok(HandleResult::PollAgain(after)) => {
+                    tracing::debug!(table_name = %self.handler.table_name(), "will poll again after backoff");
+                    tokio::time::sleep(after).await;
+                    tracing::info!(table_name = %self.handler.table_name(), "triggering poll of handler after backoff");
+                    // loop around and try again
+                }
+                Ok(HandleResult::NoJobs) if self.status == Status::PollInteractive => {
+                    tracing::debug!(handler = %self.handler.name(), "handler completed all interactive jobs");
+                    self.status = Status::PollBackground;
+                    return Ok(());
+                }
+                Ok(HandleResult::NoJobs) => {
+                    tracing::debug!(handler = %self.handler.name(), "handler completed all background jobs");
+                    self.status = Status::Idle;
+                    return Ok(());
+                }
+                Err(err) => {
+                    tracing::error!(handler = %self.handler.name(), error = ?err, "Error invoking handler");
+                    return Err(err);
+                }
             }
         }
     }
@@ -237,7 +227,7 @@ where
             .values_mut()
             .filter(|h| h.status == Status::PollInteractive)
         {
-            handler.handle_next_job(&pg_pool, &task_tx).await?;
+            handler.handle_next_job(&pg_pool).await?;
         }
 
         // We only process background jobs if there are no interactive jobs of any type
@@ -252,7 +242,7 @@ where
             .values_mut()
             .filter(|h| h.status == Status::PollBackground)
         {
-            handler.handle_next_job(&pg_pool, &task_tx).await?;
+            handler.handle_next_job(&pg_pool).await?;
         }
 
         if handlers_by_table.values().all(|h| h.status == Status::Idle) {
