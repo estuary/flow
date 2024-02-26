@@ -40,9 +40,9 @@ You'll need a PostgreSQL database setup with the following:
 To meet these requirements, follow the steps for your hosting type.
 
 * [Self-hosted PostgreSQL](#self-hosted-postgresql)
-* [Amazon RDS](#amazon-rds)
+* [Amazon RDS](./amazon-rds-postgres/)
 * [Amazon Aurora](#amazon-aurora)
-* [Google Cloud SQL](#google-cloud-sql)
+* [Google Cloud SQL](./google-cloud-sql-postgres/)
 * [Azure Database for PostgreSQL](#azure-database-for-postgresql)
 
 ### Self-hosted PostgreSQL

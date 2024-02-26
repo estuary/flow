@@ -13,10 +13,10 @@ This connector supports SQL Server 2017 and later on major cloud providers,
 as well as self-hosted instances.
 Setup instructions are provided for the following platforms:
 
-* [Self-hosted SQL Server](#setup-self-hosted-sql-server)
-* [Azure SQL Database](#setup-azure-sql-database)
-* [Amazon RDS for SQL Server](#setup-amazon-rds-for-sql-server)
-* [Google Cloud SQL for SQL Server](#setup-google-cloud-sql-for-sql-server)
+* [Self-hosted SQL Server](#self-hosted-sql-server)
+* [Azure SQL Database](#azure-sql-database)
+* [Amazon RDS for SQL Server](./amazon-rds-sqlserver/)
+* [Google Cloud SQL for SQL Server](./google-cloud-sql-sqlserver/)
 
 ## Prerequisites
 
@@ -37,14 +37,16 @@ on the database and the individual tables to be captured.
   * Access to the change tables created as part of the SQL Server CDC process.
   * `SELECT`, `INSERT`, and `UPDATE` permissions on the watermarks table
 
+## Setup
+
 To meet these requirements, follow the steps for your hosting type.
 
-* [Self-hosted SQL Server](#setup-self-hosted-sql-server)
-* [Azure SQL Database](#setup-azure-sql-database)
-* [Amazon RDS for SQL Server](#setup-amazon-rds-for-sql-server)
-* [Google Cloud SQL for SQL Server](#setup-google-cloud-sql-for-sql-server)
+* [Self-hosted SQL Server](#self-hosted-sql-server)
+* [Azure SQL Database](#azure-sql-database)
+* [Amazon RDS for SQL Server](./amazon-rds-sqlserver/))
+* [Google Cloud SQL for SQL Server](./google-cloud-sql-sqlserver/)
 
-### Setup: Self-hosted SQL Server
+### Self-hosted SQL Server
 
 1. Connect to the server and issue the following commands:
 
@@ -78,7 +80,7 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 
    * Whitelist the Estuary IP address, `34.121.207.128` in your firewall rules.
 
-### Setup: Azure SQL Database
+### Azure SQL Database
 
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
@@ -116,76 +118,6 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
    * Find the instance's host under Server Name. The port is always `1433`. Together, you'll use the host:port as the `address` property when you configure the connector.
    * Format `user` as `username@databasename`; for example, `flow_capture@myazuredb`.
 
-### Setup: Amazon RDS for SQL Server
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2.  In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Enable CDC for the database.
-EXEC msdb.dbo.rds_cdc_enable_db;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
-CREATE USER flow_capture FOR LOGIN flow_capture;
--- Grant the user permissions on the CDC schema and schemas with data.
--- This assumes all tables to be captured are in the default schema, `dbo`.
--- Add similar queries for any other schemas that contain tables you want to capture.
-GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
-GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
--- Create the watermarks table and grant permissions.
-CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
-GRANT SELECT, INSERT, UPDATE ON dbo.flow_watermarks TO flow_capture;
--- Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
--- You should add similar query for all other tables you intend to capture.
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture';
-```
-6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
-### Setup: Google Cloud SQL for SQL Server
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Enable CDC for the database.
-EXEC msdb.dbo.gcloudsql_cdc_enable_db '<database>';
--- Create user and password for use with the connector.
-CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
-CREATE USER flow_capture FOR LOGIN flow_capture;
--- Grant the user permissions on the CDC schema and schemas with data.
--- This assumes all tables to be captured are in the default schema, `dbo`.
--- Add similar queries for any other schemas that contain tables you want to capture.
-GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
-GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
--- Create the watermarks table and grant permissions.
-CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
-GRANT SELECT, INSERT, UPDATE ON dbo.flow_watermarks TO flow_capture;
--- Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
--- You should add similar query for all other tables you intend to capture.
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture';
-```
-
-3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
-Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Configuration
 

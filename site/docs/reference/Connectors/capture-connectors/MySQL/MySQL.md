@@ -42,9 +42,9 @@ To use this connector, you'll need a MySQL database setup with the following.
 To meet these requirements, follow the steps for  your hosting type.
 
 * [Self-hosted MySQL](#self-hosted-mysql)
-* [Amazon RDS](#amazon-rds)
+* [Amazon RDS](./amazon-rds-mysql/)
 * [Amazon Aurora](#amazon-aurora)
-* [Google Cloud SQL](#google-cloud-sql)
+* [Google Cloud SQL](./google-cloud-sql-mysql/)
 * [Azure Database for MySQL](#azure-database-for-mysql)
 
 ### Self-hosted MySQL
