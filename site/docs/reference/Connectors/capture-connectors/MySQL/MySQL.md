@@ -14,9 +14,9 @@ This connector supports MySQL on major cloud providers, as well as self-hosted i
 Setup instructions are provided for the following platforms:
 
 * [Self-hosted MySQL](#self-hosted-mysql)
-* [Amazon RDS](#amazon-rds)
+* [Amazon RDS](./amazon-rds-mysql/)
 * [Amazon Aurora](#amazon-aurora)
-* [Google Cloud SQL](#google-cloud-sql)
+* [Google Cloud SQL](./google-cloud-sql-mysql/)
 * [Azure Database for MySQL](#azure-database-for-mysql)
 
 ## Prerequisites
@@ -75,73 +75,6 @@ SET PERSIST binlog_expire_logs_seconds = 2592000;
 SET PERSIST time_zone = '-05:00'
 ```
 
-
-### Amazon RDS
-
-Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
-in RDS for use with Flow; however, it's not required.
-You're able to apply the connector directly to the primary instance if you'd like.
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. Create a RDS parameter group to enable replication in MySQL.
-
-   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
-   Create a unique name and description and set the following properties:
-      * **Family**: mysql8.0
-      * **Type**: DB Parameter group
-
-   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
-      * binlog_format: ROW
-      * binlog_row_metadata: FULL
-      * read_only: 0
-
-   3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
-   Reboot the database to allow the changes to take effect.
-
-3. Create a read replica with the new parameter group applied (recommended).
-
-   1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-   of your MySQL database.
-
-   2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
-   and set the following:
-      * **DB parameter group**: choose the parameter group you created previously
-      * **Backup retention period**: 7 days
-      * **Public access**: Publicly accessible
-
-   3. Reboot the replica to allow the changes to take effect.
-
-4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
-and set up the watermarks table:
-
-```sql
-CREATE DATABASE IF NOT EXISTS flow;
-CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
-CREATE USER IF NOT EXISTS flow_capture
-  IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
-```
-
-5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MySQL permits:
-```sql
-CALL mysql.rds_set_configuration('binlog retention hours', 168);
-```
-
-6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
 ### Amazon Aurora
 
 You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster.
@@ -196,40 +129,6 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
-### Google Cloud SQL
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. Set the instance's `binlog_expire_logs_seconds` [flag](https://cloud.google.com/sql/docs/mysql/flags?_ga=2.8077298.-1359189752.1655241239&_gac=1.226418280.1655849730.Cj0KCQjw2MWVBhCQARIsAIjbwoOczKklaVaykkUiCMZ4n3_jVtsInpmlugWN92zx6rL5i7zTxm3AALIaAv6nEALw_wcB)
-to `2592000`.
-
-3. Using [Google Cloud Shell](https://cloud.google.com/sql/docs/mysql/connect-instance-cloud-shell) or your preferred client, create the watermarks table.
-```sql
-CREATE DATABASE IF NOT EXISTS flow;
-CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
-```
-
-4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
-
-  The `SELECT` permission can be restricted to just the tables that need to be
-  captured, but automatic discovery requires `information_schema` access as well.
-```sql
-CREATE USER IF NOT EXISTS flow_capture
-  IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
-```
-5. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `3306`.
-Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ### Azure Database for MySQL
 
