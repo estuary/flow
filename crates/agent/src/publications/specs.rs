@@ -10,13 +10,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 // resolve_specifications returns the definitive set of specifications which
 // are changing in this publication. It obtains sufficient locks to ensure
 // that raced publications to returned specifications are serialized with
-// this publication.
+// this publication. Returns `Ok(Err(CannotAcquireLock))` if any locks could
+// not be immediately acquired, so that the publication can be re-tried later.
 pub async fn resolve_specifications(
     draft_id: Id,
     pub_id: Id,
     user_id: Uuid,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<Vec<SpecRow>> {
+) -> anyhow::Result<Result<Vec<SpecRow>, CannotAcquireLock>> {
     // Attempt to create a row in live_specs for each of our draft_specs.
     // This allows us next inner-join over draft and live spec rows.
     // Inner join (vs a left-join) is required for "for update" semantics.
@@ -47,9 +48,12 @@ pub async fn resolve_specifications(
     // of what's "in" this publication, and what's not. Anything we don't pick up here will
     // be left behind as a draft_spec, and this is the reason we don't delete the draft
     // itself within this transaction.
-    let mut spec_rows = agent_sql::publications::resolve_spec_rows(draft_id, user_id, txn)
-        .await
-        .context("selecting joined draft & live specs")?;
+    let mut spec_rows =
+        match agent_sql::publications::resolve_spec_rows(draft_id, user_id, txn).await {
+            Ok(rows) => rows,
+            Err(err) if crate::is_acquire_lock_error(&err) => return Ok(Err(CannotAcquireLock)),
+            Err(other_err) => return Err(other_err).context("selecting joined draft & live specs"),
+        };
 
     // The query may return live specifications that the user is not
     // authorized to know anything about. Tweak such rows to appear
@@ -65,17 +69,17 @@ pub async fn resolve_specifications(
         }
     }
 
-    Ok(spec_rows)
+    Ok(Ok(spec_rows))
 }
 
 #[derive(Debug)]
 pub struct CannotAcquireLock;
 
 // expanded_specifications returns additional specifications which should be
-// included in this publication's build. These specifications are not changed
-// by the publication and are read with read-committed transaction semantics,
-// but (if not a dry-run) we do re-activate each specification within the
-// data-plane with the outcome of this publication's build.
+// included in this publication's build. Attempts to acquire a lock on each expanded `live_specs`
+// row, with the assumption that we will be updating the `built_spec` and `last_build_id`.
+// Returns `Ok(Err(CannotAcquireLock))` if any locks could not be immediately acquired, so that the
+// publication can be re-tried later.
 pub async fn expanded_specifications(
     user_id: Uuid,
     spec_rows: &[SpecRow],

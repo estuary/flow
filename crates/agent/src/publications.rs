@@ -1,4 +1,4 @@
-use std::{collections::HashSet, time::Duration};
+use std::collections::HashSet;
 
 use self::builds::IncompatibleCollection;
 use self::validation::ControlPlane;
@@ -21,10 +21,7 @@ mod validation;
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
-    Queued {
-        #[serde(default, with = "humantime_serde")]
-        backoff: Option<std::time::Duration>,
-    },
+    Queued,
     BuildFailed {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         incompatible_collections: Vec<IncompatibleCollection>,
@@ -123,14 +120,6 @@ impl Handler for PublishHandler {
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
 
         let (id, status) = self.process(row, &mut txn, false).await?;
-        let result = if let JobStatus::Queued { backoff } = &status {
-            HandleResult::PollAgain(
-                backoff.expect("backoff must be set when deferring job handling"),
-            )
-        } else {
-            HandleResult::HadJob
-        };
-
         info!(%id, %time_queued, ?status, %background, "finished");
 
         agent_sql::publications::resolve(id, &status, &mut txn).await?;
@@ -142,7 +131,7 @@ impl Handler for PublishHandler {
             agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
-        Ok(result)
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
@@ -179,8 +168,12 @@ impl PublishHandler {
             .await
             .context("creating savepoint")?;
 
-        let spec_rows =
-            specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?;
+        let Ok(spec_rows) =
+            specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?
+        else {
+            // If unable to lock the spec rows, then bail and leave the job queued so we can try again.
+            return stop_with_errors(Vec::new(), JobStatus::Queued, row, txn).await;
+        };
         tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
 
         // Keep track of which collections are being deleted so that we can account for them
@@ -299,15 +292,8 @@ impl PublishHandler {
         let Ok(expanded_rows) =
             specs::expanded_specifications(row.user_id, &spec_rows, txn).await?
         else {
-            return stop_with_errors(
-                Vec::new(),
-                JobStatus::Queued {
-                    backoff: Some(std::time::Duration::from_secs(2)),
-                },
-                row,
-                txn,
-            )
-            .await;
+            // If unable to lock the spec rows, then bail and leave the job queued so we can try again.
+            return stop_with_errors(Vec::new(), JobStatus::Queued, row, txn).await;
         };
 
         tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");

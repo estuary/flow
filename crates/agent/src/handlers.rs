@@ -9,7 +9,6 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 pub enum HandleResult {
     HadJob,
     NoJobs,
-    PollAgain(Duration),
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -126,12 +125,6 @@ impl WrappedHandler {
         loop {
             match self.handler.handle(pg_pool, allow_background).await {
                 Ok(HandleResult::HadJob) => return Ok(()),
-                Ok(HandleResult::PollAgain(after)) => {
-                    tracing::debug!(table_name = %self.handler.table_name(), "will poll again after backoff");
-                    tokio::time::sleep(after).await;
-                    tracing::info!(table_name = %self.handler.table_name(), "triggering poll of handler after backoff");
-                    // loop around and try again
-                }
                 Ok(HandleResult::NoJobs) if self.status == Status::PollInteractive => {
                     tracing::debug!(handler = %self.handler.name(), "handler completed all interactive jobs");
                     self.status = Status::PollBackground;
