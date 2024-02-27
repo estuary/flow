@@ -37,6 +37,10 @@ To use this connector, you'll need a MySQL database setup with the following.
 * If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
+:::tip Configuration Tip
+To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](../../../../guides/connect-network/).
+:::
+
 ## Setup
 
 To meet these requirements, follow the steps for  your hosting type.

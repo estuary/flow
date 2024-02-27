@@ -35,6 +35,10 @@ You'll need a PostgreSQL database setup with the following:
 * A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
     * In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
 
+:::tip Configuration Tip
+To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](../../../../guides/connect-network/).
+:::
+
 ## Setup
 
 To meet these requirements, follow the steps for your hosting type.

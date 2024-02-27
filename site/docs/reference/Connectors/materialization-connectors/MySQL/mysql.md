@@ -18,6 +18,28 @@ To use this connector, you'll need:
     setting by running `SET GLOBAL local_infile = true` in your database.
 * At least one Flow collection
 
+## Setup
+
+To meet these requirements, follow the steps for your hosting type.
+
+* [Amazon RDS](./amazon-rds-postgres/)
+* [Google Cloud SQL](./google-cloud-sql-postgres/)
+* [Azure Database for PostgreSQL](#azure-database-for-mysql)
+
+In addition to standard PostgreSQL, this connector supports cloud-based PostgreSQL instances. Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported. You may use other cloud platforms, but Estuary doesn't guarantee performance.
+
+To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
+
+### Azure Database for PostgreSQL
+
+You must configure your database to allow connections from Estuary.
+There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+* **Connect Directly With Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the IP address `34.121.207.128`
+
+* **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](../../../../guides/connect-network/#setup-for-azure).
+
+
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -141,7 +163,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
 
 * **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
-* **Connect directly with Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the IP address `34.121.207.128`.  See the instructions below to use SSH Tunneling instead of enabling public access.
+
 
 * **Connect with SSH tunneling**
    1. Refer to the [guide](../../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.

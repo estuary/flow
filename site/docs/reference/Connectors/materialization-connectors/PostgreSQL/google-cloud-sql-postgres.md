@@ -12,6 +12,50 @@ To use this connector, you'll need:
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
 * At least one Flow collection
 
+## Setup
+
+You must configure your database to allow connections from Estuary.
+There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+### Conenecting Directly to Google Cloud SQL 
+
+1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
+
+### Connect With SSH Tunneling
+
+To allow SSH tunneling to a database instance hosted on Google Cloud, you must set up a virtual machine (VM).
+
+1. Begin by finding your public SSH key on your local machine.
+   In the `.ssh` subdirectory of your user home directory,
+   look for the PEM file that contains the private SSH key. Check that it starts with `-----BEGIN RSA PRIVATE KEY-----`,
+   which indicates it is an RSA-based file.
+   * If no such file exists, generate one using the command:
+   ```console
+      ssh-keygen -m PEM -t rsa
+      ```
+   * If a PEM file exists, but starts with `-----BEGIN OPENSSH PRIVATE KEY-----`, convert it with the command:
+   ```console
+      ssh-keygen -p -N "" -m pem -f /path/to/key
+      ```
+   * If your Google login differs from your local username, generate a key that includes your Google email address as a comment:
+   ```console
+      ssh-keygen -m PEM -t rsa -C user@domain.com
+      ```
+
+2. [Create and start a new VM in GCP](https://cloud.google.com/compute/docs/instances/create-start-instance), [choosing an image that supports OS Login](https://cloud.google.com/compute/docs/images/os-details#user-space-features).
+
+3. [Add your public key to the VM](https://cloud.google.com/compute/docs/connect/add-ssh-keys).
+
+5. [Reserve an external IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address) and connect it to the VM during setup.
+Note the generated address.
+
+:::tip Configuration Tip
+To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
+You can find the host and port in the following location:
+* Host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
+:::
+
+
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -58,29 +102,6 @@ materializations:
           table: ${TABLE_NAME}
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
-
-
-### Setup
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-for additional details and a sample.
-
-:::tip Configuration Tip
-To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
-You can find the host and port in the following location:
-* Host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
-:::
 
 ## Delta updates
 

@@ -18,6 +18,47 @@ To use this connector, you'll need:
     setting by running `SET GLOBAL local_infile = true` in your database.
 * At least one Flow collection
 
+## Setup
+
+### Conenecting Directly to Google Cloud SQL 
+
+1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
+
+### Connect With SSH Tunneling
+
+To allow SSH tunneling to a database instance hosted on Google Cloud, you must set up a virtual machine (VM).
+
+1. Begin by finding your public SSH key on your local machine.
+   In the `.ssh` subdirectory of your user home directory,
+   look for the PEM file that contains the private SSH key. Check that it starts with `-----BEGIN RSA PRIVATE KEY-----`,
+   which indicates it is an RSA-based file.
+   * If no such file exists, generate one using the command:
+   ```console
+      ssh-keygen -m PEM -t rsa
+      ```
+   * If a PEM file exists, but starts with `-----BEGIN OPENSSH PRIVATE KEY-----`, convert it with the command:
+   ```console
+      ssh-keygen -p -N "" -m pem -f /path/to/key
+      ```
+   * If your Google login differs from your local username, generate a key that includes your Google email address as a comment:
+   ```console
+      ssh-keygen -m PEM -t rsa -C user@domain.com
+      ```
+
+2. [Create and start a new VM in GCP](https://cloud.google.com/compute/docs/instances/create-start-instance), [choosing an image that supports OS Login](https://cloud.google.com/compute/docs/images/os-details#user-space-features).
+
+3. [Add your public key to the VM](https://cloud.google.com/compute/docs/connect/add-ssh-keys).
+
+5. [Reserve an external IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address) and connect it to the VM during setup.
+Note the generated address.
+
+:::tip Configuration Tip
+To configure the connector, you must specify the database address in the format
+`host:port`. (You can also supply `host` only; the connector will use the port `3306` by default, which is correct in many cases.)
+You can find the host and port in the following locations in each platform's console:
+:::
+
+
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.

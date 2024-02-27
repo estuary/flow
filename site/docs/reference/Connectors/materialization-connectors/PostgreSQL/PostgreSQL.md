@@ -11,6 +11,23 @@ To use this connector, you'll need:
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
 * At least one Flow collection
 
+## Setup
+
+To meet these requirements, follow the steps for your hosting type.
+
+* [Amazon RDS](./amazon-rds-postgres/)
+* [Google Cloud SQL](./google-cloud-sql-postgres/)
+* [Azure Database for PostgreSQL](#azure-database-for-postgresql)
+
+In addition to standard PostgreSQL, this connector supports cloud-based PostgreSQL instances. Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported. You may use other cloud platforms, but Estuary doesn't guarantee performance.
+
+To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
+
+
+### Azure Database for PostgreSQL
+
+* Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -62,15 +79,6 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-## PostgreSQL on managed cloud platforms
-
-In addition to standard PostgreSQL, this connector supports cloud-based PostgreSQL instances.
-To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
-
-Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported.
-You may use other cloud platforms, but Estuary doesn't guarantee performance.
-
-
 ### Setup
 
 You must configure your database to allow connections from Estuary.
@@ -84,7 +92,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
 
 * **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
-* **Connect directly with Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
 
 * **Connect with SSH tunneling**
    1. Refer to the [guide](../../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.

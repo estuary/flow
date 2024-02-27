@@ -41,6 +41,31 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
 Together, you'll use the host:port as the `address` property when you configure the connector.
 
+## Connecting to SQLServer
+
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+   1. To allow direct access:
+       * [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
+
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+
+2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
+
+```sql
+USE <database>;
+-- Create user and password for use with the connector.
+CREATE LOGIN flow_materialize WITH PASSWORD = 'Secret123!';
+CREATE USER flow_materialize FOR LOGIN flow_materialize;
+-- Grant control on the database to flow_materialize
+GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
+```
+
+3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
+Together, you'll use the host:port as the `address` property when you configure the connector.
+
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -83,30 +108,6 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-## Connecting to SQLServer
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'Secret123!';
-CREATE USER flow_materialize FOR LOGIN flow_materialize;
--- Grant control on the database to flow_materialize
-GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
-```
-
-3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
-Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Delta updates
 
