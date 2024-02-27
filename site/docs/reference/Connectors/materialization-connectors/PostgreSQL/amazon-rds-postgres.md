@@ -1,6 +1,6 @@
-# Google Cloud SQL for PostgreSQL
+# Amazon RDS for PostgreSQL
 
-This connector materializes Flow collections into tables in a Google Cloud SQL for PostgreSQL database.
+This connector materializes Flow collections into tables in a PostgreSQL database.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -11,6 +11,53 @@ To use this connector, you'll need:
 * A Postgres database to which to materialize, and user credentials.
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
 * At least one Flow collection
+
+## Setup
+
+You must configure your database to allow connections from Estuary.
+There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+### Connect Directly With Amazon RDS or Amazon Aurora
+
+1. Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
+    1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.  See the instructions below to use SSH Tunneling instead of enabling public access.
+
+    2. Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+   Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+### Connect With SSH Tunneling
+
+To allow SSH tunneling to a database instance hosted on AWS, you'll need to create a virtual computing environment, or *instance*, in Amazon EC2.
+
+1. Begin by finding your public SSH key on your local machine.
+   In the `.ssh` subdirectory of your user home directory,
+   look for the PEM file that contains the private SSH key. Check that it starts with `-----BEGIN RSA PRIVATE KEY-----`,
+   which indicates it is an RSA-based file.
+   * If no such file exists, generate one using the command:
+   ```console
+      ssh-keygen -m PEM -t rsa
+      ```
+   * If a PEM file exists, but starts with `-----BEGIN OPENSSH PRIVATE KEY-----`, convert it with the command:
+   ```console
+      ssh-keygen -p -N "" -m pem -f /path/to/key
+      ```
+
+2. [Import your SSH key into AWS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#how-to-generate-your-own-key-and-import-it-to-aws).
+
+3. [Launch a new instance in EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/LaunchingAndUsingInstances.html). During setup:
+   * Configure the security group to allow SSH connection from anywhere.
+   * When selecting a key pair, choose the key you just imported.
+
+4. [Connect to the instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/AccessingInstances.html),
+setting the user name to `ec2-user`.
+
+5. Find and note the [instance's public DNS](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-dns.html#vpc-dns-viewing). This will be formatted like: `ec2-198-21-98-1.compute-1.amazonaws.com`.
+
+:::tip Configuration Tip
+To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
+You can find the host and port in the following locations in each platform's console:
+* Amazon RDS: host as Endpoint; port as Port.
+:::
 
 ## Configuration
 
@@ -40,6 +87,10 @@ Use the below properties to configure a Postgres materialization, which will dir
 | `/schema` | Alternative Schema | Alternative schema for this table (optional). Overrides schema set in endpoint configuration. | string |  |
 | **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
 
+#### SSL Mode
+
+Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
+
 ### Sample
 
 ```yaml
@@ -59,32 +110,9 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-
-### Setup
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-for additional details and a sample.
-
-:::tip Configuration Tip
-To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
-You can find the host and port in the following location:
-* Host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
-:::
-
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](../../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
 ## Reserved words
