@@ -33,8 +33,8 @@ To use this connector, you'll need a MySQL database setup with the following.
        * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. Set the instance's `binlog_expire_logs_seconds` [flag](https://cloud.google.com/sql/docs/mysql/flags?_ga=2.8077298.-1359189752.1655241239&_gac=1.226418280.1655849730.Cj0KCQjw2MWVBhCQARIsAIjbwoOczKklaVaykkUiCMZ4n3_jVtsInpmlugWN92zx6rL5i7zTxm3AALIaAv6nEALw_wcB)
 to `2592000`.
@@ -102,7 +102,7 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
 
@@ -159,7 +159,7 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
 
 ## Troubleshooting Capture Errors
 
@@ -201,4 +201,4 @@ The `"binlog retention period is too short"` error should normally be fixed by s
 
 ### Empty Collection Key
 
-Every Flow collection must declare a [key](../../../../concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](../../../../concepts/collections.md#empty-keys).
+Every Flow collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).

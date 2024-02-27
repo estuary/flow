@@ -36,7 +36,7 @@ You'll need a PostgreSQL database setup with the following:
     * In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
 
 :::tip Configuration Tip
-To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](../../../../guides/connect-network/).
+To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](/guides/connect-network/).
 :::
 
 ## Setup
@@ -115,8 +115,8 @@ For each step, take note of which entity you're working with.
         * Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-        * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-        * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+        * Follow the guide to [configure an SSH server for tunneling](/../guides/connect-network/)
+        * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 
 2. Enable logical replication on your Aurora DB cluster.
@@ -161,8 +161,8 @@ and set up the watermarks table and publication.
        * Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+       * Follow the guide to [configure an SSH server for tunneling](/../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. In your Azure PostgreSQL instance's support parameters, [set replication to logical](https://docs.microsoft.com/en-us/azure/postgresql/single-server/concepts-logical#set-up-your-server) to enable logical replication.
 
@@ -223,7 +223,7 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
 
 ### Properties
 
@@ -279,7 +279,7 @@ captures:
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
 
 ## TOASTed values
 
@@ -293,21 +293,21 @@ If a change event occurs on a row that contains a TOASTed value, _but the TOASTe
 As a result, the connector emits a row update with the a value omitted, which might cause
 unexpected results in downstream catalog tasks if adjustments are not made.
 
-The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](../../../../concepts/connectors.md#flowctl-discover)
-or use the [Flow UI](../../../../concepts/connectors.md#flow-ui) to create your capture.
-It uses [merge](../../../reduction-strategies/merge.md) [reductions](../../../../concepts/schemas.md#reductions)
+The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](/concepts/connectors.md#flowctl-discover)
+or use the [Flow UI](/concepts/connectors.md#flow-ui) to create your capture.
+It uses [merge](/reference/reduction-strategies/merge.md) [reductions](/concepts/schemas.md#reductions)
 to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
 
 However, due to the event-driven nature of certain tasks in Flow, it's still possible to see unexpected results in your data flow, specifically:
 
-- When you materialize the captured data to another system using a connector that requires [delta updates](../../../../concepts/materialization.md#delta-updates)
-- When you perform a [derivation](../../../../concepts/derivations.md) that uses TOASTed values
+- When you materialize the captured data to another system using a connector that requires [delta updates](/concepts/materialization.md#delta-updates)
+- When you perform a [derivation](/concepts/derivations.md) that uses TOASTed values
 
 ### Troubleshooting
 
 If you encounter an issue that you suspect is due to TOASTed values, try the following:
 
-- Ensure your collection's schema is using the merge [reduction strategy](../../../../concepts/schemas.md#reduce-annotations).
+- Ensure your collection's schema is using the merge [reduction strategy](/concepts/schemas.md#reduce-annotations).
 - [Set REPLICA IDENTITY to FULL](https://www.postgresql.org/docs/9.4/sql-altertable.html) for the table. This circumvents the problem by forcing the
 WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
 - [Contact Estuary support](mailto:support@estuary.dev) for assistance.

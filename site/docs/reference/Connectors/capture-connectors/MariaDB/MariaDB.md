@@ -29,7 +29,7 @@ To use this connector, you'll need a MariaDB database setup with the following.
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
 :::tip Configuration Tip
-To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](../../../../guides/connect-network/).
+To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](/guides/connect-network/).
 :::
 
 ### Setup
@@ -97,7 +97,7 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
 
 ### Properties
 
@@ -154,7 +154,7 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
 
 ## MariaDB on managed cloud platforms
 
@@ -180,10 +180,10 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+     * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
      * When you configure your connector as described in the [configuration](#configuration) section above,
         including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
         for additional details and a sample.
    :::
 
@@ -249,10 +249,10 @@ You can use this connector for MariaDB instances on Azure Database for MariaDB u
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+     * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
      * When you configure your connector as described in the [configuration](#configuration) section above,
         including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
         for additional details and a sample.
    :::
 
