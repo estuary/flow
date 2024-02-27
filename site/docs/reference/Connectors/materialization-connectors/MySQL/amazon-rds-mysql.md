@@ -132,11 +132,11 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
    create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
 * **Connect with SSH tunneling**
-   1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
+   1. Refer to the [guide](../../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
    2. Configure your connector as described in the [configuration](#configuration) section above,
     with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-    See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+    See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
     for additional details and a sample.
 
 :::tip Configuration Tip
@@ -148,7 +148,7 @@ You can find the host and port in the following locations in each platform's con
 
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](../../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
 ## Date & times

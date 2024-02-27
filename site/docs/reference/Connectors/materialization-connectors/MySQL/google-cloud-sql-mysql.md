@@ -1,4 +1,4 @@
-# MySQL
+# Google Cloud SQL for MySQL
 
 This connector materializes Flow collections into tables in a MySQL database.
 
@@ -58,10 +58,6 @@ You can:
 
 * Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
 
-* If you're using Amazon Aurora, create or modify the [DB cluster parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html)
-associated with your MySQL database.
-[Set](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) the `time_zone` parameter to the correct value.
-
 For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
 Because this region observes daylight savings time, you'd be responsible for changing the offset.
 Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
@@ -119,50 +115,43 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-## MySQL on managed cloud platforms
-
-In addition to standard MySQL, this connector supports cloud-based MySQL instances.
-To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
-
-Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported.
-You may use other cloud platforms, but Estuary doesn't guarantee performance.
-
-
 ### Setup
 
-You must configure your database to allow connections from Estuary.
-There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-* **Connect directly with Amazon RDS or Amazon Aurora**: Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
-   1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.
+   1. To allow direct access:
+       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
-   2. Per the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create),
-   create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
-* **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
-* **Connect directly with Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the IP address `34.121.207.128`.  See the instructions below to use SSH Tunneling instead of enabling public access.
-
-* **Connect with SSH tunneling**
-   1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
-
-   2. Configure your connector as described in the [configuration](#configuration) section above,
-    with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-    See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-    for additional details and a sample.
+2. Configure your connector as described in the [configuration](#configuration) section above,
+with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
+See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+for additional details and a sample.
 
 :::tip Configuration Tip
 To configure the connector, you must specify the database address in the format
 `host:port`. (You can also supply `host` only; the connector will use the port `3306` by default, which is correct in many cases.)
-You can find the host and port in the following locations in each platform's console:
-* Amazon RDS and Amazon Aurora: host as Endpoint; port as Port.
-* Google Cloud SQL: host as Private IP Address; port is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
-* Azure Database: host as Server Name; port under Connection Strings (usually `3306`).
+You can find the host host in the GCP console as "Private IP Address".  The pport is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
 :::
+
+3. Create the `flow_materialize` user with `All` privileges on your database. This user will need the ability to create and update the `flow_materializations` table.
+```sql
+CREATE USER IF NOT EXISTS flow_materialize
+  IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data materialization';
+GRANT ALL PRIVELEGES ON <database>.* TO 'flow_materialize';
+```
+
+4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `3306`.
+Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](../../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
 ## Date & times
