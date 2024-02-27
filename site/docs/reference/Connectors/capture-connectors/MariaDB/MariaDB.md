@@ -1,10 +1,10 @@
 ---
 sidebar_position: 3
 ---
-# Amazon RDS for MariaDB
+# MariaDB
 
 This is a change data capture (CDC) connector that captures change events from a MariaDB database via the [Binary Log](https://mariadb.com/kb/en/overview-of-the-binary-log/).
-It's derived from the [MySQL capture connector](./MySQL.md),
+It's derived from the [MySQL capture connector](../MySQL/MySQL.md),
 so the same configuration applies, but the setup steps look somewhat different.
 
 This connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mariadb:dev`](https://github.com/estuary/connectors/pkgs/container/source-mariadb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
@@ -28,75 +28,63 @@ To use this connector, you'll need a MariaDB database setup with the following.
 * If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
+:::tip Configuration Tip
+To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](../../../../guides/connect-network/).
+:::
+
 ### Setup
+To meet these requirements, do the following:
 
-1. Allow connections to the database from the Estuary Flow IP address.
-
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-
-   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
-      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
-
-2. Create a RDS parameter group to enable replication in MariaDB.
-
-   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
-   Create a unique name and description and set the following properties:
-      * **Family**: mariadb10.6
-      * **Type**: DB Parameter group
-
-   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
-      * binlog_format: ROW
-      * binlog_row_metadata: FULL
-      * read_only: 0
-
-   3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
-   Reboot the database to allow the changes to take effect.
-
-3. Create a read replica with the new parameter group applied (recommended).
-
-   1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-   of your MariaDB database.
-
-   2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
-   and set the following:
-      * **DB parameter group**: choose the parameter group you created previously
-      * **Backup retention period**: 7 days
-      * **Public access**: Publicly accessible
-
-   3. Reboot the replica to allow the changes to take effect.
-
-4. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions,
-and set up the watermarks table:
-
+1. Create the watermarks table. This table can have any name and be in any database, so long as the capture's `config.json` file is modified accordingly.
 ```sql
 CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+```
+2. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
+
+  The `SELECT` permission can be restricted to just the tables that need to be
+  captured, but automatic discovery requires `information_schema` access as well.
+```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
-
-5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MariaDB permits:
+3. Configure the binary log to retain data for 30 days, if previously set lower.
 ```sql
-CALL mysql.rds_set_configuration('binlog retention hours', 168);
+SET PERSIST binlog_expire_logs_seconds = 2592000;
+```
+4. Configure the database's time zone. See [below](#setting-the-mariadb-time-zone) for more information.
+```sql
+SET PERSIST time_zone = '-05:00'
 ```
 
-6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+### Setting the MariaDB time zone
 
+MariaDB's [`time_zone` server system variable](https://mariadb.com/kb/en/server-system-variables/#system_time_zone) is set to `SYSTEM` by default.
+Flow is not able to detect your time zone when it's set this way, so you must explicitly set the variable for your database.
 
+If you intend to capture tables including columns of the type `DATETIME`,
+and `time_zone` is set to `SYSTEM`,
+Flow won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
+To avoid this, you must explicitly set the time zone for your database.
+
+You can:
+
+* Specify a numerical offset from UTC.
+
+* Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
+
+For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
+Because this region observes daylight savings time, you'd be responsible for changing the offset.
+Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
+
+If using IANA time zones, your database must include time zone tables. [Learn more in the MariaDB docs](https://mariadb.com/kb/en/time-zones/).
+
+:::tip Capture Timezone Configuration
+If you are unable to set the `time_zone` in the database and need to capture tables with `DATETIME` columns, the capture can be configured to assume a time zone using the `timezone` configuration property (see below). The `timezone` configuration property can be set as a numerical offset or IANA timezone format.
+:::
 
 ## Backfills and performance considerations
 
@@ -109,7 +97,7 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
+See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
 
 ### Properties
 
@@ -166,12 +154,140 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../../concepts/captures.md#pull-captures)
 
+## MariaDB on managed cloud platforms
+
+In addition to standard MariaDB, this connector supports cloud-based MariaDB instances on certain platforms.
+
+### Amazon RDS
+
+You can use this connector for MariaDB instances on Amazon RDS using the following setup instructions.
+
+Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
+in RDS for use with Flow; however, it's not required.
+You're able to apply the connector directly to the primary instance if you'd like.
+
+#### Setup
+
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+
+   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
+      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
+
+2. Create a RDS parameter group to enable replication in MariaDB.
+
+   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
+   Create a unique name and description and set the following properties:
+      * **Family**: mariadb10.6
+      * **Type**: DB Parameter group
+
+   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
+      * binlog_format: ROW
+      * binlog_row_metadata: FULL
+      * read_only: 0
+
+   3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
+   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
+   Reboot the database to allow the changes to take effect.
+
+3. Create a read replica with the new parameter group applied (recommended).
+
+   1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
+   of your MariaDB database.
+
+   2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
+   and set the following:
+      * **DB parameter group**: choose the parameter group you created previously
+      * **Backup retention period**: 7 days
+      * **Public access**: Publicly accessible
+
+   3. Reboot the replica to allow the changes to take effect.
+
+4. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions,
+and set up the watermarks table:
+
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
+
+5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MariaDB permits:
+```sql
+CALL mysql.rds_set_configuration('binlog retention hours', 168);
+```
+
+6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
+### Azure Database for MariaDB
+
+You can use this connector for MariaDB instances on Azure Database for MariaDB using the following setup instructions.
+
+#### Setup
+
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
+   that grants access to the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
+
+2. Set the `binlog_expire_logs_seconds` [server perameter](https://learn.microsoft.com/en-us/azure/mariadb/howto-server-parameters#configure-server-parameters)
+to `2592000`.
+
+3. Using your preferred MariaDB client, create the watermarks table.
+
+:::tip
+Your username must be specified in the format `username@servername`.
+:::
+
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+```
+
+4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
+
+  The `SELECT` permission can be restricted to just the tables that need to be
+  captured, but automatic discovery requires `information_schema` access as well.
+```sql
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
+
+4. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
+Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Troubleshooting Capture Errors
 
-The `source-amazon-rds-mariadb` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
+The `source-mariadb` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
 
 ### Unsupported Operations
 

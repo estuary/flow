@@ -134,6 +134,14 @@ Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
       },
       "Action": "s3:ListBucket",
       "Resource": "arn:aws:s3:::YOUR-S3-BUCKET"
+    },
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::789740162118:user/flow-aws"
+      },
+      "Action": "s3:GetBucketPolicy",
+      "Resource": "arn:aws:s3:::YOUR-S3-BUCKET"
     }
   ]
 }
