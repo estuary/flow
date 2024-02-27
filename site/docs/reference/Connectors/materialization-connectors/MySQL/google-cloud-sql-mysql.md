@@ -164,13 +164,13 @@ materializations:
        * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+       * Follow the guide to [configure an SSH server for tunneling](/../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 
 2. Configure your connector as described in the [configuration](#configuration) section above,
 with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
 
 :::tip Configuration Tip
@@ -192,7 +192,7 @@ Together, you'll use the host:port as the `address` property when you configure 
 
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](/concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
 ## Date & times

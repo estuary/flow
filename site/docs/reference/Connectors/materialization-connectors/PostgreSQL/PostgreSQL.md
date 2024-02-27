@@ -23,10 +23,21 @@ In addition to standard PostgreSQL, this connector supports cloud-based PostgreS
 
 To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
 
+:::tip Configuration Tip
+To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
+You can find the host and port in the following locations in each platform's console:
+* Amazon RDS and Amazon Aurora: host as Endpoint; port as Port.
+* Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
+* Azure Database: host as Server Name; port under Connection Strings (usually `5432`).
+* TimescaleDB: host as Host; port as Port.
+:::
 
 ### Azure Database for PostgreSQL
 
-* Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+* **Connect Directly With Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
+* **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](/guides/connect-network/#setup-for-azure).
+
 
 ## Configuration
 
@@ -79,42 +90,9 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-### Setup
-
-You must configure your database to allow connections from Estuary.
-There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-* **Connect directly with Amazon RDS or Amazon Aurora**: Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
-   * [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.  See the instructions below to use SSH Tunneling instead of enabling public access.
-
-   * Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-   Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-* **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
-
-
-
-* **Connect with SSH tunneling**
-   1. Refer to the [guide](../../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
-
-   2. Configure your connector as described in the [configuration](#configuration) section above,
-    with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-    See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-    for additional details and a sample.
-
-
-:::tip Configuration Tip
-To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
-You can find the host and port in the following locations in each platform's console:
-* Amazon RDS and Amazon Aurora: host as Endpoint; port as Port.
-* Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
-* Azure Database: host as Server Name; port under Connection Strings (usually `5432`).
-* TimescaleDB: host as Host; port as Port.
-:::
-
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](/concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
 ## Reserved words
