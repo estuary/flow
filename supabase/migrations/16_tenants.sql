@@ -7,9 +7,7 @@ create table tenants (
   tenant                  catalog_tenant unique not null,
 
   tasks_quota             integer        not null default 10,
-  collections_quota       integer        not null default 500,
-
-  gcm_account_id uuid references gcm_accounts(id)
+  collections_quota       integer        not null default 500
 );
 alter table tenants enable row level security;
 
