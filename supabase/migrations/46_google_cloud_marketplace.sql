@@ -5,8 +5,7 @@ create table gcm_accounts(
   obfuscated_id text,
   entitlement_id uuid,
 
-  job_status  jsonb_obj not null default '{"type":"queued"}',
-  logs_token  uuid not null default gen_random_uuid()
+  approved boolean default false
 );
 
 comment on column gcm_accounts.id is
@@ -15,16 +14,12 @@ comment on column gcm_accounts.id is
 comment on column gcm_accounts.obfuscated_id is
   'Google GAIA ID, received in JWT during sign-up, can be used to sign the user in using OAuth2';
 
-comment on column gcm_accounts.job_status is
-  'Server-side job executation status of the record';
-comment on column gcm_accounts.logs_token is
-  'Bearer token for accessing logs of the server-side operation';
+comment on column gcm_accounts.approved is
+  'Has the account been approved with Google';
 
-create unique index idx_gcm_accounts_id_where_queued on gcm_accounts(id)
-  where job_status->>'type' = 'queued';
+create unique index idx_gcm_accounts_id_where_approved on gcm_accounts(id)
+  where approved=true;
 
 alter table tenants add column if not exists gcm_account_id uuid references gcm_accounts(id);
-
-alter type payment_provider_type add value if not exists 'gcm';
 
 commit;
