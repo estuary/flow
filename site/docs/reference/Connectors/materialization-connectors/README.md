@@ -45,13 +45,13 @@ In the future, other open-source materialization connectors from third parties c
   * [Configuration](./motherduck.md)
   * Package - ghcr.io/estuary/materialize-motherduck:dev
 * MySQL
-  * [Configuration](./mysql.md)
+  * [Configuration](./MySQL/)
   * Package - ghcr.io/estuary/materialize-mysql:dev
 * Pinecone
   * [Configuration](./pinecone.md)
   * Package — ghcr.io/estuary/materialize-pinecone:dev
 * PostgreSQL
-  * [Configuration](./PostgreSQL.md)
+  * [Configuration](./PostgreSQL/)
   * Package — ghcr.io/estuary/materialize-postgres:dev
 * Rockset
   * [Configuration](./Rockset.md)
@@ -62,6 +62,9 @@ In the future, other open-source materialization connectors from third parties c
 * SQLite
   * [Configuration](./SQLite.md)
   * Package — ghcr.io/estuary/materialize-sqlite:dev
+* SQL Server
+  * [Configuration](./SQLServer/)
+  * Package - ghcr.io/estuary/materialize-sqlserver:dev
 * TimescaleDB
   * [Configuration](./timescaledb.md)
   * Package - ghcr.io/estuary/materialize-timescaledb:dev
