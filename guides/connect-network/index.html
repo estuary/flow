@@ -6,8 +6,8 @@
 <title data-rh="true">Configure connections with SSH tunneling | Estuary Flow</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/guides/connect-network/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Configure connections with SSH tunneling | Estuary Flow"><meta data-rh="true" name="description" content="Flow connects to certain types of endpoints — generally databases — using their IP address and port."><meta data-rh="true" property="og:description" content="Flow connects to certain types of endpoints — generally databases — using their IP address and port."><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/guides/connect-network/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/connect-network/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/connect-network/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.4642da73.css">
-<script src="/assets/js/runtime~main.af6747a6.js" defer="defer"></script>
-<script src="/assets/js/main.87f77a2e.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.9c6ba42b.js" defer="defer"></script>
+<script src="/assets/js/main.4a544852.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const c=new URLSearchParams(window.location.search).entries();for(var[t,e]of c)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -72,9 +72,7 @@ They&#x27;ll allow the connector to do the same.</p>
 <p>Configure your internal network to allow the SSH server to access your capture or materialization endpoint.</p>
 </li>
 <li>
-<p>Configure your network to expose the SSH server endpoint to external traffic. The method you use
-depends on your organization&#x27;s IT policies. Currently, Estuary doesn&#x27;t provide a list of static IPs for
-whitelisting purposes, but if you require one, <a href="mailto:support@estuary.dev" target="_blank" rel="noopener noreferrer">contact Estuary support</a>.</p>
+<p>To grant external access to the SSH server, it&#x27;s essential to configure your network settings accordingly. The approach you take will be dictated by your organization&#x27;s IT policies. One recommended step is to whitelist Estuary&#x27;s IP address, which is <code>34.121.207.128</code>. This ensures that connections from this specific IP are permitted through your network&#x27;s firewall or security measures.</p>
 </li>
 </ol>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="setup-for-aws">Setup for AWS<a href="#setup-for-aws" class="hash-link" aria-label="Direct link to Setup for AWS" title="Direct link to Setup for AWS">​</a></h2>
