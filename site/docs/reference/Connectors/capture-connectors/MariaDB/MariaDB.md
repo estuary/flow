@@ -32,7 +32,10 @@ To use this connector, you'll need a MariaDB database setup with the following.
 To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](/guides/connect-network/).
 :::
 
-### Setup
+## Setup
+
+### Self Hosted MariaDB
+
 To meet these requirements, do the following:
 
 1. Create the watermarks table. This table can have any name and be in any database, so long as the capture's `config.json` file is modified accordingly.
@@ -59,6 +62,53 @@ SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```sql
 SET PERSIST time_zone = '-05:00'
 ```
+
+### Azure Database for MariaDB
+
+You can use this connector for MariaDB instances on Azure Database for MariaDB using the following setup instructions.
+
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
+   that grants access to the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
+
+2. Set the `binlog_expire_logs_seconds` [server perameter](https://learn.microsoft.com/en-us/azure/mariadb/howto-server-parameters#configure-server-parameters)
+to `2592000`.
+
+3. Using your preferred MariaDB client, create the watermarks table.
+
+:::tip
+Your username must be specified in the format `username@servername`.
+:::
+
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+```
+
+4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
+
+  The `SELECT` permission can be restricted to just the tables that need to be
+  captured, but automatic discovery requires `information_schema` access as well.
+```sql
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
+
+5. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
+Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ### Setting the MariaDB time zone
 
@@ -155,135 +205,6 @@ captures:
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
 [Learn more about capture definitions.](/concepts/captures.md#pull-captures)
-
-## MariaDB on managed cloud platforms
-
-In addition to standard MariaDB, this connector supports cloud-based MariaDB instances on certain platforms.
-
-### Amazon RDS
-
-You can use this connector for MariaDB instances on Amazon RDS using the following setup instructions.
-
-Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
-in RDS for use with Flow; however, it's not required.
-You're able to apply the connector directly to the primary instance if you'd like.
-
-#### Setup
-
-1. Allow connections to the database from the Estuary Flow IP address.
-
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-
-   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
-      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
-
-2. Create a RDS parameter group to enable replication in MariaDB.
-
-   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
-   Create a unique name and description and set the following properties:
-      * **Family**: mariadb10.6
-      * **Type**: DB Parameter group
-
-   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
-      * binlog_format: ROW
-      * binlog_row_metadata: FULL
-      * read_only: 0
-
-   3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
-   Reboot the database to allow the changes to take effect.
-
-3. Create a read replica with the new parameter group applied (recommended).
-
-   1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-   of your MariaDB database.
-
-   2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
-   and set the following:
-      * **DB parameter group**: choose the parameter group you created previously
-      * **Backup retention period**: 7 days
-      * **Public access**: Publicly accessible
-
-   3. Reboot the replica to allow the changes to take effect.
-
-4. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions,
-and set up the watermarks table:
-
-```sql
-CREATE DATABASE IF NOT EXISTS flow;
-CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
-CREATE USER IF NOT EXISTS flow_capture
-  IDENTIFIED BY 'secret'
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
-```
-
-5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MariaDB permits:
-```sql
-CALL mysql.rds_set_configuration('binlog retention hours', 168);
-```
-
-6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
-### Azure Database for MariaDB
-
-You can use this connector for MariaDB instances on Azure Database for MariaDB using the following setup instructions.
-
-#### Setup
-
-1. Allow connections to the database from the Estuary Flow IP address.
-
-   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
-   that grants access to the IP address `34.121.207.128`.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
-
-2. Set the `binlog_expire_logs_seconds` [server perameter](https://learn.microsoft.com/en-us/azure/mariadb/howto-server-parameters#configure-server-parameters)
-to `2592000`.
-
-3. Using your preferred MariaDB client, create the watermarks table.
-
-:::tip
-Your username must be specified in the format `username@servername`.
-:::
-
-```sql
-CREATE DATABASE IF NOT EXISTS flow;
-CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
-```
-
-4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
-
-  The `SELECT` permission can be restricted to just the tables that need to be
-  captured, but automatic discovery requires `information_schema` access as well.
-```sql
-CREATE USER IF NOT EXISTS flow_capture
-  IDENTIFIED BY 'secret'
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
-```
-
-4. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
-Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Troubleshooting Capture Errors
 

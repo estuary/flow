@@ -91,7 +91,7 @@ For each step, take note of which entity you're working with.
         * Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-        * Follow the guide to [configure an SSH server for tunneling](/../guides/connect-network/)
+        * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
         * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. Create a RDS parameter group to enable replication on your Aurora DB cluster.
@@ -142,7 +142,7 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
        * Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](/../guides/connect-network/)
+       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
        * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. Set the `binlog_expire_logs_seconds` [server perameter](https://docs.microsoft.com/en-us/azure/mysql/single-server/concepts-server-parameters#configurable-server-parameters)
@@ -218,6 +218,7 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
@@ -277,6 +278,7 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 [Learn more about capture definitions.](/concepts/captures.md#pull-captures)
 
+
 ## Troubleshooting Capture Errors
 
 The `source-mysql` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
@@ -318,3 +320,4 @@ The `"binlog retention period is too short"` error should normally be fixed by s
 ### Empty Collection Key
 
 Every Flow collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).
+

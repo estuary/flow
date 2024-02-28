@@ -61,7 +61,7 @@ setting the user name to `ec2-user`.
 5. Find and note the [instance's public DNS](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-dns.html#vpc-dns-viewing). This will be formatted like: `ec2-198-21-98-1.compute-1.amazonaws.com`.
 
 * **Connect with SSH tunneling**
-   1. Refer to the [guide](/../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
+   1. Refer to the [guide](/guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
    2. Configure your connector as described in the [configuration](#configuration) section above,
     with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.

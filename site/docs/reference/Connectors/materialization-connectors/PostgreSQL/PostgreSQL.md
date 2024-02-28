@@ -38,7 +38,6 @@ You can find the host and port in the following locations in each platform's con
 
 * **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](/guides/connect-network/#setup-for-azure).
 
-
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -93,6 +92,7 @@ materializations:
 ## Delta updates
 
 This connector supports both standard (merge) and [delta updates](/concepts/materialization.md#delta-updates).
+
 The default is to use standard updates.
 
 ## Reserved words

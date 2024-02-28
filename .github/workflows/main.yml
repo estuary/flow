@@ -32,11 +32,7 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          default: true
-          toolchain: 1.74.0
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
         with:
@@ -94,12 +90,9 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.71.1
-          default: true
-          target: x86_64-unknown-linux-musl
+          targets: x86_64-unknown-linux-musl
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
         with:

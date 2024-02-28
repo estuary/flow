@@ -202,3 +202,4 @@ The `"binlog retention period is too short"` error should normally be fixed by s
 ### Empty Collection Key
 
 Every Flow collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).
+

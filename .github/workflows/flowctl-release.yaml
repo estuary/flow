@@ -28,31 +28,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Linux build steps:
-      - name: Install Rust
-        if: matrix.config.os == 'ubuntu-20.04'
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
       - name: Build Linux
         if: matrix.config.os == 'ubuntu-20.04'
         run: |-
           cargo build -p flowctl --release && mv target/release/flowctl ${ASSET_NAME}
 
       # Mac build steps:
-      # We need multiple targets for mac builds, so they will be manually added
-      # during the build step.
-      - name: Install Rust
-        if: matrix.config.os == 'macos-latest'
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
       - name: Setup mac signing certificate
         if: matrix.config.os == 'macos-latest'
         env:

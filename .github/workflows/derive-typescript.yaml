@@ -18,12 +18,9 @@ jobs:
           fetch-depth: 0
           submodules: false
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.72.0
-          default: true
-          target: x86_64-unknown-linux-musl
+          targets: x86_64-unknown-linux-musl
 
       - run: sudo apt install -y musl-tools
 

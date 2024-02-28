@@ -45,6 +45,39 @@ Their prerequisites differ.
 OAuth is recommended for simplicity in the Flow web app;
 the manual method is the only supported method using the command line.
 
+### Customer Id & Login Customer Id
+
+The `Login Customer Id` setting refers to your MCC Google Ads account Id.
+One can easily find this number by accessing their Google Ads Dashboard and look to the far right corner of their screen.
+
+Example:
+
+![Screenshot from 2024-02-19 05-10-29](https://github.com/estuary/flow/assets/14100959/f20aeeef-eeac-432f-b547-11477e31661d)
+
+In the above example, my `login_customer_id` would be 1234567890.
+
+The `Customer Id` setting refers to your Client Accounts under a MCC account.
+One can easily find this number by accessing their Google Ads Dashboard and look to the far left corner of their screen,
+after selecting a client account.
+
+Example:
+
+![Screenshot from 2024-02-19 05-10-16](https://github.com/estuary/flow/assets/14100959/4f171fa7-9c82-4f24-8a1d-8aacd382fb28)
+
+In the above example, my `customer_id` would be 9876543210.
+
+#### Multiple Customer Ids
+
+This Source allows for multiple Customer Ids to be selected.
+To allow this, simply add your `customer_id` followed by a comma.
+
+Example:
+
+Customer1 = 1234567890
+Customer2 = 9876543210
+
+customer_id = 1234567890,9876543210
+
 ### Using OAuth2 to authenticate with Google in the Flow web app
 
 * One or more Google Ads accounts.
@@ -156,3 +189,14 @@ Each generated resource will be mapped to a Flow collection.
 For help generating a valid query, see [Google's query builder documentation](https://developers.google.com/google-ads/api/fields/v11/overview_query_builder).
 
 If a query fails to validate against a given Google Ads account, it will be skipped.
+
+## Stream Limitations
+
+### ClickView
+
+Due to Google Ads API limitations, ClickView stream queries are executed with a time range limited to one day.
+Also, data can only be requested for periods 90 days before the time of the request.
+
+In pratical terms, this means that you can only search ClickView data limited to 3 months ago, anything before this is not returned.
+
+For more information, check [Google's Ads API documentation](https://developers.google.com/google-ads/api/fields/v15/click_view)
