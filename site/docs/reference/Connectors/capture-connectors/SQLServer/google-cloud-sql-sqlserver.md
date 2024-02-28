@@ -9,7 +9,7 @@ It’s available for use in the Flow web application. For local development or o
 
 ## Supported versions and platforms
 
-This connector supports SQL Server 2017 and later.
+This connector is designed for databases using any version of SQL Server which has CDC support, and is regularly tested against SQL Server 2017 and up.
 
 ## Prerequisites
 
