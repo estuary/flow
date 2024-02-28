@@ -48,10 +48,10 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   * [Configuration](./http-ingest.md)
   * Package - ghcr.io/estuary/source-http-ingest:dev
 * MariaDB
-  * [Configuration](./mariadb/)
+  * [Configuration](./MariaDB/)
   * Package - ghcr.io/estuary/source-mariadb:dev
 * Microsoft SQL Server
-  * [Configuration](./sqlserver/)
+  * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/source-sqlserver:dev
 * MongoDB
   * [Configuration](./mongodb/)

@@ -165,7 +165,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
 
 
 * **Connect with SSH tunneling**
-   1. Refer to the [guide](/../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
+   1. Refer to the [guide](/guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
    2. Configure your connector as described in the [configuration](#configuration) section above,
     with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
