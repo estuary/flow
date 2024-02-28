@@ -6,7 +6,7 @@ sidebar_position: 1
 This connector uses change data capture (CDC) to continuously capture table updates in an AlloyDB database into one or more Flow collections.
 
 AlloyDB is a fully managed, PostgreSQL-compatible database available in the Google Cloud platform.
-This connector is derived from the [PostgreSQL capture connector](./PostgreSQL/),
+This connector is derived from the [PostgreSQL capture connector](/reference/connectors/capture-connectors/PostgreSQL/),
 so the same configuration applies, but the setup steps look somewhat different.
 
 It's available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-alloydb:dev`](https://github.com/estuary/connectors/pkgs/container/source-alloydb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
