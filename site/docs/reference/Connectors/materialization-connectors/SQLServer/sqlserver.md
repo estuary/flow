@@ -39,11 +39,11 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 ```
 
 2. Allow secure connection to Estuary Flow from your hosting environment. Either:
-   * Set up an [SSH server for tunneling](../../../../../guides/connect-network/).
+   * Set up an [SSH server for tunneling](/guides/connect-network/).
 
      When you fill out the [endpoint configuration](#endpoint),
      include the additional `networkTunnel` configuration to enable the SSH tunnel.
-     See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+     See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
      for additional details and a sample.
 
    * Whitelist the Estuary IP address, `34.121.207.128` in your firewall rules.
@@ -56,8 +56,8 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
        * Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
 
@@ -121,7 +121,7 @@ materializations:
 
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](/concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
 ## Reserved words

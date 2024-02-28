@@ -59,9 +59,7 @@ basic configuration options.
 
 5. Configure your internal network to allow the SSH server to access your capture or materialization endpoint.
 
-6. Configure your network to expose the SSH server endpoint to external traffic. The method you use
-   depends on your organization's IT policies. Currently, Estuary doesn't provide a list of static IPs for
-   whitelisting purposes, but if you require one, [contact Estuary support](mailto:support@estuary.dev).
+6. To grant external access to the SSH server, it's essential to configure your network settings accordingly. The approach you take will be dictated by your organization's IT policies. One recommended step is to whitelist Estuary's IP address, which is `34.121.207.128`. This ensures that connections from this specific IP are permitted through your network's firewall or security measures.
 
 ## Setup for AWS
 

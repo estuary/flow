@@ -2,7 +2,7 @@
 
 This connector materializes Flow collections into tables in a TimescaleDB database.
 TimescaleDB provides managed PostgreSQL instances for real-time data.
-The connector is derived from the main [PostgreSQL](./PostgreSQL.md) materialization connector
+The connector is derived from the main [PostgreSQL](/reference/Connectors/materialization-connectors/PostgreSQL/) materialization connector
 and has the same configuration.
 
 By default, the connector only materializes regular PostgreSQL tables in TimescaleDB.

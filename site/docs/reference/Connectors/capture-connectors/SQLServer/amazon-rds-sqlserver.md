@@ -48,8 +48,8 @@ To meet these requirements, follow the steps for your hosting type.
        * Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2.  In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
 
@@ -77,7 +77,7 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SQL Server source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the SQL Server source connector.
 
 ### Properties
 
@@ -124,16 +124,16 @@ captures:
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
 
 ## Specifying Flow collection keys
 
-Every Flow collection must have a [key](../../../../concepts/collections.md#keys).
+Every Flow collection must have a [key](/concepts/collections.md#keys).
 As long as your SQL Server tables have a primary key specified, the connector will set the
 corresponding collection's key accordingly.
 
 In cases where a SQL Server table you want to capture doesn't have a primary key,
-you can manually add it to the collection definition during the [capture creation workflow](../../../../guides/create-dataflow.md#create-a-capture).
+you can manually add it to the collection definition during the [capture creation workflow](/guides/create-dataflow.md#create-a-capture).
 
 1. After you input the endpoint configuration and click **Next**,
 the tables in your database have been mapped to Flow collections.
@@ -141,8 +141,8 @@ Click each collection's **Specification** tab and identify a collection where `"
 
 2. Click inside the empty key value in the editor and input the name of column in the table to use as the key, formatted as a JSON pointer. For example `"key": ["/foo"],`
 
-   Make sure the key field is required, not nullable, and of an [allowed type](../../../../concepts/collections.md#schema-restrictions).
-   Make any other necessary changes to the [collection specification](../../../../concepts/collections.md#specification) to accommodate this.
+   Make sure the key field is required, not nullable, and of an [allowed type](/concepts/collections.md#schema-restrictions).
+   Make any other necessary changes to the [collection specification](/concepts/collections.md#specification) to accommodate this.
 
 3. Repeat with other missing collection keys, if necessary.
 

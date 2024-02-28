@@ -22,7 +22,7 @@ a materialized view that updates continuously based on a real-time data feed.
    In that case, you'll need to [install flowctl locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli).
    Note that the steps you'll need to take will be different. Refer to this [guide](../../guides/flowctl/create-derivation.md#create-a-derivation-locally) for help.
 
-* A Postgres database set up to [allow connections from Flow](../../reference/Connectors/materialization-connectors/PostgreSQL.md#setup).
+* A Postgres database set up to [allow connections from Flow](/reference/Connectors/materialization-connectors/PostgreSQL/#setup).
 Amazon RDS, Amazon Aurora, Google Cloud SQL, Azure Database for PostgreSQL, and self-hosted databases are supported.
 
 ## Introduction
