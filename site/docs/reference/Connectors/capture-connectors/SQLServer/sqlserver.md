@@ -9,8 +9,8 @@ It’s available for use in the Flow web application. For local development or o
 
 ## Supported versions and platforms
 
-This connector supports SQL Server 2017 and later on major cloud providers,
-as well as self-hosted instances.
+This connector will work on both hosted deployments and all major cloud providers.  It is designed for databases using any version of SQL Server which has CDC support, and is regularly tested against SQL Server 2017 and up.
+
 Setup instructions are provided for the following platforms:
 
 * [Self-hosted SQL Server](#self-hosted-sql-server)
