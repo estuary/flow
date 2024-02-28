@@ -6,7 +6,7 @@ sidebar_position: 1
 This connector materializes Flow collections into tables in an AlloyDB database.
 
 AlloyDB is a fully managed, PostgreSQL-compatible database available in the Google Cloud platform.
-This connector is derived from the [PostgreSQL materialization connector](./PostgreSQL.md),
+This connector is derived from the [PostgreSQL materialization connector](/reference/Connectors/materialization-connectors/PostgreSQL/),
 so the same configuration applies, but the setup steps look somewhat different.
 
 It's available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-alloydb:dev`](https://ghcr.io/estuary/materialize-alloydb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
