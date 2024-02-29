@@ -11,6 +11,28 @@ This connector is based on an open-source connector from a third party, with mod
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/hubspot),
 but keep in mind that the two versions may be significantly different.
 
+## Scopes
+The required HubSpot API scopes for this application are:
+- forms
+- files
+- tickets
+- e-commerce
+- sales-email-read
+- forms-uploaded-files
+- crm.lists.read
+- crm.objects.contacts.read
+- files.ui_hidden.read
+- crm.schemas.contacts.read
+- crm.objects.companies.read
+- crm.objects.deals.read
+- crm.schemas.companies.read
+- crm.schemas.deals.read
+- crm.objects.owners.read
+
+When using private apps authentication, please make sure to allow all scopes listed above.
+On the contrary, you may experience error messages similar to this:
+`403 Client Error: Forbidden for url: https://api.hubapi.com...`
+
 ## Supported data resources
 
 By default, each resource associated with your Hubspot account is mapped to a Flow collection through a separate binding.
