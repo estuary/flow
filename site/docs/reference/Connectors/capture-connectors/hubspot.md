@@ -128,3 +128,9 @@ Your configuration will have many more bindings representing all supported [reso
 in your Hubspot account.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+
+## Limitations
+### ContactsListMembership Stream
+When running a long capture for the ContactsListMembership Stream, where a long capture means looking into more than 2 Million contacts ( all lists contacts summed ), it may take several hours ( aprox 20+ ) so that the capture is completed.
+This happens due to Hubspot API limit rates and a 100 contacts size limit from each query by the ContactsListMembership V1 Endpoint.
+
