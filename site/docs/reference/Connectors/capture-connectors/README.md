@@ -117,6 +117,9 @@ The versions made available in Flow have been adapted for compatibility.
 * GitHub
   * [Configuration](./github.md)
   * Package - ghcr.io/estuary/source-github:dev
+* Gladly
+  * [Configuration](./gladly.md)
+  * Package - ghrc.io/estuary/source-gladly.dev
 * Google Ads
   * [Configuration](./google-ads.md)
   * Package - ghcr.io/estuary/source-google-ads:dev
