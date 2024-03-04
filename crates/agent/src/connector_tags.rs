@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use super::{jobs, logs, HandleResult, Handler, Id};
 use agent_sql::connector_tags::Row;
 use anyhow::Context;
@@ -216,7 +214,7 @@ async fn spec_materialization(
     };
 
     let spec = runtime
-        .unary_materialize(req, SPEC_TIMEOUT)
+        .unary_materialize(req, build::CONNECTOR_TIMEOUT)
         .await?
         .spec
         .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
@@ -262,7 +260,7 @@ async fn spec_capture(
     };
 
     let spec = runtime
-        .unary_capture(req, SPEC_TIMEOUT)
+        .unary_capture(req, build::CONNECTOR_TIMEOUT)
         .await?
         .spec
         .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
@@ -294,5 +292,3 @@ async fn spec_capture(
         oauth2: oauth,
     })
 }
-
-const SPEC_TIMEOUT: Duration = Duration::from_secs(10);
