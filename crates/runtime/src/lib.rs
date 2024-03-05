@@ -34,34 +34,40 @@ pub const CHANNEL_BUFFER: usize = 16;
 
 /// Describes the basic type of runtime protocol. This corresponds to the
 /// `FLOW_RUNTIME_PROTOCOL` label that's used on docker images.
+///
+/// Note that there's an unfortunate mismatch in how `RuntimeProtocol::Materialize`
+/// is represented in the control-plane database versus the image labels. We might
+/// in the future want to have more general and flexible `TryFrom<&str>` and `Display`
+/// impls, but for now there are only specific named functions since there are few places
+/// where we actually use this. The `Serialize` impl uses the image label representation,
+/// though that decision was made arbitrarily.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RuntimeProtocol {
     Capture,
-    Materialization,
+    Materialize,
     Derive,
 }
 
-impl<'a> TryFrom<&'a str> for RuntimeProtocol {
-    type Error = &'a str;
-
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+impl RuntimeProtocol {
+    fn from_image_label(value: &str) -> Result<Self, &str> {
         match value {
             "capture" => Ok(RuntimeProtocol::Capture),
-            "materialization" => Ok(RuntimeProtocol::Materialization),
+            "materialize" => Ok(RuntimeProtocol::Materialize),
             "derive" => Ok(RuntimeProtocol::Derive),
             other => Err(other),
         }
     }
 }
 
-impl Display for RuntimeProtocol {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
+impl RuntimeProtocol {
+    /// Returns the appropriate representation for storing in the control plane database.
+    pub fn database_string_value(&self) -> &'static str {
+        match self {
             RuntimeProtocol::Capture => "capture",
-            RuntimeProtocol::Materialization => "materialization",
+            RuntimeProtocol::Materialize => "materialization",
             RuntimeProtocol::Derive => "derive",
-        };
-        f.write_str(s)
+        }
     }
 }
 

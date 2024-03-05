@@ -138,9 +138,7 @@ impl TagHandler {
 
         let spec_result = match proto_type {
             RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
-            RuntimeProtocol::Materialization => {
-                spec_materialization(&image_composed, runtime).await
-            }
+            RuntimeProtocol::Materialize => spec_materialization(&image_composed, runtime).await,
             RuntimeProtocol::Derive => {
                 tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
                 return Ok((row.tag_id, JobStatus::SpecFailed));
@@ -174,7 +172,7 @@ impl TagHandler {
             row.tag_id,
             documentation_url,
             endpoint_config_schema.into(),
-            proto_type.to_string(),
+            proto_type.database_string_value().to_string(),
             resource_config_schema.into(),
             resource_path_pointers.clone(),
             txn,
