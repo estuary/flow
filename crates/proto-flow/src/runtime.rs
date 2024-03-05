@@ -146,6 +146,10 @@ pub struct Container {
         u32,
         ::prost::alloc::string::String,
     >,
+    /// The usage rate of a container is the number of connector credits per second that
+    /// are consumed by the connector.
+    #[prost(float, tag = "4")]
+    pub usage_rate: f32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

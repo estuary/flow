@@ -102,6 +102,10 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) 
 	}
 	var openedExt = pr.FromInternal[pr.DeriveResponseExt](opened.Internal)
 	d.container.Store(openedExt.Container)
+	if d.termCount == 1 {
+		// See comment in capture.go
+		d.taskBase.StartTaskHeartbeatLoop(shard, openedExt.Container)
+	}
 
 	return *openedExt.Opened.RuntimeCheckpoint, nil
 }
