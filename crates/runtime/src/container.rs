@@ -453,7 +453,7 @@ fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
         anyhow::bail!("image is missing required '{RUNTIME_PROTO_LABEL}' label");
     };
     let runtime_protocol =
-        RuntimeProtocol::try_from(rt_proto_label.as_str()).map_err(|unknown| {
+        RuntimeProtocol::from_image_label(rt_proto_label.as_str()).map_err(|unknown| {
             anyhow::anyhow!("image labels specify unknown protocol {RUNTIME_PROTO_LABEL}={unknown}")
         })?;
 
