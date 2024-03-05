@@ -343,7 +343,7 @@ pub mod list_response {
     pub struct Shard {
         #[prost(message, optional, tag = "1")]
         pub spec: ::core::option::Option<super::ShardSpec>,
-        /// Current ModRevision of the ShardSpec.
+        /// Current Etcd ModRevision of the ShardSpec.
         #[prost(int64, tag = "2")]
         pub mod_revision: i64,
         /// Route of the shard, including endpoints.
@@ -352,6 +352,9 @@ pub mod list_response {
         /// Status of each replica. Cardinality and ordering matches |route|.
         #[prost(message, repeated, tag = "4")]
         pub status: ::prost::alloc::vec::Vec<super::ReplicaStatus>,
+        /// Etcd CreateRevision of the JournalSpec.
+        #[prost(int64, tag = "5")]
+        pub create_revision: i64,
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

@@ -1,6 +1,5 @@
 use anyhow::Context;
 use futures::TryStreamExt;
-use std::fmt::{self, Display};
 use std::sync::Arc;
 
 mod capture;
@@ -35,11 +34,11 @@ pub const CHANNEL_BUFFER: usize = 16;
 
 /// Describes the basic type of runtime protocol. This corresponds to the
 /// `FLOW_RUNTIME_PROTOCOL` label that's used on docker images.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub enum RuntimeProtocol {
     Capture,
     Materialization,
-    // Derivation, // eventually, maybe
+    Derive,
 }
 
 impl<'a> TryFrom<&'a str> for RuntimeProtocol {
@@ -49,6 +48,7 @@ impl<'a> TryFrom<&'a str> for RuntimeProtocol {
         match value {
             "capture" => Ok(RuntimeProtocol::Capture),
             "materialization" => Ok(RuntimeProtocol::Materialization),
+            "derive" => Ok(RuntimeProtocol::Derive),
             other => Err(other),
         }
     }
@@ -59,6 +59,7 @@ impl Display for RuntimeProtocol {
         let s = match self {
             RuntimeProtocol::Capture => "capture",
             RuntimeProtocol::Materialization => "materialization",
+            RuntimeProtocol::Derive => "derive",
         };
         f.write_str(s)
     }
