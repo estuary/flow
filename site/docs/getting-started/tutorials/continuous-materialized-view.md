@@ -44,6 +44,12 @@ First, you'll scope the raw data down to a small fact table with a derivation.
 
 You'll then materialize both the raw and transformed datasets to your Postgres instance and compare performance.
 
+## Loading the Wikipedia Demo
+
+1. Navigate to the [Live Demo](https://dashboard.estuary.dev/welcome?activeTab=demo) page and click on `See the capture`.
+
+2. After accepting the pop up, Estuary will populate your Sources, Collections and Destinations with the Wikipedia Demo tasks.
+
 ## Check out the source data
 
 1. Got the the [collections page](https://dashboard.estuary.dev/collections) of the Flow web app.
