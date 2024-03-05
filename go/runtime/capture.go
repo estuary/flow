@@ -102,6 +102,12 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error)
 	var openedExt = pr.FromInternal[pr.CaptureResponseExt](opened.Internal)
 	c.container.Store(openedExt.Container)
 	var checkpoint = *openedExt.Opened.RuntimeCheckpoint
+	if c.termCount == 1 {
+		// Technically, it's possible for a subsequent term to pull a different image with a different
+		// usageRate. We're ignoring that case here because it doesn't seem worth the effort to handle it
+		// right now.
+		c.taskBase.StartTaskHeartbeatLoop(shard, openedExt.Container)
+	}
 
 	// TODO(johnny): Remove after migration.
 	if len(checkpoint.Sources) == 0 && len(checkpoint.AckIntents) == 0 {

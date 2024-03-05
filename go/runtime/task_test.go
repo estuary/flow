@@ -35,11 +35,11 @@ func TestIntervalStatsShape(t *testing.T) {
 
 	require.Equal(t,
 		`shard:<kind:capture name:"some/task" key_begin:"00000000" r_clock_begin:"00000000" > timestamp:<seconds:1600000000 > interval:<uptime_seconds:300 usage_rate:1 > `,
-		intervalStats(time.Unix(1600000000, 0), 5*time.Minute, labels).String())
+		intervalStats(time.Unix(1600000000, 0), 5*time.Minute, labels, 1.0).String())
 
 	labels.TaskType = ops.TaskType_derivation
 
 	require.Equal(t,
 		`shard:<kind:derivation name:"some/task" key_begin:"00000000" r_clock_begin:"00000000" > timestamp:<seconds:1500000000 > interval:<uptime_seconds:600 > `,
-		intervalStats(time.Unix(1500000000, 0), 10*time.Minute, labels).String())
+		intervalStats(time.Unix(1500000000, 0), 10*time.Minute, labels, 0.0).String())
 }

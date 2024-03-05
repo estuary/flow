@@ -561,12 +561,15 @@ pub mod list_response {
     pub struct Journal {
         #[prost(message, optional, tag = "1")]
         pub spec: ::core::option::Option<super::JournalSpec>,
-        /// Current ModRevision of the JournalSpec.
+        /// Current Etcd ModRevision of the JournalSpec.
         #[prost(int64, tag = "2")]
         pub mod_revision: i64,
         /// Route of the journal, including endpoints.
         #[prost(message, optional, tag = "3")]
         pub route: ::core::option::Option<super::Route>,
+        /// Etcd CreateRevision of the JournalSpec.
+        #[prost(int64, tag = "4")]
+        pub create_revision: i64,
     }
 }
 /// ApplyRequest is the unary request message of the broker Apply RPC.

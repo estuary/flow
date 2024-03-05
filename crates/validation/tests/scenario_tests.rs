@@ -1699,6 +1699,7 @@ impl validation::Connectors for MockDriverCalls {
                     ip_addr: "1.2.3.4".to_string(),
                     network_ports: call.network_ports.clone(),
                     mapped_host_ports: Default::default(),
+                    usage_rate: 1.0,
                 });
             }))
         }
@@ -1781,6 +1782,7 @@ impl validation::Connectors for MockDriverCalls {
                     ip_addr: "1.2.3.4".to_string(),
                     network_ports: call.network_ports.clone(),
                     mapped_host_ports: Default::default(),
+                    usage_rate: 0.0,
                 });
             }))
         }
@@ -1861,6 +1863,7 @@ impl validation::Connectors for MockDriverCalls {
                     ip_addr: "1.2.3.4".to_string(),
                     network_ports: call.network_ports.clone(),
                     mapped_host_ports: Default::default(),
+                    usage_rate: 1.25,
                 });
             }))
         }

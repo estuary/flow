@@ -141,6 +141,10 @@ impl TagHandler {
             RuntimeProtocol::Materialization => {
                 spec_materialization(&image_composed, runtime).await
             }
+            RuntimeProtocol::Derive => {
+                tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
+                return Ok((row.tag_id, JobStatus::SpecFailed));
+            }
         };
 
         let spec = match spec_result {

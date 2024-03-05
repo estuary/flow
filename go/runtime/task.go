@@ -24,6 +24,7 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
+	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -94,10 +95,6 @@ func newTaskBase[TaskSpec pf.Task](
 		return nil, fmt.Errorf("creating task service: %w", err)
 	}
 
-	// Start a long-lived task which writes stats at regular intervals,
-	// and then logs the final exit status of this shard.
-	go taskHeartbeatLoop(shard, publisher)
-
 	return &taskBase[TaskSpec]{
 		container:        atomic.Pointer[pr.Container]{},
 		extractFn:        extractFn,
@@ -109,6 +106,19 @@ func newTaskBase[TaskSpec pf.Task](
 		svc:              svc,
 		term:             *term,
 	}, nil
+}
+
+// StartTaskHeartbeatLoop begins a long-lived task which writes stats at regular intervals,
+// and then logs the final exit status of this shard. The `usageRate` is the number of
+// "credits" used per second by the connector.
+func (t *taskBase[TaskSpec]) StartTaskHeartbeatLoop(shard consumer.Shard, container *pr.Container) {
+	var usageRate float32 = 0.0
+	if container != nil {
+		usageRate = container.UsageRate
+	} else {
+		logrus.WithField("shard", shard.Spec().Id).Info("usageRate will be 0 because there is no container")
+	}
+	go taskHeartbeatLoop(shard, t.publisher, usageRate)
 }
 
 func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
@@ -271,7 +281,7 @@ func (t *taskReader[TaskSpec]) Coordinator() *shuffle.Coordinator { return t.coo
 
 // taskHeartbeatLoop publishes ops.Stats at regular intervals while the shard is running,
 // and then logs its final exit status.
-func taskHeartbeatLoop(shard consumer.Shard, pub *OpsPublisher) {
+func taskHeartbeatLoop(shard consumer.Shard, pub *OpsPublisher, usageRate float32) {
 	var (
 		// Period between regularly-published stat intervals.
 		// This period must cleanly divide into one hour!
@@ -284,7 +294,7 @@ func taskHeartbeatLoop(shard consumer.Shard, pub *OpsPublisher) {
 	for {
 		select {
 		case now := <-time.After(jitter + durationToNextInterval(time.Now(), period)):
-			_ = pub.PublishStats(*intervalStats(now, period, pub.Labels()), pub.logsPublisher.PublishCommitted)
+			_ = pub.PublishStats(*intervalStats(now, period, pub.Labels(), usageRate), pub.logsPublisher.PublishCommitted)
 
 		case <-op.Done():
 			if err := op.Err(); err != nil && !errors.Is(err, context.Canceled) {
@@ -297,17 +307,7 @@ func taskHeartbeatLoop(shard consumer.Shard, pub *OpsPublisher) {
 }
 
 // intervalStats returns an ops.Stats for a task's current time interval.
-func intervalStats(now time.Time, period time.Duration, labels ops.ShardLabeling) *ops.Stats {
-	var usageRate float32
-
-	// Variable rate is currently fixed to 1.0 or 0.0 depending on task type.
-	switch labels.TaskType {
-	case ops.TaskType_capture, ops.TaskType_materialization:
-		usageRate = 1.0
-	case ops.TaskType_derivation:
-		usageRate = 0.0
-	}
-
+func intervalStats(now time.Time, period time.Duration, labels ops.ShardLabeling, usageRate float32) *ops.Stats {
 	var ts, err = types.TimestampProto(now)
 	if err != nil {
 		panic(err)
