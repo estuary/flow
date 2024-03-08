@@ -83,6 +83,7 @@ impl Task {
         Ok(doc::combine::Spec::with_one_binding(
             false,
             self.key_extractors.clone(),
+            "derived",
             None,
             validator,
         ))

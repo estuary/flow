@@ -93,6 +93,7 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
         (
             is_full,
             [], // Empty key (all docs are equal)
+            "source-name",
             None,
             Validator::new(schema).unwrap(),
         )
