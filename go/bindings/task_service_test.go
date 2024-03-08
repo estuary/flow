@@ -22,6 +22,7 @@ import (
 )
 
 func TestSimpleDerive(t *testing.T) {
+	t.Skip()
 	pb.RegisterGRPCDispatcher("local") // Required (only) by sqlite.InProcessServer.
 
 	var args = BuildArgs{

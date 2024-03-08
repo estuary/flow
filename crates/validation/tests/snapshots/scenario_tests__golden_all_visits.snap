@@ -228,7 +228,7 @@ All {
                                                 length: 536870912,
                                                 compression_codec: Gzip,
                                                 stores: [
-                                                    "s3://data-bucket/",
+                                                    "s3://data-bucket/?region=us-east-1",
                                                 ],
                                                 refresh_interval: Some(
                                                     Duration {
@@ -620,7 +620,7 @@ All {
                                                 length: 536870912,
                                                 compression_codec: Gzip,
                                                 stores: [
-                                                    "s3://data-bucket/",
+                                                    "s3://data-bucket/?region=us-east-1",
                                                 ],
                                                 refresh_interval: Some(
                                                     Duration {
@@ -826,7 +826,7 @@ All {
                                                 length: 536870912,
                                                 compression_codec: Zstandard,
                                                 stores: [
-                                                    "s3://data-bucket/",
+                                                    "s3://data-bucket/?region=us-east-1",
                                                 ],
                                                 refresh_interval: Some(
                                                     Duration {
@@ -1165,7 +1165,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -1332,7 +1332,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -1527,7 +1527,7 @@ All {
                                                         length: 536870912,
                                                         compression_codec: Gzip,
                                                         stores: [
-                                                            "s3://data-bucket/",
+                                                            "s3://data-bucket/?region=us-east-1",
                                                         ],
                                                         refresh_interval: Some(
                                                             Duration {
@@ -1752,7 +1752,7 @@ All {
                                                         length: 536870912,
                                                         compression_codec: Gzip,
                                                         stores: [
-                                                            "s3://data-bucket/",
+                                                            "s3://data-bucket/?region=us-east-1",
                                                         ],
                                                         refresh_interval: Some(
                                                             Duration {
@@ -2246,7 +2246,7 @@ All {
                                 length: 11223344,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -2589,7 +2589,7 @@ All {
                                                         length: 536870912,
                                                         compression_codec: Gzip,
                                                         stores: [
-                                                            "s3://data-bucket/",
+                                                            "s3://data-bucket/?region=us-east-1",
                                                         ],
                                                         refresh_interval: Some(
                                                             Duration {
@@ -2973,7 +2973,7 @@ All {
                                                         length: 11223344,
                                                         compression_codec: Gzip,
                                                         stores: [
-                                                            "s3://data-bucket/",
+                                                            "s3://data-bucket/?region=us-east-1",
                                                         ],
                                                         refresh_interval: Some(
                                                             Duration {
@@ -3334,7 +3334,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -3558,7 +3558,7 @@ All {
                                                         length: 536870912,
                                                         compression_codec: Gzip,
                                                         stores: [
-                                                            "s3://data-bucket/",
+                                                            "s3://data-bucket/?region=us-east-1",
                                                         ],
                                                         refresh_interval: Some(
                                                             Duration {
@@ -3923,7 +3923,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -4145,7 +4145,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -4399,7 +4399,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -4737,7 +4737,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Gzip,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -4939,7 +4939,7 @@ All {
                                 length: 536870912,
                                 compression_codec: Zstandard,
                                 stores: [
-                                    "s3://data-bucket/",
+                                    "s3://data-bucket/?region=us-east-1",
                                 ],
                                 refresh_interval: Some(
                                     Duration {
@@ -5191,7 +5191,7 @@ All {
                                                 length: 536870912,
                                                 compression_codec: Gzip,
                                                 stores: [
-                                                    "s3://data-bucket/",
+                                                    "s3://data-bucket/?region=us-east-1",
                                                 ],
                                                 refresh_interval: Some(
                                                     Duration {
@@ -5627,7 +5627,7 @@ All {
                                                 length: 536870912,
                                                 compression_codec: Gzip,
                                                 stores: [
-                                                    "s3://data-bucket/",
+                                                    "s3://data-bucket/?region=us-east-1",
                                                 ],
                                                 refresh_interval: Some(
                                                     Duration {
@@ -6019,7 +6019,7 @@ All {
                                                 length: 11223344,
                                                 compression_codec: Gzip,
                                                 stores: [
-                                                    "s3://data-bucket/",
+                                                    "s3://data-bucket/?region=us-east-1",
                                                 ],
                                                 refresh_interval: Some(
                                                     Duration {
@@ -6972,7 +6972,8 @@ All {
               {
                 "provider": "S3",
                 "bucket": "data-bucket",
-                "prefix": null
+                "prefix": null,
+                "region": null
               }
             ],
         },
