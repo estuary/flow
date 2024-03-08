@@ -8,7 +8,7 @@ use std::io::{self, Read, Seek};
 use tempfile::tempfile;
 
 pub use self::compression::{detect_compression, CompressionError};
-pub use self::encoding::{detect_encoding, TranscodingReader};
+pub use self::encoding::detect_encoding;
 
 /// Type of content input provided to parsers.
 pub enum Input {
