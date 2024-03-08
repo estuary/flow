@@ -83,7 +83,9 @@ impl Entries {
                 .validate(schema.as_ref(), &rhs.root)
                 .map_err(Error::SchemaError)?
                 .ok()
-                .map_err(Error::FailedValidation)?;
+                .map_err(|err| {
+                    Error::FailedValidation(self.spec.names[rhs.meta.binding()].clone(), err)
+                })?;
 
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&lhs.root),
@@ -311,7 +313,9 @@ impl MemTable {
                 validator
                     .validate(schema.as_ref(), &doc.root)?
                     .ok()
-                    .map_err(Error::FailedValidation)?;
+                    .map_err(|err| {
+                        Error::FailedValidation(spec.names[doc.meta.binding()].clone(), err)
+                    })?;
             }
         }
 
@@ -369,7 +373,9 @@ impl MemDrainer {
                 .validate(schema.as_ref(), &next.root)
                 .map_err(Error::SchemaError)?
                 .ok()
-                .map_err(Error::FailedValidation)?;
+                .map_err(|err| {
+                    Error::FailedValidation(self.spec.names[next.meta.binding()].clone(), err)
+                })?;
 
             match reduce::reduce::<crate::ArchivedNode>(
                 LazyNode::Heap(&root),
@@ -395,7 +401,7 @@ impl MemDrainer {
             .validate(schema.as_ref(), &root)
             .map_err(Error::SchemaError)?
             .ok()
-            .map_err(Error::FailedValidation)?;
+            .map_err(|err| Error::FailedValidation(self.spec.names[meta.binding()].clone(), err))?;
 
         // Safety: `root` was allocated from `self.zz_alloc`.
         let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
@@ -466,6 +472,7 @@ mod test {
                         &SerPolicy::noop(),
                         json!("def"),
                     )],
+                    "source-name",
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -713,6 +720,7 @@ mod test {
             (
                 is_full,
                 vec![Extractor::new("/k", &SerPolicy::noop())],
+                "source-name",
                 None,
                 Validator::new(
                     build_schema(
@@ -962,27 +970,23 @@ mod test {
 
     #[test]
     fn test_spill_and_validate() {
-        let spec = Spec::with_bindings(
-            std::iter::repeat_with(|| {
-                let schema = build_schema(
-                    url::Url::parse("http://example/schema").unwrap(),
-                    &json!({
-                        "properties": {
-                            "key": { "type": "string" },
-                            "v": { "const": "good" },
-                        }
-                    }),
-                )
-                .unwrap();
+        let schema = build_schema(
+            url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": {
+                    "key": { "type": "string" },
+                    "v": { "const": "good" },
+                }
+            }),
+        )
+        .unwrap();
 
-                (
-                    true, // Full reduction.
-                    vec![Extractor::new("/key", &SerPolicy::noop())],
-                    None,
-                    Validator::new(schema).unwrap(),
-                )
-            })
-            .take(1),
+        let spec = Spec::with_one_binding(
+            true, // Full reduction.
+            vec![Extractor::new("/key", &SerPolicy::noop())],
+            "source-name",
+            None,
+            Validator::new(schema).unwrap(),
         );
         let memtable = MemTable::new(spec);
 
@@ -1020,7 +1024,7 @@ mod test {
 
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         let out = memtable.spill(&mut spill, CHUNK_TARGET_SIZE);
-        assert!(matches!(out, Err(Error::FailedValidation(_))));
+        assert!(matches!(out, Err(Error::FailedValidation(n, _)) if n == "source-name"));
     }
 
     fn to_hex(b: &[u8]) -> String {

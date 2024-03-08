@@ -363,7 +363,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                 .validate(schema.as_ref(), next.head.root.get())
                 .map_err(Error::SchemaError)?
                 .ok()
-                .map_err(Error::FailedValidation)?;
+                .map_err(|err| {
+                    Error::FailedValidation(self.spec.names[next.head.meta.binding()].clone(), err)
+                })?;
 
             match reduce::reduce::<crate::ArchivedNode>(
                 match &reduced {
@@ -405,7 +407,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                         .validate(schema.as_ref(), root.get())
                         .map_err(Error::SchemaError)?
                         .ok()
-                        .map_err(Error::FailedValidation)?;
+                        .map_err(|err| {
+                            Error::FailedValidation(self.spec.names[meta.binding()].clone(), err)
+                        })?;
                 }
 
                 OwnedNode::Archived(root)
@@ -416,7 +420,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                     .validate(schema.as_ref(), &reduced)
                     .map_err(Error::SchemaError)?
                     .ok()
-                    .map_err(Error::FailedValidation)?;
+                    .map_err(|err| {
+                        Error::FailedValidation(self.spec.names[meta.binding()].clone(), err)
+                    })?;
 
                 // Safety: we allocated `reduced` out of `self.alloc`.
                 let reduced = unsafe { OwnedHeapNode::new(reduced, self.alloc.clone()) };
@@ -581,6 +587,7 @@ mod test {
                         &SerPolicy::noop(),
                         json!("def"),
                     )],
+                    "source-name",
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -725,6 +732,7 @@ mod test {
                 (
                     true, // Full reduction.
                     vec![Extractor::new("/key", &SerPolicy::noop())],
+                    "source-name",
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -774,7 +782,7 @@ mod test {
         // "ccc" doesn't match the schema, is front(), and fails validation.
         assert!(matches!(
             drainer.next().unwrap(),
-            Err(Error::FailedValidation(_))
+            Err(Error::FailedValidation(n, _)) if n == "source-name (binding 0)"
         ));
         // "ddd" has an invalid front() document, but is further reduced upon drain,
         // and the reduction output is itself valid.
@@ -785,7 +793,7 @@ mod test {
         // "eee" is reduced on drain, and its RHS doesn't match the schema.
         assert!(matches!(
             drainer.next().unwrap(),
-            Err(Error::FailedValidation(_))
+            Err(Error::FailedValidation(n, _)) if n == "source-name (binding 0)"
         ));
         // Polling the iterator again pops the second "eee" document,
         // which was peeked but not yet popped during the prior failed validation.

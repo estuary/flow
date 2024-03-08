@@ -79,7 +79,7 @@ impl Task {
         let combiner_spec = doc::combine::Spec::with_bindings(
             combiner_spec
                 .into_iter()
-                .map(|(is_full, key, validator)| (is_full, key, None, validator)),
+                .map(|(is_full, key, name, validator)| (is_full, key, name, None, validator)),
         );
 
         Ok(combiner_spec)
@@ -152,12 +152,19 @@ impl Binding {
         })
     }
 
-    pub fn combiner_spec(&self) -> anyhow::Result<(bool, Vec<doc::Extractor>, doc::Validator)> {
+    pub fn combiner_spec(
+        &self,
+    ) -> anyhow::Result<(bool, Vec<doc::Extractor>, String, doc::Validator)> {
         let built_schema = doc::validation::build_bundle(&self.read_schema_json)
             .context("collection read_schema_json is not a JSON schema")?;
         let validator =
             doc::Validator::new(built_schema).context("could not build a schema validator")?;
 
-        Ok((!self.delta_updates, self.key_extractors.clone(), validator))
+        Ok((
+            !self.delta_updates,
+            self.key_extractors.clone(),
+            format!("materialized collection {}", self.collection_name),
+            validator,
+        ))
     }
 }

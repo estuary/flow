@@ -268,6 +268,7 @@ async fn do_combine(
                 &collection.spec.projections,
                 &doc::SerPolicy::noop(),
             )?,
+            "source",
             None,
             doc::Validator::new(schema).unwrap(),
         ),
