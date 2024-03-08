@@ -81,8 +81,6 @@ md5 = "0.7.0"
 num-bigint = "0.4"
 
 open = "3"
-openssl-sys = { version = "0.9", features = ['vendored'] }
-openssl = "0.10"
 
 pathfinding = "3.0"
 pbjson = "0.6"
