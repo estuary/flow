@@ -36,6 +36,7 @@ impl<'alloc, T> BumpVec<'alloc, T> {
         }
     }
 
+    #[inline]
     pub fn with_capacity_in(capacity: usize, alloc: &'alloc bumpalo::Bump) -> Self {
         if capacity == 0 {
             return Self::new(); // Don't allocate an empty array.
@@ -67,6 +68,23 @@ impl<'alloc, T> BumpVec<'alloc, T> {
         Self {
             ptr: Some(ptr),
             marker: Default::default(),
+        }
+    }
+
+    #[inline]
+    pub unsafe fn set_len(&mut self, len: usize) {
+        #[cold]
+        #[inline(never)]
+        #[track_caller]
+        fn assert_failed(len: usize, cap: usize) -> ! {
+            panic!("cannot set_len({len}) for BumpVec of capacity {cap}");
+        }
+
+        match self.raw() {
+            Some(raw) if raw.cap as usize >= len => raw.len = len as u32,
+            None if len == 0 => (),
+            Some(raw) => assert_failed(len, raw.cap as usize),
+            None => assert_failed(len, 0),
         }
     }
 

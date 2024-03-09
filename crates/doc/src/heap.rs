@@ -41,7 +41,12 @@ impl<'alloc> HeapNode<'alloc> {
     // new_allocator builds a bumpalo::Bump allocator for use in building HeapNodes.
     // It's a trivial helper which can reduce type imports.
     pub fn new_allocator() -> bumpalo::Bump {
-        bumpalo::Bump::new()
+        Self::allocator_with_capacity(0)
+    }
+
+    // allocator_with_capacity builds a bumpalo::Bump allocator with the designated capacity.
+    pub fn allocator_with_capacity(capacity: usize) -> bumpalo::Bump {
+        bumpalo::Bump::with_capacity(capacity)
     }
 
     // from_node builds a HeapNode from another AsNode implementation.
