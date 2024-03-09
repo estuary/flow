@@ -71,7 +71,7 @@ impl Reader {
             .map(|source| source.read_through as usize)
             .unwrap_or_default();
 
-        let producer = crate::uuid::Producer::new([7, 19, 83, 3, 3, 17]);
+        let producer = crate::uuid::Producer([7, 19, 83, 3, 3, 17]);
 
         coroutines::coroutine(move |mut co| async move {
             for (txn, docs) in self.0.into_iter().enumerate().skip(skip) {
@@ -82,7 +82,7 @@ impl Reader {
 
                     // Add a UUID fixture with a synthetic publication time.
                     let seconds = 3600 * txn + offset; // Synthetic timestamp of the document.
-                    let uuid = crate::uuid::build_uuid(
+                    let uuid = crate::uuid::build(
                         producer,
                         crate::uuid::Clock::from_unix(seconds as u64, 0),
                         crate::uuid::Flags(0),
