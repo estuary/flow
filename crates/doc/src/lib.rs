@@ -17,7 +17,13 @@ pub enum Node<'a, N: AsNode> {
 pub trait AsNode: Sized {
     type Fields: Fields<Self> + ?Sized;
 
+    /// Convert an AsNode into a Node.
     fn as_node<'a>(&'a self) -> Node<'a, Self>;
+
+    /// Convert an AsNode into a serde_json::Value using the debug SerPolicy.
+    fn to_debug_json_value(&self) -> serde_json::Value {
+        serde_json::to_value(&SerPolicy::debug().on(self)).unwrap()
+    }
 }
 
 /// Fields is the generic form of a Document object representation.
@@ -40,6 +46,10 @@ pub trait Field<'a, N: AsNode> {
     fn property(&self) -> &'a str;
     fn value(&self) -> &'a N;
 }
+
+// Documents are built on the heap using a bump allocator.
+// Re-export the concrete allocator type, as most clients don't care.
+pub use bumpalo::Bump as Allocator;
 
 // This crate has three implementations of AsNode: a mutable HeapNode,
 // an ArchivedNode serialized by the `rkyv` crate,
