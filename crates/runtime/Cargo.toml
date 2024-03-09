@@ -16,6 +16,7 @@ coroutines = { path = "../coroutines"  }
 derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
+gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }
@@ -42,7 +43,6 @@ json-patch = { workspace = true }
 librocksdb-sys = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
-rand = { workspace = true } # Used for generating Producer IDs (only).
 rocksdb = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
