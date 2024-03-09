@@ -93,9 +93,7 @@ pub fn recv_client_add(
                 };
                 let uuid = uuid::Uuid::parse_str(uuid)?;
 
-                let Some((_producer, _clock, flags)) = crate::uuid::parse_uuid(uuid) else {
-                    anyhow::bail!("not a v1 UUID")
-                };
+                let (_producer, _clock, flags) = crate::uuid::parse(uuid)?;
 
                 Ok(flags.is_ack())
             })()
