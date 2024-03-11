@@ -6972,7 +6972,8 @@ All {
               {
                 "provider": "S3",
                 "bucket": "data-bucket",
-                "prefix": null
+                "prefix": null,
+                "region": null
               }
             ],
         },
