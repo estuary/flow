@@ -44,16 +44,19 @@ type S3StoreConfig struct {
 	// SSEKMSKeyId specifies the ID for the AWS KMS symmetric customer managed key
 	// By default, not used.
 	SSEKMSKeyId string
+	// Region is the region for the bucket. If empty, the region is determined
+	// from `Profile` or the default credentials.
+	Region string
 }
 
 type s3Backend struct {
-	clients   map[[2]string]*s3.S3
+	clients   map[[3]string]*s3.S3
 	clientsMu sync.Mutex
 }
 
 func newS3Backend() *s3Backend {
 	return &s3Backend{
-		clients: make(map[[2]string]*s3.S3),
+		clients: make(map[[3]string]*s3.S3),
 	}
 }
 
@@ -198,13 +201,17 @@ func (s *s3Backend) s3Client(ep *url.URL) (cfg S3StoreConfig, client *s3.S3, err
 	defer s.clientsMu.Unlock()
 	s.clientsMu.Lock()
 
-	var key = [2]string{cfg.Endpoint, cfg.Profile}
+	var key = [3]string{cfg.Endpoint, cfg.Profile, cfg.Region}
 	if client = s.clients[key]; client != nil {
 		return
 	}
 
 	var awsConfig = aws.NewConfig()
 	awsConfig.WithCredentialsChainVerboseErrors(true)
+
+	if cfg.Region != "" {
+		awsConfig.WithRegion(cfg.Region)
+	}
 
 	if cfg.Endpoint != "" {
 		awsConfig.WithEndpoint(cfg.Endpoint)
