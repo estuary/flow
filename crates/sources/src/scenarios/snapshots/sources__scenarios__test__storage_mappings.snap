@@ -30,7 +30,8 @@ Sources {
               {
                 "provider": "S3",
                 "bucket": "root-bucket",
-                "prefix": null
+                "prefix": null,
+                "region": null
               }
             ],
         },
@@ -46,7 +47,8 @@ Sources {
               {
                 "provider": "S3",
                 "bucket": "s3-bucket",
-                "prefix": null
+                "prefix": null,
+                "region": null
               }
             ],
         },
