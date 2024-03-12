@@ -42,11 +42,11 @@ type RecordedOp struct {
 	//
 	// These are meta-fields: they're not literally serialized into written messages.
 	// The offsets of a particular message will also vary over its lifetime:
-	// * When first recorded, the offsets at which the write will land within the journal
-	//   cannot be known ahead of time, and Recorders use an approximate lower bound
-	//   as |first_offset|.
-	// * During playback, players have the benefit of inspecting the committed log and
-	//   attach exact byte offsets as they deserialized RecordedOps.
+	//   - When first recorded, the offsets at which the write will land within the journal
+	//     cannot be known ahead of time, and Recorders use an approximate lower bound
+	//     as |first_offset|.
+	//   - During playback, players have the benefit of inspecting the committed log and
+	//     attach exact byte offsets as they deserialized RecordedOps.
 	FirstOffset int64                                       `protobuf:"varint,9,opt,name=first_offset,json=firstOffset,proto3" json:"first_offset,omitempty"`
 	LastOffset  int64                                       `protobuf:"varint,10,opt,name=last_offset,json=lastOffset,proto3" json:"last_offset,omitempty"`
 	Log         go_gazette_dev_core_broker_protocol.Journal `protobuf:"bytes,11,opt,name=log,proto3,casttype=go.gazette.dev/core/broker/protocol.Journal" json:"log,omitempty"`
