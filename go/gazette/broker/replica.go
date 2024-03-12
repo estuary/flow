@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -228,18 +228,8 @@ func maybeRollFragment(cur fragment.Spool, rollToOffset int64, spec pb.JournalSp
 		flushFragment = true // Empty fragment is trivially rolled.
 	} else if cl > spec.Length {
 		flushFragment = true // Roll if over the target Fragment length.
-	} else if cur.Begin == 0 {
-		// We should roll after the journal's very first write. This has the
-		// effect of "dirtying" the remote fragment index, and protects against
-		// data loss if N > R consistency is lost (eg, Etcd fails). When the
-		// remote index is dirty, recovering brokers are clued in that writes
-		// against this journal have already occurred (and `gazctl reset-head`
-		// must be run to recover). If the index were instead pristine,
-		// recovering brokers cannot distinguish this case from a newly-created
-		// journal, which risks double-writes to journal offsets.
-		flushFragment = true
-	} else if rollToOffset != 0 {
-		flushFragment = true
+	} else if rollToOffset != 0 && rollToOffset != cur.Begin {
+		flushFragment = true // Roll to a requested larger offset.
 	}
 
 	// If the flush interval of the fragment differs from current number of

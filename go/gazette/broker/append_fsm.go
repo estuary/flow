@@ -412,9 +412,15 @@ func (b *appendFSM) onValidatePreconditions() {
 		}
 	}
 
+	// It's possible a peer might have a larger end offset which is not
+	// reflected in our index, if a commit wasn't accepted by all peers.
+	// Such writes are reported as failed to the client and are retried
+	// (this failure mode is what makes journals at-least-once).
+	var indexMin, indexMax = b.resolved.replica.index.OffsetRange()
+
 	var maxOffset = b.pln.spool.End
-	if eo := b.resolved.replica.index.EndOffset(); eo > maxOffset {
-		maxOffset = eo
+	if indexMax > maxOffset {
+		maxOffset = indexMax
 	}
 
 	if b.req.CheckRegisters != nil &&
@@ -434,6 +440,17 @@ func (b *appendFSM) onValidatePreconditions() {
 		// Re-sync the pipeline at the explicitly requested |maxOffset|.
 		b.rollToOffset = maxOffset
 		b.state = stateSendPipelineSync
+	} else if b.pln.spool.Begin == indexMin {
+		// The spool holds the journal's first known write and should be rolled.
+		// This has the effect of "dirtying" the remote fragment index,
+		// and protects against data loss if N > R consistency is lost (eg, Etcd fails).
+		// When the remote index is dirty, recovering brokers are clued in that writes
+		// against this journal have already occurred (and `gazctl reset-head`
+		// must be run to recover). If the index were instead pristine,
+		// recovering brokers cannot distinguish this case from a newly-created
+		// journal, which risks double-writes to journal offsets.
+		b.rollToOffset = b.pln.spool.End
+		b.state = stateStreamContent
 	} else {
 		b.state = stateStreamContent
 	}
@@ -457,7 +474,7 @@ func (b *appendFSM) onStreamContent(req *pb.AppendRequest, err error) {
 		// Potentially roll the Fragment forward ahead of this append. Our
 		// pipeline is synchronized, so we expect this will always succeed
 		// and don't ask for an acknowledgement.
-		var proposal = maybeRollFragment(b.pln.spool, 0, b.resolved.journalSpec.Fragment)
+		var proposal = maybeRollFragment(b.pln.spool, b.rollToOffset, b.resolved.journalSpec.Fragment)
 
 		if b.pln.spool.Fragment.Fragment != proposal {
 			b.pln.scatter(&pb.ReplicateRequest{

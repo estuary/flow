@@ -263,7 +263,9 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	<-ind.FirstRefreshCh()
 
 	c.Check(ind.set, gc.HasLen, 3)
-	c.Check(ind.EndOffset(), gc.Equals, int64(0x255))
+	var bo, eo = ind.OffsetRange()
+	c.Check(bo, gc.Equals, int64(0x0))
+	c.Check(eo, gc.Equals, int64(0x255))
 
 	// Expect root/one provides Fragment 222-255.
 	var resp, _, _ = ind.Query(context.Background(), &pb.ReadRequest{Offset: 0x223})
@@ -279,7 +281,9 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	ind.ReplaceRemote(set)
 
 	c.Check(ind.set, gc.HasLen, 4) // Combined Fragments are reflected.
-	c.Check(ind.EndOffset(), gc.Equals, int64(0x555))
+	bo, eo = ind.OffsetRange()
+	c.Check(bo, gc.Equals, int64(0x0))
+	c.Check(eo, gc.Equals, int64(0x555))
 
 	// Expect root/two now provides Fragment 222-333.
 	resp, _, _ = ind.Query(context.Background(), &pb.ReadRequest{Offset: 0x223})

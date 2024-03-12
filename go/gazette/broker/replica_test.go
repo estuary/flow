@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -109,32 +109,32 @@ func TestReplicaNextProposalCases(t *testing.T) {
 	defer func(f func() time.Time) { timeNow = f }(timeNow)
 
 	var testData = []struct {
-		prepArgs    func(fragment.Spool, pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment)
+		prepArgs    func(fragment.Spool, pb.JournalSpec_Fragment) (fragment.Spool, int64, pb.JournalSpec_Fragment)
 		out         pb.Fragment
 		description string
 	}{
 		{
-			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
-				spool.Begin, spool.End = 1, 100
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, int64, pb.JournalSpec_Fragment) {
+				spool.Begin, spool.End = 0, 100
 				spool.FirstAppendTime = time.Time{}.Add(time.Hour * 2)
 				spec.Length = 200
 				spec.FlushInterval = time.Duration(time.Hour * 6)
-				return spool, spec
+				return spool, 0, spec
 			},
 			out: pb.Fragment{
 				Journal:          "a/journal",
-				Begin:            1,
+				Begin:            0,
 				End:              100,
 				CompressionCodec: 1,
 			},
 			description: "Fragment does not need to be flushed",
 		},
 		{
-			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, int64, pb.JournalSpec_Fragment) {
 				spool.Begin, spool.End = 1, 200
 				spool.FirstAppendTime = time.Time{}.Add(time.Hour * 2)
 				spec.Length = 100
-				return spool, spec
+				return spool, 0, spec
 			},
 			out: pb.Fragment{
 				Journal:          "a/journal",
@@ -145,12 +145,12 @@ func TestReplicaNextProposalCases(t *testing.T) {
 			description: "Fragment exceeds length, get flush proposal",
 		},
 		{
-			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, int64, pb.JournalSpec_Fragment) {
 				spool.Begin, spool.End = 1, 50
 				spool.FirstAppendTime = time.Time{}.Add(time.Minute)
 				spec.Length = 100
 				spec.FlushInterval = time.Duration(time.Minute * 30)
-				return spool, spec
+				return spool, 0, spec
 			},
 			out: pb.Fragment{
 				Journal:          "a/journal",
@@ -161,28 +161,42 @@ func TestReplicaNextProposalCases(t *testing.T) {
 			description: "Fragment contains data from previous flush interval",
 		},
 		{
-			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, pb.JournalSpec_Fragment) {
-				spool.Begin, spool.End = 0, 10
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, int64, pb.JournalSpec_Fragment) {
+				spool.Begin, spool.End = 10, 20
 				spec.Length = 100
-				return spool, spec
+				return spool, 20, spec
 			},
 			out: pb.Fragment{
 				Journal:          "a/journal",
-				Begin:            10,
-				End:              10,
+				Begin:            20,
+				End:              20,
 				CompressionCodec: 1,
 			},
-			description: "Fragment is non-empty at Begin == 0",
+			description: "Fragment is has roll-to-offset",
+		},
+		{
+			prepArgs: func(spool fragment.Spool, spec pb.JournalSpec_Fragment) (fragment.Spool, int64, pb.JournalSpec_Fragment) {
+				spool.Begin, spool.End = 20, 30
+				spec.Length = 100
+				return spool, 20, spec
+			},
+			out: pb.Fragment{
+				Journal:          "a/journal",
+				Begin:            20,
+				End:              30,
+				CompressionCodec: 1,
+			},
+			description: "Fragment is has already been rolled-to-offset",
 		},
 	}
 
 	timeNow = func() time.Time { return time.Time{}.Add(time.Hour) }
 	for _, test := range testData {
-		var spool, spec = test.prepArgs(
+		var spool, rollToOffset, spec = test.prepArgs(
 			fragment.NewSpool("a/journal", &testSpoolObserver{}),
 			pb.JournalSpec_Fragment{CompressionCodec: 1},
 		)
-		var proposal = maybeRollFragment(spool, 0, spec)
+		var proposal = maybeRollFragment(spool, rollToOffset, spec)
 		t.Log(test.description)
 		require.Equal(t, proposal, test.out)
 	}

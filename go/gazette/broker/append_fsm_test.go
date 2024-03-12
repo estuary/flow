@@ -579,6 +579,22 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Intent to commit.
 	fsm.onStreamContent(nil, io.EOF)              // Client EOF.
 
+	// We previously completed a first write of this journal,
+	// which causes the _next_ write to roll the spool forward.
+	expect = pb.ReplicateRequest{
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			Begin:            2054,
+			End:              2054,
+			CompressionCodec: pb.CompressionCodec_GZIP,
+		},
+		Registers:   boxLabels("after", ""), // Union/subtract applied.
+		Acknowledge: false,                  // In-sync pipeline isn't acknowledged again.
+	}
+	peerRecv(expect)
+
+	// Now the Append validation error causes a rollback.
+	expect.Acknowledge = true
 	peerRecv(expect)                                     // Rollback.
 	peerSend(pb.ReplicateResponse{Status: pb.Status_OK}) // Send & read ACK.
 	fsm.onReadAcknowledgements()

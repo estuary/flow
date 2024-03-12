@@ -124,12 +124,12 @@ func (fi *Index) Query(ctx context.Context, req *pb.ReadRequest) (*pb.ReadRespon
 	}
 }
 
-// EndOffset returns the last (largest) End offset in the index.
-func (fi *Index) EndOffset() int64 {
+// OffsetRange returns the [Begin, End) offset range of all Fragments in the index.
+func (fi *Index) OffsetRange() (int64, int64) {
 	defer fi.mu.RUnlock()
 	fi.mu.RLock()
 
-	return fi.set.EndOffset()
+	return fi.set.BeginOffset(), fi.set.EndOffset()
 }
 
 // SpoolCommit adds local Spool Fragment |frag| to the index.
