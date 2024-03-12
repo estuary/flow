@@ -3,6 +3,8 @@ package consumer
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -221,4 +223,19 @@ func TestShardStoreStartCommitFails(t *testing.T) {
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	tf.allocateShard(spec) // Cleanup.
+}
+
+func TestShardErrorsAreTruncatedIfLarge(t *testing.T) {
+	var tf, cleanup = newTestFixture(t)
+	defer cleanup()
+
+	tf.app.newStoreErr = errors.New(strings.Repeat("e", MAX_ETCD_ERR_LEN+1))
+	tf.allocateShard(makeShard(shardA), localID)
+
+	var expect = fmt.Sprintf("completeRecovery: app.NewStore: %s", strings.Repeat("e", MAX_ETCD_ERR_LEN))
+	expect = fmt.Sprintf("%s ...[truncated]", expect[:MAX_ETCD_ERR_LEN])
+
+	require.Equal(t, expect, expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
+
+	tf.allocateShard(makeShard(shardA)) // Cleanup.
 }

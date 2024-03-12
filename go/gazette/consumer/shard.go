@@ -225,9 +225,14 @@ func servePrimary(s *shard) (err error) {
 		if err != nil && s.ctx.Err() == nil {
 			log.WithFields(log.Fields{"err": err, "shard": s.FQN()}).Error("servePrimary failed")
 
+			var statusErr = err.Error()
+			if len(statusErr) > MAX_ETCD_ERR_LEN {
+				statusErr = statusErr[:MAX_ETCD_ERR_LEN] + " ...[truncated]"
+			}
+
 			updateStatusWithRetry(s, pc.ReplicaStatus{
 				Code:   pc.ReplicaStatus_FAILED,
-				Errors: []string{err.Error()},
+				Errors: []string{statusErr},
 			})
 		}
 		s.wg.Done()
@@ -422,3 +427,7 @@ func backoff(attempt int) time.Duration {
 		return 5 * time.Second
 	}
 }
+
+// Etcd values should generally be small.
+// We don't want to push arbitrary length error strings.
+const MAX_ETCD_ERR_LEN = 2048
