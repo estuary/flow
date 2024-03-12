@@ -54,19 +54,20 @@ func (fi *Index) Query(ctx context.Context, req *pb.ReadRequest) (*pb.ReadRespon
 		var condCh = fi.condCh
 		var err error
 
-		// If the requested offset isn't covered by the index, but we do have a
-		// Fragment covering a *greater* offset, where that Fragment is also older
-		// than a large time.Duration, then: skip forward the request offset to
-		// the Fragment offset. This case allows us to recover from "holes" or
-		// deletions in the offset space of a Journal, while not impacting races
-		// which can occur between delayed persistence to the Fragment store
-		// vs hand-off of Journals to new brokers (eg, a new broker which isn't
-		// yet aware of a Fragment currently being uploaded, should block a read
-		// of an offset covered by that Fragment until it becomes available).
-		if !found && ind != len(fi.set) &&
-			fi.set[ind].ModTime != 0 &&
-			fi.set[ind].ModTime < timeNow().Add(-offsetJumpAgeThreshold).Unix() {
+		// If the requested offset isn't covered by the index, but we do have
+		// a persisted fragment with a *greater* offset...
+		if !found && ind != len(fi.set) && fi.set[ind].ModTime != 0 &&
+			// AND the client is reading from the very beginning of the journal,
+			// OR the next available fragment was persisted quite a while ago.
+			(req.Offset == 0 || (fi.set[ind].ModTime < timeNow().Add(-offsetJumpAgeThreshold).Unix())) {
 
+			// Then skip the read forward to the first or next available offset.
+			// This case allows us to recover from "holes" or deletions in the
+			// offset space of a Journal, while not impacting races which can occur
+			// between delayed persistence to the Fragment store vs hand-off of
+			// Journals to new brokers (eg, a new broker which isn't yet aware of
+			// a Fragment currently being uploaded, should block a read
+			// of an offset covered by that Fragment until it becomes available).
 			resp.Offset = fi.set[ind].Begin
 			found = true
 		}
