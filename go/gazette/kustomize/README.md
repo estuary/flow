@@ -32,8 +32,17 @@ $ make as-ci target=ci-release-gazette-broker
 $ make as-ci target=ci-release-gazette-examples
 
 # Install kind (if needed).
-$ go get sigs.k8s.io/kind
+$ go get sigs.k8s.io/kind@latest
+
+# Instal kail (if desired).
+$ go get github.com/boz/kail/cmd/kail@latest
+
+# Create a local kubernetes cluster.
 $ kind create cluster
+
+# Copy locally-build images into your `kind` cluster.
+$ kind load docker-image gazette/broker
+$ kind load docker-image gazette/examples
 
 # Apply the complete soak test, running in namespace stream-sum.
 $ kubectl apply -k kustomize/test/deploy-stream-sum-with-crash-tests/
