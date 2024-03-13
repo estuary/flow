@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -389,6 +390,21 @@ func fragmentLabels(fragment pb.Fragment) prometheus.Labels {
 	}
 }
 
+// newHttpClient returns an http client for readers to use for fetching fragments.
+// It disables http2 because we've observed some rather horrific behavior from http2
+// lately. When there's an error with the underlying transport, the http2 client can still
+// use it for additional streams, creating the potential for connection failures to cause
+// more widespread errors for other requests to the same host. Falling back to http 1.1
+// is intended to be a short term workaround.
+func newHttpClient() *http.Client {
+	var transport = http.DefaultTransport.(*http.Transport).Clone()
+	// Recommended here: https://pkg.go.dev/net/http#hdr-HTTP_2
+	transport.TLSNextProto = map[string]func(authority string, c *tls.Conn) http.RoundTripper{}
+	return &http.Client{
+		Transport: transport,
+	}
+}
+
 var (
 	// Map common broker error statuses into named errors.
 	ErrInsufficientJournalBrokers = errors.New(pb.Status_INSUFFICIENT_JOURNAL_BROKERS.String())
@@ -412,5 +428,5 @@ var (
 	ErrDidNotReadExpectedEOF = errors.New("did not read EOF at expected Fragment.End")
 
 	// httpClient is the http.Client used by OpenFragmentURL
-	httpClient = http.DefaultClient
+	httpClient = newHttpClient()
 )
