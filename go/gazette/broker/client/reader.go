@@ -351,17 +351,16 @@ func (fr *FragmentReader) Close() error {
 // fragments are persisted, and to which this client also has access. The
 // returned cleanup function removes the handler and restores the prior http.Client.
 //
-//      const root = "/mnt/shared-nas-array/path/to/fragment-root"
-//      defer client.InstallFileTransport(root)()
+//	const root = "/mnt/shared-nas-array/path/to/fragment-root"
+//	defer client.InstallFileTransport(root)()
 //
-//      var rr = NewRetryReader(ctx, client, protocol.ReadRequest{
-//          Journal: "a/journal/with/nas/fragment/store",
-//          DoNotProxy: true,
-//      })
-//      // rr.Read will read Fragments directly from NAS.
-//
+//	var rr = NewRetryReader(ctx, client, protocol.ReadRequest{
+//	    Journal: "a/journal/with/nas/fragment/store",
+//	    DoNotProxy: true,
+//	})
+//	// rr.Read will read Fragments directly from NAS.
 func InstallFileTransport(root string) (remove func()) {
-	var transport = http.DefaultTransport.(*http.Transport).Clone()
+	var transport = httpClient.Transport.(*http.Transport).Clone()
 	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(root)))
 
 	var prevClient = httpClient
