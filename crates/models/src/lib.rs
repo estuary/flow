@@ -41,7 +41,7 @@ pub use references::{
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use source::{FullSource, PartitionSelector, Source};
-pub use tests::{TestDocuments, TestStep, TestStepIngest, TestStepVerify};
+pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({

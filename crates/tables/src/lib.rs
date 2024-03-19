@@ -1,7 +1,9 @@
 #[macro_use]
 mod macros;
 use macros::*;
+mod id;
 
+pub use id::Id;
 pub use macros::Table;
 
 #[cfg(feature = "persist")]
@@ -43,12 +45,51 @@ tables!(
         stores: Vec<models::Store>,
     }
 
+    table InferredSchemas (row InferredSchema, order_by [collection_name], sql "inferred_schemas") {
+        collection_name: String,
+        schema: models::Schema,
+        md5: String,
+    }
+
+    table DraftCollections (row DraftCollection, order_by [catalog_name], sql "draft_collections") {
+        // Name of this collection.
+        catalog_name: String,
+        expect_pub_id: Option<Id>,
+        // Specification of this collection.
+        spec: models::CollectionDef,
+    }
+
+    table LiveCollections (row LiveCollection, order_by [catalog_name], sql "live_collections") {
+        id: Id,
+        catalog_name: String,
+        last_pub_id: Id,
+        inferred_schema_md5: String,
+        spec: models::CollectionDef,
+        built_spec: proto_flow::flow::CollectionSpec,
+    }
+
     table Collections (row Collection, order_by [collection], sql "collections") {
         scope: url::Url,
         // Name of this collection.
         collection: models::Collection,
         // Specification of this collection.
         spec: models::CollectionDef,
+    }
+
+    table DraftCaptures (row DraftCapture, order_by [catalog_name], sql "draft_captures") {
+        // Name of this collection.
+        catalog_name: String,
+        expect_pub_id: Option<Id>,
+        // Specification of this collection.
+        spec: models::CaptureDef,
+    }
+
+    table LiveCaptures (row LiveCapture, order_by [catalog_name], sql "live_captures") {
+        id: Id,
+        catalog_name: String,
+        last_pub_id: Id,
+        spec: models::CaptureDef,
+        built_spec: proto_flow::flow::CaptureSpec,
     }
 
     table Captures (row Capture, order_by [capture], sql "captures") {
@@ -59,6 +100,21 @@ tables!(
         spec: models::CaptureDef,
     }
 
+    table DraftMaterializations (row DraftMaterialization, order_by [catalog_name], sql "draft_materializations") {
+        // Name of this materialization.
+        catalog_name: String,
+        expect_pub_id: Option<Id>,
+        spec: models::MaterializationDef,
+    }
+
+    table LiveMaterializations (row LiveMaterialization, order_by [catalog_name], sql "live_Materializations") {
+        id: Id,
+        catalog_name: String,
+        last_pub_id: Id,
+        spec: models::MaterializationDef,
+        built_spec: proto_flow::flow::MaterializationSpec,
+    }
+
     table Materializations (row Materialization, order_by [materialization], sql "materializations") {
         scope: url::Url,
         // Name of this materialization.
@@ -67,12 +123,27 @@ tables!(
         spec: models::MaterializationDef,
     }
 
+    table DraftTests (row DraftTest, order_by [catalog_name], sql "draft_materializations") {
+        // Name of this materialization.
+        catalog_name: String,
+        expect_pub_id: Option<Id>,
+        spec: models::TestDef,
+    }
+
+    table LiveTests (row LiveTest, order_by [catalog_name], sql "live_Materializations") {
+        id: Id,
+        catalog_name: String,
+        last_pub_id: Id,
+        spec: models::TestDef,
+        built_spec: proto_flow::flow::TestSpec,
+    }
+
     table Tests (row Test, order_by [test], sql "tests") {
         scope: url::Url,
         // Name of the test.
         test: models::Test,
         // Specification of the test.
-        spec: Vec<models::TestStep>,
+        spec: models::TestDef,
     }
 
     table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
@@ -128,6 +199,22 @@ tables!(
         build_config: proto_flow::flow::build_api::Config,
     }
 );
+
+#[derive(Default, Debug)]
+pub struct DraftSpecs {
+    pub captures: DraftCaptures,
+    pub collections: DraftCollections,
+    pub materializations: DraftMaterializations,
+    pub tests: DraftTests,
+}
+
+#[derive(Default, Debug)]
+pub struct LiveSpecs {
+    pub captures: LiveCaptures,
+    pub collections: LiveCollections,
+    pub materializations: LiveMaterializations,
+    pub tests: LiveTests,
+}
 
 /// Sources are tables which are populated by catalog loads of the `sources` crate.
 #[derive(Default, Debug)]
@@ -309,7 +396,8 @@ string_wrapper_types!(
 
 json_sql_types!(
     Vec<models::Store>,
-    Vec<models::TestStep>,
+    models::Schema,
+    models::TestDef,
     models::CaptureDef,
     models::CollectionDef,
     models::MaterializationDef,
