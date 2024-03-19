@@ -3,6 +3,51 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TestDef(pub Vec<TestStep>);
+
+impl JsonSchema for TestDef {
+    fn schema_name() -> String {
+        String::from("TestDef")
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        let schema = TestStep::json_schema(gen);
+        gen.definitions_mut()
+            .insert(TestStep::schema_name(), schema);
+
+        from_value(json!({
+            "type": "array",
+            "items": {
+                "$ref": format!("#/definitions/{}", TestStep::schema_name()),
+            },
+            "examples": [TestDef::example()],
+        }))
+        .unwrap()
+    }
+}
+
+impl std::ops::Deref for TestDef {
+    type Target = Vec<TestStep>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for TestDef {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl TestDef {
+    pub fn example() -> Self {
+        TestDef(vec![TestStep::example_ingest(), TestStep::example_verify()])
+    }
+}
+
 /// A test step describes either an "ingest" of document fixtures into a
 /// collection, or a "verify" of expected document fixtures from a collection.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]

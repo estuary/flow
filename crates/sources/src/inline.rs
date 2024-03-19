@@ -277,7 +277,7 @@ fn inline_materialization(
 
 fn inline_test(
     scope: &url::Url,
-    spec: &mut Vec<models::TestStep>,
+    spec: &mut models::TestDef,
     imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {

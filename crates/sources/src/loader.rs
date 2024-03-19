@@ -724,7 +724,7 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         test_name: &'s models::Test,
-        spec: Vec<models::TestStep>,
+        spec: models::TestDef,
     ) {
         let mut tasks = Vec::new();
 
