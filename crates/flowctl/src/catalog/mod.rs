@@ -461,7 +461,7 @@ pub fn collect_specs(
                 );
             }
             Some(CatalogSpecType::Test) => {
-                let test = row.parse_spec::<Vec<models::TestStep>>()?;
+                let test = row.parse_spec::<models::TestDef>()?;
                 catalog
                     .tests
                     .insert(models::Test::new(row.catalog_name()), test);

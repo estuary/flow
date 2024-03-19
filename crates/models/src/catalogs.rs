@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::{
     Capture, CaptureDef, Collection, CollectionDef, Materialization, MaterializationDef, Prefix,
-    RelativeUrl, StorageDef, Test, TestStep, TransformDef,
+    RelativeUrl, StorageDef, Test, TestDef, TestStep, TransformDef,
 };
 
 /// Each catalog source defines a portion of a Flow Catalog, by defining
@@ -39,7 +39,7 @@ pub struct Catalog {
     /// # Tests of this Catalog.
     #[schemars(schema_with = "tests_schema")]
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub tests: BTreeMap<Test, Vec<TestStep>>,
+    pub tests: BTreeMap<Test, TestDef>,
     // # Storage mappings of this Catalog.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(skip)]
@@ -183,18 +183,14 @@ fn tests_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::S
     let schema = Test::json_schema(gen);
     gen.definitions_mut().insert(Test::schema_name(), schema);
 
-    let schema = TestStep::json_schema(gen);
-    gen.definitions_mut()
-        .insert(TestStep::schema_name(), schema);
+    let schema = TestDef::json_schema(gen);
+    gen.definitions_mut().insert(TestDef::schema_name(), schema);
 
     from_value(json!({
         "type": "object",
         "patternProperties": {
             Test::schema_pattern(): {
-                "type": "array",
-                "items": {
-                    "$ref": format!("#/definitions/{}", TestStep::schema_name()),
-                }
+                "$ref": format!("#/definitions/{}", TestDef::schema_name()),
             },
         },
         "additionalProperties": false,

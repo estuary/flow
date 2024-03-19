@@ -15,7 +15,9 @@ pub fn gather_referenced_collections<'a>(
         }
     }
     for collection in collections {
-        let Some(derive) = &collection.spec.derive else { continue };
+        let Some(derive) = &collection.spec.derive else {
+            continue;
+        };
 
         for transform in derive.transforms.iter().filter(|b| !b.disable) {
             out.insert(&transform.source.collection());
@@ -27,7 +29,7 @@ pub fn gather_referenced_collections<'a>(
         }
     }
     for test in tests {
-        for step in &test.spec {
+        for step in test.spec.iter() {
             match step {
                 models::TestStep::Ingest(models::TestStepIngest { collection, .. }) => {
                     out.insert(collection);

@@ -152,10 +152,7 @@
       "type": "object",
       "patternProperties": {
         "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/TestStep"
-          }
+          "$ref": "#/definitions/TestDef"
         }
       },
       "additionalProperties": false
@@ -1144,6 +1141,44 @@
       ],
       "type": "string",
       "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
+    },
+    "TestDef": {
+      "examples": [
+        [
+          {
+            "ingest": {
+              "collection": "acmeCo/collection",
+              "description": "Description of the ingestion.",
+              "documents": [
+                {
+                  "a": "document"
+                },
+                {
+                  "another": "document"
+                }
+              ]
+            }
+          },
+          {
+            "verify": {
+              "collection": "acmeCo/collection",
+              "description": "Description of the verification.",
+              "documents": [
+                {
+                  "a": "document"
+                },
+                {
+                  "another": "document"
+                }
+              ]
+            }
+          }
+        ]
+      ],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TestStep"
+      }
     },
     "TestDocuments": {
       "description": "A test step describes either an \"ingest\" of document fixtures into a collection, or a \"verify\" of expected document fixtures from a collection.",
