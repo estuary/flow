@@ -16,6 +16,7 @@ but keep in mind that the two versions may be significantly different.
 The following data resources are supported:
 
 * [Blocks](https://developers.notion.com/reference/retrieve-a-block)
+* [Comments](https://developers.notion.com/reference/retrieve-a-comment)
 * [Databases](https://developers.notion.com/reference/retrieve-a-database)
 * [Pages](https://developers.notion.com/reference/retrieve-a-page)
 * [Users](https://developers.notion.com/reference/get-user)
@@ -69,14 +70,14 @@ so many of these properties aren't required.
 | **`/credentials`** | Authenticate using | Pick an authentication method. | object | Required |
 | **`/credentials/auth_type`** | Authentication type | Set to `token` for manual authentication | string | Required |
 | `/credentials/token` | Access Token | Notion API access token | string | |
-| **`/start_date`** | Start Date | UTC date and time in the format 2017-01-25T00:00:00.000Z. Any data before this date will not be replicated. | string | Required |
+| `/start_date` | Start Date | UTC date and time in the format YYYY-MM-DDTHH:MM:SS.000Z. Any data generated before this date will not be replicated. If left blank, the start date will be set to 2 years before the present date. | string |  |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/stream`** | Stream | Notion resource from which a collection is captured. | string | Required |
-| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| **`/syncMode`** | Sync Mode | Sync this resource incrementally, or fully refresh it every run | string | Required |
 
 ### Sample
 
