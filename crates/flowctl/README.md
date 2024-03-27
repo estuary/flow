@@ -55,3 +55,21 @@ flowctl draft create
 flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
+
+## Building from source
+
+First, make sure have rust installed.
+
+```
+make flow-cli
+```
+
+Now the binary is available at `target/release/flowctl`.
+
+Note that if you are using a recent version of git with `index.skipHash` enabled you may need to set this value to false in order to build. To fix this, without any changes in your local staging, run:
+
+```shell
+git config index.skipHash false
+rm .git/index
+git reset --hard
+```
