@@ -29,6 +29,8 @@ To use this connector, you'll need a MySQL database setup with the following.
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
   - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
+  - The watermark table will only ever have one row per capture from that database and that row is updated once per 50k rows scanned in each table during the initial backfill for MySQL databases.
+  - As each table backfills, the previous watermark record will be replaced.  After the initial backfill, watermark records are updated approximately once per minute.  At no time does a watermark table have more than one record.
 * A database user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
   - Permission to insert, update, and delete on the watermarks table.
