@@ -27,7 +27,6 @@ comment on column evolutions.auto_publish is
   'whether to automatically publish the results of the evolution, if successful';
 
 alter table evolutions enable row level security;
-alter publication supabase_realtime add table evolutions;
 
 create trigger "Notify agent about changes to evolution" after insert or update on evolutions
 for each statement execute procedure internal.notify_agent();

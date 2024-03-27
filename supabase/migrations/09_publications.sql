@@ -12,7 +12,6 @@ create table publications (
   auto_evolve boolean not null default false
 );
 alter table publications enable row level security;
-alter publication supabase_realtime add table publications;
 
 create trigger "Notify agent about changes to publication" after insert or update on publications
 for each statement execute procedure internal.notify_agent();
