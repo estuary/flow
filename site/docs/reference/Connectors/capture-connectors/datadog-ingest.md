@@ -39,20 +39,21 @@ Click **Details** to view the data preview.
 
 | Field | Value | Description |
 |---|---|---|
-| Name |` <your-webhook>`| The name of your webhook within Datadog |
-| URL | `https://<your-unique-webhook-url>/<your-tenant>/webhook-data` | The unique Estuary URL created for ingesting webhook data  |
+| Name |`your-webhook`| The name of your webhook within Datadog |
+| URL | `https://your-unique-webhook-url/your-tenant/webhook-data` | The unique Estuary URL created for ingesting webhook data  |
+
 
 4. In the Datadog Cloud Monitoring Platform, navigate to Monitors/New Monitor and select Metric for the type.
 
-5. Define the alert conditions and under `Notify your team` select `@<your-webhook>` from the dropdown.
+5. Define the alert conditions and under `Notify your team` select `@your-webhook` from the dropdown.
 
 If you entered `acmeCo/foo` for the capture name, then
-your collection name would default to `acmeCo/foo/webhook-data`, and your full webhook URL would be `https://<your-unique-hostname>/acmeCo/foo/webhook-data`.
+your collection name would default to `acmeCo/foo/webhook-data`, and your full webhook URL would be `https://your-unique-hostname/acmeCo/foo/webhook-data`.
 
 ### URL Paths
 
 You can customize the URL path for each binding by setting the `path` option in the [resource configuration](#resource-configuration) when creating the capture. For example, if you set the path to `my-webhook.json`,
-then the full URL for that collection would be `https://<your-unique-hostname>/my-webhook.json`. You can even create multiple bindings to the same collection
+then the full URL for that collection would be `https://your-unique-hostname/my-webhook.json`. You can even create multiple bindings to the same collection
 in order to serve webhooks from different URLs.
 
 ### Authentication
