@@ -276,6 +276,16 @@ To mitigate this, we recommend a two-pronged approach:
 For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
 update delay to 30 minutes, you can incur as little as 48 minutes per day of active time in the warehouse.
 
+### Update Delay
+
+The `Update Delay` parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This advanced option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period. By incorporating an update delay into your workflow, you can effectively manage and optimize your active warehouse time, leading to potentially lower costs and more efficient data processing.
+
+An update delay is configured in the advanced settings of a materialization's configuration. It represents the amount of time the system will wait before it begins materializing the latest data. This delay is specified in hours and can be adjusted according to the needs of your data pipeline.
+
+For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
+
+To configure an update delay, navigate the `Advanced Options` section of the materialization's configuration and select a value from the drop down. The default value for the update delay in Estuary materializations is set to 30 minutes.
+
 ### Snowpipe
 
 [Snowpipe](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-intro) allows for loading data into target tables without waking up the warehouse, which can be cheaper and more performant. Snowpipe can be used for delta updates bindings, and it requires configuring your authentication using a private key. Instructions for configuring key-pair authentication can be found in this page: [Key-pair Authentication & Snowpipe](#key-pair-authentication--snowpipe)
