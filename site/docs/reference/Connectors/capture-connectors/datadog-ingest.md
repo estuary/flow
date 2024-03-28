@@ -39,8 +39,8 @@ Click **Details** to view the data preview.
 
 | Field | Value | Description |
 |---|---|---|
-| Name | <your-webhook> | The name of your webhook within Datadog |
-| URL | https://<your-unique-webhook-url>/<your-tenant>/webhook-data | The unique Estuary URL created for ingesting webhook data  |
+| Name |` <your-webhook>`| The name of your webhook within Datadog |
+| URL | `https://<your-unique-webhook-url>/<your-tenant>/webhook-data` | The unique Estuary URL created for ingesting webhook data  |
 
 4. In the Datadog Cloud Monitoring Platform, navigate to Monitors/New Monitor and select Metric for the type.
 
