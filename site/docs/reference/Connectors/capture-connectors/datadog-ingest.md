@@ -44,7 +44,7 @@ Click **Details** to view the data preview.
 
 4. In the Datadog Cloud Monitoring Platform, navigate to Monitors/New Monitor and select Metric for the type.
 
-5. Define the alert conditions and under `Notify your team` select `@<your-webhook>` from the dropdown.
+5. Define the alert conditions and under `Notify your team` select `@your-webhook` from the dropdown.
 
 If you entered `acmeCo/foo` for the capture name, then
 your collection name would default to `acmeCo/foo/webhook-data`, and your full webhook URL would be `https://your-unique-hostname/acmeCo/foo/webhook-data`.
