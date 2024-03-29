@@ -16,6 +16,8 @@ pub trait Row: Sized {
 /// Table is a collection of Rows.
 pub trait Table: Sized {
     type Row: Row;
+
+    fn iter(&self) -> std::slice::Iter<Self::Row>;
 }
 
 #[cfg(feature = "persist")]
@@ -277,14 +279,49 @@ macro_rules! replace_expr {
     };
 }
 
+macro_rules! with_catalog_name {
+    ($table:ident, $row:ident, $name:ident) => {
+        impl NamedRow for $row {
+            fn name(&self) -> &str {
+                self.$name.as_str()
+            }
+        }
+
+        impl $table {
+            pub fn get_by_name(&self, name: &str) -> Option<&$row> {
+                let Some(idx) = self.index_of_named(name) else {
+                    return None;
+                };
+                self.0.get(idx)
+            }
+
+            pub fn get_mut_by_name(&mut self, name: &str) -> Option<&mut $row> {
+                let Some(idx) = self.index_of_named(name) else {
+                    return None;
+                };
+                self.0.get_mut(idx)
+            }
+
+            pub fn contains(&self, catalog_name: &str) -> bool {
+                self.index_of_named(catalog_name).is_some()
+            }
+
+            fn index_of_named(&self, name: &str) -> Option<usize> {
+                self.0.binary_search_by(|row| row.name().cmp(name)).ok()
+            }
+        }
+    };
+}
+
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $row:ident, order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
+        table $table:ident ( row $( #[$rattrs:meta] )? $row:ident $(Named $name:ident)? , order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
             $($field:ident: $rust_type:ty,)*
         }
     )*) => {
         $(
+        $( #[$rattrs] )?
         pub struct $row {
             $(pub $field: $rust_type,)*
         }
@@ -317,6 +354,37 @@ macro_rules! tables {
                 });
                 self.0.insert(index, row);
             }
+
+            // TODO: maybe move upsert functions into with_catalog_name?
+            /// Insert a new row, or update an existing one if a row with the same key already exists.
+            /// Be warned: the Table must be ordered, and the results are unspecified if it is not.
+            #[allow(dead_code)]
+            pub fn upsert<F>(&mut self, row: $row, mut merge: F)
+            where F: FnMut(&$row, &mut $row) {
+                let r = ($(&row.$order_by,)*);
+
+                // idk why, but rustc things l_row is unused when it clearly is used
+                let idx = self.0.binary_search_by(|#[allow(unused_variables)] l_row| {
+                    let l = ($(&l_row.$order_by,)*);
+                    l.cmp(&r)
+                });
+                match idx {
+                    Ok(i) => {
+                        let mut next = row;
+                        merge(&self.0[i], &mut next);
+                        let pos = self.0.get_mut(i).unwrap();
+                        let _ = std::mem::replace(pos, next);
+                    }
+                    Err(i) => {
+                        self.0.insert(i, row);
+                    }
+                }
+            }
+
+            pub fn upsert_overwrite(&mut self, row: $row) {
+                self.upsert(row, |_, _| {})
+            }
+
             /// Convert the Table into an Iterator.
             #[allow(dead_code)]
             pub fn into_iter(self) -> impl Iterator<Item=$row> {
@@ -336,10 +404,25 @@ macro_rules! tables {
                     l.cmp(&r)
                 });
             }
+
+            // TODO: is upsert_all really needed?
+            pub fn upsert_all<F>(&mut self, it: impl Iterator<Item=$row>, mut merge: F) where F: FnMut(&$row, &mut $row) {
+                for r in it {
+                    self.upsert(r, &mut merge);
+                }
+            }
         }
+
+        $(
+            with_catalog_name!{$table, $row, $name}
+        )?
 
         impl Table for $table {
             type Row = $row;
+
+            fn iter(&self) -> std::slice::Iter<Self::Row> {
+                self.0.iter()
+            }
         }
         impl Row for $row {
             type Table = $table;

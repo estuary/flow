@@ -8,6 +8,80 @@ use super::{
     RelativeUrl, StorageDef, Test, TestDef, TestStep, TransformDef,
 };
 
+// TODO: is BaseCatalog worth keeping?
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Default)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct BaseCatalog {
+    /// # Captures of this Catalog.
+    #[schemars(schema_with = "captures_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub captures: BTreeMap<Capture, CaptureDef>,
+    /// # Collections of this Catalog.
+    #[schemars(schema_with = "collections_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub collections: BTreeMap<Collection, CollectionDef>,
+    /// # Materializations of this Catalog.
+    #[schemars(schema_with = "materializations_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub materializations: BTreeMap<Materialization, MaterializationDef>,
+    /// # Tests of this Catalog.
+    #[schemars(schema_with = "tests_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tests: BTreeMap<Test, TestDef>,
+}
+
+impl BaseCatalog {
+    pub fn merge(&mut self, other: BaseCatalog) {
+        let BaseCatalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+        } = other;
+        for (name, spec) in captures {
+            self.captures.insert(name, spec);
+        }
+        for (name, spec) in collections {
+            self.collections.insert(name, spec);
+        }
+        for (name, spec) in materializations {
+            self.materializations.insert(name, spec);
+        }
+        for (name, spec) in tests {
+            self.tests.insert(name, spec);
+        }
+    }
+
+    /// Returns the names of all specs that are directly included within this catalog.
+    /// This does _not_ include specs from imported catalogs.
+    pub fn all_spec_names(&self) -> impl Iterator<Item = &str> {
+        self.collections
+            .keys()
+            .map(AsRef::<str>::as_ref)
+            .chain(self.captures.keys().map(AsRef::<str>::as_ref))
+            .chain(self.materializations.keys().map(AsRef::<str>::as_ref))
+            .chain(self.tests.keys().map(AsRef::<str>::as_ref))
+    }
+}
+
+impl From<Catalog> for BaseCatalog {
+    fn from(value: Catalog) -> Self {
+        let Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+            ..
+        } = value;
+        BaseCatalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+        }
+    }
+}
+
 /// Each catalog source defines a portion of a Flow Catalog, by defining
 /// collections, derivations, tests, and materializations of the Catalog.
 /// Catalog sources may reference and import other sources, in order to
@@ -44,6 +118,26 @@ pub struct Catalog {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(skip)]
     pub storage_mappings: BTreeMap<Prefix, StorageDef>,
+}
+
+impl From<BaseCatalog> for Catalog {
+    fn from(value: BaseCatalog) -> Self {
+        let BaseCatalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+        } = value;
+        Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+            _schema: None,
+            import: Vec::new(),
+            storage_mappings: BTreeMap::new(),
+        }
+    }
 }
 
 impl Catalog {

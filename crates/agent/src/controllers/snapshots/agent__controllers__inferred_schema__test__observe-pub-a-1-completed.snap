@@ -1,0 +1,255 @@
+---
+source: crates/agent/src/controllers/inferred_schema.rs
+expression: "&updates"
+info:
+  id: "0200000000000000"
+  completed_at: "2024-01-01T08:02:00Z"
+  draft:
+    collections:
+      a/a:
+        writeSchema:
+          "$serde_json::private::RawValue": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"type\":\"object\"}"
+        readSchema:
+          "$serde_json::private::RawValue": "{\"allOf\":[{\"$ref\":\"flow://inferred-schema\"},{\"$ref\":\"flow://write-schema\"}]}"
+        key:
+          - /id
+  live:
+    collections:
+      a/a:
+        writeSchema:
+          "$serde_json::private::RawValue": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"type\":\"object\"}"
+        readSchema:
+          "$serde_json::private::RawValue": "{\"allOf\":[{\"$ref\":\"flow://inferred-schema\"},{\"$ref\":\"flow://write-schema\"}]}"
+        key:
+          - /id
+      a/d:
+        writeSchema:
+          "$serde_json::private::RawValue": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"type\":\"object\"}"
+        readSchema:
+          "$serde_json::private::RawValue": "{\"allOf\":[{\"$ref\":\"flow://inferred-schema\"},{\"$ref\":\"flow://write-schema\"}]}"
+        key:
+          - /id
+        derive:
+          using:
+            sqlite: {}
+          transforms:
+            - name: a/a
+              source: a/a
+              shuffle: unset
+              lambda:
+                "$serde_json::private::RawValue": "\"shelect shtar\""
+    materializations:
+      a/m1:
+        endpoint:
+          connector:
+            image: "foo:test"
+            config:
+              "$serde_json::private::RawValue": "{}"
+        bindings:
+          - resource:
+              "$serde_json::private::RawValue": "{\"thing\":\"a/a\"}"
+            source: a/a
+            fields:
+              recommended: true
+          - resource:
+              "$serde_json::private::RawValue": "{\"thing\":\"a/d\"}"
+            source: a/d
+            fields:
+              recommended: true
+      a/m2:
+        endpoint:
+          connector:
+            image: "foo:test"
+            config:
+              "$serde_json::private::RawValue": "{}"
+        bindings:
+          - resource:
+              "$serde_json::private::RawValue": "{\"thing\":\"a/a\"}"
+            source: a/a
+            fields:
+              recommended: true
+  starting_states:
+    a/a:
+      active: true
+      next_run: ~
+      updated_at: "2024-01-01T08:02:00Z"
+      status:
+        schema_last_updated: "2024-01-01T08:02:00Z"
+        schema_md5: 9a715d81eee48cba22c4469c1417d697
+        consumers:
+          a/d:
+            applied_schema_md5: ~
+            last_publication:
+              id: "0100000000000000"
+              completed: "2024-01-01T08:01:00Z"
+              result:
+                type: success
+          a/m1:
+            applied_schema_md5: ~
+            last_publication:
+              id: "0100000000000000"
+              completed: "2024-01-01T08:01:00Z"
+              result:
+                type: success
+          a/m2:
+            applied_schema_md5: ~
+            last_publication:
+              id: "0100000000000000"
+              completed: "2024-01-01T08:01:00Z"
+              result:
+                type: success
+        publications:
+          pending:
+            id: "0200000000000000"
+            created: "2024-01-01T08:02:00Z"
+          history: []
+          last_observed:
+            id: "0100000000000000"
+            completed: "2024-01-01T08:01:00Z"
+            result:
+              type: success
+      failures: 0
+    a/d:
+      active: true
+      next_run: "2024-01-01T08:02:00Z"
+      updated_at: "2024-01-01T08:01:00Z"
+      status:
+        schema_last_updated: "2024-01-01T08:01:00Z"
+        schema_md5: ~
+        consumers:
+          a/m1:
+            applied_schema_md5: ~
+            last_publication:
+              id: "0100000000000000"
+              completed: "2024-01-01T08:01:00Z"
+              result:
+                type: success
+          a/m3:
+            applied_schema_md5: ~
+            last_publication:
+              id: "0100000000000000"
+              completed: "2024-01-01T08:01:00Z"
+              result:
+                type: success
+        publications:
+          pending: ~
+          history: []
+          last_observed:
+            id: "0100000000000000"
+            completed: "2024-01-01T08:01:00Z"
+            result:
+              type: success
+      failures: 0
+  publication_status:
+    type: success
+---
+{
+  "a/a": {
+    "active": true,
+    "next_run": {
+      "after_seconds": 600,
+      "jitter_percent": 25
+    },
+    "status": {
+      "schema_last_updated": "2024-01-01T08:02:00Z",
+      "schema_md5": "9a715d81eee48cba22c4469c1417d697",
+      "consumers": {
+        "a/d": {
+          "applied_schema_md5": "9a715d81eee48cba22c4469c1417d697",
+          "last_publication": {
+            "id": "0200000000000000",
+            "completed": "2024-01-01T08:02:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        },
+        "a/m1": {
+          "applied_schema_md5": "9a715d81eee48cba22c4469c1417d697",
+          "last_publication": {
+            "id": "0200000000000000",
+            "completed": "2024-01-01T08:02:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        },
+        "a/m2": {
+          "applied_schema_md5": "9a715d81eee48cba22c4469c1417d697",
+          "last_publication": {
+            "id": "0200000000000000",
+            "completed": "2024-01-01T08:02:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        }
+      },
+      "publications": {
+        "pending": null,
+        "history": [
+          {
+            "id": "0200000000000000",
+            "created": "2024-01-01T08:02:00Z",
+            "completed": "2024-01-01T08:02:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        ],
+        "last_observed": {
+          "id": "0200000000000000",
+          "created": "2024-01-01T08:02:00Z",
+          "completed": "2024-01-01T08:02:00Z",
+          "result": {
+            "type": "success"
+          }
+        }
+      }
+    }
+  },
+  "a/d": {
+    "active": true,
+    "next_run": {
+      "after_seconds": 60,
+      "jitter_percent": 25
+    },
+    "status": {
+      "schema_last_updated": "2024-01-01T08:01:00Z",
+      "schema_md5": null,
+      "consumers": {
+        "a/m1": {
+          "applied_schema_md5": null,
+          "last_publication": {
+            "id": "0200000000000000",
+            "completed": "2024-01-01T08:02:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        },
+        "a/m3": {
+          "applied_schema_md5": null,
+          "last_publication": {
+            "id": "0100000000000000",
+            "completed": "2024-01-01T08:01:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        }
+      },
+      "publications": {
+        "pending": null,
+        "history": [],
+        "last_observed": {
+          "id": "0200000000000000",
+          "completed": "2024-01-01T08:02:00Z",
+          "result": {
+            "type": "success"
+          }
+        }
+      }
+    }
+  }
+}

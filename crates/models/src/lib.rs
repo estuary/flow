@@ -19,7 +19,7 @@ mod tests;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
-pub use catalogs::Catalog;
+pub use catalogs::{BaseCatalog, Catalog};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{ConnectorConfig, LocalConfig};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};

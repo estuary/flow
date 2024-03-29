@@ -1,9 +1,15 @@
 #[macro_use]
 mod macros;
+use itertools::Itertools;
 use macros::*;
+mod draft;
+mod filters;
 mod id;
+mod live;
 
+pub use filters::{AnySpec, SpecExt};
 pub use id::Id;
+pub use itertools::EitherOrBoth;
 pub use macros::Table;
 
 #[cfg(feature = "persist")]
@@ -45,13 +51,13 @@ tables!(
         stores: Vec<models::Store>,
     }
 
-    table InferredSchemas (row InferredSchema, order_by [collection_name], sql "inferred_schemas") {
+    table InferredSchemas (row #[derive(Clone)] InferredSchema Named collection_name, order_by [collection_name], sql "inferred_schemas") {
         collection_name: String,
         schema: models::Schema,
         md5: String,
     }
 
-    table DraftCollections (row DraftCollection, order_by [catalog_name], sql "draft_collections") {
+    table DraftCollections (row #[derive(Clone)] DraftCollection Named catalog_name, order_by [catalog_name], sql "draft_collections") {
         // Name of this collection.
         catalog_name: String,
         expect_pub_id: Option<Id>,
@@ -59,13 +65,13 @@ tables!(
         spec: models::CollectionDef,
     }
 
-    table LiveCollections (row LiveCollection, order_by [catalog_name], sql "live_collections") {
+    table LiveCollections (row #[derive(Clone)] LiveCollection Named catalog_name, order_by [catalog_name], sql "live_collections") {
         id: Id,
         catalog_name: String,
         last_pub_id: Id,
-        inferred_schema_md5: String,
+        inferred_schema_md5: Option<String>,
         spec: models::CollectionDef,
-        built_spec: proto_flow::flow::CollectionSpec,
+        built_spec: Option<proto_flow::flow::CollectionSpec>,
     }
 
     table Collections (row Collection, order_by [collection], sql "collections") {
@@ -76,7 +82,7 @@ tables!(
         spec: models::CollectionDef,
     }
 
-    table DraftCaptures (row DraftCapture, order_by [catalog_name], sql "draft_captures") {
+    table DraftCaptures (row #[derive(Clone)] DraftCapture Named catalog_name, order_by [catalog_name], sql "draft_captures") {
         // Name of this collection.
         catalog_name: String,
         expect_pub_id: Option<Id>,
@@ -84,7 +90,7 @@ tables!(
         spec: models::CaptureDef,
     }
 
-    table LiveCaptures (row LiveCapture, order_by [catalog_name], sql "live_captures") {
+    table LiveCaptures (row #[derive(Clone)] LiveCapture Named catalog_name, order_by [catalog_name], sql "live_captures") {
         id: Id,
         catalog_name: String,
         last_pub_id: Id,
@@ -100,14 +106,14 @@ tables!(
         spec: models::CaptureDef,
     }
 
-    table DraftMaterializations (row DraftMaterialization, order_by [catalog_name], sql "draft_materializations") {
+    table DraftMaterializations (row #[derive(Clone)] DraftMaterialization Named catalog_name, order_by [catalog_name], sql "draft_materializations") {
         // Name of this materialization.
         catalog_name: String,
         expect_pub_id: Option<Id>,
         spec: models::MaterializationDef,
     }
 
-    table LiveMaterializations (row LiveMaterialization, order_by [catalog_name], sql "live_Materializations") {
+    table LiveMaterializations (row #[derive(Clone)] LiveMaterialization Named catalog_name, order_by [catalog_name], sql "live_Materializations") {
         id: Id,
         catalog_name: String,
         last_pub_id: Id,
@@ -123,14 +129,14 @@ tables!(
         spec: models::MaterializationDef,
     }
 
-    table DraftTests (row DraftTest, order_by [catalog_name], sql "draft_materializations") {
+    table DraftTests (row #[derive(Clone)] DraftTest Named catalog_name, order_by [catalog_name], sql "draft_materializations") {
         // Name of this materialization.
         catalog_name: String,
         expect_pub_id: Option<Id>,
         spec: models::TestDef,
     }
 
-    table LiveTests (row LiveTest, order_by [catalog_name], sql "live_Materializations") {
+    table LiveTests (row #[derive(Clone)] LiveTest Named catalog_name, order_by [catalog_name], sql "live_Materializations") {
         id: Id,
         catalog_name: String,
         last_pub_id: Id,
@@ -144,6 +150,16 @@ tables!(
         test: models::Test,
         // Specification of the test.
         spec: models::TestDef,
+    }
+
+    table DraftDeletions (row #[derive(Clone)] DraftDeletion Named catalog_name, order_by [catalog_name], sql "draft_deletions") {
+        catalog_name: String,
+        expect_pub_id: Option<Id>,
+    }
+
+    table LiveDeletedSpecs (row #[derive(Clone)] LiveDeletedSpec Named catalog_name, order_by [catalog_name], sql "live_deleted_specs") {
+        catalog_name: String,
+        last_pub_id: Id,
     }
 
     table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
@@ -206,6 +222,7 @@ pub struct DraftSpecs {
     pub collections: DraftCollections,
     pub materializations: DraftMaterializations,
     pub tests: DraftTests,
+    pub deletions: DraftDeletions,
 }
 
 #[derive(Default, Debug)]
@@ -214,6 +231,75 @@ pub struct LiveSpecs {
     pub collections: LiveCollections,
     pub materializations: LiveMaterializations,
     pub tests: LiveTests,
+    pub deleted: LiveDeletedSpecs,
+}
+
+pub fn full_outer_join<'l, 'r, LT, LR, RT, RR>(
+    left: LT,
+    right: RT,
+) -> impl Iterator<Item = EitherOrBoth<&'l LR, &'r RR>>
+where
+    'r: 'l,
+    LT: IntoIterator<Item = &'l LR>,
+    LR: NamedRow + 'l,
+    RT: IntoIterator<Item = &'r RR>,
+    RR: NamedRow + 'r,
+{
+    left.into_iter()
+        .merge_join_by(right.into_iter(), |l, r| l.name().cmp(r.name()))
+}
+
+pub fn inner_join<'l, 'r, LT, LR, RT, RR>(
+    left: LT,
+    right: RT,
+) -> impl Iterator<Item = (&'l LR, &'r RR)>
+where
+    'r: 'l,
+    LT: IntoIterator<Item = &'l LR>,
+    LR: NamedRow + 'l,
+    RT: IntoIterator<Item = &'r RR>,
+    RR: NamedRow + 'r,
+{
+    full_outer_join(left, right).filter_map(|eob| match eob {
+        EitherOrBoth::Both(l, r) => Some((l, r)),
+        _ => None,
+    })
+}
+
+// pub fn joined<'l, 'r, LT, LR, RT, RR>(
+//     left: &'l LT,
+//     right: &'r RT,
+// ) -> impl Iterator<Item = EitherOrBoth<&'l LR, &'r RR>>
+// where
+//     'r: 'l,
+//     LT: Table<Row = LR>,
+//     LR: NamedRow + 'l,
+//     RT: Table<Row = RR>,
+//     RR: NamedRow + 'r,
+// {
+//     left.iter()
+//         .merge_join_by(right.iter(), |l, r| l.name().cmp(r.name()))
+// }
+
+// pub fn inner_join<'l, 'r, LT, LR, RT, RR>(
+//     left: &'l LT,
+//     right: &'r RT,
+// ) -> impl Iterator<Item = (&'l LR, &'r RR)>
+// where
+//     'r: 'l,
+//     LT: Table<Row = LR>,
+//     LR: NamedRow + 'l,
+//     RT: Table<Row = RR>,
+//     RR: NamedRow + 'r,
+// {
+//     joined(left, right).filter_map(|eob| match eob {
+//         EitherOrBoth::Both(l, r) => Some((l, r)),
+//         _ => None,
+//     })
+// }
+
+fn cmp_by_name(l: &(&str, AnySpec<'_>), r: &(&str, AnySpec<'_>)) -> bool {
+    l.0 <= r.0
 }
 
 /// Sources are tables which are populated by catalog loads of the `sources` crate.
@@ -351,6 +437,22 @@ impl Validations {
             built_tests,
             errors,
         ]
+    }
+}
+
+pub trait NamedRow {
+    fn name(&self) -> &str;
+}
+
+impl<'a> NamedRow for &'a str {
+    fn name(&self) -> &str {
+        self
+    }
+}
+
+impl NamedRow for String {
+    fn name(&self) -> &str {
+        self.as_str()
     }
 }
 
