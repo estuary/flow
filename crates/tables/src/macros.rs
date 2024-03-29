@@ -19,6 +19,8 @@ pub trait Row: Sized {
 /// Table is a collection of Rows.
 pub trait Table: Sized {
     type Row: Row;
+
+    fn iter(&self) -> std::slice::Iter<Self::Row>;
 }
 
 #[cfg(feature = "persist")]
@@ -340,17 +342,59 @@ macro_rules! spec_row {
                 self.expect_pub_id
             }
         }
+
+        impl NamedRow for $row_type {
+            fn name(&self) -> &str {
+                self.get_name()
+            }
+        }
+    };
+}
+
+macro_rules! with_catalog_name {
+    ($table:ident, $row:ident, $name:ident) => {
+        impl NamedRow for $row {
+            fn name(&self) -> &str {
+                self.$name.as_str()
+            }
+        }
+
+        impl $table {
+            pub fn get_by_name(&self, name: &str) -> Option<&$row> {
+                let Some(idx) = self.index_of_named(name) else {
+                    return None;
+                };
+                self.0.get(idx)
+            }
+
+            pub fn get_mut_by_name(&mut self, name: &str) -> Option<&mut $row> {
+                let Some(idx) = self.index_of_named(name) else {
+                    return None;
+                };
+                self.0.get_mut(idx)
+            }
+
+            pub fn contains(&self, catalog_name: &str) -> bool {
+                self.index_of_named(catalog_name).is_some()
+            }
+
+            fn index_of_named(&self, name: &str) -> Option<usize> {
+                self.0.binary_search_by(|row| row.name().cmp(name)).ok()
+            }
+        }
     };
 }
 
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $row:ident $(SpecRow $spec_type:ident)?, order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
+        table $table:ident ( row $( #[$rowattrs:meta] )? $row:ident, order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
             $($field:ident: $rust_type:ty,)*
         }
     )*) => {
         $(
+
+        $( #[$rowattrs] )?
         pub struct $row {
             $(pub $field: $rust_type,)*
         }
@@ -383,6 +427,45 @@ macro_rules! tables {
                 });
                 self.0.insert(index, row);
             }
+
+            // TODO: maybe move upsert functions into with_catalog_name?
+            /// Insert a new row, or update an existing one if a row with the same key already exists.
+            /// Be warned: the Table must be ordered, and the results are unspecified if it is not.
+            #[allow(dead_code)]
+            pub fn upsert<F>(&mut self, row: $row, mut merge: F)
+            where F: FnMut(&$row, &mut $row) {
+                let r = ($(&row.$order_by,)*);
+
+                // idk why, but rustc things l_row is unused when it clearly is used
+                let idx = self.0.binary_search_by(|#[allow(unused_variables)] l_row| {
+                    let l = ($(&l_row.$order_by,)*);
+                    l.cmp(&r)
+                });
+                match idx {
+                    Ok(i) => {
+                        let mut next = row;
+                        merge(&self.0[i], &mut next);
+                        let pos = self.0.get_mut(i).unwrap();
+                        let _ = std::mem::replace(pos, next);
+                    }
+                    Err(i) => {
+                        self.0.insert(i, row);
+                    }
+                }
+            }
+
+            pub fn upsert_all<F>(&mut self, rows: impl IntoIterator<Item=$row>, mut merge: F)
+            where F: FnMut(&$row, &mut $row) {
+                // TODO: optimize this to avoid doing n binary searches
+                for row in rows {
+                    self.upsert(row, &mut merge);
+                }
+            }
+
+            pub fn upsert_overwrite(&mut self, row: $row) {
+                self.upsert(row, |_, _| {})
+            }
+
             /// Convert the Table into an Iterator.
             #[allow(dead_code)]
             pub fn into_iter(self) -> impl Iterator<Item=$row> {
@@ -402,11 +485,15 @@ macro_rules! tables {
                     l.cmp(&r)
                 });
             }
-        }
 
+        }
 
         impl Table for $table {
             type Row = $row;
+
+            fn iter(&self) -> std::slice::Iter<Self::Row> {
+                self.0.iter()
+            }
         }
         impl Row for $row {
             type Table = $table;
@@ -426,6 +513,14 @@ macro_rules! tables {
                 let mut c = $table::new();
                 c.extend(iter.into_iter());
                 c
+            }
+        }
+        impl IntoIterator for $table {
+            type Item = $row;
+            type IntoIter = std::vec::IntoIter<$row>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.0.into_iter()
             }
         }
 

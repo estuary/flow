@@ -1,18 +1,27 @@
 #[macro_use]
 mod macros;
+use itertools::Itertools;
 use macros::*;
+mod filters;
 mod id;
 
+pub use filters::{AnySpec, SpecExt};
 pub use id::Id;
+pub use itertools::EitherOrBoth;
 pub use macros::{SpecRow, Table};
 
 #[cfg(feature = "persist")]
 pub use macros::{load_tables, persist_tables, SqlTableObj};
 #[cfg(feature = "persist")]
-use prost::Message;
 use rusqlite::{types::FromSqlError, ToSql};
+
+use prost::Message;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{fmt::Debug, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Debug,
+    str::FromStr,
+};
 
 #[derive(Debug, Clone)]
 pub enum Drafted<T: Debug + Serialize + DeserializeOwned> {
@@ -50,6 +59,7 @@ impl FromStr for Action {
 
 impl Column for Action {}
 
+#[cfg(feature = "persist")]
 impl SqlColumn for Action {
     fn sql_type() -> &'static str {
         "TEXT"
@@ -104,17 +114,18 @@ tables!(
         stores: Vec<models::Store>,
     }
 
-    table InferredSchemas (row InferredSchema, order_by [collection_name], sql "inferred_schemas") {
+    table InferredSchemas (row #[derive(Clone)] InferredSchema, order_by [collection_name], sql "inferred_schemas") {
         collection_name: String,
         schema: models::Schema,
         md5: String,
     }
 
-    table Collections (row Collection, order_by [collection], sql "collections") {
+    table Collections (row #[derive(Clone)] Collection, order_by [collection], sql "collections") {
         scope: url::Url,
         // Name of this collection.
         collection: models::Collection,
 
+        id: Option<Id>,
         action: Option<Action>,
         expect_pub_id: Option<Id>,
         drafted: Option<models::CollectionDef>,
@@ -123,11 +134,12 @@ tables!(
         inferred_schema_md5: Option<String>,
     }
 
-    table Captures (row Capture, order_by [capture], sql "captures") {
+    table Captures (row #[derive(Clone)] Capture, order_by [capture], sql "captures") {
         scope: url::Url,
         // Name of this capture.
         capture: models::Capture,
 
+        id: Option<Id>,
         action: Option<Action>,
         expect_pub_id: Option<Id>,
         drafted: Option<models::CaptureDef>,
@@ -135,11 +147,12 @@ tables!(
         last_pub_id: Option<Id>,
     }
 
-    table Materializations (row Materialization, order_by [materialization], sql "materializations") {
+    table Materializations (row #[derive(Clone)] Materialization, order_by [materialization], sql "materializations") {
         scope: url::Url,
         // Name of this materialization.
         materialization: models::Materialization,
 
+        id: Option<Id>,
         action: Option<Action>,
         expect_pub_id: Option<Id>,
         drafted: Option<models::MaterializationDef>,
@@ -147,11 +160,12 @@ tables!(
         last_pub_id: Option<Id>,
     }
 
-    table Tests (row Test, order_by [test], sql "tests") {
+    table Tests (row #[derive(Clone)] Test, order_by [test], sql "tests") {
         scope: url::Url,
         // Name of the test.
         test: models::Test,
 
+        id: Option<Id>,
         action: Option<Action>,
         expect_pub_id: Option<Id>,
         drafted: Option<models::TestDef>,
@@ -213,18 +227,377 @@ tables!(
     }
 );
 
+impl NamedRow for InferredSchema {
+    fn name(&self) -> &str {
+        &self.collection_name
+    }
+}
+impl<'a, T: NamedRow> NamedRow for &'a T {
+    fn name(&self) -> &str {
+        T::name(*self)
+    }
+}
+
 spec_row! {Collection, models::CollectionDef, collection}
 spec_row! {Capture, models::CaptureDef, capture}
 spec_row! {Materialization, models::MaterializationDef, materialization}
 spec_row! {Test, models::TestDef, test}
 
-// TODO: maybe don't need
 #[derive(Default, Debug)]
 pub struct Catalog {
     pub captures: Captures,
     pub collections: Collections,
     pub materializations: Materializations,
     pub tests: Tests,
+}
+
+impl Catalog {
+    pub fn is_empty(&self) -> bool {
+        self.captures.is_empty()
+            && self.collections.is_empty()
+            && self.materializations.is_empty()
+            && self.tests.is_empty()
+    }
+
+    pub fn all_spec_names(&self) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        names.extend(self.captures.iter().map(|r| r.get_name().to_string()));
+        names.extend(self.collections.iter().map(|r| r.get_name().to_string()));
+        names.extend(
+            self.materializations
+                .iter()
+                .map(|r| r.get_name().to_string()),
+        );
+        names.extend(self.tests.iter().map(|r| r.get_name().to_string()));
+        names
+    }
+
+    pub fn related_tasks(&self, collection_names: &BTreeSet<String>) -> Catalog {
+        let captures = self
+            .captures
+            .iter()
+            .filter(|r| !r.get_final_spec().writes_to().is_disjoint(collection_names))
+            .cloned()
+            .collect();
+        let collections = self
+            .collections
+            .iter()
+            .filter(|r| {
+                !r.get_final_spec()
+                    .reads_from()
+                    .is_disjoint(collection_names)
+            })
+            .cloned()
+            .collect();
+        let materializations = self
+            .materializations
+            .iter()
+            .filter(|r| {
+                !r.get_final_spec()
+                    .reads_from()
+                    .is_disjoint(collection_names)
+            })
+            .cloned()
+            .collect();
+        let tests = self
+            .tests
+            .iter()
+            .filter(|r| {
+                !r.get_final_spec()
+                    .reads_from()
+                    .is_disjoint(collection_names)
+                    || !r.get_final_spec().writes_to().is_disjoint(collection_names)
+            })
+            .cloned()
+            .collect();
+        Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+        }
+    }
+
+    pub fn get_named(&self, names: &BTreeSet<impl AsRef<str>>) -> Catalog {
+        let captures = inner_join(self.captures.iter(), names.iter().map(|n| n.as_ref()))
+            .map(|(r, _)| r.clone())
+            .collect();
+        let collections = inner_join(self.collections.iter(), names.iter().map(|n| n.as_ref()))
+            .map(|(r, _)| r.clone())
+            .collect();
+        let materializations = inner_join(
+            self.materializations.iter(),
+            names.iter().map(|n| n.as_ref()),
+        )
+        .map(|(r, _)| r.clone())
+        .collect();
+        let tests = inner_join(self.tests.iter(), names.iter().map(|n| n.as_ref()))
+            .map(|(r, _)| r.clone())
+            .collect();
+        Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+        }
+    }
+
+    pub fn live_to_catalog(&self) -> models::Catalog {
+        let captures = self
+            .captures
+            .iter()
+            .filter_map(|r| {
+                r.live_spec
+                    .clone()
+                    .map(|d| (models::Capture::new(r.get_name()), d))
+            })
+            .collect();
+        let collections = self
+            .collections
+            .iter()
+            .filter_map(|r| {
+                r.live_spec
+                    .clone()
+                    .map(|d| (models::Collection::new(r.get_name()), d))
+            })
+            .collect();
+        let materializations = self
+            .materializations
+            .iter()
+            .filter_map(|r| {
+                r.live_spec
+                    .clone()
+                    .map(|d| (models::Materialization::new(r.get_name()), d))
+            })
+            .collect();
+        let tests = self
+            .tests
+            .iter()
+            .filter_map(|r| {
+                r.live_spec
+                    .clone()
+                    .map(|d| (models::Test::new(r.get_name()), d))
+            })
+            .collect();
+
+        models::Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+            ..Default::default()
+        }
+    }
+
+    pub fn draft_to_catalog(&self) -> models::Catalog {
+        let captures = self
+            .captures
+            .iter()
+            .filter_map(|r| {
+                r.drafted
+                    .clone()
+                    .map(|d| (models::Capture::new(r.get_name()), d))
+            })
+            .collect();
+        let collections = self
+            .collections
+            .iter()
+            .filter_map(|r| {
+                r.drafted
+                    .clone()
+                    .map(|d| (models::Collection::new(r.get_name()), d))
+            })
+            .collect();
+        let materializations = self
+            .materializations
+            .iter()
+            .filter_map(|r| {
+                r.drafted
+                    .clone()
+                    .map(|d| (models::Materialization::new(r.get_name()), d))
+            })
+            .collect();
+        let tests = self
+            .tests
+            .iter()
+            .filter_map(|r| {
+                r.drafted
+                    .clone()
+                    .map(|d| (models::Test::new(r.get_name()), d))
+            })
+            .collect();
+
+        models::Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+            ..Default::default()
+        }
+    }
+
+    pub fn extend_draft(&mut self, draft: Catalog) {
+        let Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+        } = draft;
+
+        self.captures.upsert_all(captures, |prev, next| {
+            next.id = prev.id;
+            next.live_spec = prev.live_spec.clone();
+            next.expect_pub_id = prev.last_pub_id;
+        });
+        self.collections.upsert_all(collections, |prev, next| {
+            next.id = prev.id;
+            next.live_spec = prev.live_spec.clone();
+            next.expect_pub_id = prev.last_pub_id;
+        });
+        self.materializations
+            .upsert_all(materializations, |prev, next| {
+                next.id = prev.id;
+                next.live_spec = prev.live_spec.clone();
+                next.expect_pub_id = prev.last_pub_id;
+            });
+        self.tests.upsert_all(tests, |prev, next| {
+            next.id = prev.id;
+            next.live_spec = prev.live_spec.clone();
+            next.expect_pub_id = prev.last_pub_id;
+        });
+    }
+
+    pub fn merge(&mut self, other: Catalog) {
+        self.captures.upsert_all(other.captures, |_, _| {});
+        self.collections.upsert_all(other.collections, |_, _| {});
+        self.materializations
+            .upsert_all(other.materializations, |_, _| {});
+        self.tests.upsert_all(other.tests, |_, _| {});
+    }
+}
+
+fn scope_for(catalog_type: &str, catalog_name: &str) -> url::Url {
+    // TODO: sanitize catalog_name to make this infallible
+    url::Url::parse(&format!("flow://{catalog_type}/{catalog_name}")).unwrap()
+}
+
+impl From<models::Catalog> for Catalog {
+    fn from(value: models::Catalog) -> Self {
+        let models::Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+            ..
+        } = value;
+        let captures = captures
+            .into_iter()
+            .map(|(k, v)| Capture {
+                scope: scope_for("capture", &k),
+                capture: k,
+                id: None,
+                action: Some(Action::Update),
+                expect_pub_id: None,
+                drafted: Some(v),
+                live_spec: None,
+                last_pub_id: None,
+            })
+            .collect();
+        let collections = collections
+            .into_iter()
+            .map(|(k, v)| Collection {
+                scope: scope_for("collection", &k),
+                collection: k,
+                id: None,
+                action: Some(Action::Update),
+                expect_pub_id: None,
+                drafted: Some(v),
+                live_spec: None,
+                last_pub_id: None,
+                inferred_schema_md5: None,
+            })
+            .collect();
+        let materializations = materializations
+            .into_iter()
+            .map(|(k, v)| Materialization {
+                scope: scope_for("materialization", &k),
+                materialization: models::Materialization::new(k),
+                id: None,
+                action: Some(Action::Update),
+                expect_pub_id: None,
+                drafted: Some(v),
+                live_spec: None,
+                last_pub_id: None,
+            })
+            .collect();
+        let tests = tests
+            .into_iter()
+            .map(|(k, v)| Test {
+                scope: scope_for("test", &k),
+                test: models::Test::new(k),
+                id: None,
+                action: Some(Action::Update),
+                expect_pub_id: None,
+                drafted: Some(v),
+                live_spec: None,
+                last_pub_id: None,
+            })
+            .collect();
+
+        Self {
+            captures,
+            collections,
+            materializations,
+            tests,
+        }
+    }
+}
+
+pub fn full_outer_join<'l, 'r, LT, LR, RT, RR>(
+    left: LT,
+    right: RT,
+) -> impl Iterator<Item = EitherOrBoth<LR, RR>>
+where
+    'r: 'l,
+    LT: IntoIterator<Item = LR>,
+    LR: NamedRow + 'l,
+    RT: IntoIterator<Item = RR>,
+    RR: NamedRow + 'r,
+{
+    left.into_iter()
+        .merge_join_by(right.into_iter(), |l, r| l.name().cmp(r.name()))
+}
+
+pub fn left_outer_join<'l, 'r, LT, LR, RT, RR>(
+    left: LT,
+    right: RT,
+) -> impl Iterator<Item = (LR, Option<RR>)>
+where
+    'r: 'l,
+    LT: IntoIterator<Item = LR>,
+    LR: NamedRow + 'l,
+    RT: IntoIterator<Item = RR>,
+    RR: NamedRow + 'r,
+{
+    full_outer_join(left, right).filter_map(|eob| match eob {
+        EitherOrBoth::Left(l) => Some((l, None)),
+        EitherOrBoth::Both(l, r) => Some((l, Some(r))),
+        EitherOrBoth::Right(_) => None,
+    })
+}
+
+pub fn inner_join<'l, 'r, LT, LR, RT, RR>(left: LT, right: RT) -> impl Iterator<Item = (LR, RR)>
+where
+    'r: 'l,
+    LT: IntoIterator<Item = LR>,
+    LR: NamedRow + 'l,
+    RT: IntoIterator<Item = RR>,
+    RR: NamedRow + 'r,
+{
+    full_outer_join(left, right).filter_map(|eob| match eob {
+        EitherOrBoth::Both(l, r) => Some((l, r)),
+        _ => None,
+    })
 }
 
 /// Sources are tables which are populated by catalog loads of the `sources` crate.
@@ -362,6 +735,22 @@ impl Validations {
             built_tests,
             errors,
         ]
+    }
+}
+
+pub trait NamedRow {
+    fn name(&self) -> &str;
+}
+
+impl<'a> NamedRow for &'a str {
+    fn name(&self) -> &str {
+        self
+    }
+}
+
+impl NamedRow for String {
+    fn name(&self) -> &str {
+        self.as_str()
     }
 }
 

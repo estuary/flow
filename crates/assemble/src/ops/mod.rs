@@ -98,6 +98,7 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
     }))
     .unwrap();
     tables.collections.insert(tables::Collection {
+        id: None,
         scope: scope.clone(),
         collection: name.clone(),
         action: Some(tables::Action::Update),
@@ -127,6 +128,7 @@ mod test {
         )
         .unwrap();
         tables.captures.insert(tables::Capture {
+            id: None,
             scope: builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
             capture: models::Capture::new("acmeCo/foo"),
             action: Some(tables::Action::Update),
@@ -147,6 +149,7 @@ mod test {
         .unwrap();
 
         tables.collections.insert(tables::Collection {
+            id: None,
             scope: Url::parse("test://foo.bar/collection").unwrap(),
             collection: models::Collection::new("ops.test-dataplane/logs"),
             action: Some(tables::Action::Update),
