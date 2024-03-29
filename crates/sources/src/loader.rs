@@ -481,6 +481,7 @@ impl<F: Fetcher> Loader<F> {
 
         self.tables_mut().collections.insert(tables::Collection {
             scope: scope.flatten(),
+            id: None,
             collection: collection_name.clone(),
             action: Some(tables::Action::Update),
             expect_pub_id: None,
@@ -656,6 +657,7 @@ impl<F: Fetcher> Loader<F> {
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
         self.tables_mut().captures.insert(tables::Capture {
+            id: None,
             scope: scope.flatten(),
             capture: capture_name.clone(),
             action: Some(tables::Action::Update),
@@ -732,6 +734,7 @@ impl<F: Fetcher> Loader<F> {
         self.tables_mut()
             .materializations
             .insert(tables::Materialization {
+                id: None,
                 scope: scope.flatten(),
                 materialization: materialization_name.clone(),
                 action: Some(tables::Action::Update),
@@ -765,6 +768,7 @@ impl<F: Fetcher> Loader<F> {
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
         self.tables_mut().tests.insert(tables::Test {
+            id: None,
             scope: scope.flatten(),
             test: test_name.clone(),
             action: Some(tables::Action::Update),

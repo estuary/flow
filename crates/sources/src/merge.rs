@@ -223,15 +223,16 @@ where
                 let chain = eval_policy(&policy, CAPTURES, &capture, &root, None);
 
                 if let Some(last) = chain.last() {
-                    sources.captures.insert_row(
-                        last,
-                        capture,
-                        Some(tables::Action::Update),
-                        None,
-                        Some(spec),
-                        None,
-                        None,
-                    );
+                    sources.captures.insert(tables::Capture {
+                        id: None,
+                        capture: capture.clone(),
+                        scope: last.clone(),
+                        drafted: Some(spec),
+                        live_spec: None,
+                        action: Some(tables::Action::Update),
+                        expect_pub_id: None,
+                        last_pub_id: None,
+                    });
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -267,6 +268,7 @@ where
                     sources.collections.insert(tables::Collection {
                         scope: last.clone(),
                         collection,
+                        id: None,
                         action: Some(tables::Action::Update),
                         expect_pub_id: None,
                         drafted: Some(spec),
@@ -309,6 +311,7 @@ where
                     sources.materializations.insert(tables::Materialization {
                         scope: last.clone(),
                         materialization,
+                        id: None,
                         action: Some(tables::Action::Update),
                         expect_pub_id: None,
                         drafted: Some(spec),
@@ -350,6 +353,7 @@ where
                     sources.tests.insert(tables::Test {
                         scope: last.clone(),
                         test,
+                        id: None,
                         action: Some(tables::Action::Update),
                         expect_pub_id: None,
                         drafted: Some(spec),

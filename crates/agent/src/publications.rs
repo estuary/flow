@@ -44,6 +44,14 @@ pub enum JobStatus {
 }
 
 impl JobStatus {
+    pub fn is_success(&self) -> bool {
+        // TODO: should EmptyDraft also be considered successful?
+        match self {
+            JobStatus::Success { .. } => true,
+            _ => false,
+        }
+    }
+
     fn success(materialization_pubs: impl Into<Vec<Id>>) -> JobStatus {
         JobStatus::Success {
             linked_materialization_publications: materialization_pubs.into(),

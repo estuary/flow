@@ -1,4 +1,5 @@
 pub mod connector_tags;
+pub mod controllers;
 pub mod directives;
 pub mod discovers;
 pub mod drafts;
