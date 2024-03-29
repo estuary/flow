@@ -333,11 +333,25 @@ pub struct PublicationInfo<C: ControlJob> {
     _phantom: std::marker::PhantomData<C>,
 }
 
+/// A testing harness for writing tests of a `ControlJob`, which simulates the necessary operations
+/// of a production environment. Tests are written primarily in terms of calls to
+/// `observe_publication` and `next_run_update`. The harness maintains persistent (for the life of
+/// the harness) states for each controller, and will keep them up to date as the controller emits
+/// updates to the state.
+///
+/// The harness also maintains a set of live specs, and simulates updates to them as publication
+/// completions are observed. This frees the tests from needing to mock out existing specs or
+/// publication spec expansion. Spec expansion is technically slightly more minimal than what's
+/// done in production currently. This is because we intend to tighten spec expansion in the future,
+/// and the more minimal expansion here will ensure that controllers don't rely on any "extra"
+/// expansion that's done currently.
+///
+/// The harness also completely manages the current time, as observed through `ControlPlane::current_time`
+/// and the timestamps associated with publications. This allows tests and snapshots to be completely
+/// deterministic, provided the controller uses no other time source.
 pub struct Harness<C: ControlJob> {
     controller: C,
     control_plane: MockControlPlane,
-
-    last_pub_info: Option<PublicationInfo<C>>,
 
     states: BTreeMap<String, ControllerState<C::Status>>,
     rt: tokio::runtime::Runtime,
@@ -345,11 +359,11 @@ pub struct Harness<C: ControlJob> {
 
 impl<C: ControlJob> Harness<C> {
     pub fn new(controller: C) -> Harness<C> {
+        // Arbitrary start time, but making it consistent helps tests be more readable
         let time = "2024-01-01T08:00:00Z".parse().unwrap();
         Harness {
             controller,
             control_plane: MockControlPlane::new(time),
-            last_pub_info: None,
             states: BTreeMap::new(),
             rt: tokio::runtime::Builder::new_current_thread()
                 .build()
@@ -357,18 +371,26 @@ impl<C: ControlJob> Harness<C> {
         }
     }
 
-    pub fn last_pub_info(&self) -> &PublicationInfo<C> {
-        self.last_pub_info
-            .as_ref()
-            .expect("no publication was observed")
-    }
-
+    /// Simulates the background update of the inferred schema for the given `collection_name`.
+    /// To simplify testing, the `schema_generation` directly corresponds to the number of properties
+    /// in the inferred schema. Each generation corresponds to a deterministic md5 hash.
     pub fn update_inferred_schema(&mut self, collection_name: &str, schema_generation: usize) {
         self.control_plane
             .inferred_schemas
             .upsert_overwrite(mock_inferred_schema(collection_name, schema_generation))
     }
 
+    /// Simulate the completion of the given `publication`. This includes having the controller
+    /// observe the publication and produce updates, which are automatically merged into the
+    /// persistent state of each controller. Returns a tuple of:
+    /// - A `PublicationInfo` struct with additional information about the publication, which is
+    ///   especially helpful as contextual information attached to `insta` snapshots.
+    /// - The map of updates that was returned by the `ControlJob` under test. These updates will
+    ///   have already been applied to the persistent `ControllerState`s managed by the harness.
+    ///
+    /// The given `publication` can be either one that was created by the controller itself (which
+    /// would be returned by `next_run_update`), or one that simulates an out-of-band publication
+    /// that was created some other way.
     pub fn observe_publication(
         &mut self,
         publication: TestPublication,
@@ -436,7 +458,9 @@ impl<C: ControlJob> Harness<C> {
         let updates = self
             .controller
             .observe_publication(&filtered_states, &result);
+        // Update the persistent controller states based on the updates.
         self.apply_updates(&updates);
+        // Update all the live specs to reflect the drafted changes.
         self.control_plane.update_live_specs(result.draft, pub_id);
 
         let pub_info = PublicationInfo {
@@ -452,6 +476,8 @@ impl<C: ControlJob> Harness<C> {
         (pub_info, updates)
     }
 
+    /// Returns a description of the next controller that would be run if `next_run_update` were
+    /// called. Returns `None` if no controllers have a `next_run` value set.
     pub fn next_run(&self) -> Option<(&str, &ControllerState<C::Status>)> {
         self.states
             .iter()
@@ -460,6 +486,17 @@ impl<C: ControlJob> Harness<C> {
             .map(|(n, s)| (n.as_str(), s))
     }
 
+    /// Jumps time forward to that of the smalles `next_run` of any controller state, and invokes
+    /// the `update` function for that controller. Returns a tuple of:
+    /// - An `UpdateInfo` struct with additional information about the invocation, which is
+    ///   especially helpful as contextual information attached to `insta` snapshots.
+    /// - The actual `ControllerUpdate` that was returned by the controller. This will have already
+    ///   been applied to the persistent state maintained by the harness.
+    /// - A vector of publications that were created by the controller as part of this update. These
+    ///   publications are still considered "pending" and will not have updated any live specs. In
+    ///   order to simulate the completion of the publications, you must call `observe_publication`
+    ///   for each one. Note that you have the opportunity to set the publication status before that
+    ///   point, in order to simulate failed publications.
     pub fn next_run_update(
         &mut self,
     ) -> (
@@ -542,43 +579,22 @@ impl<C: ControlJob> Harness<C> {
     }
 }
 
-macro_rules! assert_update_snapshot {
-    ($snapshot_name:expr, $info:expr, $value:expr) => {
-        insta::with_settings!({ info => $info }, {
-            insta::assert_json_snapshot!($snapshot_name, $value);
-        })
-    }
-}
-pub(crate) use assert_update_snapshot;
-
-macro_rules! assert_observed_publication_snapshot {
-    ($snapshot_name:expr, $pub_info:expr, $updates:expr) => {
-        // let mut settings = insta::Settings::clone_current();
-        // let info = $harness.last_pub_info();
-        // settings.set_info(info);
-        // let guard = settings.bind_to_scope();
-        insta::with_settings!({ info => $pub_info }, {
-            insta::assert_json_snapshot!($snapshot_name, $updates);
-        })
-
-        // insta::assert_json_snapshot!($snapshot_name, $updates, {
-        //     ".*.next_run" => redact_next_run(),
-        // });
-        // std::mem::drop(guard);
-    };
-}
-pub(crate) use assert_observed_publication_snapshot;
-
 fn pub_id(counter: u8) -> Id {
     Id::new([counter, 0, 0, 0, 0, 0, 0, 0])
 }
 
+/// Used by the `Harness` to simulate interactions with the control plane database.
 pub struct MockControlPlane {
     live: tables::LiveSpecs,
     inferred_schemas: tables::InferredSchemas,
 
     publications: Vec<TestPublication>,
+    /// The current time point for the test. This is moved forward deterministically, so that
+    /// tests and snapshots can rely on deterministic timestamps.
     time: DateTime<Utc>,
+    /// Counter of publications created by the test, which is used to create determistic
+    /// publication ids for tests. Might need to make it a u16 if we have a test that goes through
+    /// more than 255 publications.
     pub_counter: u8,
 }
 
@@ -631,7 +647,6 @@ impl ControlPlane for MockControlPlane {
     async fn create_publication(
         &mut self,
         draft: tables::DraftSpecs,
-        dry_run: bool,
     ) -> anyhow::Result<tables::Id> {
         self.pub_counter += 1;
         let id = pub_id(self.pub_counter);

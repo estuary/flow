@@ -296,7 +296,7 @@ async fn create_publication(
         draft.merge(consumer_spec)
     }
 
-    let pub_id = control_plane.create_publication(draft, false).await?;
+    let pub_id = control_plane.create_publication(draft).await?;
     new_status.publications.pending = Some(PublicationStatus::created(
         pub_id,
         control_plane.current_time(),

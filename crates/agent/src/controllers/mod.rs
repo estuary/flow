@@ -193,10 +193,13 @@ pub trait ControlJob {
     ) -> anyhow::Result<ControllerUpdate<Self::Status>>;
 }
 
-/// A provisional trait for allowing Controllers access to the database.
-/// It's not clear whether we really want this, vs just passing controllers a handle to an open transaction.
+/// A trait for allowing controllers access to the database.
+/// This makes it much easier to test controllers, because we don't need to mock the state of the
+/// whole database inside a transaction.
 #[async_trait::async_trait]
 pub trait ControlPlane: Send {
+    /// Returns the current time. Having controllers access the current time through this api
+    /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
 
     async fn get_live_spec(&mut self, name: &str) -> anyhow::Result<tables::LiveSpecs> {
@@ -207,6 +210,8 @@ pub trait ControlPlane: Send {
         Ok(spec)
     }
 
+    /// Fetches the live specs identified by `names`.
+    /// TODO: specify what happens when one or more specs doesn't exist
     async fn get_live_specs(
         &mut self,
         names: BTreeSet<String>,
@@ -235,16 +240,15 @@ pub trait ControlPlane: Send {
         Ok(schemas.pop())
     }
 
+    /// Fetches the inferred schemas for the given `collections`. The set of returned schemas
+    /// may be sparse, if some did not exist.
     async fn get_inferred_schemas(
         &mut self,
         collections: BTreeSet<String>,
     ) -> anyhow::Result<tables::InferredSchemas>;
 
-    async fn create_publication(
-        &mut self,
-        draft: tables::DraftSpecs,
-        dry_run: bool,
-    ) -> anyhow::Result<tables::Id>;
+    async fn create_publication(&mut self, draft: tables::DraftSpecs)
+        -> anyhow::Result<tables::Id>;
 }
 
 fn set_of(s: &str) -> BTreeSet<String> {
