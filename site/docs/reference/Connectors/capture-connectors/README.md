@@ -48,22 +48,22 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   * [Configuration](./http-ingest.md)
   * Package - ghcr.io/estuary/source-http-ingest:dev
 * MariaDB
-  * [Configuration](./mariadb.md)
+  * [Configuration](./MariaDB/)
   * Package - ghcr.io/estuary/source-mariadb:dev
 * Microsoft SQL Server
-  * [Configuration](./sqlserver.md)
+  * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/source-sqlserver:dev
 * MongoDB
-  * [Configuration](./mongodb.md)
+  * [Configuration](./mongodb/)
   * Package - ghcr.io/estuary/source-mongodb:dev
 * MySQL
-  * [Configuration](./MySQL.md)
+  * [Configuration](./MySQL/)
   * Package - ghcr.io/estuary/source-mysql:dev
 * PostgreSQL
-  * [Configuration](./PostgreSQL.md)
+  * [Configuration](./PostgreSQL/)
   * Package — ghcr.io/estuary/source-postgres:dev
 * Salesforce (for real-time data)
-  * [Configuration](./salesforce-real-time.md)
+  * [Configuration](./Salesforce/)
   * Package - ghcr.io/estuary/source-salesforce-next:dev
 * SFTP
   * [Configuration](./sftp.md)
@@ -117,6 +117,9 @@ The versions made available in Flow have been adapted for compatibility.
 * GitHub
   * [Configuration](./github.md)
   * Package - ghcr.io/estuary/source-github:dev
+* Gladly
+  * [Configuration](./gladly.md)
+  * Package - ghrc.io/estuary/source-gladly.dev
 * Google Ads
   * [Configuration](./google-ads.md)
   * Package - ghcr.io/estuary/source-google-ads:dev
@@ -141,6 +144,9 @@ The versions made available in Flow have been adapted for compatibility.
 * Hubspot
   * [Configuration](./hubspot.md)
   * Package - ghcr.io/estuary/source-hubspot:dev
+* Hubspot (Native)
+  * [Configuration](./hubspot-native.md)
+  * Package - ghcr.io/estuary/source-hubspot-native:dev
 * Instagram
   * [Configuration](./instagram.md)
   * Package - ghcr.io/estuary/source-instagram:dev
@@ -181,7 +187,7 @@ The versions made available in Flow have been adapted for compatibility.
   * [Configuration](./recharge.md)
   * Package - ghcr.io/estuary/source-recharge:dev
 * Salesforce (For historical data)
-  * [Configuration](./salesforce.md)
+  * [Configuration](./Salesforce/)
   * Package - ghcr.io/estuary/source-salesforce:dev
 * SendGrid
   * [Configuration](./sendgrid.md)
