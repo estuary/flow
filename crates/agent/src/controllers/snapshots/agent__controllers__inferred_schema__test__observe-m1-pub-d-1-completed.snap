@@ -2,26 +2,27 @@
 source: crates/agent/src/controllers/inferred_schema.rs
 expression: "&updates"
 info:
-  id: "0200000000000000"
-  completed_at: "2024-01-01T08:02:00Z"
+  id: "0400000000000000"
+  completed_at: "2024-01-01T08:03:00Z"
   draft:
-    collections:
-      a/d:
-        writeSchema:
-          "$serde_json::private::RawValue": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"type\":\"object\"}"
-        readSchema:
-          "$serde_json::private::RawValue": "{\"allOf\":[{\"$ref\":\"flow://inferred-schema\"},{\"$ref\":\"flow://write-schema\"}]}"
-        key:
-          - /id
-        derive:
-          using:
-            sqlite: {}
-          transforms:
-            - name: a/a
-              source: a/a
-              shuffle: unset
-              lambda:
-                "$serde_json::private::RawValue": "\"shelect shtar\""
+    materializations:
+      a/m1:
+        endpoint:
+          connector:
+            image: "foo:test"
+            config:
+              "$serde_json::private::RawValue": "{}"
+        bindings:
+          - resource:
+              "$serde_json::private::RawValue": "{\"thing\":\"a/a\"}"
+            source: a/a
+            fields:
+              recommended: true
+          - resource:
+              "$serde_json::private::RawValue": "{\"thing\":\"a/d\"}"
+            source: a/d
+            fields:
+              recommended: true
   live:
     collections:
       a/a:
@@ -65,75 +66,51 @@ info:
             source: a/d
             fields:
               recommended: true
-      a/m3:
-        endpoint:
-          connector:
-            image: "foo:test"
-            config:
-              "$serde_json::private::RawValue": "{}"
-        bindings:
-          - resource:
-              "$serde_json::private::RawValue": "{\"thing\":\"a/d\"}"
-            source: a/d
-            fields:
-              recommended: true
   starting_states:
     a/d:
       active: true
-      next_run: ~
+      next_run: "2024-01-01T08:12:00Z"
       updated_at: "2024-01-01T08:02:00Z"
       status:
         collections:
           a/a:
-            inferred_schema_md5: ~
-            md5_last_updated: "2024-01-01T08:01:00Z"
+            inferred_schema_md5: 9a715d81eee48cba22c4469c1417d697
+            md5_last_updated: "2024-01-01T08:02:00Z"
         publications:
-          pending:
+          pending: ~
+          history:
+            - id: "0200000000000000"
+              created: "2024-01-01T08:02:00Z"
+              completed: "2024-01-01T08:02:00Z"
+              result:
+                type: success
+          last_observed:
             id: "0200000000000000"
             created: "2024-01-01T08:02:00Z"
-          history: []
-          last_observed:
-            id: "0100000000000000"
-            completed: "2024-01-01T08:01:00Z"
+            completed: "2024-01-01T08:02:00Z"
             result:
               type: success
       failures: 0
     a/m1:
       active: true
-      next_run: "2024-01-01T08:02:00Z"
-      updated_at: "2024-01-01T08:01:00Z"
+      next_run: ~
+      updated_at: "2024-01-01T08:03:00Z"
       status:
         collections:
           a/a:
-            inferred_schema_md5: ~
-            md5_last_updated: "2024-01-01T08:01:00Z"
+            inferred_schema_md5: 9a715d81eee48cba22c4469c1417d697
+            md5_last_updated: "2024-01-01T08:02:00Z"
           a/d:
             inferred_schema_md5: ~
             md5_last_updated: "2024-01-01T08:01:00Z"
         publications:
-          pending: ~
+          pending:
+            id: "0400000000000000"
+            created: "2024-01-01T08:03:00Z"
           history: []
           last_observed:
-            id: "0100000000000000"
-            completed: "2024-01-01T08:01:00Z"
-            result:
-              type: success
-      failures: 0
-    a/m3:
-      active: true
-      next_run: "2024-01-01T08:02:00Z"
-      updated_at: "2024-01-01T08:01:00Z"
-      status:
-        collections:
-          a/d:
-            inferred_schema_md5: ~
-            md5_last_updated: "2024-01-01T08:01:00Z"
-        publications:
-          pending: ~
-          history: []
-          last_observed:
-            id: "0100000000000000"
-            completed: "2024-01-01T08:01:00Z"
+            id: "0200000000000000"
+            completed: "2024-01-01T08:02:00Z"
             result:
               type: success
       failures: 0
@@ -167,9 +144,8 @@ info:
           }
         ],
         "last_observed": {
-          "id": "0200000000000000",
-          "created": "2024-01-01T08:02:00Z",
-          "completed": "2024-01-01T08:02:00Z",
+          "id": "0400000000000000",
+          "completed": "2024-01-01T08:03:00Z",
           "result": {
             "type": "success"
           }
@@ -180,7 +156,7 @@ info:
   "a/m1": {
     "active": true,
     "next_run": {
-      "after_seconds": 60,
+      "after_seconds": 600,
       "jitter_percent": 20
     },
     "status": {
@@ -190,42 +166,26 @@ info:
           "md5_last_updated": "2024-01-01T08:02:00Z"
         },
         "a/d": {
-          "inferred_schema_md5": null,
-          "md5_last_updated": "2024-01-01T08:01:00Z"
+          "inferred_schema_md5": "9a715d81eee48cba22c4469c1417d697",
+          "md5_last_updated": "2024-01-01T08:03:00Z"
         }
       },
       "publications": {
         "pending": null,
-        "history": [],
-        "last_observed": {
-          "id": "0200000000000000",
-          "completed": "2024-01-01T08:02:00Z",
-          "result": {
-            "type": "success"
+        "history": [
+          {
+            "id": "0400000000000000",
+            "created": "2024-01-01T08:03:00Z",
+            "completed": "2024-01-01T08:03:00Z",
+            "result": {
+              "type": "success"
+            }
           }
-        }
-      }
-    }
-  },
-  "a/m3": {
-    "active": true,
-    "next_run": {
-      "after_seconds": 60,
-      "jitter_percent": 20
-    },
-    "status": {
-      "collections": {
-        "a/d": {
-          "inferred_schema_md5": null,
-          "md5_last_updated": "2024-01-01T08:01:00Z"
-        }
-      },
-      "publications": {
-        "pending": null,
-        "history": [],
+        ],
         "last_observed": {
-          "id": "0200000000000000",
-          "completed": "2024-01-01T08:02:00Z",
+          "id": "0400000000000000",
+          "created": "2024-01-01T08:03:00Z",
+          "completed": "2024-01-01T08:03:00Z",
           "result": {
             "type": "success"
           }

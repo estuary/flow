@@ -1,5 +1,6 @@
 #[macro_use]
 mod macros;
+
 use itertools::Itertools;
 use macros::*;
 mod draft;
@@ -237,27 +238,42 @@ pub struct LiveSpecs {
 pub fn full_outer_join<'l, 'r, LT, LR, RT, RR>(
     left: LT,
     right: RT,
-) -> impl Iterator<Item = EitherOrBoth<&'l LR, &'r RR>>
+) -> impl Iterator<Item = EitherOrBoth<LR, RR>>
 where
     'r: 'l,
-    LT: IntoIterator<Item = &'l LR>,
+    LT: IntoIterator<Item = LR>,
     LR: NamedRow + 'l,
-    RT: IntoIterator<Item = &'r RR>,
+    RT: IntoIterator<Item = RR>,
     RR: NamedRow + 'r,
 {
     left.into_iter()
         .merge_join_by(right.into_iter(), |l, r| l.name().cmp(r.name()))
 }
 
-pub fn inner_join<'l, 'r, LT, LR, RT, RR>(
+pub fn left_outer_join<'l, 'r, LT, LR, RT, RR>(
     left: LT,
     right: RT,
-) -> impl Iterator<Item = (&'l LR, &'r RR)>
+) -> impl Iterator<Item = (LR, Option<RR>)>
 where
     'r: 'l,
-    LT: IntoIterator<Item = &'l LR>,
+    LT: IntoIterator<Item = LR>,
     LR: NamedRow + 'l,
-    RT: IntoIterator<Item = &'r RR>,
+    RT: IntoIterator<Item = RR>,
+    RR: NamedRow + 'r,
+{
+    full_outer_join(left, right).filter_map(|eob| match eob {
+        EitherOrBoth::Both(l, r) => Some((l, Some(r))),
+        EitherOrBoth::Left(l) => Some((l, None)),
+        _ => None,
+    })
+}
+
+pub fn inner_join<'l, 'r, LT, LR, RT, RR>(left: LT, right: RT) -> impl Iterator<Item = (LR, RR)>
+where
+    'r: 'l,
+    LT: IntoIterator<Item = LR>,
+    LR: NamedRow + 'l,
+    RT: IntoIterator<Item = RR>,
     RR: NamedRow + 'r,
 {
     full_outer_join(left, right).filter_map(|eob| match eob {
@@ -265,38 +281,6 @@ where
         _ => None,
     })
 }
-
-// pub fn joined<'l, 'r, LT, LR, RT, RR>(
-//     left: &'l LT,
-//     right: &'r RT,
-// ) -> impl Iterator<Item = EitherOrBoth<&'l LR, &'r RR>>
-// where
-//     'r: 'l,
-//     LT: Table<Row = LR>,
-//     LR: NamedRow + 'l,
-//     RT: Table<Row = RR>,
-//     RR: NamedRow + 'r,
-// {
-//     left.iter()
-//         .merge_join_by(right.iter(), |l, r| l.name().cmp(r.name()))
-// }
-
-// pub fn inner_join<'l, 'r, LT, LR, RT, RR>(
-//     left: &'l LT,
-//     right: &'r RT,
-// ) -> impl Iterator<Item = (&'l LR, &'r RR)>
-// where
-//     'r: 'l,
-//     LT: Table<Row = LR>,
-//     LR: NamedRow + 'l,
-//     RT: Table<Row = RR>,
-//     RR: NamedRow + 'r,
-// {
-//     joined(left, right).filter_map(|eob| match eob {
-//         EitherOrBoth::Both(l, r) => Some((l, r)),
-//         _ => None,
-//     })
-// }
 
 fn cmp_by_name(l: &(&str, AnySpec<'_>), r: &(&str, AnySpec<'_>)) -> bool {
     l.0 <= r.0
@@ -453,6 +437,31 @@ impl<'a> NamedRow for &'a str {
 impl NamedRow for String {
     fn name(&self) -> &str {
         self.as_str()
+    }
+}
+
+// impl<'a> NamedRow for &'a String {
+//     fn name(&self) -> &str {
+//         self.as_str()
+//     }
+// }
+
+impl<'a, T> NamedRow for (&'a String, T) {
+    fn name(&self) -> &str {
+        self.0.as_str()
+    }
+}
+impl<'a, T> NamedRow for (&'a str, T) {
+    fn name(&self) -> &str {
+        self.0
+    }
+}
+// impl<B, T> NamedRow for B where B: Borrow<T>, T: NamedRow {
+
+// }
+impl<'a, T: NamedRow> NamedRow for &'a T {
+    fn name(&self) -> &str {
+        (*self).name()
     }
 }
 

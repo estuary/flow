@@ -7,7 +7,7 @@ use crate::{
     LiveMaterialization, LiveTest,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum AnySpec<'a> {
     Capture(&'a models::CaptureDef),
     Collection(&'a models::CollectionDef),
@@ -36,6 +36,7 @@ impl<'a> From<&'a models::TestDef> for AnySpec<'a> {
     }
 }
 
+// TODO: remove HasSpec trait
 trait HasSpec {
     type Spec: SpecExt;
 
@@ -107,6 +108,8 @@ impl HasSpec for LiveTest {
 }
 
 pub trait SpecExt {
+    fn is_enabled(&self) -> bool;
+
     fn consumes(&self, collection_name: &str) -> bool;
 
     fn produces(&self, collection_name: &str) -> bool;
@@ -117,6 +120,53 @@ pub trait SpecExt {
 
     fn writes_to(&self) -> BTreeSet<String> {
         Default::default()
+    }
+}
+
+impl<'a> SpecExt for AnySpec<'a> {
+    fn consumes(&self, collection_name: &str) -> bool {
+        match self {
+            AnySpec::Capture(_) => false,
+            AnySpec::Collection(c) => c.consumes(collection_name),
+            AnySpec::Materialization(m) => m.consumes(collection_name),
+            AnySpec::Test(t) => t.consumes(collection_name),
+        }
+    }
+
+    fn produces(&self, collection_name: &str) -> bool {
+        match self {
+            AnySpec::Capture(c) => c.produces(collection_name),
+            AnySpec::Collection(_) => false,
+            AnySpec::Materialization(_) => false,
+            AnySpec::Test(t) => t.produces(collection_name),
+        }
+    }
+
+    fn reads_from(&self) -> BTreeSet<String> {
+        match self {
+            AnySpec::Capture(_) => BTreeSet::new(),
+            AnySpec::Collection(c) => c.reads_from(),
+            AnySpec::Materialization(m) => m.reads_from(),
+            AnySpec::Test(t) => t.reads_from(),
+        }
+    }
+
+    fn writes_to(&self) -> BTreeSet<String> {
+        match self {
+            AnySpec::Capture(c) => c.writes_to(),
+            AnySpec::Collection(_) => BTreeSet::new(),
+            AnySpec::Materialization(m) => BTreeSet::new(),
+            AnySpec::Test(t) => t.writes_to(),
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        match self {
+            AnySpec::Capture(c) => c.is_enabled(),
+            AnySpec::Collection(c) => c.is_enabled(),
+            AnySpec::Materialization(m) => m.is_enabled(),
+            AnySpec::Test(t) => t.is_enabled(),
+        }
     }
 }
 
@@ -138,6 +188,10 @@ impl SpecExt for models::CaptureDef {
             .map(|b| b.target.to_string())
             .collect()
     }
+
+    fn is_enabled(&self) -> bool {
+        !self.shards.disable
+    }
 }
 
 impl SpecExt for models::MaterializationDef {
@@ -157,6 +211,10 @@ impl SpecExt for models::MaterializationDef {
             .filter(|b| !b.disable)
             .map(|b| b.source.collection().to_string())
             .collect()
+    }
+
+    fn is_enabled(&self) -> bool {
+        !self.shards.disable
     }
 }
 
@@ -187,6 +245,13 @@ impl SpecExt for models::CollectionDef {
             })
             .collect()
     }
+
+    fn is_enabled(&self) -> bool {
+        self.derive
+            .as_ref()
+            .map(|d| !d.shards.disable)
+            .unwrap_or(true)
+    }
 }
 
 // TODO: IDK if produces and consumes makes a lot of sense for tests
@@ -211,5 +276,9 @@ impl SpecExt for models::TestDef {
 
     fn writes_to(&self) -> BTreeSet<String> {
         Default::default()
+    }
+
+    fn is_enabled(&self) -> bool {
+        true // there's no way to disable a test
     }
 }

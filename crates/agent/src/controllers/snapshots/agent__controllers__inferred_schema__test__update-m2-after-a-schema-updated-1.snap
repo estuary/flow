@@ -2,7 +2,7 @@
 source: crates/agent/src/controllers/inferred_schema.rs
 expression: "(update, &publications)"
 info:
-  catalog_name: a/d
+  catalog_name: a/m2
   prev_state:
     active: true
     next_run: "2024-01-01T08:02:00Z"
@@ -35,7 +35,7 @@ info:
       },
       "publications": {
         "pending": {
-          "id": "0200000000000000",
+          "id": "0300000000000000",
           "created": "2024-01-01T08:02:00Z"
         },
         "history": [],
@@ -52,37 +52,32 @@ info:
   [
     {
       "draft": {
-        "collections": {
-          "a/d": {
-            "writeSchema": {
-              "$serde_json::private::RawValue": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"type\":\"object\"}"
-            },
-            "readSchema": {
-              "$serde_json::private::RawValue": "{\"allOf\":[{\"$ref\":\"flow://inferred-schema\"},{\"$ref\":\"flow://write-schema\"}]}"
-            },
-            "key": [
-              "/id"
-            ],
-            "derive": {
-              "using": {
-                "sqlite": {}
-              },
-              "transforms": [
-                {
-                  "name": "a/a",
-                  "source": "a/a",
-                  "shuffle": "unset",
-                  "lambda": {
-                    "$serde_json::private::RawValue": "\"shelect shtar\""
-                  }
+        "materializations": {
+          "a/m2": {
+            "endpoint": {
+              "connector": {
+                "image": "foo:test",
+                "config": {
+                  "$serde_json::private::RawValue": "{}"
                 }
-              ]
-            }
+              }
+            },
+            "bindings": [
+              {
+                "resource": {
+                  "$serde_json::private::RawValue": "{\"thing\":\"a/a\"}"
+                },
+                "source": "a/a",
+                "fields": {
+                  "recommended": true
+                }
+              }
+            ]
           }
         }
       },
       "publication_meta": [
-        "0200000000000000",
+        "0300000000000000",
         "2024-01-01T08:02:00Z"
       ]
     }

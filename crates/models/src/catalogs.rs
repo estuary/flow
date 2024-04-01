@@ -8,7 +8,7 @@ use super::{
     RelativeUrl, StorageDef, Test, TestDef, TestStep, TransformDef,
 };
 
-// TODO: is BaseCatalog worth keeping?
+// TODO: remove BaseCatalog
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Default)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct BaseCatalog {

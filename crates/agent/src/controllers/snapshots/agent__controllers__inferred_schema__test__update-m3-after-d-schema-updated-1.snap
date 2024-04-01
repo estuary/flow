@@ -1,0 +1,85 @@
+---
+source: crates/agent/src/controllers/inferred_schema.rs
+expression: "(update, &publications)"
+info:
+  catalog_name: a/m3
+  prev_state:
+    active: true
+    next_run: "2024-01-01T08:03:00Z"
+    updated_at: "2024-01-01T08:02:00Z"
+    status:
+      collections:
+        a/d:
+          inferred_schema_md5: ~
+          md5_last_updated: "2024-01-01T08:01:00Z"
+      publications:
+        pending: ~
+        history: []
+        last_observed:
+          id: "0200000000000000"
+          completed: "2024-01-01T08:02:00Z"
+          result:
+            type: success
+    failures: 0
+---
+[
+  {
+    "active": true,
+    "next_run": null,
+    "status": {
+      "collections": {
+        "a/d": {
+          "inferred_schema_md5": null,
+          "md5_last_updated": "2024-01-01T08:01:00Z"
+        }
+      },
+      "publications": {
+        "pending": {
+          "id": "0500000000000000",
+          "created": "2024-01-01T08:03:00Z"
+        },
+        "history": [],
+        "last_observed": {
+          "id": "0200000000000000",
+          "completed": "2024-01-01T08:02:00Z",
+          "result": {
+            "type": "success"
+          }
+        }
+      }
+    }
+  },
+  [
+    {
+      "draft": {
+        "materializations": {
+          "a/m3": {
+            "endpoint": {
+              "connector": {
+                "image": "foo:test",
+                "config": {
+                  "$serde_json::private::RawValue": "{}"
+                }
+              }
+            },
+            "bindings": [
+              {
+                "resource": {
+                  "$serde_json::private::RawValue": "{\"thing\":\"a/d\"}"
+                },
+                "source": "a/d",
+                "fields": {
+                  "recommended": true
+                }
+              }
+            ]
+          }
+        }
+      },
+      "publication_meta": [
+        "0500000000000000",
+        "2024-01-01T08:03:00Z"
+      ]
+    }
+  ]
+]

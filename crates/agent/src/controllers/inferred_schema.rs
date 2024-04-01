@@ -3,6 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::controllers::publication_status::{PublicationHistory, PublicationStatus};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use tables::AnySpec;
+use tables::EitherOrBoth;
+use tables::SpecExt;
 
 use super::{
     jittered_next_run, ControlJob, ControlPlane, ControllerState, ControllerUpdate, NextRun,
@@ -10,99 +13,114 @@ use super::{
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CollectionStatus {
+    inferred_schema_md5: Option<String>,
+    md5_last_updated: DateTime<Utc>,
+    #[serde(skip_serializing_if = "is_false")]
+    needs_backfill: bool,
+}
+
+impl CollectionStatus {
+    fn observe_schema(&mut self, schema_md5: Option<String>, time: DateTime<Utc>) {
+        if self.inferred_schema_md5 != schema_md5 {
+            self.inferred_schema_md5 = schema_md5;
+            self.md5_last_updated = time;
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct InferredSchemaStatus {
-    pub schema_last_updated: DateTime<Utc>,
-    pub schema_md5: Option<String>,
-    pub consumers: BTreeMap<String, ConsumerStatus>,
+    pub collections: BTreeMap<String, CollectionStatus>,
     pub publications: PublicationHistory,
 }
 
 impl InferredSchemaStatus {
+    fn get_inferred_schema_source_collections(&self) -> BTreeSet<String> {
+        self.collections.keys().cloned().collect()
+    }
+
     fn next_run(&self, now: DateTime<Utc>) -> NextRun {
         // The idea here is to check frequently if there isn't an inferred schema at all yet,
         // so we can quickly start materializing some data. But after it works at least once,
         // then we want to use a longer duration in order to coalesce more schema updates into
         // each publication to prevent undue churn.
         // TODO: we might want to account for `last_backfill` times here
-        let min_backoff_minutes = if self.schema_md5.is_none() || self.consumers_need_updated() {
-            1i64
-        } else {
-            10i64
-        };
+        let any_missing = self
+            .collections
+            .values()
+            .any(|c| c.inferred_schema_md5.is_none());
+        let min_backoff_minutes = if any_missing { 1i64 } else { 10i64 };
 
+        let schema_last_updated = self
+            .collections
+            .values()
+            .map(|c| c.md5_last_updated)
+            .max()
+            .unwrap_or(now);
         let after_minutes = now
-            .signed_duration_since(self.schema_last_updated)
+            .signed_duration_since(schema_last_updated)
             .num_minutes()
             .max(min_backoff_minutes)
             .min(90);
-        NextRun::after_minutes(after_minutes as u32).with_jitter_percent(25)
+        NextRun::after_minutes(after_minutes as u32)
     }
 
     fn initial(
-        collection_name: &str,
-        schema_md5: Option<String>,
-        publication: &PublicationResult,
+        drafted_spec: AnySpec<'_>,
+        inferred_info: &BTreeMap<&str, Option<&str>>,
+        pub_status: PublicationStatus,
     ) -> InferredSchemaStatus {
-        let mut consumers = BTreeMap::new();
-        let pub_status = PublicationStatus::observed(publication);
-        for (consumer_name, _, _) in publication.consumers_of(collection_name) {
-            consumers.insert(
-                consumer_name.to_string(),
-                ConsumerStatus::new(schema_md5.clone(), pub_status.clone()),
-            );
+        let pub_time = pub_status.completed.unwrap();
+        let mut collections = BTreeMap::new();
+        for source in drafted_spec.reads_from() {
+            let Some(maybe_md5) = inferred_info.get(source.as_str()) else {
+                continue;
+            };
+            let status = CollectionStatus {
+                inferred_schema_md5: maybe_md5.map(|h| h.to_string()),
+                md5_last_updated: pub_time,
+                needs_backfill: false,
+            };
+            collections.insert(source, status);
         }
+        let publications = PublicationHistory::initial(pub_status);
+
         InferredSchemaStatus {
-            schema_last_updated: publication.completed_at,
-            schema_md5,
-            consumers,
-            publications: PublicationHistory::initial(pub_status),
+            collections,
+            publications,
         }
     }
 
-    fn consumers_need_updated(&self) -> bool {
-        self.consumers
-            .values()
-            .any(|c| c.applied_schema_md5 != self.schema_md5)
+    fn observe_successful_publication(
+        &mut self,
+        spec: AnySpec<'_>,
+        inferred_info: &BTreeMap<&str, Option<&str>>,
+        pub_status: PublicationStatus,
+    ) {
+        let pub_time = pub_status.completed.unwrap();
+        let reads_from = spec.reads_from();
+        // Delete any state for collections that are no longer being read
+        self.collections.retain(|c, _| reads_from.contains(c));
+        for source in reads_from {
+            let Some(maybe_md5) = inferred_info.get(source.as_str()) else {
+                // Delete state for collections that no longer use the inferred schema
+                self.collections.remove(&source);
+                continue;
+            };
+
+            if let Some(current) = self.collections.get_mut(&source) {
+                if current.inferred_schema_md5.as_deref() != *maybe_md5 {
+                    current.inferred_schema_md5 = maybe_md5.map(|h| h.to_string());
+                    current.md5_last_updated = pub_time;
+                }
+            }
+        }
+        self.publications.observe(pub_status.clone());
     }
 
     fn is_publication_pending(&self) -> bool {
         self.publications.pending.is_some()
-    }
-
-    /// Updates the status of all consumers of the collection to reflect that they're using the latest inferred schema.
-    /// This works because if the collection itself is published, then all consumers of it must also be included in the
-    /// publication.
-    fn on_successful_collection_publication(
-        &self,
-        collection_name: &str,
-        schema_md5: Option<String>,
-        publication: &PublicationResult,
-    ) -> Self {
-        let mut new_status = self.clone();
-        new_status.schema_md5 = schema_md5.clone();
-
-        let pub_status = PublicationStatus::observed(publication);
-        let _completed = new_status.publications.observe(pub_status.clone());
-
-        for (consumer_name, _, _) in publication.consumers_of(collection_name) {
-            // Is there already a status for this consumer of the collection?
-            // If not, then it means the consumer just now started reading the collection,
-            // so we'll need to initialize a new status to track it.
-            if let Some(consumer_status) = new_status.consumers.get_mut(consumer_name) {
-                // TODO: check if spec is being deleted or added
-                consumer_status.publication_complete(pub_status.clone(), schema_md5.clone());
-            } else {
-                new_status.consumers.insert(
-                    consumer_name.to_string(),
-                    ConsumerStatus::new(schema_md5.clone(), pub_status.clone()),
-                );
-            }
-        }
-        // Remove any consumer statuses for specs that were deleted by this publication
-        for del in publication.draft.deletions.iter() {
-            new_status.consumers.remove(&del.catalog_name);
-        }
-        new_status
     }
 
     fn on_failed_publication(
@@ -111,90 +129,29 @@ impl InferredSchemaStatus {
         publication: &PublicationResult,
     ) -> Self {
         let mut new_status = self.clone();
-        let schema_md5 = get_inferred_schema_md5(collection_name, publication);
-        // We can still update the last known schema md5, if known.
-        if schema_md5.is_some() && schema_md5 != new_status.schema_md5 {
-            new_status.schema_md5 = schema_md5.clone();
-            new_status.schema_last_updated = publication.completed_at;
-        }
 
-        let completed = new_status
+        let _completed = new_status
             .publications
             .observe(PublicationStatus::observed(publication))
             .expect("publication must be pending");
 
-        if let Some(affected_consumers) =
-            completed.is_incompatible_collection_error(collection_name)
-        {
-            //
-            for affected in affected_consumers {
-                if let Some(consumer_status) = new_status.consumers.get_mut(&affected.name) {
-                    consumer_status.needs_backfill = true;
-                } else {
-                    // Generally, we should always have an initialized ConsumerState already if we're seeing
-                    // a failed publication involving it. But it's possible that this is the first we're seeing
-                    // this consumer, given that it may have been created prior to this controller, so initialize
-                    // a new state for it here.
-                    let mut cs = ConsumerStatus::new(schema_md5.clone(), completed.clone());
-                    cs.needs_backfill = true;
-                    new_status.consumers.insert(affected.name.clone(), cs);
-                }
-            }
-        }
         new_status
     }
 }
 
-fn get_inferred_schema_md5(collection: &str, publication: &PublicationResult) -> Option<String> {
-    publication
-        .inferred_schemas
-        .iter()
-        .find(|p| p.collection_name == collection)
-        .map(|s| s.md5.clone())
-}
+// fn get_inferred_schema_md5(collection: &str, publication: &PublicationResult) -> Option<String> {
+//     publication
+//         .inferred_schemas
+//         .iter()
+//         .find(|p| p.collection_name == collection)
+//         .map(|s| s.md5.clone())
+// }
 
 fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct ConsumerStatus {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_backfill: Option<PublicationStatus>,
-    pub applied_schema_md5: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub needs_backfill: bool,
-    pub last_publication: PublicationStatus,
-}
-
-impl ConsumerStatus {
-    fn new(
-        applied_schema_md5: Option<String>,
-        last_publication: PublicationStatus,
-    ) -> ConsumerStatus {
-        ConsumerStatus {
-            applied_schema_md5,
-            last_publication,
-            last_backfill: None,
-            needs_backfill: false,
-        }
-    }
-
-    fn publication_complete(&mut self, pub_status: PublicationStatus, schema_md5: Option<String>) {
-        if let Some(bf_pub) = self.last_backfill.as_mut() {
-            if bf_pub.id == pub_status.id {
-                bf_pub.completed = pub_status.completed;
-                bf_pub.result = pub_status.result.clone();
-            }
-        }
-        if pub_status.is_success() {
-            self.applied_schema_md5 = schema_md5;
-            self.needs_backfill = false;
-        }
-        self.last_publication = pub_status;
-    }
-}
-
+#[derive(Debug)]
 pub struct InferredSchemaController;
 
 #[async_trait::async_trait]
@@ -229,171 +186,160 @@ impl ControlJob for InferredSchemaController {
             return Ok(current_state.to_update());
         }
 
-        let maybe_schema_md5 = control_plane
-            .get_inferred_schema(&catalog_name)
-            .await?
-            .map(|s| s.md5);
+        let current_time = control_plane.current_time();
+        let sources = current_state
+            .status
+            .get_inferred_schema_source_collections();
+        let inferred_schemas = control_plane.get_inferred_schemas(sources).await?;
 
-        if current_state.status.schema_md5 != maybe_schema_md5
-            || current_state.status.consumers_need_updated()
-        {
+        let needs_publish = tables::left_outer_join(
+            current_state.status.collections.iter(),
+            inferred_schemas.iter(),
+        )
+        .any(|((_, source_status), inferred_schema)| {
+            source_status.inferred_schema_md5.as_deref() != inferred_schema.map(|s| s.md5.as_str())
+        });
+
+        if needs_publish {
             let mut new_status = current_state.status.clone();
-            if new_status.schema_md5 != maybe_schema_md5 {
-                new_status.schema_md5 = maybe_schema_md5;
-                new_status.schema_last_updated = control_plane.current_time();
-            }
-            create_publication(catalog_name, &mut new_status, control_plane).await?;
+            // TODO: check to see if we need to increment backfill counters
+            let spec = control_plane.get_live_spec(&catalog_name).await?;
+            let pub_id = control_plane.create_publication(spec.into_draft()).await?;
 
+            new_status.publications.pending =
+                Some(PublicationStatus::created(pub_id, current_time));
+            // Don't set next_run because we'll wait until we observe the result of the publication.
             Ok(current_state.to_update().with_status(new_status))
         } else {
-            // Everything seems up to date, so just schedule the next check-up
-            let next_run = current_state.status.next_run(control_plane.current_time());
-            Ok(current_state.to_update().with_next_run(next_run))
+            let update = current_state
+                .to_update()
+                .with_next_run(current_state.status.next_run(current_time));
+            Ok(update)
         }
     }
 }
 
-async fn create_publication(
-    collection_name: String,
-    new_status: &mut InferredSchemaStatus,
-    control_plane: &mut dyn ControlPlane,
-) -> anyhow::Result<()> {
-    let live = control_plane.get_live_spec(&collection_name).await?;
-    let mut draft = live.into_draft();
-
-    // See if there's any consumers that need to have their backfill counters incremented, and do that now.
-    for (consumer, _) in new_status.consumers.iter().filter(|c| c.1.needs_backfill) {
-        let mut consumer_spec = control_plane.get_live_spec(consumer).await?.into_draft();
-        for mat in consumer_spec.materializations.iter_mut() {
-            for binding in mat
-                .spec
-                .bindings
-                .iter_mut()
-                .filter(|b| !b.disable && b.source.collection().as_str() == collection_name)
-            {
-                tracing::debug!(%collection_name, %consumer, prev_backfill = %binding.backfill, "incrementing materialization backfill counter");
-                binding.backfill += 1;
-            }
+fn handle_successful_publish(
+    consumer_name: &str,
+    spec: AnySpec<'_>,
+    existing: Option<&ControllerState<InferredSchemaStatus>>,
+    inferred_infos: &BTreeMap<&str, Option<&str>>,
+    pub_status: PublicationStatus,
+    updates: &mut BTreeMap<String, ControllerUpdate<InferredSchemaStatus>>,
+) {
+    if let Some(existing_state) = existing {
+        let mut status = existing_state.status.clone();
+        status.observe_successful_publication(spec, &inferred_infos, pub_status.clone());
+        let mut update = existing_state.to_update().with_active(spec.is_enabled());
+        if spec.is_enabled() && !status.is_publication_pending() {
+            update = update.with_next_run(status.next_run(pub_status.completed.unwrap()));
         }
-        for coll in consumer_spec
-            .collections
-            .iter_mut()
-            .filter(|c| c.spec.derive.is_some())
-        {
-            for binding in coll
-                .spec
-                .derive
-                .as_mut()
-                .unwrap()
-                .transforms
-                .iter_mut()
-                .filter(|b| !b.disable && b.source.collection().as_str() == collection_name)
-            {
-                tracing::debug!(%collection_name, %consumer, prev_backfill = %binding.backfill, "incrementing derivation backfill counter");
-                binding.backfill += 1;
-            }
-        }
-        draft.merge(consumer_spec)
+        updates.insert(consumer_name.to_owned(), update.with_status(status));
+    } else {
+        let status = InferredSchemaStatus::initial(spec, inferred_infos, pub_status.clone());
+        updates.insert(
+            consumer_name.to_string(),
+            ControllerUpdate {
+                active: spec.is_enabled(),
+                next_run: Some(status.next_run(pub_status.completed.unwrap())),
+                status: Some(status),
+            },
+        );
     }
-
-    let pub_id = control_plane.create_publication(draft).await?;
-    new_status.publications.pending = Some(PublicationStatus::created(
-        pub_id,
-        control_plane.current_time(),
-    ));
-    Ok(())
 }
 
 fn on_successful_publication(
     current_states: &BTreeMap<String, ControllerState<InferredSchemaStatus>>,
     publication: &PublicationResult,
 ) -> BTreeMap<String, ControllerUpdate<InferredSchemaStatus>> {
-    let mut drafted_collections = BTreeSet::new();
+    let pub_status = PublicationStatus::observed(publication);
     let mut updates = BTreeMap::new();
-    // If the collection was drafted, then we can assume that all consumers of the collection
-    // have had their inferred schemas updated.
-    for draft_collection in publication.draft.collections.iter() {
-        drafted_collections.insert(draft_collection.catalog_name.as_str());
-        let inferred_schema_md5 = publication
-            .inferred_schemas
+
+    // Map of every collection that uses the inferred schema, to the md5 hash of the inferred schema.
+    // Collections that don't use the inferred schema will not be present here.
+    let mut collections_using_inferred = tables::left_outer_join(
+        publication
+            .live
+            .collections
             .iter()
-            .find(|s| s.collection_name == draft_collection.catalog_name)
-            .map(|s| s.md5.clone());
-        let current_state = current_states.get(draft_collection.catalog_name.as_str());
-        let desired_active = uses_inferred_schema(&draft_collection.spec);
+            .filter(|c| uses_inferred_schema(&c.spec)),
+        publication.inferred_schemas.iter(),
+    )
+    .map(|(c, s)| {
+        (
+            c.catalog_name.as_str(),
+            s.as_ref().map(|sch| sch.md5.as_str()),
+        )
+    })
+    .collect::<BTreeMap<_, _>>();
+    for drafted in publication.draft.collections.iter() {
+        if uses_inferred_schema(&drafted.spec) {
+            // A newly published collection that uses schema inference will not have an inferred schema yet.
+            if !collections_using_inferred.contains_key(drafted.catalog_name.as_str()) {
+                collections_using_inferred.insert(&drafted.catalog_name, None);
+            }
+        } else {
+            // If a publication removed the use of the inferred schema, then we no longer need to track it.
+            collections_using_inferred.remove(drafted.catalog_name.as_str());
+        }
+    }
 
-        let maybe_update = match (current_state, desired_active) {
-            (Some(state), true) => {
-                let next_status = state.status.on_successful_collection_publication(
-                    &draft_collection.catalog_name,
-                    inferred_schema_md5,
-                    publication,
-                );
-                let mut update = state.to_update().with_active(true);
-                if !next_status.is_publication_pending() {
-                    let next_run = next_status.next_run(publication.completed_at);
-                    update = update.with_next_run(next_run);
-                }
-                Some(update.with_status(next_status))
+    for eob in tables::full_outer_join(
+        publication.draft.collections.iter(),
+        publication.live.collections.iter(),
+    ) {
+        let (name, spec) = match eob {
+            EitherOrBoth::Left(new_spec) if new_spec.spec.derive.is_some() => (
+                new_spec.catalog_name.as_str(),
+                AnySpec::from(&new_spec.spec),
+            ),
+            EitherOrBoth::Right(live) if live.spec.derive.is_some() => {
+                (live.catalog_name.as_str(), AnySpec::from(&live.spec))
             }
-            (None, true) => {
-                let init_status = InferredSchemaStatus::initial(
-                    &draft_collection.catalog_name,
-                    inferred_schema_md5,
-                    publication,
-                );
-
-                Some(ControllerUpdate {
-                    active: true,
-                    next_run: Some(init_status.next_run(publication.completed_at)),
-                    status: Some(init_status),
-                })
+            EitherOrBoth::Both(drafted, _) if drafted.spec.derive.is_some() => {
+                (drafted.catalog_name.as_str(), AnySpec::from(&drafted.spec))
             }
-            (Some(state), false) if state.active => {
-                // Deactivate the state in response to a publicaction that removes use of the inferred schema
-                Some(state.to_update().with_active(false))
+            _ => {
+                continue;
             }
-            _ => None,
         };
-        if let Some(update) = maybe_update {
-            updates.insert(draft_collection.catalog_name.clone(), update);
-        }
+        let state = current_states.get(name);
+        handle_successful_publish(
+            name,
+            spec,
+            state,
+            &collections_using_inferred,
+            pub_status.clone(),
+            &mut updates,
+        );
     }
-
-    for live_collection in publication
-        .live
-        .collections
-        .iter()
-        .filter(|c| uses_inferred_schema(&c.spec))
-        .filter(|c| !drafted_collections.contains(c.catalog_name.as_str()))
-    {
-        // The inferred schema may have still been updated if the collection was pulled into the
-        // publication via spec expansion. Record the update, since it may obviate the need for another
-        // publish.
-        let inferred_schema_md5 = publication
-            .inferred_schemas
-            .iter()
-            .find(|s| s.collection_name == live_collection.catalog_name)
-            .map(|s| s.md5.clone());
-        let current_state = current_states.get(live_collection.catalog_name.as_str());
-        let desired_active = uses_inferred_schema(&live_collection.spec);
-
-        if let Some(state) = current_state {
-            let new_status = state.status.on_successful_collection_publication(
-                &live_collection.catalog_name,
-                inferred_schema_md5,
-                publication,
-            );
-            let next_run = new_status.next_run(publication.completed_at);
-            let update = state
-                .to_update()
-                .with_active(true)
-                .with_status(new_status)
-                .with_next_run(next_run);
-            updates.insert(live_collection.catalog_name.clone(), update);
-        }
+    for eob in tables::full_outer_join(
+        publication.draft.materializations.iter(),
+        publication.live.materializations.iter(),
+    ) {
+        let (name, spec) = match eob {
+            EitherOrBoth::Left(new_spec) => (
+                new_spec.catalog_name.as_str(),
+                AnySpec::from(&new_spec.spec),
+            ),
+            EitherOrBoth::Right(live) => (live.catalog_name.as_str(), AnySpec::from(&live.spec)),
+            EitherOrBoth::Both(drafted, _) => {
+                (drafted.catalog_name.as_str(), AnySpec::from(&drafted.spec))
+            }
+            _ => {
+                continue;
+            }
+        };
+        let state = current_states.get(name);
+        handle_successful_publish(
+            name,
+            spec,
+            state,
+            &collections_using_inferred,
+            pub_status.clone(),
+            &mut updates,
+        );
     }
-
     updates
 }
 
@@ -468,12 +414,12 @@ mod test {
         // The inferred schema of a/a gets updated.
         harness.update_inferred_schema("a/a", 1);
 
-        // Technically, either a/a or a/d could be run next in the real world, since they both have
+        // Technically, either a/d, a/m1, or a/m2 could be run next in the real world, since they all have
         // identical next_run values. Time is deterministic in the test environment, though, and the
         // harness always selects controllers in lexicographical order.
         let (info, update, mut publications) = harness.next_run_update();
-        assert_eq!(info.catalog_name, "a/a");
-        // Expect to see that a publication of a/a was created in response to the schema being updated
+        assert_eq!(info.catalog_name, "a/d");
+        // Expect to see that a publication of a/d was created in response to the a/a schema being updated
         insta::with_settings!({ info => &info }, {
             insta::assert_json_snapshot!("update-after-a-schema-updated-1", (update, &publications));
         });
@@ -481,51 +427,111 @@ mod test {
         // Now the controller observes the successful completion of that publication
         let publication = publications.pop().unwrap();
         let (info, updates) = harness.observe_publication(publication);
-
-        // Expect to see the successful publication in the history of a/a, and for the inferred schema
-        // md5 to be updated for all consumers of a/a (but not of a/d, which doesn't yet have an
-        // inferred schema)
+        // Expect to see the successful publication in the history of a/d, and for the inferred schema
+        // md5 to be updated for a/a
         insta::with_settings!({ info => &info }, {
             insta::assert_json_snapshot!("observe-pub-a-1-completed", &updates);
         });
-        // the status of a/a should indicate that all consumers are now up-to-date
-        assert!(!updates
-            .get("a/a")
-            .unwrap()
-            .status
-            .as_ref()
-            .unwrap()
-            .consumers_need_updated());
+
+        let (info, update, mut publications) = harness.next_run_update();
+        assert_eq!(info.catalog_name, "a/m2");
+        // Expect to see that a publication of a/m2 was created in response to the a/a schema being updated
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("update-m2-after-a-schema-updated-1", (update, &publications));
+        });
+
+        let (info, updates) = harness.observe_publication(publications.pop().unwrap());
+        // Expect to see the successful publication in the history of a/d, and for the inferred schema
+        // md5 to be updated for all consumers of a/d (but not of a/a, whose inferred schema is unchanged)
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("observe-m2-pub-a-1-completed", &updates);
+        });
 
         // Now the inferred schema for a/d gets updated
         harness.update_inferred_schema("a/d", 1);
 
+        // The next update run should create a publication of a/m1 now that the a/d schema was updated
         let (info, update, mut publications) = harness.next_run_update();
-
-        assert_eq!(info.catalog_name, "a/d");
-        // Expect to see that a publication of a/d was created in response to the schema being updated
+        assert_eq!(info.catalog_name, "a/m1");
         insta::with_settings!({ info => &info }, {
-            insta::assert_json_snapshot!("update-after-d-schema-updated-1", (update, &publications));
+            insta::assert_json_snapshot!("update-m1-after-d-schema-updated-1", (update, &publications));
         });
-
         let (info, updates) = harness.observe_publication(publications.pop().unwrap());
-
-        // Expect to see the successful publication in the history of a/d, and for the inferred schema
-        // md5 to be updated for all consumers of a/d (but not of a/a, whose inferred schema is unchanged)
+        // Expect to see the successful publication in the history of a/m1, and for the inferred schema
+        // md5 to be updated for the source a/d
         insta::with_settings!({ info => &info }, {
-            insta::assert_json_snapshot!("observe-pub-d-1-completed", &updates);
+            insta::assert_json_snapshot!("observe-m1-pub-d-1-completed", &updates);
         });
 
-        // Assert that the next update runs don't publish anthing, since the inferred schemas haven't been updated
-        let (info, update, publications) = harness.next_run_update();
-        assert_eq!(info.catalog_name, "a/a");
-        assert!(publications.is_empty());
-        assert!(update.next_run.is_some());
+        // a/m3 should be published to reflect the updated a/d schema
+        let (info, update, mut publications) = harness.next_run_update();
+        assert_eq!(info.catalog_name, "a/m3");
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("update-m3-after-d-schema-updated-1", (update, &publications));
+        });
+        let (info, updates) = harness.observe_publication(publications.pop().unwrap());
+        // Expect to see the successful publication in the history of a/m1, and for the inferred schema
+        // md5 to be updated for the source a/d
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("observe-m3-pub-d-1-completed", &updates);
+        });
 
-        let (info, update, publications) = harness.next_run_update();
-        assert_eq!(info.catalog_name, "a/d");
-        assert!(publications.is_empty());
-        assert!(update.next_run.is_some());
+        // Scheduled update runs should not create any publications because none of the inferred
+        // schemas have been updated.
+        for _ in 0..9 {
+            let (info, update, pubs) = harness.next_run_update();
+            assert!(
+                pubs.is_empty(),
+                "expected empty publications, got: {pubs:?}, info: {info:?}"
+            );
+            assert!(
+                update.next_run.is_some(),
+                "expected Some next_run, got: {update:?}, info: {info:?}"
+            );
+        }
+
+        harness.update_inferred_schema("a/a", 2);
+
+        // a/m2 update and observe publication
+        let (info, update, mut publications) = harness.next_run_update();
+        assert_eq!("a/m2", info.catalog_name);
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("update-m2-after-a-schema-updated-2", (update, &publications));
+        });
+        let (info, updates) = harness.observe_publication(publications.pop().unwrap());
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("observe-m2-pub-a-2-completed", &updates);
+        });
+
+        // a/d update and observe publication
+        let (info, update, mut publications) = harness.next_run_update();
+        assert_eq!("a/d", info.catalog_name);
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("update-d-after-a-schema-updated-2", (update, &publications));
+        });
+        let (info, updates) = harness.observe_publication(publications.pop().unwrap());
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("observe-d-pub-a-2-completed", &updates);
+        });
+
+        // a/m1 update and observe publication
+        let (info, update, mut publications) = harness.next_run_update();
+        assert_eq!("a/m1", info.catalog_name);
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("update-m1-after-a-schema-updated-2", (update, &publications));
+        });
+        let (info, updates) = harness.observe_publication(publications.pop().unwrap());
+        insta::with_settings!({ info => &info }, {
+            insta::assert_json_snapshot!("observe-m1-pub-a-2-completed", &updates);
+        });
+
+        // assert!(publications.is_empty());
+        // assert!(update.next_run.is_some());
+
+        // let (info, update, publications) = harness.next_run_update();
+        // assert_eq!(info.catalog_name, "a/d");
+        // assert!(publications.is_empty());
+        // assert!(update.next_run.is_some());
     }
 
     fn mock_derivation_spec(use_inferred: bool, sources: &[&str]) -> Value {

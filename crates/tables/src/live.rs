@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use crate::{
     cmp_by_name, AnySpec, DraftCapture, DraftCollection, DraftMaterialization, DraftSpecs,
-    DraftTest, LiveCapture, LiveCaptures, LiveCollection, LiveCollections, LiveMaterialization,
-    LiveMaterializations, LiveSpecs, LiveTest, LiveTests, SpecExt,
+    DraftTest, LiveCapture, LiveCaptures, LiveCollection, LiveCollections, LiveDeletedSpec,
+    LiveMaterialization, LiveMaterializations, LiveSpecs, LiveTest, LiveTests, SpecExt,
 };
 use itertools::Itertools;
 
