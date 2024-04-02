@@ -359,7 +359,7 @@ mod test {
         assert_eq!((2, 8, 4), BumpVec::<u16>::sizes());
         assert_eq!((4, 8, 4), BumpVec::<u32>::sizes());
         assert_eq!((8, 8, 8), BumpVec::<u64>::sizes());
-        assert_eq!((16, 8, 8), BumpVec::<u128>::sizes());
+        assert_eq!((16, 16, 16), BumpVec::<u128>::sizes());
 
         let alloc = bumpalo::Bump::new();
 
