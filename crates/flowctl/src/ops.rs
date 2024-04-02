@@ -31,6 +31,7 @@ impl Logs {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum OpsCollection {
     Logs,
+    Stats,
 }
 
 pub fn read_args(
@@ -41,6 +42,7 @@ pub fn read_args(
 ) -> ReadArgs {
     let logs_or_stats = match collection {
         OpsCollection::Logs => "logs",
+        OpsCollection::Stats => "stats",
     };
     // Once we implement federated data planes, we'll need to update this to
     // fetch the name of the data plane based on the tenant.
