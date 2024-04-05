@@ -162,6 +162,9 @@ The versions made available in Flow have been adapted for compatibility.
 * LinkedIn Ads
   * [Configuration](./linkedin-ads.md)
   * Package - ghcr.io/estuary/source-linkedin-ads:dev
+* LinkedIn Pages
+  * [Configuration](./linkedin-pages.md)
+  * Package - ghcr.io/estuary/source-linkedin-pages:4985746
 * Mailchimp
   * [Configuration](./mailchimp.md)
   * Package - ghcr.io/estuary/source-mailchimp:dev
