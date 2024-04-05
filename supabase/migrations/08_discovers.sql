@@ -12,7 +12,6 @@ create table discovers (
   auto_evolve       boolean  not null default false
 );
 alter table discovers enable row level security;
-alter publication supabase_realtime add table discovers;
 
 create trigger "Notify agent about changes to discover requests" after insert or update on discovers
 for each statement execute procedure internal.notify_agent();

@@ -71,7 +71,6 @@ create table connector_tags (
     check (image_tag like ':%' or image_tag like '@sha256:')
 );
 -- Public, no RLS.
-alter publication supabase_realtime add table connector_tags;
 
 create trigger "Notify agent about changes to connector_tags" after insert or update on connector_tags
 for each statement execute procedure internal.notify_agent();
