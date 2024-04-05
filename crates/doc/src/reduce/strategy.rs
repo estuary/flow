@@ -134,6 +134,9 @@ pub struct Merge {
     /// up until the point where they're reduced into a base document.
     #[serde(default)]
     pub delete: bool,
+
+    #[serde(default = "true_value")]
+    pub associative: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
@@ -354,6 +357,13 @@ impl Strategy {
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
         merge: &Merge,
     ) -> Result<(HeapNode<'alloc>, bool)> {
+        if !merge.associative
+            && !cur.full
+            && matches!(&cur.lhs, Some(lhs) if compare_lazy(lhs, &cur.rhs).is_ne())
+        {
+            // When marked !associative, partial reductions may only reduce equal values.
+            return Err(Error::NotAssociative);
+        }
         let delete = cur.full && merge.delete;
         Ok((Self::merge_with_key(cur, &merge.key)?, delete))
     }
