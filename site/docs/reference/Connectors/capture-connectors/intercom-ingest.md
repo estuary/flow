@@ -33,18 +33,30 @@ Click **Details** to view the data preview.
 
 1. Navigate to your App in your Developer Hub and select the `Webhooks` from the configuration options
 
-2. Under `Endpoint URL` enter in the unique URL generated for your Estuary Webhook endpoint in the format `https://<your-webhook-url>/<your-tenant>/webhook-data`
+2. Under `Endpoint URL` enter in the unique URL generated for your Estuary Webhook endpoint in the format `https://<your-webhook-url>/webhook-data`
 
 3. Configure the `Topics` section to trigger on your preferred webhook events and click save. Optionally, you can select `Send a test request` to preview how the data would be ingested into Estuary.
 
-If you entered `acmeCo/foo` for the capture name, then
-your collection name would default to `acmeCo/foo/webhook-data`, and your full webhook URL would be `https://<your-unique-hostname>/acmeCo/foo/webhook-data`.
+### Webhook URLs
 
-### URL Paths
+To determine the full URL, start with the base URL from the Flow web app (for example `https://abc123-8080.us-central1.v1.estuary-data.dev`), and then append the path.
 
-You can customize the URL path for each binding by setting the `path` option in the [resource configuration](#resource-configuration) when creating the capture. For example, if you set the path to `my-webhook.json`,
-then the full URL for that collection would be `https://<your-unique-hostname>/my-webhook.json`. You can even create multiple bindings to the same collection
-in order to serve webhooks from different URLs.
+The path will be whatever is in the `paths` endpoint configuration field (`/webhook-data` by default). For example, your full webhook URL would be `https://<your-unique-hostname>/webhook-data`. You can add additional paths to `paths`, and the connector will accept webhook requests on each of them. Each path will correspond to a separate binding. If you're editing the capture via the UI, click the "re-fresh" button after editing the URL paths in the endpoint config to see the resulting collections in the bindings editor. For example, if you set the path to `/my-webhook.json`, then the full URL for that binding would be `https://<your-unique-hostname>/my-webhook.json`.
+
+Any URL query parameters that are sent on the request will be captured and serialized under `/_meta/query/*` the in documents. For example, a webhook request that's sent to `/webhook-data?testKey=testValue` would result in a document like:
+
+```
+{
+  "_meta": {
+    "webhookId": "...",
+    "query": {
+      "testKey": "testValue"
+    },
+    ...
+  }
+  ...
+}
+```
 
 ### Authentication
 
@@ -62,6 +74,7 @@ This connector does not yet support webhook signature verification. If this is a
 |---|---|---|---|---|
 | **** | EndpointConfig |  | object | Required |
 | `/require_auth_token` |  | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
+| `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
 
 ## Resource configuration
 

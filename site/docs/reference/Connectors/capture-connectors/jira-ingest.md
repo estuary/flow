@@ -1,9 +1,9 @@
 ---
 sidebar_position: 3
 ---
-# Datadog HTTP Ingest (Webhook)
+# Jira HTTP Ingest (Webhook)
 
-The Datadog HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests from Datadog.
+The Jira HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests from Jira.
 A common use case is to capture webhook deliveries, turning them into a Flow collection.
 
 The connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-ingest:dev`](https://ghcr.io/estuary/source-http-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
@@ -29,23 +29,13 @@ You're now ready to send data to Flow.
 3. After sending data, go to the Collections page of the Flow web app and find the collection associated with your capture.
 Click **Details** to view the data preview.
 
-### Configure a Datadog webhook
+### Configure a Jira webhook
 
-1. In the Datadog Cloud Monitoring Platform, navigate to the Integrations tab and click on the Integrations option in the dropdown.
+1. In the Jira Administration console press the `.` key to bring up Jira's search. Search for `Webhooks`.
 
-2. Using the search bar, search for the Webhook Integration and install it.
+2. Click on a `Create a WebHook` and in the url section input the url that was generated after publishing a capture in Flow. See the Webhook URLs section below for more information on the structure of your URL.
 
-3. Within the Webhook Integration configuration, select new Webhook and enter in the following information:
-
-| Field | Value | Description |
-|---|---|---|
-| Name |`your-webhook`| The name of your webhook within Datadog |
-| URL | `https://your-unique-webhook-url/webhook-data` | The unique Estuary URL created for ingesting webhook data  |
-
-
-4. In the Datadog Cloud Monitoring Platform, navigate to Monitors/New Monitor and select Metric for the type.
-
-5. Define the alert conditions and under `Notify your team` select `@your-webhook` from the dropdown.
+Review [Jira's documentation](https://developer.atlassian.com/server/jira/platform/webhooks/#executing-a-webhook) on configuring a webhook for more information.
 
 ### Webhook URLs
 
