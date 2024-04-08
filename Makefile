@@ -214,7 +214,13 @@ MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-schemalate
 
 .PHONY: linux-gnu-binaries
+ifeq ($(UNAME),Darwin arm)
 linux-gnu-binaries: $(GNU_TARGETS)
+	codesign -f -s - .build/package/bin/gazette
+	codesign -f -s - .build/package/bin/flowctl-go
+else
+linux-gnu-binaries: $(GNU_TARGETS)
+endif
 
 .PHONY: linux-musl-binaries
 linux-musl-binaries: | ${PKGDIR}
