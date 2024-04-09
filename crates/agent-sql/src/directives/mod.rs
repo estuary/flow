@@ -8,6 +8,7 @@ use sqlx::types::Uuid;
 pub mod accept_demo_tenant;
 pub mod beta_onboard;
 pub mod grant;
+pub mod storage_mappings;
 
 // Row is the dequeued task shape of an applied directive operation. We don't currently have a use
 // for background directive applications, so the `background` column is omitted.

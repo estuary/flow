@@ -134,9 +134,8 @@ mod test {
         .await
         .unwrap();
 
-        let mut handler = DirectiveHandler {
-            accounts_user_email: "accounts@example.com".to_string(),
-        };
+        let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(64);
+        let mut handler = DirectiveHandler::new("accounts@example.com".to_owned(), &logs_tx);
         while let Some(row) = agent_sql::directives::dequeue(&mut txn, true)
             .await
             .unwrap()
