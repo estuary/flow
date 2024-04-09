@@ -126,7 +126,8 @@ mod test {
         .await
         .unwrap();
 
-        let mut handler = DirectiveHandler::default();
+        let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(64);
+        let mut handler = DirectiveHandler::new("support@estuary.test".to_owned(), &logs_tx);
         while let Some(row) = agent_sql::directives::dequeue(&mut txn, false)
             .await
             .unwrap()

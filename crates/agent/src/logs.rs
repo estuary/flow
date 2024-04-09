@@ -157,7 +157,9 @@ pub fn ops_handler(
             token: token.clone(),
             stream: stream.clone(),
             line: render_ops_log_for_ui(log),
-        }) else { return };
+        }) else {
+            return;
+        };
 
         // Perform an expensive "move" of all other tasks scheduled on the
         // current async executor thread, so that we can block until there's capacity.

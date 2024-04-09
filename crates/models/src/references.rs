@@ -71,6 +71,10 @@ macro_rules! string_reference_types {
                 &$Regex
             }
 
+            pub fn as_mut_string(&mut self) -> &mut String {
+                &mut self.0
+            }
+
             fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
                 from_value(json!({
                     "type": "string",
