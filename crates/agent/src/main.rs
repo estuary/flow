@@ -134,7 +134,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 &logs_tx,
                 args.allow_local,
             )),
-            Box::new(agent::DirectiveHandler::new(args.accounts_email)),
+            Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
             Box::new(agent::EvolutionHandler),
         ],
         pg_pool.clone(),

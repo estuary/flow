@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use validator::Validate;
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
 #[schemars(example = "GcsBucketAndPrefix::example")]
 pub struct GcsBucketAndPrefix {
     /// Bucket into which Flow will store data.
@@ -21,7 +21,7 @@ pub struct GcsBucketAndPrefix {
 }
 
 impl GcsBucketAndPrefix {
-    fn as_url(&self) -> url::Url {
+    pub fn as_url(&self) -> url::Url {
         // These are validated when we validate storage mappings
         // to at least be legal characters in a URI
         url::Url::parse(&format!(
@@ -40,7 +40,7 @@ impl GcsBucketAndPrefix {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
 #[schemars(example = "S3StorageConfig::example")]
 pub struct S3StorageConfig {
     /// Bucket into which Flow will store data.
@@ -58,7 +58,7 @@ pub struct S3StorageConfig {
 }
 
 impl S3StorageConfig {
-    fn as_url(&self) -> url::Url {
+    pub fn as_url(&self) -> url::Url {
         // These are validated when we validate storage mappings
         // to at least be legal characters in a URI
         let mut u = url::Url::parse(&format!(
@@ -83,7 +83,7 @@ impl S3StorageConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
 #[schemars(example = "AzureStorageConfig::example")]
 pub struct AzureStorageConfig {
     /// The tenant ID that owns the storage account that we're writing into
@@ -127,7 +127,7 @@ impl AzureStorageConfig {
 }
 
 /// Details of an s3-compatible storage endpoint, such as Minio or R2.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate, PartialEq)]
 #[schemars(example = "CustomStore::example")]
 pub struct CustomStore {
     /// Bucket into which Flow will store data.
@@ -179,7 +179,7 @@ impl CustomStore {
 ///
 ///   s3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip
 ///
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[schemars(example = "Store::example")]
 #[serde(tag = "provider", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Store {
@@ -223,7 +223,35 @@ impl Store {
             }
         }
     }
+
+    pub fn prefix_mut(&mut self) -> &mut Prefix {
+        match self {
+            Store::S3(c) => c.prefix_mut(),
+            Store::Gcs(c) => c.prefix_mut(),
+            Store::Azure(c) => c.prefix_mut(),
+            Store::Custom(c) => c.prefix_mut(),
+        }
+    }
 }
+
+macro_rules! impl_prefix_mut {
+    ($store_ty:ident) => {
+        impl $store_ty {
+            /// returns a mutable reference to the prefix of this storage configuration.
+            /// Will initialize a new empty prefix if none is currently set.
+            pub fn prefix_mut(&mut self) -> &mut Prefix {
+                if self.prefix.is_none() {
+                    self.prefix = Some(Prefix::new(String::new()));
+                }
+                self.prefix.as_mut().unwrap()
+            }
+        }
+    };
+}
+impl_prefix_mut! {S3StorageConfig}
+impl_prefix_mut! {GcsBucketAndPrefix}
+impl_prefix_mut! {AzureStorageConfig}
+impl_prefix_mut! {CustomStore}
 
 /// Storage defines the backing cloud storage for journals.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]

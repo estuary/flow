@@ -1,4 +1,4 @@
-use crate::HandleResult;
+use crate::{logs, HandleResult};
 
 use super::{Handler, Id};
 
@@ -11,6 +11,7 @@ pub mod accept_demo_tenant;
 pub mod beta_onboard;
 pub mod click_to_accept;
 pub mod grant;
+pub mod storage_mappings;
 
 /// JobStatus is the possible outcomes of a handled directive operation.
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,17 +43,19 @@ pub enum Directive {
     ClickToAccept(click_to_accept::Directive),
     AcceptDemoTenant(accept_demo_tenant::Directive),
     Grant(grant::Directive),
+    StorageMappings(storage_mappings::Directive),
 }
 
-#[derive(Default)]
 pub struct DirectiveHandler {
     accounts_user_email: String,
+    logs_tx: logs::Tx,
 }
 
 impl DirectiveHandler {
-    pub fn new(accounts_user_email: String) -> Self {
+    pub fn new(accounts_user_email: String, logs_tx: &logs::Tx) -> Self {
         Self {
             accounts_user_email,
+            logs_tx: logs_tx.clone(),
         }
     }
 }
@@ -112,6 +115,9 @@ impl DirectiveHandler {
             Ok(Directive::ClickToAccept(d)) => click_to_accept::apply(d, row, txn).await?,
             Ok(Directive::AcceptDemoTenant(d)) => accept_demo_tenant::apply(d, row, txn).await?,
             Ok(Directive::Grant(d)) => grant::apply(d, row, txn).await?,
+            Ok(Directive::StorageMappings(d)) => {
+                storage_mappings::apply(d, row, &self.logs_tx, txn).await?
+            }
         };
         Ok((apply_id, status))
     }
