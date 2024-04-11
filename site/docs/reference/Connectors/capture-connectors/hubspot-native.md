@@ -2,10 +2,6 @@
 
 This connector captures data from Hubspot into Flow collections. 
 
-
-## Warning
-This connector has been developed by Estuary's team, and will differ from the imported Hubspot connector.
-
 ## Supported data resources
 
 * [Companies](https://developers.hubspot.com/docs/api/crm/companies)
@@ -41,11 +37,10 @@ The following data resources are supported for pro accounts:
 
 ## Prerequisites
 
-There are two ways to authenticate with Hubspot when capturing data: using OAuth2, and manually, with a private app access token.
+There are two ways to authenticate with Hubspot when capturing data: using OAuth2, or with a private app access token.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
-the access token method is the only supported method using the command line.
 
 ### Using OAuth2 to authenticate with Hubspot in the Flow web app
 
@@ -74,7 +69,7 @@ To create a private app in Hubspot and generate its access token, do the followi
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Hubspo-native connector.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the hubspot-native connector.
 
 #### Endpoint
 
@@ -101,11 +96,11 @@ The following properties reflect the access token authentication method.
 captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
-      	connector:
-	  image: ghcr.io/estuary/source-hubspot-native:dev
-          config: 
-	    credentials_title: Private App Credentials
-            access_token: <secret>
+      connector:
+        image: ghcr.io/estuary/source-hubspot-native:dev
+        config: 
+          credentials_title: Private App Credentials
+          access_token: <secret>
     bindings:
       - resource:
           name: companies

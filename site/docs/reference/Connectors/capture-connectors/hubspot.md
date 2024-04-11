@@ -50,11 +50,10 @@ The following data resources are supported for pro accounts (set **Subscription 
 
 ## Prerequisites
 
-There are two ways to authenticate with Hubspot when capturing data: using OAuth2, and manually, with a private app access token.
+There are two ways to authenticate with Hubspot when capturing data: using OAuth2, or with a private app access token.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
-the access token method is the only supported method using the command line.
 
 ### Using OAuth2 to authenticate with Hubspot in the Flow web app
 
