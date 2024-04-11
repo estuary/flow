@@ -1,6 +1,7 @@
 use super::{indexed, reference, storage_mapping, Connectors, Error, NoOpConnectors, Scope};
 use itertools::Itertools;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
+use tables::SpecRow;
 
 pub async fn walk_all_captures(
     build_id: &str,
@@ -33,14 +34,14 @@ pub async fn walk_all_captures(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &capture.spec.shards.log_level {
+                if let Some(s) = &capture.get_final_spec().shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             });
 
             // If shards are disabled, then don't ask the connector to validate.
             // A broken but disabled endpoint should not cause a build to fail.
-            let response = if capture.spec.shards.disable {
+            let response = if capture.get_final_spec().shards.disable {
                 NoOpConnectors.validate_capture(wrapped)
             } else {
                 connectors.validate_capture(wrapped)
@@ -57,14 +58,10 @@ pub async fn walk_all_captures(
     let mut built_captures = tables::BuiltCaptures::new();
 
     for (capture, mut request, response) in validations {
-        let tables::Capture {
-            scope,
-            capture: _,
-            spec: models::CaptureDef {
-                interval, shards, ..
-            },
-        } = capture;
-        let scope = Scope::new(scope);
+        let scope = Scope::new(&capture.scope);
+        let models::CaptureDef {
+            interval, shards, ..
+        } = capture.get_final_spec();
 
         // Unwrap `response` and bail out if it failed.
         let (validated, network_ports) = match extract_validated(response) {
@@ -190,14 +187,7 @@ fn walk_capture_request<'a>(
     capture: &'a tables::Capture,
     errors: &mut tables::Errors,
 ) -> Option<(&'a tables::Capture, capture::request::Validate)> {
-    let tables::Capture {
-        scope,
-        capture: name,
-        spec: models::CaptureDef {
-            endpoint, bindings, ..
-        },
-    } = capture;
-    let scope = Scope::new(scope);
+    let scope = Scope::new(&capture.scope);
 
     // Require the capture name is valid.
     indexed::walk_name(
@@ -207,6 +197,14 @@ fn walk_capture_request<'a>(
         models::Capture::regex(),
         errors,
     );
+
+    let models::CaptureDef {
+        auto_discover: _,
+        endpoint,
+        bindings,
+        interval: _,
+        shards: _,
+    } = capture.get_final_spec();
 
     let (connector_type, config_json) = match endpoint {
         models::CaptureEndpoint::Connector(config) => (
@@ -242,7 +240,7 @@ fn walk_capture_request<'a>(
         .collect();
 
     let request = capture::request::Validate {
-        name: name.to_string(),
+        name: capture.get_name().to_string(),
         connector_type,
         config_json,
         bindings,

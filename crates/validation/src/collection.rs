@@ -2,6 +2,7 @@ use super::{indexed, schema, storage_mapping, Error, InferredSchema, Scope};
 use json::schema::types;
 use proto_flow::flow;
 use std::collections::BTreeMap;
+use tables::SpecRow;
 
 pub fn walk_all_collections(
     build_id: &str,
@@ -42,29 +43,25 @@ fn walk_collection(
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> Option<flow::CollectionSpec> {
-    let tables::Collection {
-        scope,
-        collection: name,
-        spec:
-            models::CollectionDef {
-                schema,
-                write_schema,
-                read_schema,
-                key,
-                projections,
-                journals: _,
-                derive: _,
-            },
-    } = collection;
-    let scope = Scope::new(scope);
+    let name = collection.get_name();
+    let scope = Scope::new(&collection.scope);
 
     indexed::walk_name(
         scope,
         "collection",
-        name.as_ref(),
+        name,
         models::Collection::regex(),
         errors,
     );
+    let models::CollectionDef {
+        schema,
+        write_schema,
+        read_schema,
+        key,
+        projections,
+        journals: _,
+        derive: _,
+    } = collection.get_final_spec();
 
     if key.is_empty() {
         Error::CollectionKeyEmpty {
@@ -139,13 +136,8 @@ fn walk_collection(
         errors,
     );
 
-    let partition_stores = storage_mapping::mapped_stores(
-        scope,
-        "collection",
-        name.as_str(),
-        storage_mappings,
-        errors,
-    );
+    let partition_stores =
+        storage_mapping::mapped_stores(scope, "collection", name, storage_mappings, errors);
 
     Some(assemble::collection_spec(
         build_id,

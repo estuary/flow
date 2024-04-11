@@ -85,6 +85,7 @@ pub fn flat_layout_replace(
     }
 }
 
+// TODO: should into_catalog _only_ use `drafted` specs and ignore `live_spec`?
 // Map tables::Sources into a flattened Catalog.
 // Sources should already be inline.
 pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
@@ -102,36 +103,57 @@ pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
 
     assert!(errors.is_empty());
 
+    let captures = captures
+        .into_iter()
+        .filter_map(
+            |tables::Capture {
+                 capture,
+                 drafted,
+                 live_spec,
+                 ..
+             }| drafted.or(live_spec).map(|spec| (capture, spec)),
+        )
+        .collect();
+    let collections = collections
+        .into_iter()
+        .filter_map(
+            |tables::Collection {
+                 collection,
+                 drafted,
+                 live_spec,
+                 ..
+             }| drafted.or(live_spec).map(|spec| (collection, spec)),
+        )
+        .collect();
+    let materializations = materializations
+        .into_iter()
+        .filter_map(
+            |tables::Materialization {
+                 materialization,
+                 drafted,
+                 live_spec,
+                 ..
+             }| drafted.or(live_spec).map(|spec| (materialization, spec)),
+        )
+        .collect();
+    let tests = tests
+        .into_iter()
+        .filter_map(
+            |tables::Test {
+                 test,
+                 drafted,
+                 live_spec,
+                 ..
+             }| drafted.or(live_spec).map(|spec| (test, spec)),
+        )
+        .collect();
     models::Catalog {
         _schema: None,
         import: Vec::new(), // Fully inline and requires no imports.
-        captures: captures
-            .into_iter()
-            .map(|tables::Capture { capture, spec, .. }| (capture, spec))
-            .collect(),
-        collections: collections
-            .into_iter()
-            .map(
-                |tables::Collection {
-                     collection, spec, ..
-                 }| (collection, spec),
-            )
-            .collect(),
-        materializations: materializations
-            .into_iter()
-            .map(
-                |tables::Materialization {
-                     materialization,
-                     spec,
-                     ..
-                 }| (materialization, spec),
-            )
-            .collect(),
-        tests: tests
-            .into_iter()
-            .map(|tables::Test { test, spec, .. }| (test, spec))
-            .collect(),
-
+        captures,
+        collections,
+        materializations,
+        tests,
         // We deliberately omit storage mappings.
         // The control plane will inject these during its builds.
         storage_mappings: BTreeMap::new(),
@@ -190,11 +212,9 @@ where
                 );
 
                 if let Some(last) = chain.last() {
-                    sources.captures[index] = tables::Capture {
-                        scope: last.clone(),
-                        capture,
-                        spec,
-                    };
+                    sources.captures[index].scope = last.clone();
+                    sources.captures[index].drafted = Some(spec);
+                    sources.captures[index].action = Some(tables::Action::Update);
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -203,7 +223,15 @@ where
                 let chain = eval_policy(&policy, CAPTURES, &capture, &root, None);
 
                 if let Some(last) = chain.last() {
-                    sources.captures.insert_row(last, capture, spec);
+                    sources.captures.insert_row(
+                        last,
+                        capture,
+                        Some(tables::Action::Update),
+                        None,
+                        Some(spec),
+                        None,
+                        None,
+                    );
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -225,11 +253,9 @@ where
                 );
 
                 if let Some(last) = chain.last() {
-                    sources.collections[index] = tables::Collection {
-                        scope: last.clone(),
-                        collection,
-                        spec,
-                    };
+                    sources.collections[index].scope = last.clone();
+                    sources.collections[index].drafted = Some(spec);
+                    sources.collections[index].action = Some(tables::Action::Update);
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -238,7 +264,16 @@ where
                 let chain = eval_policy(&policy, COLLECTIONS, &collection, &root, None);
 
                 if let Some(last) = chain.last() {
-                    sources.collections.insert_row(last, collection, spec);
+                    sources.collections.insert(tables::Collection {
+                        scope: last.clone(),
+                        collection,
+                        action: Some(tables::Action::Update),
+                        expect_pub_id: None,
+                        drafted: Some(spec),
+                        live_spec: None,
+                        last_pub_id: None,
+                        inferred_schema_md5: None,
+                    });
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -260,11 +295,9 @@ where
                 );
 
                 if let Some(last) = chain.last() {
-                    sources.materializations[index] = tables::Materialization {
-                        scope: last.clone(),
-                        materialization,
-                        spec,
-                    };
+                    sources.materializations[index].scope = last.clone();
+                    sources.materializations[index].drafted = Some(spec);
+                    sources.materializations[index].action = Some(tables::Action::Update);
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -273,9 +306,15 @@ where
                 let chain = eval_policy(&policy, MATERIALIZATIONS, &materialization, &root, None);
 
                 if let Some(last) = chain.last() {
-                    sources
-                        .materializations
-                        .insert_row(last, materialization, spec);
+                    sources.materializations.insert(tables::Materialization {
+                        scope: last.clone(),
+                        materialization,
+                        action: Some(tables::Action::Update),
+                        expect_pub_id: None,
+                        drafted: Some(spec),
+                        live_spec: None,
+                        last_pub_id: None,
+                    });
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -297,11 +336,9 @@ where
                 );
 
                 if let Some(last) = chain.last() {
-                    sources.tests[index] = tables::Test {
-                        scope: last.clone(),
-                        test,
-                        spec,
-                    };
+                    sources.tests[index].scope = last.clone();
+                    sources.tests[index].drafted = Some(spec);
+                    sources.tests[index].action = Some(tables::Action::Update);
                     add_imports(sources, &chain);
                     count += 1;
                 }
@@ -310,7 +347,15 @@ where
                 let chain = eval_policy(&policy, TESTS, &test, &root, None);
 
                 if let Some(last) = chain.last() {
-                    sources.tests.insert_row(last, test, spec);
+                    sources.tests.insert(tables::Test {
+                        scope: last.clone(),
+                        test,
+                        action: Some(tables::Action::Update),
+                        expect_pub_id: None,
+                        drafted: Some(spec),
+                        live_spec: None,
+                        last_pub_id: None,
+                    });
                     add_imports(sources, &chain);
                     count += 1;
                 }

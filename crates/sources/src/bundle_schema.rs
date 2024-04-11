@@ -120,7 +120,7 @@ mod test {
             // Build the bundled schema DOM.
             let bundle_dom = bundle_schema(
                 &scope,
-                c.spec.schema.as_ref().unwrap(),
+                c.drafted.as_ref().unwrap().schema.as_ref().unwrap(),
                 &imports,
                 &resources,
             );

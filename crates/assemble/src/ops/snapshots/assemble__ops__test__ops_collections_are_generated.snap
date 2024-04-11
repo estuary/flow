@@ -7,7 +7,9 @@ Sources {
         Capture {
             scope: builtin://flow/test-cap.flow.yaml#/collections/acmeCo~1foo,
             capture: acmeCo/foo,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "endpoint": {
                 "connector": {
                   "image": "foo/bar",
@@ -16,23 +18,32 @@ Sources {
               },
               "bindings": []
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
         },
     ],
     collections: [
         Collection {
             scope: test://foo.bar/collection,
             collection: ops.test-dataplane/logs,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": "test://foo.bar/schema",
               "key": [
                 "/not/a/real/key"
               ]
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/logs,
             collection: ops.us-central1.v1/logs,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": "builtin://flow/ops-catalog/ops-log-schema.json",
               "key": [
                 "/shard/name",
@@ -51,11 +62,16 @@ Sources {
                 }
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/stats,
             collection: ops.us-central1.v1/stats,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": "builtin://flow/ops-catalog/ops-stats-schema.json",
               "key": [
                 "/shard/name",
@@ -74,6 +90,9 @@ Sources {
                 }
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
     ],
     errors: [],

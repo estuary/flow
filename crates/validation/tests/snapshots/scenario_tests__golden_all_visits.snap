@@ -6306,7 +6306,9 @@ All {
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
             capture: testing/db-cdc,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "endpoint": {
                 "connector": {
                   "image": "database",
@@ -6325,11 +6327,15 @@ All {
                 "hotStandbys": 1
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
         },
         Capture {
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
             capture: testing/s3-source,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "endpoint": {
                 "connector": {
                   "image": "s3",
@@ -6348,13 +6354,17 @@ All {
               ],
               "interval": "10m"
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
         },
     ],
     collections: [
         Collection {
             scope: test://example/array-key#/collections/testing~1array-key,
             collection: testing/array-key,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": {"$id":"test://example/array-key.schema","properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
               "key": [
                 "/arr/0/aKey"
@@ -6363,11 +6373,16 @@ All {
                 "aKeyOne": "/arr/1/aKey"
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
             collection: testing/from-array-key,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": {"$id":"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema","properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
               "key": [
                 "/someKey"
@@ -6409,11 +6424,16 @@ All {
                 ]
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/int-halve#/collections/testing~1int-halve,
             collection: testing/int-halve,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
               "key": [
                 "/int"
@@ -6487,11 +6507,16 @@ All {
                 }
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
             collection: testing/int-reverse,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
                 "/int"
@@ -6516,11 +6541,16 @@ All {
                 ]
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string,
             collection: testing/int-string,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
                 "/int"
@@ -6533,33 +6563,48 @@ All {
                 }
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string-inferred,
             collection: testing/int-string-inferred,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
               "key": [
                 "/int"
               ]
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
             collection: testing/int-string-inferred-not-found,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
               "key": [
                 "/int"
               ]
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string-rw,
             collection: testing/int-string-rw,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
               "key": [
@@ -6575,11 +6620,16 @@ All {
                 }
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string.v2,
             collection: testing/int-string.v2,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"}},"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
               "key": [
                 "/int"
@@ -6590,6 +6640,9 @@ All {
                 }
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
+            inferred_schema_md5: NULL,
         },
     ],
     errors: [
@@ -6762,7 +6815,9 @@ All {
         Materialization {
             scope: test://example/db-views#/materializations/testing~1db-views,
             materialization: testing/db-views,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "endpoint": {
                 "connector": {
                   "image": "database/image",
@@ -6783,11 +6838,15 @@ All {
                 "logLevel": "warn"
               }
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
         },
         Materialization {
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             materialization: testing/webhook/deliveries,
-            spec: {
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: {
               "endpoint": {
                 "connector": {
                   "image": "webhook/connector",
@@ -6833,6 +6892,8 @@ All {
                 }
               ]
             },
+            live_spec: NULL,
+            last_pub_id: NULL,
         },
     ],
     meta: [],
@@ -6982,7 +7043,9 @@ All {
         Test {
             scope: test://example/int-string-tests#/tests/testing~1test,
             test: testing/test,
-            spec: [
+            action: Update,
+            expect_pub_id: NULL,
+            drafted: [
               {
                 "ingest": {
                   "collection": "testing/int-string",
@@ -7007,6 +7070,8 @@ All {
                 }
               }
             ],
+            live_spec: NULL,
+            last_pub_id: NULL,
         },
     ],
 }

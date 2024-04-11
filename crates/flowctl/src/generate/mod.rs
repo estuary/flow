@@ -3,6 +3,7 @@ use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use proto_flow::{capture, derive, flow, materialize};
+use tables::SpecRow;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -108,13 +109,10 @@ async fn generate_missing_configs(
 async fn generate_missing_capture_configs(
     capture: &tables::Capture,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
-    let tables::Capture {
-        scope: _,
-        capture,
-        spec: models::CaptureDef {
-            endpoint, bindings, ..
-        },
-    } = capture;
+    let capture_name = capture.get_name();
+    let models::CaptureDef {
+        endpoint, bindings, ..
+    } = capture.get_final_spec();
 
     let (spec, missing_config_url) = match endpoint {
         models::CaptureEndpoint::Connector(config) => (
@@ -158,7 +156,7 @@ async fn generate_missing_capture_configs(
         String::new(), // Default network.
         ops::tracing_log_handler,
         None,
-        format!("spec/{capture}"),
+        format!("spec/{capture_name}"),
     )
     .unary_capture(
         capture::Request {
@@ -182,11 +180,8 @@ async fn generate_missing_capture_configs(
 async fn generate_missing_collection_configs(
     collection: &tables::Collection,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
-    let tables::Collection {
-        scope: _,
-        collection,
-        spec: models::CollectionDef { derive, .. },
-    } = collection;
+    let collection_name = collection.get_name();
+    let models::CollectionDef { derive, .. } = collection.get_final_spec();
 
     let Some(models::Derivation {
         using, transforms, ..
@@ -238,7 +233,7 @@ async fn generate_missing_collection_configs(
         String::new(), // Default network.
         ops::tracing_log_handler,
         None,
-        format!("spec/{collection}"),
+        format!("spec/{collection_name}"),
     )
     .unary_derive(
         derive::Request {
@@ -262,13 +257,10 @@ async fn generate_missing_collection_configs(
 async fn generate_missing_materialization_configs(
     materialization: &tables::Materialization,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
-    let tables::Materialization {
-        scope: _,
-        materialization,
-        spec: models::MaterializationDef {
-            endpoint, bindings, ..
-        },
-    } = materialization;
+    let materialization_name = materialization.get_name();
+    let models::MaterializationDef {
+        endpoint, bindings, ..
+    } = materialization.get_final_spec();
 
     let (spec, missing_config_url) = match endpoint {
         models::MaterializationEndpoint::Connector(config) => (
@@ -312,7 +304,7 @@ async fn generate_missing_materialization_configs(
         String::new(), // Default network.
         ops::tracing_log_handler,
         None,
-        format!("spec/{materialization}"),
+        format!("spec/{materialization_name}"),
     )
     .unary_materialize(
         materialize::Request {
