@@ -2,6 +2,10 @@ use super::Format;
 use crate::Scope;
 use proto_flow::flow::ContentType;
 use std::collections::BTreeMap;
+use tables::SpecRow;
+
+// TODO: indirection requires draft specs because it mutates them. Should we panic if drafted specs are missing, or create them automatically?
+// TODO: Setting expect_pub_id and action might also be appropriate if setting drafted automatically?
 
 // Indirect sub-locations within `sources` into external resources which
 // are referenced through relative imports.
@@ -70,41 +74,33 @@ pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
         entry.import.push(models::RelativeUrl::new(import));
     }
 
-    for tables::Capture {
-        scope,
-        capture,
-        spec,
-    } in captures.iter()
-    {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
-        entry.captures.insert(capture.clone(), spec.clone());
-    }
-
-    for tables::Collection {
-        scope,
-        collection,
-        spec,
-    } in collections.iter()
-    {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
-        entry.collections.insert(collection.clone(), spec.clone());
-    }
-
-    for tables::Materialization {
-        scope,
-        materialization,
-        spec,
-    } in materializations.iter()
-    {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
+    for source in captures.iter() {
+        let entry = catalogs.entry(strip_scope(&source.scope)).or_default();
         entry
-            .materializations
-            .insert(materialization.clone(), spec.clone());
+            .captures
+            .insert(source.capture.clone(), source.get_final_spec().clone());
     }
 
-    for tables::Test { scope, test, spec } in tests.iter() {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
-        entry.tests.insert(test.clone(), spec.clone());
+    for source in collections.iter() {
+        let entry = catalogs.entry(strip_scope(&source.scope)).or_default();
+        entry
+            .collections
+            .insert(source.collection.clone(), source.get_final_spec().clone());
+    }
+
+    for source in materializations.iter() {
+        let entry = catalogs.entry(strip_scope(&source.scope)).or_default();
+        entry.materializations.insert(
+            source.materialization.clone(),
+            source.get_final_spec().clone(),
+        );
+    }
+
+    for source in tests.iter() {
+        let entry = catalogs.entry(strip_scope(&source.scope)).or_default();
+        entry
+            .tests
+            .insert(source.test.clone(), source.get_final_spec().clone());
     }
 
     for (resource, mut catalog) in catalogs {
@@ -134,11 +130,19 @@ fn indirect_capture(
     let tables::Capture {
         scope,
         capture,
-        spec: models::CaptureDef {
-            endpoint, bindings, ..
-        },
+        drafted,
+        live_spec,
+        ..
     } = capture;
     let base = base_name(capture);
+    if drafted.is_none() {
+        *drafted = live_spec.clone();
+    }
+    let models::CaptureDef {
+        endpoint, bindings, ..
+    } = drafted
+        .as_mut()
+        .expect("either drafted or live_spec must be Some");
 
     match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
@@ -196,18 +200,26 @@ fn indirect_collection(
     let tables::Collection {
         scope,
         collection,
-        spec:
-            models::CollectionDef {
-                schema,
-                write_schema,
-                read_schema,
-                key: _,
-                projections: _,
-                journals: _,
-                derive,
-            },
+        drafted,
+        live_spec,
+        ..
     } = collection;
     let base = base_name(collection);
+    if drafted.is_none() {
+        *drafted = live_spec.clone();
+    }
+
+    let models::CollectionDef {
+        schema,
+        write_schema,
+        read_schema,
+        key: _,
+        projections: _,
+        journals: _,
+        derive,
+    } = drafted
+        .as_mut()
+        .expect("either drafted or live_spec must be Some");
 
     if let Some(schema) = schema {
         indirect_schema(
@@ -407,11 +419,20 @@ fn indirect_materialization(
     let tables::Materialization {
         scope,
         materialization,
-        spec: models::MaterializationDef {
-            endpoint, bindings, ..
-        },
+        drafted,
+        live_spec,
+        ..
     } = materialization;
     let base = base_name(materialization);
+    if drafted.is_none() {
+        *drafted = live_spec.clone();
+    }
+
+    let models::MaterializationDef {
+        endpoint, bindings, ..
+    } = drafted
+        .as_mut()
+        .expect("either drafted or live_spec must be Some");
 
     match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
@@ -465,8 +486,20 @@ fn indirect_test(
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    let tables::Test { scope, test, spec } = test;
+    let tables::Test {
+        scope,
+        test,
+        drafted,
+        live_spec,
+        ..
+    } = test;
     let base = base_name(test);
+    if drafted.is_none() {
+        *drafted = live_spec.clone();
+    }
+    let spec = drafted
+        .as_mut()
+        .expect("either drafted or live_spec must be Some");
 
     for (index, step) in spec.iter_mut().enumerate() {
         let documents = match step {

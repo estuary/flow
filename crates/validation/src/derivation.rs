@@ -5,6 +5,7 @@ use proto_flow::{
     ops::log::Level as LogLevel,
 };
 use superslice::Ext;
+use tables::SpecRow;
 
 pub async fn walk_all_derivations(
     build_id: &str,
@@ -25,17 +26,18 @@ pub async fn walk_all_derivations(
     for collection in collections {
         let mut derive_errors = tables::Errors::new();
 
-        let tables::Collection {
-            scope: _,
-            collection,
-            spec: models::CollectionDef { derive, .. },
-        } = collection;
+        // let tables::Collection {
+        //     scope: _,
+        //     collection,
+        //     spec: models::CollectionDef { derive, .. },
+        // } = collection;
+        let models::CollectionDef { derive, .. } = collection.get_final_spec();
 
         // Look at only collections that are derivations,
         // and skip if we cannot map into a BuiltCollection.
         let Some(derive) = derive else { continue };
         let Ok(built_index) =
-            built_collections.binary_search_by_key(&collection, |b| &b.collection)
+            built_collections.binary_search_by_key(&&collection.collection, |b| &b.collection)
         else {
             continue;
         };

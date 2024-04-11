@@ -4,12 +4,71 @@ use macros::*;
 mod id;
 
 pub use id::Id;
-pub use macros::Table;
+pub use macros::{SpecRow, Table};
 
 #[cfg(feature = "persist")]
 pub use macros::{load_tables, persist_tables, SqlTableObj};
 #[cfg(feature = "persist")]
 use prost::Message;
+use rusqlite::{types::FromSqlError, ToSql};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::{fmt::Debug, str::FromStr};
+
+#[derive(Debug, Clone)]
+pub enum Drafted<T: Debug + Serialize + DeserializeOwned> {
+    Some(T),
+    None,
+    Deleted,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum Action {
+    Update,
+    Delete,
+}
+
+impl Action {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Action::Update => "update",
+            Action::Delete => "delete",
+        }
+    }
+}
+
+impl FromStr for Action {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "update" => Ok(Action::Update),
+            "delete" => Ok(Action::Delete),
+            _ => Err(()),
+        }
+    }
+}
+
+impl Column for Action {}
+
+impl SqlColumn for Action {
+    fn sql_type() -> &'static str {
+        "TEXT"
+    }
+
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        self.as_str().to_sql()
+    }
+
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let rusqlite::types::ValueRef::Text(text) = value else {
+            return Err(FromSqlError::InvalidType);
+        };
+        let s = std::str::from_utf8(text)
+            .map_err(|e| FromSqlError::Other(format!("invalid utf8 value: {e}").into()))?;
+        Action::from_str(s)
+            .map_err(|_| FromSqlError::Other(format!("invalid action value {s:?}").into()))
+    }
+}
 
 tables!(
     table Fetches (row Fetch, order_by [depth resource], sql "fetches") {
@@ -51,99 +110,53 @@ tables!(
         md5: String,
     }
 
-    table DraftCollections (row DraftCollection, order_by [catalog_name], sql "draft_collections") {
-        // Name of this collection.
-        catalog_name: String,
-        expect_pub_id: Option<Id>,
-        // Specification of this collection.
-        spec: models::CollectionDef,
-    }
-
-    table LiveCollections (row LiveCollection, order_by [catalog_name], sql "live_collections") {
-        id: Id,
-        catalog_name: String,
-        last_pub_id: Id,
-        inferred_schema_md5: String,
-        spec: models::CollectionDef,
-        built_spec: proto_flow::flow::CollectionSpec,
-    }
-
     table Collections (row Collection, order_by [collection], sql "collections") {
         scope: url::Url,
         // Name of this collection.
         collection: models::Collection,
-        // Specification of this collection.
-        spec: models::CollectionDef,
-    }
 
-    table DraftCaptures (row DraftCapture, order_by [catalog_name], sql "draft_captures") {
-        // Name of this collection.
-        catalog_name: String,
+        action: Option<Action>,
         expect_pub_id: Option<Id>,
-        // Specification of this collection.
-        spec: models::CaptureDef,
-    }
-
-    table LiveCaptures (row LiveCapture, order_by [catalog_name], sql "live_captures") {
-        id: Id,
-        catalog_name: String,
-        last_pub_id: Id,
-        spec: models::CaptureDef,
-        built_spec: proto_flow::flow::CaptureSpec,
+        drafted: Option<models::CollectionDef>,
+        live_spec: Option<models::CollectionDef>,
+        last_pub_id: Option<Id>,
+        inferred_schema_md5: Option<String>,
     }
 
     table Captures (row Capture, order_by [capture], sql "captures") {
         scope: url::Url,
         // Name of this capture.
         capture: models::Capture,
-        // Capture specification.
-        spec: models::CaptureDef,
-    }
 
-    table DraftMaterializations (row DraftMaterialization, order_by [catalog_name], sql "draft_materializations") {
-        // Name of this materialization.
-        catalog_name: String,
+        action: Option<Action>,
         expect_pub_id: Option<Id>,
-        spec: models::MaterializationDef,
-    }
-
-    table LiveMaterializations (row LiveMaterialization, order_by [catalog_name], sql "live_Materializations") {
-        id: Id,
-        catalog_name: String,
-        last_pub_id: Id,
-        spec: models::MaterializationDef,
-        built_spec: proto_flow::flow::MaterializationSpec,
+        drafted: Option<models::CaptureDef>,
+        live_spec: Option<models::CaptureDef>,
+        last_pub_id: Option<Id>,
     }
 
     table Materializations (row Materialization, order_by [materialization], sql "materializations") {
         scope: url::Url,
         // Name of this materialization.
         materialization: models::Materialization,
-        // Materialization specification.
-        spec: models::MaterializationDef,
-    }
 
-    table DraftTests (row DraftTest, order_by [catalog_name], sql "draft_materializations") {
-        // Name of this materialization.
-        catalog_name: String,
+        action: Option<Action>,
         expect_pub_id: Option<Id>,
-        spec: models::TestDef,
-    }
-
-    table LiveTests (row LiveTest, order_by [catalog_name], sql "live_Materializations") {
-        id: Id,
-        catalog_name: String,
-        last_pub_id: Id,
-        spec: models::TestDef,
-        built_spec: proto_flow::flow::TestSpec,
+        drafted: Option<models::MaterializationDef>,
+        live_spec: Option<models::MaterializationDef>,
+        last_pub_id: Option<Id>,
     }
 
     table Tests (row Test, order_by [test], sql "tests") {
         scope: url::Url,
         // Name of the test.
         test: models::Test,
-        // Specification of the test.
-        spec: models::TestDef,
+
+        action: Option<Action>,
+        expect_pub_id: Option<Id>,
+        drafted: Option<models::TestDef>,
+        live_spec: Option<models::TestDef>,
+        last_pub_id: Option<Id>,
     }
 
     table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
@@ -200,20 +213,18 @@ tables!(
     }
 );
 
-#[derive(Default, Debug)]
-pub struct DraftSpecs {
-    pub captures: DraftCaptures,
-    pub collections: DraftCollections,
-    pub materializations: DraftMaterializations,
-    pub tests: DraftTests,
-}
+spec_row! {Collection, models::CollectionDef, collection}
+spec_row! {Capture, models::CaptureDef, capture}
+spec_row! {Materialization, models::MaterializationDef, materialization}
+spec_row! {Test, models::TestDef, test}
 
+// TODO: maybe don't need
 #[derive(Default, Debug)]
-pub struct LiveSpecs {
-    pub captures: LiveCaptures,
-    pub collections: LiveCollections,
-    pub materializations: LiveMaterializations,
-    pub tests: LiveTests,
+pub struct Catalog {
+    pub captures: Captures,
+    pub collections: Collections,
+    pub materializations: Materializations,
+    pub tests: Tests,
 }
 
 /// Sources are tables which are populated by catalog loads of the `sources` crate.

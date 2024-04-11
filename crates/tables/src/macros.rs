@@ -1,3 +1,6 @@
+use crate::Action;
+use crate::Id;
+
 /// Column is a column of a table.
 pub trait Column: std::fmt::Debug {
     // column_fmt is a debugging view over a column type.
@@ -277,10 +280,73 @@ macro_rules! replace_expr {
     };
 }
 
+pub trait SpecRow<T>: std::fmt::Debug {
+    fn get_name(&self) -> &str;
+    fn get_action(&self) -> Option<Action>;
+    fn draft_update(&mut self) -> &mut T;
+    fn get_draft_spec(&self) -> Option<&T>;
+    fn get_live_spec(&self) -> Option<&T>;
+    fn get_last_pub_id(&self) -> Option<Id>;
+    fn get_expect_pub_id(&self) -> Option<Id>;
+
+    fn get_final_spec(&self) -> &T {
+        let Some(ds) = self.get_draft_spec() else {
+            let Some(ls) = self.get_live_spec() else {
+                panic!("invalid SpecRow has no draft or live spec in {self:?}");
+            };
+            return ls;
+        };
+        ds
+    }
+}
+
+macro_rules! spec_row {
+    ($row_type:ty, $spec_type:ty, $name_field:ident) => {
+        impl SpecRow<$spec_type> for $row_type {
+            fn get_name(&self) -> &str {
+                self.$name_field.as_str()
+            }
+
+            fn get_action(&self) -> Option<Action> {
+                self.action
+            }
+
+            fn draft_update(&mut self) -> &mut $spec_type {
+                if self.drafted.is_none() {
+                    self.drafted = self.live_spec.clone();
+                }
+                if self.last_pub_id.is_some() {
+                    self.expect_pub_id = self.last_pub_id;
+                }
+                self.action = Some(Action::Update);
+                self.drafted
+                    .as_mut()
+                    .expect("draft_update requires live_spec or drafted must be Some")
+            }
+
+            fn get_draft_spec(&self) -> Option<&$spec_type> {
+                self.drafted.as_ref()
+            }
+
+            fn get_live_spec(&self) -> Option<&$spec_type> {
+                self.live_spec.as_ref()
+            }
+
+            fn get_last_pub_id(&self) -> Option<Id> {
+                self.last_pub_id
+            }
+
+            fn get_expect_pub_id(&self) -> Option<Id> {
+                self.expect_pub_id
+            }
+        }
+    };
+}
+
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $row:ident, order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
+        table $table:ident ( row $row:ident $(SpecRow $spec_type:ident)?, order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
             $($field:ident: $rust_type:ty,)*
         }
     )*) => {
@@ -337,6 +403,7 @@ macro_rules! tables {
                 });
             }
         }
+
 
         impl Table for $table {
             type Row = $row;

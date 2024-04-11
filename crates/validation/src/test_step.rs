@@ -1,6 +1,7 @@
 use super::{collection, errors::Error, indexed, reference, schema, Scope};
 use flow::test_spec::step::Type as StepType;
 use proto_flow::flow;
+use tables::SpecRow;
 
 pub fn walk_all_tests(
     built_collections: &[tables::BuiltCollection],
@@ -9,17 +10,12 @@ pub fn walk_all_tests(
 ) -> tables::BuiltTests {
     let mut built_tests = tables::BuiltTests::new();
 
-    for tables::Test {
-        scope,
-        test,
-        spec: steps,
-    } in tests
-    {
-        let scope = Scope::new(scope);
+    for row in tests {
+        let scope = Scope::new(&row.scope);
+        indexed::walk_name(scope, "test", row.get_name(), models::Test::regex(), errors);
 
-        indexed::walk_name(scope, "test", test, models::Test::regex(), errors);
-
-        let steps = steps
+        let steps = row
+            .get_final_spec()
             .iter()
             .enumerate()
             .filter_map(|(step_index, test_step)| {
@@ -35,9 +31,9 @@ pub fn walk_all_tests(
 
         built_tests.insert_row(
             scope.flatten(),
-            test,
+            row.test.clone(),
             flow::TestSpec {
-                name: test.to_string(),
+                name: row.get_name().to_string(),
                 steps,
             },
         );

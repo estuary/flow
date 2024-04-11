@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tables::SpecRow;
 use warp::{http::Response, Filter};
 
 #[derive(Debug, clap::Args)]
@@ -82,7 +83,7 @@ pub async fn do_oauth(
         capture.capture.as_str()
     );
 
-    let spec_req = match &capture.spec.endpoint {
+    let spec_req = match &capture.get_final_spec().endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: serde_json::to_string(&config).unwrap(),
@@ -98,7 +99,7 @@ pub async fn do_oauth(
         ..Default::default()
     }
     .with_internal(|internal| {
-        if let Some(s) = &capture.spec.shards.log_level {
+        if let Some(s) = &capture.get_final_spec().shards.log_level {
             internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
         }
     });

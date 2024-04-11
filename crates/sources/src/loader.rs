@@ -354,8 +354,9 @@ impl<F: Fetcher> Loader<F> {
             materializations,
             tests,
             storage_mappings,
-        }) = self.fallible(scope, serde_json::from_str(content_dom.get())) else {
-            return
+        }) = self.fallible(scope, serde_json::from_str(content_dom.get()))
+        else {
+            return;
         };
 
         // Load all imports.
@@ -478,9 +479,16 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables_mut()
-            .collections
-            .insert_row(scope.flatten(), collection_name, spec)
+        self.tables_mut().collections.insert(tables::Collection {
+            scope: scope.flatten(),
+            collection: collection_name.clone(),
+            action: Some(tables::Action::Update),
+            expect_pub_id: None,
+            drafted: Some(spec),
+            live_spec: None,
+            last_pub_id: None,
+            inferred_schema_md5: None,
+        });
     }
 
     async fn load_derivation<'s>(&'s self, scope: Scope<'s>, spec: &models::Derivation) {
@@ -647,9 +655,15 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables_mut()
-            .captures
-            .insert_row(scope.flatten(), capture_name, spec);
+        self.tables_mut().captures.insert(tables::Capture {
+            scope: scope.flatten(),
+            capture: capture_name.clone(),
+            action: Some(tables::Action::Update),
+            expect_pub_id: None,
+            drafted: Some(spec),
+            live_spec: None,
+            last_pub_id: None,
+        });
     }
 
     async fn load_materialization<'s>(
@@ -717,7 +731,15 @@ impl<F: Fetcher> Loader<F> {
 
         self.tables_mut()
             .materializations
-            .insert_row(scope.flatten(), materialization_name, spec);
+            .insert(tables::Materialization {
+                scope: scope.flatten(),
+                materialization: materialization_name.clone(),
+                action: Some(tables::Action::Update),
+                expect_pub_id: None,
+                drafted: Some(spec),
+                live_spec: None,
+                last_pub_id: None,
+            });
     }
 
     async fn load_test<'s>(
@@ -742,9 +764,15 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables_mut()
-            .tests
-            .insert_row(scope.flatten(), test_name.clone(), spec);
+        self.tables_mut().tests.insert(tables::Test {
+            scope: scope.flatten(),
+            test: test_name.clone(),
+            action: Some(tables::Action::Update),
+            expect_pub_id: None,
+            drafted: Some(spec),
+            live_spec: None,
+            last_pub_id: None,
+        });
     }
 
     async fn load_config<'s>(&'s self, scope: Scope<'s>, config: &RawValue) {

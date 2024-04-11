@@ -2,6 +2,7 @@ use crate::local_specs;
 use anyhow::Context;
 use proto_flow::{capture, flow};
 use std::collections::BTreeMap;
+use tables::SpecRow;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -58,7 +59,7 @@ pub async fn do_discover(
     };
 
     // Inline a clone of the capture spec for use with the discover RPC.
-    let mut spec_clone = capture.spec.clone();
+    let mut spec_clone = capture.get_final_spec().clone();
     sources::inline_capture(
         &capture.scope,
         &mut spec_clone,
@@ -81,7 +82,7 @@ pub async fn do_discover(
         ..Default::default()
     }
     .with_internal(|internal| {
-        if let Some(s) = &capture.spec.shards.log_level {
+        if let Some(s) = &capture.get_final_spec().shards.log_level {
             internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
         }
     });
@@ -106,13 +107,14 @@ pub async fn do_discover(
     }
     // Modify the capture's bindings in-place.
     // TODO(johnny): Refactor and re-use discover deep-merge behavior from the agent.
-    capture.spec.bindings.clear();
+    capture.draft_update().bindings.clear();
 
     let prefix = capture
         .capture
         .rsplit_once("/")
         .map(|(prefix, _)| prefix)
-        .unwrap_or("acmeCo");
+        .unwrap_or("acmeCo")
+        .to_string();
 
     // Create a catalog with the discovered bindings
     let mut collections = BTreeMap::new();
@@ -120,12 +122,15 @@ pub async fn do_discover(
         let collection_name = format!("{prefix}/{}", binding.recommended_name);
         let collection = models::Collection::new(collection_name);
 
-        capture.spec.bindings.push(models::CaptureBinding {
-            target: collection.clone(),
-            disable: false,
-            resource: models::RawValue::from_string(binding.resource_config_json)?,
-            backfill: 0,
-        });
+        capture
+            .draft_update()
+            .bindings
+            .push(models::CaptureBinding {
+                target: collection.clone(),
+                disable: false,
+                resource: models::RawValue::from_string(binding.resource_config_json)?,
+                backfill: 0,
+            });
 
         collections.insert(
             collection,

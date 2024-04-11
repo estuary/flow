@@ -4,6 +4,7 @@ use super::{
 use itertools::Itertools;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
 use std::collections::{BTreeMap, HashMap};
+use tables::SpecRow;
 
 pub async fn walk_all_materializations(
     build_id: &str,
@@ -40,14 +41,14 @@ pub async fn walk_all_materializations(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &materialization.spec.shards.log_level {
+                if let Some(s) = &materialization.get_final_spec().shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             });
 
             // If shards are disabled, then don't ask the connector to validate.
             // A broken but disabled endpoint should not cause a build to fail.
-            let response = if materialization.spec.shards.disable {
+            let response = if materialization.get_final_spec().shards.disable {
                 NoOpConnectors.validate_materialization(wrapped)
             } else {
                 connectors.validate_materialization(wrapped)
@@ -64,17 +65,12 @@ pub async fn walk_all_materializations(
     let mut built_materializations = tables::BuiltMaterializations::new();
 
     for (materialization, mut request, response) in validations {
-        let tables::Materialization {
-            scope,
-            materialization,
-            spec:
-                models::MaterializationDef {
-                    shards,
-                    bindings: binding_models,
-                    ..
-                },
-        } = materialization;
-        let scope = Scope::new(scope);
+        let scope = Scope::new(&materialization.scope);
+        let models::MaterializationDef {
+            shards,
+            bindings: binding_models,
+            ..
+        } = materialization.get_final_spec();
 
         // Unwrap `response` and bail out if it failed.
         let (validated, network_ports) = match extract_validated(response) {
@@ -141,7 +137,7 @@ pub async fn walk_all_materializations(
 
                 let field_selection = Some(walk_materialization_response(
                     scope.push_prop("bindings").push_item(binding_index),
-                    materialization,
+                    &materialization.materialization,
                     fields,
                     collection.as_ref().unwrap(),
                     constraints.clone(),
@@ -166,7 +162,8 @@ pub async fn walk_all_materializations(
                     Some(assemble::journal_selector(source_name, source_partitions));
 
                 let state_key = assemble::encode_state_key(resource_path, backfill);
-                let journal_read_suffix = format!("materialize/{}/{}", materialization, state_key);
+                let journal_read_suffix =
+                    format!("materialize/{}/{}", materialization.get_name(), state_key);
 
                 (
                     binding_index,
@@ -252,14 +249,11 @@ fn walk_materialization_request<'a>(
     materialization: &'a tables::Materialization,
     errors: &mut tables::Errors,
 ) -> Option<(&'a tables::Materialization, materialize::request::Validate)> {
-    let tables::Materialization {
-        scope,
-        materialization: name,
-        spec: models::MaterializationDef {
-            endpoint, bindings, ..
-        },
-    } = materialization;
-    let scope = Scope::new(scope);
+    let scope = Scope::new(&materialization.scope);
+    let name = materialization.get_name();
+    let models::MaterializationDef {
+        endpoint, bindings, ..
+    } = materialization.get_final_spec();
 
     // Require the materialization name is valid.
     indexed::walk_name(

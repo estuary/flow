@@ -82,25 +82,31 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
         models::JsonPointer::new("/ts"),
     ];
 
-    tables.collections.insert_row(
-        scope.clone(),
-        name.clone(),
-        serde_json::from_value::<models::CollectionDef>(serde_json::json!({
-            "key": key,
-            "schema": schema_url.to_string(),
-            "projections": {
-                "kind": {
-                    "location": "/shard/kind",
-                    "partition": true,
-                },
-                "name": {
-                    "location": "/shard/name",
-                    "partition": true,
-                }
+    let spec = serde_json::from_value::<models::CollectionDef>(serde_json::json!({
+        "key": key,
+        "schema": schema_url.to_string(),
+        "projections": {
+            "kind": {
+                "location": "/shard/kind",
+                "partition": true,
             },
-        }))
-        .unwrap(),
-    );
+            "name": {
+                "location": "/shard/name",
+                "partition": true,
+            }
+        },
+    }))
+    .unwrap();
+    tables.collections.insert(tables::Collection {
+        scope: scope.clone(),
+        collection: name.clone(),
+        action: Some(tables::Action::Update),
+        expect_pub_id: None,
+        drafted: Some(spec),
+        live_spec: None,
+        last_pub_id: None,
+        inferred_schema_md5: None,
+    });
     tables.imports.insert_row(schema_scope, schema_url);
 }
 
@@ -116,14 +122,19 @@ mod test {
     #[test]
     fn ops_collections_are_generated() {
         let mut tables = tables::Sources::default();
-        tables.captures.insert_row(
-            builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
-            models::Capture::new("acmeCo/foo"),
-            from_value::<models::CaptureDef>(
-                json!({"endpoint":{"connector": {"image": "foo/bar", "config": {}}}, "bindings":[]}),
-            )
-            .unwrap(),
-        );
+        let spec = from_value::<models::CaptureDef>(
+            json!({"endpoint":{"connector": {"image": "foo/bar", "config": {}}}, "bindings":[]}),
+        )
+        .unwrap();
+        tables.captures.insert(tables::Capture {
+            scope: builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
+            capture: models::Capture::new("acmeCo/foo"),
+            action: Some(tables::Action::Update),
+            expect_pub_id: None,
+            drafted: Some(spec),
+            live_spec: None,
+            last_pub_id: None,
+        });
 
         // Add an ops collection to the tables so that we can assert that a duplicate ops
         // collection is not generated. Note that this collection is intentionally different from
@@ -135,11 +146,16 @@ mod test {
         }))
         .unwrap();
 
-        tables.collections.insert_row(
-            Url::parse("test://foo.bar/collection").unwrap(),
-            models::Collection::new("ops.test-dataplane/logs"),
-            spec,
-        );
+        tables.collections.insert(tables::Collection {
+            scope: Url::parse("test://foo.bar/collection").unwrap(),
+            collection: models::Collection::new("ops.test-dataplane/logs"),
+            action: Some(tables::Action::Update),
+            expect_pub_id: None,
+            drafted: Some(spec),
+            live_spec: None,
+            last_pub_id: None,
+            inferred_schema_md5: None,
+        });
 
         generate_ops_collections(&mut tables);
         insta::assert_debug_snapshot!(&tables);

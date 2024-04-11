@@ -14,22 +14,37 @@ pub fn inline_sources(sources: &mut tables::Sources) {
         errors: _,
     } = sources;
 
-    for capture in captures.iter_mut() {
-        inline_capture(&capture.scope, &mut capture.spec, imports, resources);
-    }
-    for collection in collections.iter_mut() {
-        inline_collection(&collection.scope, &mut collection.spec, imports, resources);
-    }
-    for materialization in materializations.iter_mut() {
-        inline_materialization(
-            &materialization.scope,
-            &mut materialization.spec,
+    for capture in captures.iter_mut().filter(|c| c.drafted.is_some()) {
+        inline_capture(
+            &capture.scope,
+            capture.drafted.as_mut().unwrap(),
             imports,
             resources,
         );
     }
-    for test in tests.iter_mut() {
-        inline_test(&test.scope, &mut test.spec, imports, resources);
+    for collection in collections.iter_mut().filter(|c| c.drafted.is_some()) {
+        inline_collection(
+            &collection.scope,
+            collection.drafted.as_mut().unwrap(),
+            imports,
+            resources,
+        );
+    }
+    for materialization in materializations.iter_mut().filter(|m| m.drafted.is_some()) {
+        inline_materialization(
+            &materialization.scope,
+            materialization.drafted.as_mut().unwrap(),
+            imports,
+            resources,
+        );
+    }
+    for test in tests.iter_mut().filter(|t| t.drafted.is_some()) {
+        inline_test(
+            &test.scope,
+            test.drafted.as_mut().unwrap(),
+            imports,
+            resources,
+        );
     }
 }
 

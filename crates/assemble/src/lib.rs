@@ -5,6 +5,7 @@ use proto_gazette::{broker, consumer};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use tables::SpecRow;
 
 mod ops;
 pub use ops::generate_ops_collections;
@@ -93,7 +94,7 @@ pub fn inference_truncation_indicator() -> flow::Inference {
 // or updating data partitions of the collection.
 pub fn partition_template(
     build_id: &str,
-    collection: &models::Collection,
+    collection: &str,
     journals: &models::JournalTemplate,
     stores: &[models::Store],
 ) -> broker::JournalSpec {
@@ -427,20 +428,16 @@ pub fn collection_spec(
     uuid_ptr: &str,
     write_bundle: models::Schema,
 ) -> flow::CollectionSpec {
-    let tables::Collection {
-        scope: _,
-        collection: name,
-        spec:
-            models::CollectionDef {
-                schema: _,
-                read_schema: _,
-                write_schema: _,
-                key,
-                projections: _,
-                journals,
-                derive: _,
-            },
-    } = collection;
+    let name = collection.get_name();
+    let models::CollectionDef {
+        schema: _,
+        read_schema: _,
+        write_schema: _,
+        key,
+        projections: _,
+        journals,
+        derive: _,
+    } = collection.get_final_spec();
 
     // Projections must be ascending and unique on field.
     // We expect they already are.

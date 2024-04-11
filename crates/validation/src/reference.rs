@@ -1,3 +1,5 @@
+use tables::SpecRow;
+
 use super::{Error, Scope};
 use std::collections::BTreeSet;
 
@@ -10,12 +12,17 @@ pub fn gather_referenced_collections<'a>(
     let mut out = BTreeSet::new();
 
     for capture in captures {
-        for binding in capture.spec.bindings.iter().filter(|b| !b.disable) {
+        for binding in capture
+            .get_final_spec()
+            .bindings
+            .iter()
+            .filter(|b| !b.disable)
+        {
             out.insert(&binding.target);
         }
     }
     for collection in collections {
-        let Some(derive) = &collection.spec.derive else {
+        let Some(derive) = &collection.get_final_spec().derive else {
             continue;
         };
 
@@ -24,12 +31,17 @@ pub fn gather_referenced_collections<'a>(
         }
     }
     for materialization in materializations {
-        for binding in materialization.spec.bindings.iter().filter(|b| !b.disable) {
+        for binding in materialization
+            .get_final_spec()
+            .bindings
+            .iter()
+            .filter(|b| !b.disable)
+        {
             out.insert(&binding.source.collection());
         }
     }
     for test in tests {
-        for step in test.spec.iter() {
+        for step in test.get_final_spec().iter() {
             match step {
                 models::TestStep::Ingest(models::TestStepIngest { collection, .. }) => {
                     out.insert(collection);
@@ -54,7 +66,7 @@ pub fn gather_inferred_collections(collections: &[tables::Collection]) -> Vec<mo
         .iter()
         .filter_map(|row| {
             if row
-                .spec
+                .get_final_spec()
                 .read_schema
                 .as_ref()
                 .map(|schema| schema.references_inferred_schema())

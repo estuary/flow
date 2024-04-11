@@ -697,7 +697,7 @@ fn extract_spec_metadata<'a>(
             let key = models::Test::new(catalog_name);
             let steps = catalog.tests.get(&key).unwrap();
 
-            for step in steps {
+            for step in steps.iter() {
                 match step {
                     models::TestStep::Ingest(ingest) => writes_to.push(ingest.collection.as_ref()),
                     models::TestStep::Verify(verify) => {
