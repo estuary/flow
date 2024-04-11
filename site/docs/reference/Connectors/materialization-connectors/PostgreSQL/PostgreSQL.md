@@ -1,6 +1,5 @@
-# Google Cloud SQL for PostgreSQL
 
-This connector materializes Flow collections into tables in a Google Cloud SQL for PostgreSQL database.
+This connector materializes Flow collections into tables in a PostgreSQL database.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -11,6 +10,33 @@ To use this connector, you'll need:
 * A Postgres database to which to materialize, and user credentials.
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
 * At least one Flow collection
+
+## Setup
+
+To meet these requirements, follow the steps for your hosting type.
+
+* [Amazon RDS](./amazon-rds-postgres/)
+* [Google Cloud SQL](./google-cloud-sql-postgres/)
+* [Azure Database for PostgreSQL](#azure-database-for-postgresql)
+
+In addition to standard PostgreSQL, this connector supports cloud-based PostgreSQL instances. Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported. You may use other cloud platforms, but Estuary doesn't guarantee performance.
+
+To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
+
+:::tip Configuration Tip
+To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
+You can find the host and port in the following locations in each platform's console:
+* Amazon RDS and Amazon Aurora: host as Endpoint; port as Port.
+* Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
+* Azure Database: host as Server Name; port under Connection Strings (usually `5432`).
+* TimescaleDB: host as Host; port as Port.
+:::
+
+### Azure Database for PostgreSQL
+
+* **Connect Directly With Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
+* **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](/guides/connect-network/#setup-for-azure).
 
 ## Configuration
 
@@ -40,6 +66,10 @@ Use the below properties to configure a Postgres materialization, which will dir
 | `/schema` | Alternative Schema | Alternative schema for this table (optional). Overrides schema set in endpoint configuration. | string |  |
 | **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
 
+#### SSL Mode
+
+Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
+
 ### Sample
 
 ```yaml
@@ -59,32 +89,10 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-
-### Setup
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-for additional details and a sample.
-
-:::tip Configuration Tip
-To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
-You can find the host and port in the following location:
-* Host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
-:::
-
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](/concepts/materialization.md#delta-updates).
+
 The default is to use standard updates.
 
 ## Reserved words

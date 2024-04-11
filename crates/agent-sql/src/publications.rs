@@ -12,13 +12,19 @@ pub async fn create(
     draft_id: Id,
     auto_evolve: bool,
     detail: String,
+    background: bool,
 ) -> sqlx::Result<Id> {
     let rec = sqlx::query!(
-            r#"insert into publications (user_id, draft_id, auto_evolve, detail) values ($1, $2, $3, $4) returning id as "id: Id";"#,
-            user_id as Uuid, draft_id as Id, auto_evolve, detail
-        )
-        .fetch_one(txn)
-        .await?;
+        r#"insert into publications (user_id, draft_id, auto_evolve, detail, background)
+            values ($1, $2, $3, $4, $5) returning id as "id: Id";"#,
+        user_id as Uuid,
+        draft_id as Id,
+        auto_evolve,
+        detail,
+        background
+    )
+    .fetch_one(txn)
+    .await?;
 
     Ok(rec.id)
 }
@@ -30,11 +36,12 @@ pub async fn create_with_user_email(
     draft_id: Id,
     auto_evolve: bool,
     detail: String,
+    background: bool,
 ) -> sqlx::Result<Id> {
     let rec = sqlx::query!(
-        r#"insert into publications (user_id, draft_id, auto_evolve, detail)
-        values ((select id from auth.users where email = $1), $2, $3, $4) returning id as "id: Id";"#,
-            user_email, draft_id as Id, auto_evolve, detail
+        r#"insert into publications (user_id, draft_id, auto_evolve, detail, background)
+        values ((select id from auth.users where email = $1), $2, $3, $4, $5) returning id as "id: Id";"#,
+            user_email, draft_id as Id, auto_evolve, detail, background
         )
         .fetch_one(txn)
         .await?;
@@ -54,9 +61,14 @@ pub struct Row {
     pub updated_at: DateTime<Utc>,
     pub user_id: Uuid,
     pub auto_evolve: bool,
+    pub background: bool,
 }
 
-pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
+#[tracing::instrument(level = "debug", skip(txn))]
+pub async fn dequeue(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    allow_background: bool,
+) -> sqlx::Result<Option<Row>> {
     sqlx::query_as!(
         Row,
         r#"select
@@ -68,12 +80,15 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
             id as "pub_id: Id",
             updated_at,
             user_id,
-            auto_evolve
-        from publications where job_status->>'type' = 'queued'
-        order by id asc
+            auto_evolve,
+            background
+        from publications
+        where job_status->>'type' = 'queued' and (background = $1 or background = false)
+        order by background asc, id asc
         limit 1
         for update of publications skip locked;
-        "#
+        "#,
+        allow_background
     )
     .fetch_optional(txn)
     .await
@@ -267,7 +282,7 @@ pub async fn resolve_spec_rows(
             on draft_specs.catalog_name = live_specs.catalog_name
         where draft_specs.draft_id = $1
         order by draft_specs.catalog_name asc
-        for update of draft_specs, live_specs;
+        for update of draft_specs, live_specs nowait;
         "#,
         draft_id as Id,
         user_id,
@@ -432,6 +447,7 @@ pub async fn resolve_expanded_rows(
         -- Strip deleted specs which are still reach-able through a dataflow edge,
         -- and strip rows already part of the seed set.
         where l.spec is not null and l.id not in (select id from seeds)
+        for update of l nowait
         "#,
         seed_ids as Vec<Id>,
         user_id,

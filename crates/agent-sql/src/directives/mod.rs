@@ -5,11 +5,12 @@ use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 
+pub mod accept_demo_tenant;
 pub mod beta_onboard;
 pub mod grant;
-pub mod accept_demo_tenant;
 
-// Row is the dequeued task shape of an applied directive operation.
+// Row is the dequeued task shape of an applied directive operation. We don't currently have a use
+// for background directive applications, so the `background` column is omitted.
 #[derive(Debug)]
 pub struct Row {
     pub apply_id: Id,
@@ -22,7 +23,13 @@ pub struct Row {
     pub user_id: Uuid,
 }
 
-pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
+#[tracing::instrument(level = "debug", skip(txn))]
+pub async fn dequeue(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    allow_background: bool,
+) -> sqlx::Result<Option<Row>> {
+    // We don't currently have a use for `background` directive applications, but this function
+    // still handles them as if we may.
     sqlx::query_as!(
         Row,
         r#"select
@@ -37,11 +44,12 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
         from directives as d
         join applied_directives as a on d.id = a.directive_id
         -- The user must supply claims before we can dequeue the application.
-        where a.job_status->>'type' = 'queued' and a.user_claims is not null
-        order by a.id asc
+        where a.job_status->>'type' = 'queued' and a.user_claims is not null and (a.background = $1 or a.background = false)
+        order by a.background, a.id asc
         limit 1
         for update of a skip locked;
-        "#
+        "#,
+        allow_background
     )
     .fetch_optional(txn)
     .await

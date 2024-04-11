@@ -48,7 +48,7 @@ There are several ways to control this:
 
 * Apply a filter when you [configure](#endpoint) the connector. If you don't apply a filter, the connector captures all objects available to the user.
 
-* During [capture creation in the web application](../../../guides/create-dataflow.md#create-a-capture),
+* During [capture creation in the web application](/guides/create-dataflow.md#create-a-capture),
 remove the bindings for objects you don't want to capture.
 
 ## Prerequisites
@@ -102,7 +102,7 @@ Through this process, you'll obtain the client ID, client secret, and refresh to
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the batch Salesforce source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the batch Salesforce source connector.
 
 ### Formula Fields
 

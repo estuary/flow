@@ -1,57 +1,47 @@
 ---
-sidebar_position: 3
+sidebar_position: 5
 ---
-# Amazon RDS for MariaDB
+# Amazon RDS for MySQL
 
-This is a change data capture (CDC) connector that captures change events from a MariaDB database via the [Binary Log](https://mariadb.com/kb/en/overview-of-the-binary-log/).
-It's derived from the [MySQL capture connector](./MySQL.md),
-so the same configuration applies, but the setup steps look somewhat different.
+This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
-This connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mariadb:dev`](https://github.com/estuary/connectors/pkgs/container/source-mariadb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
-To use this connector, you'll need a MariaDB database setup with the following.
-* [`binlog_format`](https://mariadb.com/kb/en/binary-log-formats/)
-  system variable set to `ROW`.
-* [Binary log expiration period](https://mariadb.com/kb/en/using-and-maintaining-the-binary-log/#purging-log-files) set to at least 30 days (2592000 seconds) if at all possible.
+To use this connector, you'll need a MySQL database setup with the following.
+* [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
+  system variable set to `ROW` (the default value).
+* [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
   - This value may be set lower if necessary, but we [strongly discourage](#insufficient-binlog-retention) going below 7 days as this may increase the likelihood of unrecoverable failures.
-  MariaDB's default value is 0 (no expiration).
 * A watermarks table. The watermarks table is a small "scratch space"
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
   - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
 * A database user with appropriate permissions:
-  - `REPLICATION CLIENT` and `REPLICATION SLAVE` [privileges](https://mariadb.com/docs/skysql/ref/es10.6/privileges/).
+  - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
   - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
 * If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
-### Setup
+## Setup
 
-1. Allow connections to the database from the Estuary Flow IP address.
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+   1. To allow direct access:
+       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
-   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
-      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
-
-2. Create a RDS parameter group to enable replication in MariaDB.
+2. Create a RDS parameter group to enable replication in MySQL.
 
    1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
    Create a unique name and description and set the following properties:
-      * **Family**: mariadb10.6
+      * **Family**: mysql8.0
       * **Type**: DB Parameter group
 
    2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
@@ -66,7 +56,7 @@ To use this connector, you'll need a MariaDB database setup with the following.
 3. Create a read replica with the new parameter group applied (recommended).
 
    1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-   of your MariaDB database.
+   of your MySQL database.
 
    2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
    and set the following:
@@ -76,7 +66,7 @@ To use this connector, you'll need a MariaDB database setup with the following.
 
    3. Reboot the replica to allow the changes to take effect.
 
-4. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions,
+4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table:
 
 ```sql
@@ -84,12 +74,13 @@ CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
-5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MariaDB permits:
+5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MySQL permits:
 ```sql
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
@@ -97,10 +88,37 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
 
+### Setting the MySQL time zone
+
+MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_time_zone) is set to `SYSTEM` by default.
+
+If you intend to capture tables including columns of the type `DATETIME`,
+and `time_zone` is set to `SYSTEM`,
+Flow won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
+To avoid this, you must explicitly set the time zone for your database.
+
+You can:
+
+* Specify a numerical offset from UTC.
+   - For MySQL version 8.0.19 or higher, values from `-13:59` to `+14:00`, inclusive, are permitted.
+   - Prior to MySQL 8.0.19, values from `-12:59` to `+13:00`, inclusive, are permitted
+
+* Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
+
+
+For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
+Because this region observes daylight savings time, you'd be responsible for changing the offset.
+Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
+
+If using IANA time zones, your database must include time zone tables. [Learn more in the MySQL docs](https://dev.mysql.com/doc/refman/8.0/en/time-zone-support.html).
+
+:::tip Capture Timezone Configuration
+If you are unable to set the `time_zone` in the database and need to capture tables with `DATETIME` columns, the capture can be configured to assume a time zone using the `timezone` configuration property (see below). The `timezone` configuration property can be set as a numerical offset or IANA timezone format.
+:::
 
 ## Backfills and performance considerations
 
-When the a MariaDB capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the a MySQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
 This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
@@ -109,7 +127,7 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
 
@@ -132,14 +150,14 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| **`/namespace`** | Namespace | The [database](https://mariadb.com/kb/en/understanding-mariadb-architecture/#databases) in which the table resides. | string | Required |
+| **`/namespace`** | Namespace | The [database/schema](https://dev.mysql.com/doc/refman/8.0/en/show-databases.html) in which the table resides. | string | Required |
 | **`/stream`** | Stream | Name of the table to be captured from the database. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 :::info
 When you configure this connector in the web application, the automatic **discovery** process sets up a binding for _most_ tables it finds in your database, but there are exceptions.
 
-Tables in the MariaDB system databases `information_schema`, `mysql`, and `performance_schema` will not be discovered.
+Tables in the MySQL system schemas `information_schema`, `mysql`, `performance_schema`, and `sys` will not be discovered.
 You can add bindings for such tables manually.
 :::
 
@@ -151,7 +169,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-mariadb:dev
+        image: ghcr.io/estuary/source-mysql:dev
         config:
           address: "127.0.0.1:3306"
           user: "flow_capture"
@@ -166,12 +184,11 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
-
+[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
 
 ## Troubleshooting Capture Errors
 
-The `source-amazon-rds-mariadb` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
+The `source-mysql` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
 
 ### Unsupported Operations
 
@@ -183,7 +200,7 @@ In the case of `ALTER TABLE` we currently support table alterations to add or dr
 
 ### Data Manipulation Queries
 
-If your capture is failing with an `"unsupported DML query"` error, this means that an `INSERT`, `UPDATE`, `DELETE` or other data manipulation query is present in the binlog. This should generally not happen if `binlog_format = 'ROW'` as described in the [Prerequisites](#prerequisites) section.
+If your capture is failing with an `"unsupported DML query"` error, this means that an `INSERT`, `UPDATE`, `DELETE` or other data manipulation query is present in the MySQL binlog. This should generally not happen if `binlog_format = 'ROW'` as described in the [Prerequisites](#prerequisites) section.
 
 Resolving this error requires fixing the `binlog_format` system variable, and then either tearing down and recreating the entire capture so that it restarts at a later point in the binlog, or in the case of an `INSERT`/`DELETE` query it may suffice to remove the capture binding for the offending table and then re-add it.
 
@@ -197,12 +214,17 @@ In general, this error suggests that the connector should be modified to at leas
 
 If your capture is failing with a `"metadata error"` then something has gone badly wrong with the capture's tracking of table metadata, such as column names or datatypes.
 
-This should never happen, and most likely means that the binlog itself is corrupt in some way. If this occurs, it can be resolved by removing the offending table(s) from the capture bindings list and then recreating the capture (generally into a new collection, as this process will cause the table to be re-captured in its entirety).
+This should never happen, and most likely means that the MySQL binlog itself is corrupt in some way. If this occurs, it can be resolved by removing the offending table(s) from the capture bindings list and then recreating the capture (generally into a new collection, as this process will cause the table to be re-captured in its entirety).
 
 ### Insufficient Binlog Retention
 
-If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MariaDB binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time, such that the database expired a binlog segment that the capture was still reading from.
+If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MySQL binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time, such that the database expired a binlog segment that the capture was still reading from.
 
 (If this were to happen, then change events would be permanently lost and that particular capture would never be able to make progress without potentially producing incorrect data. Thus the capture would need to be torn down and recreated so that each table could be re-captured in its entirety, starting with a complete backfill of current contents.)
 
 The `"binlog retention period is too short"` error should normally be fixed by setting `binlog_expire_logs_seconds = 2592000` as described in the [Prerequisites](#prerequisites) section (and when running on a managed cloud platform additional steps may be required, refer to the managed cloud setup instructions above). However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
+
+### Empty Collection Key
+
+Every Flow collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).
+

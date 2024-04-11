@@ -39,7 +39,7 @@ pub fn recv_client_open(
             Some(doc::ptr::Pointer::from_str(&uuid_ptr))
         };
 
-        specs.push((full, key.clone(), None, validator));
+        specs.push((full, key.clone(), "source", None, validator));
         bindings.push(Binding {
             key,
             ser_policy: ser_policy.clone(),

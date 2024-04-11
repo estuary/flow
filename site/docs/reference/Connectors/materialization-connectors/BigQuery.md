@@ -26,16 +26,6 @@ To use this connector, you'll need:
 
     See [Setup](#setup) for detailed steps to set up your service account.
 
-The Flow collections you materialize must accommodate the following naming restrictions:
-
-  * Field names may not contain hyphens (`-`), or the materialization will fail.
-  * Field names must begin with a letter or underscore (`_`), or the materialization will fail.
-  * Field names *may* contain non-alphanumeric characters, but these are replaced with underscores in the corresponding BigQuery column name.
-  * If two field names become identical after special characters are replaced with underscores (for example, `field!` and `field$` both become `field_`), the materialization will fail.
-  * Collection names *may* contain non-alphanumeric characters, but all such characters except hyphens are replaced with underscores in the BigQuery table name.
-
-If necessary, you can add [projections](../../../concepts/advanced/projections.md) to your collection specification to change field names.
-
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 :::
@@ -110,6 +100,16 @@ materializations:
       source: ${PREFIX}/${source_collection}
 ```
 
+## Update Delay
+
+The `Update Delay` parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This advanced option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period. By incorporating an update delay into your workflow, you can effectively manage and optimize your active warehouse time, leading to potentially lower costs and more efficient data processing.
+
+An update delay is configured in the advanced settings of a materialization's configuration. It represents the amount of time the system will wait before it begins materializing the latest data. This delay is specified in hours and can be adjusted according to the needs of your data pipeline.
+
+For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
+
+To configure an update delay, navigate the `Advanced Options` section of the materialization's configuration and select a value from the drop down. The default value for the update delay in Estuary materializations is set to 30 minutes.
+
 ## Delta updates
 
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
@@ -129,3 +129,33 @@ You can enable delta updates on a per-binding basis:
         delta_updates: true
     source: ${PREFIX}/${source_collection}
 ```
+
+## Table Partitioning
+
+Tables are automatically created with
+[clustering](https://cloud.google.com/bigquery/docs/clustered-tables) based on the Flow collection
+primary keys. Tables are not created with any other [partitioning](https://cloud.google.com/bigquery/docs/partitioned-tables), but pre-existing partitioned tables can be materialized to.
+
+It isn't possible to alter the partitioning of an existing table, but you can convert an existing table to one with partitioning by creating a new table and copying the data from the existing table into it. This can be done to tables that the connector is materializing to, as long as the materializing task is temporarily disabled while doing the conversion.
+
+To convert an existing materialized table to one with different partitioning:
+1. Pause your materialization by disabling it from the [UI](../../../concepts/web-app.md) or editing the task specification with the [CLI](../../../guides/flowctl/edit-specification-locally.md).
+2. Create a new table with the partitioning you want from the data in the existing table:
+```sql
+create table <your_dataset>.<your_schema>.<your_table>_copy
+partition by <your_partitioning>
+as select * from <your_dataset>.<your_schema>.<your_table>;
+```
+3. Verify that the data in `<your_table>_copy` looks good, then drop the original table:
+```sql
+drop table <your_dataset>.<your_schema>.<your_table>;
+```
+4. "Rename" `<your_table>_copy` back to `<your_table>` by copying it as a new table with the original name of `<your_table>`:
+```sql
+create table <your_dataset>.<your_schema>.<your_table> copy <your_dataset>.<your_schema>.<your_table>_copy;
+```
+5. Verify that the data in `<your_table>` looks good, then drop the `<your_table>_copy` table:
+```sql
+drop table <your_dataset>.<your_schema>.<your_table>_copy;
+```
+6. Re-enable the materialization to continue materializing data to the now partitioned table.

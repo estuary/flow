@@ -1,18 +1,25 @@
 ---
 sidebar_position: 6
 ---
-
-# Amazon RDS for PostgreSQL
-
+# PostgreSQL
 
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
+For managed PostgreSQL insteances that do not support logical replication, we offer a [PostgreSQL Batch Connector](./postgres-batch/) as an alternative.
+
 ## Supported versions and platforms
 
-This connector supports PostgreSQL versions 10.0 and later on major cloud platforms.
+This connector supports PostgreSQL versions 10.0 and later on major cloud platforms, as well as self-hosted instances.
 
+Setup instructions are provided for the following platforms:
+
+* [Self-hosted PostgreSQL](#self-hosted-postgresql)
+* [Amazon RDS](./amazon-rds-postgres/)
+* [Amazon Aurora](#amazon-aurora)
+* [Google Cloud SQL](./google-cloud-sql-postgres/)
+* [Azure Database for PostgreSQL](#azure-database-for-postgresql)
 
 ## Prerequisites
 
@@ -28,31 +35,102 @@ You'll need a PostgreSQL database setup with the following:
 * A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
     * In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
 
+:::tip Configuration Tip
+To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](/guides/connect-network/).
+:::
+
 ## Setup
+
+To meet these requirements, follow the steps for your hosting type.
+
+* [Self-hosted PostgreSQL](#self-hosted-postgresql)
+* [Amazon RDS](./amazon-rds-postgres/)
+* [Amazon Aurora](#amazon-aurora)
+* [Google Cloud SQL](./google-cloud-sql-postgres/)
+* [Azure Database for PostgreSQL](#azure-database-for-postgresql)
+
+### Self-hosted PostgreSQL
+
+The simplest way to meet the above prerequisites is to change the WAL level and have the connector use a database superuser role.
+
+For a more restricted setup, create a new user with just the required permissions as detailed in the following steps:
+
+1. Connect to your instance and create a new user and password:
+```sql
+CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
+```
+2. Assign the appropriate role.
+    1. If using PostgreSQL v14 or later:
+
+    ```sql
+    GRANT pg_read_all_data TO flow_capture;
+    ```
+
+    2. If using an earlier version:
+
+    ```sql
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public, <other_schema> TO flow_capture;
+    GRANT SELECT ON ALL TABLES IN SCHEMA information_schema, pg_catalog TO flow_capture;
+    ```
+
+    where `<other_schema>` lists all schemas that will be captured from.
+    :::info
+    If an even more restricted set of permissions is desired, you can also grant SELECT on
+    just the specific table(s) which should be captured from. The ‘information_schema’ and
+    ‘pg_catalog’ access is required for stream auto-discovery, but not for capturing already
+    configured streams.
+    :::
+3. Create the watermarks table, grant privileges, and create publication:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
+```
+
+where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+setting is recommended (because most users will want changes to a partitioned table to be captured
+under the name of the root table) but is not required.
+
+4. Set WAL level to logical:
+```sql
+ALTER SYSTEM SET wal_level = logical;
+```
+5. Restart PostgreSQL to allow the WAL level change to take effect.
+
+
+### Amazon Aurora
+
+You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster.
+For each step, take note of which entity you're working with.
 
 
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
-       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+        * [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings. 
+        * Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+        * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+        * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
-2. Enable logical replication on your RDS PostgreSQL instance.
 
-   1. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
+2. Enable logical replication on your Aurora DB cluster.
+
+   1. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.CreatingCluster).
    Create a unique name and description and set the following properties:
-      * **Family**: postgres13
-      * **Type**: DB Parameter group
+      * **Family**: aurora-postgresql13, or substitute the version of Aurora PostgreSQL used for your cluster.
+      * **Type**: DB Cluster Parameter group
 
-   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and set `rds.logical_replication=1`.
+   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) and set `rds.logical_replication=1`.
 
-   3. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating) with the database.
+   3. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.AssociatingCluster) with the DB cluster.
 
-   4. Reboot the database to allow the new parameter group to take effect.
+   4. Reboot the cluster to allow the new parameter group to take effect.
 
 3. In the PostgreSQL client, connect to your instance and run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
@@ -75,6 +153,64 @@ and set up the watermarks table and publication.
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
 
+### Azure Database for PostgreSQL
+
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+   1. To allow direct access:
+       * Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+
+2. In your Azure PostgreSQL instance's support parameters, [set replication to logical](https://docs.microsoft.com/en-us/azure/postgresql/single-server/concepts-logical#set-up-your-server) to enable logical replication.
+
+3. In the PostgreSQL client, connect to your instance and run the following commands to create a new user for the capture with appropriate permissions.
+
+```sql
+CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
+```
+
+  * If using PostgreSQL v14 or later:
+
+```sql
+GRANT pg_read_all_data TO flow_capture;
+```
+
+  * If using an earlier version:
+
+    ```sql
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
+        GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
+        GRANT SELECT ON ALL TABLES IN SCHEMA information_schema, pg_catalog TO flow_capture;
+    ```
+    where `<others>` lists all schemas that will be captured from.
+
+    :::info
+    If an even more restricted set of permissions is desired, you can also grant SELECT on
+    just the specific table(s) which should be captured from. The ‘information_schema’ and      ‘pg_catalog’ access is required for stream auto-discovery, but not for capturing already
+    configured streams.
+    :::
+
+4. Set up the watermarks table and publication.
+
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
+GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
+GRANT SELECT ON information_schema.columns, information_schema.tables, pg_catalog.pg_attribute, pg_catalog.pg_class, pg_catalog.pg_index, pg_catalog.pg_namespace TO flow_capture;
+CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
+```
+
+5. Note the following important items for configuration:
+
+   * Find the instance's host under Server Name, and the port under Connection Strings (usually `5432`). Together, you'll use the host:port as the `address` property when you configure the connector.
+   * Format `user` as `username@databasename`; for example, `flow_capture@myazuredb`.
+
 ## Backfills and performance considerations
 
 When the a PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
@@ -87,7 +223,8 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
+
 
 ### Properties
 
@@ -143,7 +280,8 @@ captures:
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
+
 
 ## TOASTed values
 
@@ -157,21 +295,21 @@ If a change event occurs on a row that contains a TOASTed value, _but the TOASTe
 As a result, the connector emits a row update with the a value omitted, which might cause
 unexpected results in downstream catalog tasks if adjustments are not made.
 
-The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](../../../concepts/connectors.md#flowctl-discover)
-or use the [Flow UI](../../../concepts/connectors.md#flow-ui) to create your capture.
-It uses [merge](../../reduction-strategies/merge.md) [reductions](../../../concepts/schemas.md#reductions)
+The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](/concepts/connectors.md#flowctl-discover)
+or use the [Flow UI](/concepts/connectors.md#flow-ui) to create your capture.
+It uses [merge](/reference/reduction-strategies/merge.md) [reductions](/concepts/schemas.md#reductions)
 to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
 
 However, due to the event-driven nature of certain tasks in Flow, it's still possible to see unexpected results in your data flow, specifically:
 
-- When you materialize the captured data to another system using a connector that requires [delta updates](../../../concepts/materialization.md#delta-updates)
-- When you perform a [derivation](../../../concepts/derivations.md) that uses TOASTed values
+- When you materialize the captured data to another system using a connector that requires [delta updates](/concepts/materialization.md#delta-updates)
+- When you perform a [derivation](/concepts/derivations.md) that uses TOASTed values
 
 ### Troubleshooting
 
 If you encounter an issue that you suspect is due to TOASTed values, try the following:
 
-- Ensure your collection's schema is using the merge [reduction strategy](../../../concepts/schemas.md#reduce-annotations).
+- Ensure your collection's schema is using the merge [reduction strategy](/concepts/schemas.md#reduce-annotations).
 - [Set REPLICA IDENTITY to FULL](https://www.postgresql.org/docs/9.4/sql-altertable.html) for the table. This circumvents the problem by forcing the
 WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
 - [Contact Estuary support](mailto:support@estuary.dev) for assistance.

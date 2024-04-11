@@ -22,7 +22,7 @@ a materialized view that updates continuously based on a real-time data feed.
    In that case, you'll need to [install flowctl locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli).
    Note that the steps you'll need to take will be different. Refer to this [guide](../../guides/flowctl/create-derivation.md#create-a-derivation-locally) for help.
 
-* A Postgres database set up to [allow connections from Flow](../../reference/Connectors/materialization-connectors/PostgreSQL.md#setup).
+* A Postgres database set up to [allow connections from Flow](/reference/Connectors/materialization-connectors/PostgreSQL/#setup).
 Amazon RDS, Amazon Aurora, Google Cloud SQL, Azure Database for PostgreSQL, and self-hosted databases are supported.
 
 ## Introduction
@@ -43,6 +43,12 @@ Written to a Postgres table, it quickly grows to an size that's very expensive t
 First, you'll scope the raw data down to a small fact table with a derivation.
 
 You'll then materialize both the raw and transformed datasets to your Postgres instance and compare performance.
+
+## Loading the Wikipedia Demo
+
+1. Navigate to the [Live Demo](https://dashboard.estuary.dev/welcome?activeTab=demo) page and click on `See the capture`.
+
+2. After accepting the pop up, Estuary will populate your Sources, Collections and Destinations with the Wikipedia Demo tasks.
 
 ## Check out the source data
 

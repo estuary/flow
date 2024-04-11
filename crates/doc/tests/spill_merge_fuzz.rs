@@ -49,6 +49,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
             (
                 true, // Full reductions.
                 vec![Extractor::new("/key", &ser_policy)],
+                "source-name",
                 None,
                 Validator::new(schema).unwrap(),
             )

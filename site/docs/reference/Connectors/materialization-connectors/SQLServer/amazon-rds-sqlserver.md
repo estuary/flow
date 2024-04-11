@@ -1,4 +1,4 @@
-# Google Cloud SQL for SQLServer
+# Amazon RDS for SQL Server
 
 This connector materializes Flow collections into tables in a Microsoft SQLServer database.
 
@@ -16,6 +16,55 @@ To use this connector, you'll need:
     so user credentials must have access to create new tables.
 * At least one Flow collection
 
+## Setup Amazon RDS for SQL Server
+
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+   1. To allow direct access:
+       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+
+2.  In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
+
+```sql
+USE <database>;
+-- Create user and password for use with the connector.
+CREATE LOGIN flow_materialize WITH PASSWORD = 'secret';
+CREATE USER flow_materialize FOR LOGIN flow_materialize;
+-- Grant control on the database to flow_materialize
+GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
+```
+3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
+## Connecting to SQLServer
+
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+   1. To allow direct access:
+       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+
+2.  In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
+
+```sql
+USE <database>;
+-- Create user and password for use with the connector.
+CREATE LOGIN flow_materialize WITH PASSWORD = 'Secret123!';
+CREATE USER flow_materialize FOR LOGIN flow_materialize;
+-- Grant control on the database to flow_materialize
+GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
+```
+3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
+
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -28,7 +77,7 @@ Use the below properties to configure a SQLServer materialization, which will di
 | Property                    | Title                  | Description                                                                                | Type   | Required/Default |
 |-----------------------------|------------------------|--------------------------------------------------------------------------------------------|--------|------------------|
 | **`/database`**             | Database               | Name of the logical database to materialize to.                                            | string | Required         |
-| **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `1433`. | string | Required         |
+| **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `3306`. | string | Required         |
 | **`/password`**             | Password               | Password for the specified database user.                                                  | string | Required         |
 | **`/user`**                 | User                   | Database user to connect as.                                                               | string | Required         |
 
@@ -58,34 +107,9 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-## Connecting to SQLServer
-
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
-
-   1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
-
-   2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
-2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'Secret123!';
-CREATE USER flow_materialize FOR LOGIN flow_materialize;
--- Grant control on the database to flow_materialize
-GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
-```
-
-3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
-Together, you'll use the host:port as the `address` property when you configure the connector.
-
 ## Delta updates
 
-This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+This connector supports both standard (merge) and [delta updates](../../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
 
 ## Reserved words

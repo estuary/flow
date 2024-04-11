@@ -103,8 +103,14 @@ impl Task {
         let combiner_spec = doc::combine::Spec::with_bindings(
             combiner_spec
                 .into_iter()
-                .map(|(is_full, key, validator)| (is_full, key, None, validator))
-                .chain(std::iter::once((false, Vec::new(), None, state_validator))),
+                .map(|(is_full, key, name, validator)| (is_full, key, name, None, validator))
+                .chain(std::iter::once((
+                    false,
+                    Vec::new(),
+                    "connector state".to_string(),
+                    None,
+                    state_validator,
+                ))),
         );
 
         Ok(combiner_spec)
@@ -153,12 +159,19 @@ impl Binding {
         })
     }
 
-    pub fn combiner_spec(&self) -> anyhow::Result<(bool, Vec<doc::Extractor>, doc::Validator)> {
+    pub fn combiner_spec(
+        &self,
+    ) -> anyhow::Result<(bool, Vec<doc::Extractor>, String, doc::Validator)> {
         let built_schema = doc::validation::build_bundle(&self.write_schema_json)
             .context("collection write_schema_json is not a JSON schema")?;
         let validator =
             doc::Validator::new(built_schema).context("could not build a schema validator")?;
 
-        Ok((false, self.key_extractors.clone(), validator))
+        Ok((
+            false,
+            self.key_extractors.clone(),
+            format!("captured collection {}", self.collection_name),
+            validator,
+        ))
     }
 }

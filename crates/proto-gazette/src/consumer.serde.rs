@@ -1580,6 +1580,9 @@ impl serde::Serialize for list_response::Shard {
         if !self.status.is_empty() {
             len += 1;
         }
+        if self.create_revision != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("consumer.ListResponse.Shard", len)?;
         if let Some(v) = self.spec.as_ref() {
             struct_ser.serialize_field("spec", v)?;
@@ -1593,6 +1596,10 @@ impl serde::Serialize for list_response::Shard {
         }
         if !self.status.is_empty() {
             struct_ser.serialize_field("status", &self.status)?;
+        }
+        if self.create_revision != 0 {
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("createRevision", ToString::to_string(&self.create_revision).as_str())?;
         }
         struct_ser.end()
     }
@@ -1609,6 +1616,8 @@ impl<'de> serde::Deserialize<'de> for list_response::Shard {
             "modRevision",
             "route",
             "status",
+            "create_revision",
+            "createRevision",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1617,6 +1626,7 @@ impl<'de> serde::Deserialize<'de> for list_response::Shard {
             ModRevision,
             Route,
             Status,
+            CreateRevision,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1642,6 +1652,7 @@ impl<'de> serde::Deserialize<'de> for list_response::Shard {
                             "modRevision" | "mod_revision" => Ok(GeneratedField::ModRevision),
                             "route" => Ok(GeneratedField::Route),
                             "status" => Ok(GeneratedField::Status),
+                            "createRevision" | "create_revision" => Ok(GeneratedField::CreateRevision),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1665,6 +1676,7 @@ impl<'de> serde::Deserialize<'de> for list_response::Shard {
                 let mut mod_revision__ = None;
                 let mut route__ = None;
                 let mut status__ = None;
+                let mut create_revision__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Spec => {
@@ -1693,6 +1705,14 @@ impl<'de> serde::Deserialize<'de> for list_response::Shard {
                             }
                             status__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::CreateRevision => {
+                            if create_revision__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createRevision"));
+                            }
+                            create_revision__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(list_response::Shard {
@@ -1700,6 +1720,7 @@ impl<'de> serde::Deserialize<'de> for list_response::Shard {
                     mod_revision: mod_revision__.unwrap_or_default(),
                     route: route__,
                     status: status__.unwrap_or_default(),
+                    create_revision: create_revision__.unwrap_or_default(),
                 })
             }
         }

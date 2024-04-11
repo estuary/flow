@@ -103,6 +103,7 @@ pub fn combiner_perf() {
     let spec = doc::combine::Spec::with_one_binding(
         true, // Full reductions.
         vec![Extractor::new("/key", &doc::SerPolicy::noop())],
+        "source-name",
         None,
         Validator::new(schema).unwrap(),
     );

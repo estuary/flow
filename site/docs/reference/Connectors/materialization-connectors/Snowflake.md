@@ -1,7 +1,7 @@
 # Snowflake
 
 This connector materializes Flow collections into tables in a Snowflake database.
-It allows both standard and [delta updates](#delta-updates).
+It allows both standard and [delta updates](#delta-updates). [Snowpipe](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-intro) is additionally available for delta update bindings.
 
 The connector first uploads data changes to a [Snowflake table stage](https://docs.snowflake.com/en/user-guide/data-load-local-file-system-create-stage.html#table-stages).
 From there, it transactionally applies the changes to the Snowflake table.
@@ -76,6 +76,44 @@ use role sysadmin;
 COMMIT;
 ```
 
+### Key-pair Authentication & Snowpipe
+
+In order to enable use of Snowpipe for [delta updates](#delta-updates) bindings, you need to authenticate
+using [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth), also known as JWT authentication.
+
+To set up your user for key-pair authentication, first generate a key-pair in your shell:
+```bash
+# generate a private key
+openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
+# generate a public key
+openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
+# read the public key and copy it to clipboard
+cat rsa_key.pub
+
+-----BEGIN PUBLIC KEY-----
+MIIBIj...
+-----END PUBLIC KEY-----
+```
+
+Then assign the public key with your Snowflake user using these SQL commands:
+```sql
+ALTER USER $estuary_user SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...'
+```
+
+Verify the public key fingerprint in Snowflake matches the one you have locally:
+```sql
+DESC USER $estuary_user;
+SELECT TRIM((SELECT "value" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+  WHERE "property" = 'RSA_PUBLIC_KEY_FP'), 'SHA256:');
+```
+
+Then compare with the local version:
+```bash
+openssl rsa -pubin -in rsa_key.pub -outform DER | openssl dgst -sha256 -binary | openssl enc -base64
+```
+
+Now you can use the generated _private key_ when configuring your Snowflake connector. Once you have key-pair authentication enabled, delta updates bindings will use Snowpipe for loading data.
+
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
@@ -85,18 +123,21 @@ Use the below properties to configure a Snowflake materialization, which will di
 
 #### Endpoint
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| **`/account`** | Account | The Snowflake account identifier | string | Required |
-| **`/database`** | Database | Name of the Snowflake database to which to materialize | string | Required |
-| **`/host`** | Host URL | The Snowflake Host used for the connection. Example: orgname-accountname.snowflakecomputing.com (do not include the protocol). | string | Required |
-| **`/password`** | Password | Snowflake user password | string | Required |
-| `/role` | Role | Role assigned to the user | string |  |
-| **`/schema`** | Schema | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | Required |
-| **`/user`** | User | Snowflake username | string | Required |
-| `/warehouse` | Warehouse | Name of the data warehouse that contains the database | string |  |
-| `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
-| `/advanced/updateDelay`     | Update Delay    | Potentially reduce active warehouse time by increasing the delay between updates. | string  |  |
+| Property                     | Title               | Description                                                                                                                                                     | Type   | Required/Default |
+|------------------------------|---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
+| **`/account`**               | Account             | The Snowflake account identifier                                                                                                                                | string | Required         |
+| **`/database`**              | Database            | Name of the Snowflake database to which to materialize                                                                                                          | string | Required         |
+| **`/host`**                  | Host URL            | The Snowflake Host used for the connection. Example: orgname-accountname.snowflakecomputing.com (do not include the protocol).                                  | string | Required         |
+| `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
+| **`/schema`**                | Schema              | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | Required         |
+| `/warehouse`                 | Warehouse           | Name of the data warehouse that contains the database                                                                                                           | string |                  |
+| **`/credentials`**           | Credentials         | Credentials for authentication                                                                                                                                  | object | Required         |
+| **`/credentials/auth_type`** | Authentication type | One of `user_password` or `jwt`                                                                                                                                 | string | Required         |
+| **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
+| `/credentials/password`      | Password            | Required if using user_password authentication                                                                                                                  | string | Required         |
+| `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
+| `/advanced`                  | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                                      | object |                  |
+| `/advanced/updateDelay`      | Update Delay        | Potentially reduce active warehouse time by increasing the delay between updates.                                                                               | string |                  |
 
 #### Bindings
 
@@ -108,8 +149,9 @@ Use the below properties to configure a Snowflake materialization, which will di
 
 ### Sample
 
-```yaml
+User and password authentication:
 
+```yaml
 materializations:
   ${PREFIX}/${mat_name}:
     endpoint:
@@ -118,10 +160,46 @@ materializations:
               account: acmeCo
               database: acmeCo_db
               host: orgname-accountname.snowflakecomputing.com
-              password: secret
               schema: acmeCo_flow_schema
-              user: snowflake_user
               warehouse: acmeCo_warehouse
+              credentials:
+                auth_type: user_pasword
+                user: snowflake_user
+                password: secret
+    	    image: ghcr.io/estuary/materialize-snowflake:dev
+  # If you have multiple collections you need to materialize, add a binding for each one
+    # to ensure complete data flow-through
+    bindings:
+  	- resource:
+      	table: ${table_name}
+    source: ${PREFIX}/${source_collection}
+```
+
+Key-pair authentication:
+
+```yaml
+materializations:
+  ${PREFIX}/${mat_name}:
+    endpoint:
+  	    connector:
+    	    config:
+              account: acmeCo
+              database: acmeCo_db
+              host: orgname-accountname.snowflakecomputing.com
+              schema: acmeCo_flow_schema
+              warehouse: acmeCo_warehouse
+              credentials:
+                auth_type: jwt
+                user: snowflake_user
+                privateKey: |
+                  -----BEGIN PRIVATE KEY-----
+                  MIIEv....
+                  ...
+                  ...
+                  ...
+                  ...
+                  ...
+                  -----END PRIVATE KEY-----
     	    image: ghcr.io/estuary/materialize-snowflake:dev
   # If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
@@ -197,6 +275,20 @@ To mitigate this, we recommend a two-pronged approach:
 
 For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
 update delay to 30 minutes, you can incur as little as 48 minutes per day of active time in the warehouse.
+
+### Update Delay
+
+The `Update Delay` parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This advanced option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period. By incorporating an update delay into your workflow, you can effectively manage and optimize your active warehouse time, leading to potentially lower costs and more efficient data processing.
+
+An update delay is configured in the advanced settings of a materialization's configuration. It represents the amount of time the system will wait before it begins materializing the latest data. This delay is specified in hours and can be adjusted according to the needs of your data pipeline.
+
+For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
+
+To configure an update delay, navigate the `Advanced Options` section of the materialization's configuration and select a value from the drop down. The default value for the update delay in Estuary materializations is set to 30 minutes.
+
+### Snowpipe
+
+[Snowpipe](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-intro) allows for loading data into target tables without waking up the warehouse, which can be cheaper and more performant. Snowpipe can be used for delta updates bindings, and it requires configuring your authentication using a private key. Instructions for configuring key-pair authentication can be found in this page: [Key-pair Authentication & Snowpipe](#key-pair-authentication--snowpipe)
 
 ## Timestamp Data Type Mapping
 

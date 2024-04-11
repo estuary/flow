@@ -77,7 +77,10 @@ mod test {
         .unwrap();
 
         let mut handler = DirectiveHandler::default();
-        while let Some(row) = agent_sql::directives::dequeue(&mut txn).await.unwrap() {
+        while let Some(row) = agent_sql::directives::dequeue(&mut txn, true)
+            .await
+            .unwrap()
+        {
             let (id, status) = handler.process(row, &mut txn).await.unwrap();
             agent_sql::directives::resolve(id, status, &mut txn)
                 .await

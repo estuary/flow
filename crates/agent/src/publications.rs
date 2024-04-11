@@ -4,7 +4,7 @@ use self::builds::IncompatibleCollection;
 use self::validation::ControlPlane;
 use super::{
     draft::{self, Error},
-    logs, Handler, HandlerStatus, Id,
+    logs, HandleResult, Handler, Id,
 };
 use agent_sql::{connector_tags::UnknownConnector, publications::Row, CatalogType};
 use anyhow::Context;
@@ -98,33 +98,64 @@ impl PublishHandler {
 
 #[async_trait::async_trait]
 impl Handler for PublishHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
-        let mut txn = pg_pool.begin().await?;
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
+        loop {
+            let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::publications::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::Idle),
-            Some(row) => row,
-        };
+            let row: Row =
+                match agent_sql::publications::dequeue(&mut txn, allow_background).await? {
+                    None => return Ok(HandleResult::NoJobs),
+                    Some(row) => row,
+                };
+            let background = row.background;
 
-        let delete_draft_id = if !row.dry_run {
-            Some(row.draft_id)
-        } else {
-            None
-        };
+            let delete_draft_id = if !row.dry_run {
+                Some(row.draft_id)
+            } else {
+                None
+            };
 
-        let (id, status) = self.process(row, &mut txn, false).await?;
-        info!(%id, ?status, "finished");
+            let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+            let id = row.pub_id;
+            let process_result = self.process(row, &mut txn, false).await;
 
-        agent_sql::publications::resolve(id, &status, &mut txn).await?;
-        txn.commit().await?;
+            let status = match process_result {
+                Ok((_, status)) => status,
+                Err(err) if crate::is_acquire_lock_error(&err) => {
+                    tracing::info!(%id, %time_queued, "cannot acquire all row locks for publication (will retry)");
+                    // Since we failed to acquire a necessary row lock, wait a short
+                    // while and then try again.
+                    txn.rollback().await?;
+                    // The sleep is really just so we don't spam the DB in a busy
+                    // loop.  I arrived at these values via the very scientific 😉
+                    // process of reproducing failures using a couple of different
+                    // values and squinting at the logs in my terminal. In
+                    // practice, it's common for another agent process to pick up
+                    // the job while this one is sleeping, which is why I didn't
+                    // see a need for jitter. All agents process the job queue in
+                    // the same order, so the next time any agent polls the
+                    // handler, it should get this same job, since we've released
+                    // the lock on the job row.
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    continue;
+                }
+                Err(other_err) => return Err(other_err),
+            };
+            info!(%id, %time_queued, ?status, %background, "finished");
+            agent_sql::publications::resolve(id, &status, &mut txn).await?;
+            txn.commit().await?;
 
-        // As a separate transaction, delete the draft if it has no draft_specs.
-        // The user could have raced an insertion of a new spec.
-        if let (Some(delete_draft_id), JobStatus::Success { .. }) = (delete_draft_id, status) {
-            agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
+            // As a separate transaction, delete the draft if it has no draft_specs.
+            // The user could have raced an insertion of a new spec.
+            if let (Some(delete_draft_id), JobStatus::Success { .. }) = (delete_draft_id, status) {
+                agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
+            }
+            return Ok(HandleResult::HadJob);
         }
-
-        Ok(HandlerStatus::Active)
     }
 
     fn table_name(&self) -> &'static str {
@@ -147,6 +178,7 @@ impl PublishHandler {
             %row.logs_token,
             %row.updated_at,
             %row.user_id,
+            %row.background,
             "processing publication",
         );
 
@@ -486,6 +518,7 @@ async fn stop_with_errors(
                 collections,
                 true, // auto_publish
                 detail,
+                row.background,
             )
             .await
             .context("creating evolutions job")?;

@@ -1,4 +1,8 @@
-use crate::local_specs;
+use crate::{
+    collection::read::{read_collection, ReadBounds},
+    local_specs,
+    ops::{OpsCollection, TaskSelector},
+};
 use anyhow::Context;
 use doc::combine;
 use std::{
@@ -56,6 +60,8 @@ pub enum Command {
     Oauth(oauth::Oauth),
     /// Emit the Flow specification JSON-Schema.
     JsonSchema,
+    /// Read stats collection documents
+    Stats(Stats),
 }
 
 #[derive(Debug, clap::Args)]
@@ -131,6 +137,34 @@ pub struct Combine {
     collection: String,
 }
 
+#[derive(clap::Args, Debug)]
+pub struct Stats {
+    #[clap(flatten)]
+    pub task: TaskSelector,
+
+    #[clap(flatten)]
+    pub bounds: ReadBounds,
+
+    /// Read raw data from stats journals, including possibly uncommitted or rolled back transactions.
+    /// This flag is currently required, but will be made optional in the future as we add support for
+    /// committed reads, which will become the default.
+    #[clap(long)]
+    pub uncommitted: bool,
+}
+
+impl Stats {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+        let read_args = crate::ops::read_args(
+            &self.task.task,
+            OpsCollection::Stats,
+            &self.bounds,
+            self.uncommitted,
+        );
+        read_collection(ctx, &read_args).await?;
+        Ok(())
+    }
+}
+
 impl Advanced {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
@@ -150,6 +184,7 @@ impl Advanced {
                 let schema = models::Catalog::root_json_schema();
                 Ok(serde_json::to_writer_pretty(std::io::stdout(), &schema)?)
             }
+            Command::Stats(stats) => stats.run(ctx).await,
         }
     }
 }
@@ -268,6 +303,7 @@ async fn do_combine(
                 &collection.spec.projections,
                 &doc::SerPolicy::noop(),
             )?,
+            "source",
             None,
             doc::Validator::new(schema).unwrap(),
         ),

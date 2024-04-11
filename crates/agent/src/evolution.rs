@@ -1,4 +1,4 @@
-use super::{draft, Handler, HandlerStatus, Id};
+use super::{draft, HandleResult, Handler, Id};
 use agent_sql::{
     evolutions::{Row, SpecRow},
     Capability,
@@ -41,6 +41,7 @@ pub enum JobStatus {
         evolved_collections: Vec<EvolvedCollection>,
         publication_id: Option<Id>,
     },
+    Queued,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -61,22 +62,52 @@ fn error_status(err: impl Into<String>) -> anyhow::Result<JobStatus> {
 
 #[async_trait::async_trait]
 impl Handler for EvolutionHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
-        let mut txn = pg_pool.begin().await?;
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
+        loop {
+            let mut txn = pg_pool.begin().await?;
 
-        let Some(row) = agent_sql::evolutions::dequeue(&mut txn).await? else {
-            return Ok(HandlerStatus::Idle);
-        };
+            let Some(row) = agent_sql::evolutions::dequeue(&mut txn, allow_background).await?
+            else {
+                return Ok(HandleResult::NoJobs);
+            };
 
-        let id: Id = row.id;
-        let status = process_row(row, &mut txn).await?;
-        let status = serde_json::to_value(status)?;
+            let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+            let id: Id = row.id;
+            let process_result = process_row(row, &mut txn).await;
+            let job_status = match process_result {
+                Ok(s) => s,
+                Err(err) if crate::is_acquire_lock_error(&err) => {
+                    tracing::info!(%id, %time_queued, "cannot acquire all row locks for evolution (will retry)");
+                    // Since we failed to acquire a necessary row lock, wait a short
+                    // while and then try again.
+                    txn.rollback().await?;
+                    // The sleep is really just so we don't spam the DB in a busy
+                    // loop.  I arrived at these values via the very scientific 😉
+                    // process of reproducing failures using a couple of different
+                    // values and squinting at the logs in my terminal. In
+                    // practice, it's common for another agent process to pick up
+                    // the job while this one is sleeping, which is why I didn't
+                    // see a need for jitter. All agents process the job queue in
+                    // the same order, so the next time any agent polls the
+                    // handler, it should get this same job, since we've released
+                    // the lock on the job row. Evolutions jobs will fail _quite_
+                    // quickly in this scenario, hence the full second.
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+                Err(other_err) => return Err(other_err),
+            };
+            let status = serde_json::to_value(job_status)?;
+            tracing::info!(%id, %time_queued, %status, "evolution finished");
+            agent_sql::evolutions::resolve(id, &status, &mut txn).await?;
+            txn.commit().await?;
 
-        tracing::info!(%id, %status, "evolution finished");
-        agent_sql::evolutions::resolve(id, &status, &mut txn).await?;
-        txn.commit().await?;
-
-        Ok(HandlerStatus::Active)
+            return Ok(HandleResult::HadJob);
+        }
     }
 
     fn table_name(&self) -> &'static str {
@@ -84,7 +115,7 @@ impl Handler for EvolutionHandler {
     }
 }
 
-#[tracing::instrument(err, skip_all, fields(id=?row.id, draft_id=?row.draft_id))]
+#[tracing::instrument(err, skip_all, fields(?row.id, ?row.draft_id, %row.background))]
 async fn process_row(
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -249,9 +280,15 @@ async fn process_row(
         );
         // So that we don't create an infinite loop in case there's continued errors.
         let auto_evolve = false;
-        let id =
-            agent_sql::publications::create(txn, row.user_id, row.draft_id, auto_evolve, detail)
-                .await?;
+        let id = agent_sql::publications::create(
+            txn,
+            row.user_id,
+            row.draft_id,
+            auto_evolve,
+            detail,
+            row.background,
+        )
+        .await?;
         Some(id)
     } else {
         None

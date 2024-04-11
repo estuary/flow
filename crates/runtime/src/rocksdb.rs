@@ -283,7 +283,7 @@ fn set_json_schema_merge_operator(opts: &mut rocksdb::Options, schema: &str) -> 
 
     let full_merge_fn = move |key: &[u8],
                               initial: Option<&[u8]>,
-                              operands: &mut rocksdb::merge_operator::MergeOperands|
+                              operands: &rocksdb::merge_operator::MergeOperands|
           -> Option<Vec<u8>> {
         match do_merge(true, initial, key, operands, &schema_1) {
             Ok(ok) => Some(ok),
@@ -298,7 +298,7 @@ fn set_json_schema_merge_operator(opts: &mut rocksdb::Options, schema: &str) -> 
     };
     let partial_merge_fn = move |key: &[u8],
                                  initial: Option<&[u8]>,
-                                 operands: &mut rocksdb::merge_operator::MergeOperands|
+                                 operands: &rocksdb::merge_operator::MergeOperands|
           -> Option<Vec<u8>> {
         match do_merge(false, initial, key, operands, &schema_2) {
             Ok(ok) => Some(ok),
@@ -320,12 +320,12 @@ fn do_merge(
     full: bool,
     initial: Option<&[u8]>,
     key: &[u8],
-    operands: &mut rocksdb::merge_operator::MergeOperands,
+    operands: &rocksdb::merge_operator::MergeOperands,
     schema: &str,
 ) -> anyhow::Result<Vec<u8>> {
     let bundle = doc::validation::build_bundle(schema).unwrap();
     let validator = doc::Validator::new(bundle).unwrap();
-    let spec = doc::combine::Spec::with_one_binding(full, [], None, validator);
+    let spec = doc::combine::Spec::with_one_binding(full, [], "connector state", None, validator);
     let memtable = doc::combine::MemTable::new(spec);
 
     let key = String::from_utf8_lossy(key);

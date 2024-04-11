@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use super::{jobs, logs, Handler, HandlerStatus, Id};
+use super::{jobs, logs, HandleResult, Handler, Id};
 use agent_sql::connector_tags::Row;
 use anyhow::Context;
 use proto_flow::flow;
@@ -53,21 +51,26 @@ impl TagHandler {
 
 #[async_trait::async_trait]
 impl Handler for TagHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
+    async fn handle(
+        &mut self,
+        pg_pool: &sqlx::PgPool,
+        allow_background: bool,
+    ) -> anyhow::Result<HandleResult> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::connector_tags::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::Idle),
+        let row: Row = match agent_sql::connector_tags::dequeue(&mut txn, allow_background).await? {
+            None => return Ok(HandleResult::NoJobs),
             Some(row) => row,
         };
 
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
         let (id, status) = self.process(row, &mut txn).await?;
-        info!(%id, ?status, "finished");
+        info!(%id, %time_queued, ?status, "finished");
 
         agent_sql::connector_tags::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(HandlerStatus::Active)
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
@@ -133,8 +136,10 @@ impl TagHandler {
 
         let spec_result = match proto_type {
             RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
-            RuntimeProtocol::Materialization => {
-                spec_materialization(&image_composed, runtime).await
+            RuntimeProtocol::Materialize => spec_materialization(&image_composed, runtime).await,
+            RuntimeProtocol::Derive => {
+                tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
+                return Ok((row.tag_id, JobStatus::SpecFailed));
             }
         };
 
@@ -165,7 +170,7 @@ impl TagHandler {
             row.tag_id,
             documentation_url,
             endpoint_config_schema.into(),
-            proto_type.to_string(),
+            proto_type.database_string_value().to_string(),
             resource_config_schema.into(),
             resource_path_pointers.clone(),
             txn,
@@ -211,7 +216,7 @@ async fn spec_materialization(
     };
 
     let spec = runtime
-        .unary_materialize(req, SPEC_TIMEOUT)
+        .unary_materialize(req, build::CONNECTOR_TIMEOUT)
         .await?
         .spec
         .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
@@ -257,7 +262,7 @@ async fn spec_capture(
     };
 
     let spec = runtime
-        .unary_capture(req, SPEC_TIMEOUT)
+        .unary_capture(req, build::CONNECTOR_TIMEOUT)
         .await?
         .spec
         .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
@@ -289,5 +294,3 @@ async fn spec_capture(
         oauth2: oauth,
     })
 }
-
-const SPEC_TIMEOUT: Duration = Duration::from_secs(10);

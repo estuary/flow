@@ -92,7 +92,7 @@ async fn check_protocol(entrypoint: &[String], codec: Codec) -> anyhow::Result<(
         codec,
         proto_flow::capture::Request {
             spec: Some(proto_flow::capture::request::Spec {
-                connector_type: 0,
+                connector_type: proto_flow::flow::capture_spec::ConnectorType::Image as i32,
                 config_json: String::new(),
             }),
             ..Default::default()

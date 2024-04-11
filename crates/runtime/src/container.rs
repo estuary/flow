@@ -12,30 +12,30 @@ use tokio::io::AsyncBufReadExt;
 // connectors.
 const CONNECTOR_INIT_PORT: u16 = 49092;
 
+const RUNTIME_PROTO_LABEL: &str = "FLOW_RUNTIME_PROTOCOL";
+const USAGE_RATE_LABEL: &str = "dev.estuary.usage-rate";
+const PORT_PUBLIC_LABEL_PREFIX: &str = "dev.estuary.port-public.";
+const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
+
+// TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.3.11-60-gfc3f40ac5";
+const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
+
 /// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
 /// then it's value is used. Otherwise, this will apply a simple heuristic based on the image name,
 /// for backward compatibility purposes. An error will be returned if it fails to inspect the image
-/// or parse the label.
+/// or parse the label. The image must already have been pulled before calling this function.
 pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtocol> {
     let inspect_output = docker_cmd(&["inspect", image])
         .await
         .context("inspecting image")?;
-    let inspect_json: serde_json::Value = serde_json::from_slice(&inspect_output)?;
-
-    if let Some(label) = inspect_json
-        .pointer("/Config/Labels/FLOW_RUNTIME_PROTOCOL")
-        .and_then(|v| v.as_str())
-    {
-        RuntimeProtocol::try_from(label).map_err(|unknown| {
-            anyhow::anyhow!("image labels specify unknown protocol FLOW_RUNTIME_PROTOCOL={unknown}")
-        })
-    } else {
-        if image.starts_with("ghcr.io/estuary/materialize-") {
-            Ok(RuntimeProtocol::Materialization)
-        } else {
-            Ok(RuntimeProtocol::Capture)
-        }
-    }
+    let inspection = parse_image_inspection(&inspect_output)?;
+    tracing::info!(
+        %image,
+        inspection = ?ops::DebugJson(&inspection),
+        "inspected connector image"
+    );
+    Ok(inspection.runtime_protocol)
 }
 
 /// Start an image connector container, returning its description and a dialed tonic Channel.
@@ -75,7 +75,7 @@ pub async fn start(
     // Concurrently 1) find or fetch a copy of `flow-connector-init`, copying it
     // into a temp path, and 2) inspect the image, also copying into a temp path,
     // and parsing its advertised network ports.
-    let ((), network_ports) = futures::try_join!(
+    let ((), image_inspection) = futures::try_join!(
         find_connector_init_and_copy(tmp_connector_init.path()),
         inspect_image_and_copy(image, tmp_docker_inspect.path()),
     )?;
@@ -230,16 +230,19 @@ pub async fn start(
         %ip_addr,
         mapped_host_ports = ?ops::DebugJson(&mapped_host_ports),
         %name,
-        network_ports = ?ops::DebugJson(&network_ports),
+        image_inspection = ?ops::DebugJson(&image_inspection),
         %task_name,
         ?task_type,
         "started connector container"
     );
+    let usage_rate = image_inspection.usage_rate;
+    let network_ports = image_inspection.network_ports;
 
     Ok((
         runtime::Container {
             ip_addr: format!("{ip_addr}"),
-            network_ports: network_ports.clone(),
+            network_ports,
+            usage_rate,
             mapped_host_ports,
         },
         channel,
@@ -359,7 +362,25 @@ async fn inspect_container_network(
     Ok((ip, mapped_host_ports))
 }
 
-fn parse_network_ports(content: &[u8]) -> anyhow::Result<Vec<flow::NetworkPort>> {
+/// Information about a conector image, which is derived from `docker inspect`
+#[derive(Debug, serde::Serialize)]
+struct ImageInspection {
+    /// The type of connector
+    runtime_protocol: RuntimeProtocol,
+    /// Network ports that the connector wishes to expose
+    network_ports: Vec<flow::NetworkPort>,
+    /// The number of usage credits per second that the connector incurs
+    usage_rate: f32,
+    /// A brief description of how the `usage_rate` was determined
+    usage_rate_source: &'static str,
+    /// The full id of the image, which allows determining when a given tag has been updated
+    /// by looking for changes to the id in the logs
+    id: String,
+    /// The creation timestamp of the image, for debugging purposes
+    image_created_at: String,
+}
+
+fn parse_image_inspection(content: &[u8]) -> anyhow::Result<ImageInspection> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "PascalCase")]
     struct InspectConfig {
@@ -375,11 +396,15 @@ fn parse_network_ports(content: &[u8]) -> anyhow::Result<Vec<flow::NetworkPort>>
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "PascalCase")]
     struct InspectJson {
+        id: String,
+        created: String,
         config: InspectConfig,
     }
 
     // Deserialize into a destructured one-tuple.
     let (InspectJson {
+        id,
+        created,
         config: InspectConfig {
             exposed_ports,
             labels,
@@ -392,7 +417,7 @@ fn parse_network_ports(content: &[u8]) -> anyhow::Result<Vec<flow::NetworkPort>>
     })?;
 
     let labels = labels.unwrap_or_default();
-    let mut ports = Vec::new();
+    let mut network_ports = Vec::new();
 
     for (exposed_port, _) in exposed_ports.iter() {
         // We're unable to support UDP at this time.
@@ -406,10 +431,10 @@ fn parse_network_ports(content: &[u8]) -> anyhow::Result<Vec<flow::NetworkPort>>
             format!("invalid key in inspected Config.ExposedPorts '{exposed_port}'")
         })?;
 
-        let protocol_label = format!("dev.estuary.port-proto.{number}");
+        let protocol_label = format!("{PORT_PROTO_LABEL_PREFIX}{number}");
         let protocol = labels.get(&protocol_label).cloned();
 
-        let public_label = format!("dev.estuary.port-public.{number}");
+        let public_label = format!("{PORT_PUBLIC_LABEL_PREFIX}{number}");
         let public = labels
             .get(&public_label)
             .map(String::as_str)
@@ -417,14 +442,42 @@ fn parse_network_ports(content: &[u8]) -> anyhow::Result<Vec<flow::NetworkPort>>
         let public = public.parse::<bool>()
             .with_context(|| format!("invalid '{public_label}' label value: '{public}', must be either 'true' or 'false'"))?;
 
-        ports.push(flow::NetworkPort {
+        network_ports.push(flow::NetworkPort {
             number: number as u32,
             protocol: protocol.unwrap_or_default(),
             public,
         });
     }
 
-    Ok(ports)
+    let Some(rt_proto_label) = labels.get(RUNTIME_PROTO_LABEL) else {
+        anyhow::bail!("image is missing required '{RUNTIME_PROTO_LABEL}' label");
+    };
+    let runtime_protocol =
+        RuntimeProtocol::from_image_label(rt_proto_label.as_str()).map_err(|unknown| {
+            anyhow::anyhow!("image labels specify unknown protocol {RUNTIME_PROTO_LABEL}={unknown}")
+        })?;
+
+    let (usage_rate, usage_rate_source) = if let Some(rate_value) = labels.get(USAGE_RATE_LABEL) {
+        let rate = rate_value
+            .parse::<f32>()
+            .with_context(|| format!("invalid '{USAGE_RATE_LABEL}' value {rate_value:?}"))?;
+        (rate, USAGE_RATE_LABEL)
+    } else {
+        if runtime_protocol == RuntimeProtocol::Derive {
+            (0.0f32, "default for derive protocol")
+        } else {
+            (1.0f32, "default for capture and materialize protocol")
+        }
+    };
+
+    Ok(ImageInspection {
+        runtime_protocol,
+        network_ports,
+        usage_rate,
+        usage_rate_source,
+        id,
+        image_created_at: created,
+    })
 }
 
 async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Result<()> {
@@ -462,26 +515,27 @@ async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Res
 async fn inspect_image_and_copy(
     image: &str,
     tmp_path: &std::path::Path,
-) -> anyhow::Result<Vec<flow::NetworkPort>> {
+) -> anyhow::Result<ImageInspection> {
     if !image.ends_with(":local") {
-        _ = docker_cmd(&["pull", &image, "--quiet"]).await?;
+        docker_cmd(&["pull", image, "--quiet"])
+            .await
+            .context("pulling image")?;
     }
-    let inspect_content = docker_cmd(&["inspect", &image]).await?;
+
+    let inspect_content = docker_cmd(&["inspect", image])
+        .await
+        .context("inspecting image")?;
 
     tokio::fs::write(tmp_path, &inspect_content)
         .await
         .context("writing docker inspect output")?;
 
-    parse_network_ports(&inspect_content)
+    parse_image_inspection(&inspect_content)
 }
-
-// TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.3.11-60-gfc3f40ac5";
-const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 #[cfg(test)]
 mod test {
-    use super::{parse_network_ports, start};
+    use super::{parse_image_inspection, start};
     use futures::stream::StreamExt;
     use proto_flow::flow;
     use serde_json::json;
@@ -535,10 +589,16 @@ mod test {
             }]
         );
 
-        #[cfg(target_os = "linux")]
-        assert_eq!(container.mapped_host_ports, super::BTreeMap::new());
-        #[cfg(not(target_os = "linux"))]
-        assert_ne!(container.mapped_host_ports, super::BTreeMap::new());
+        assert_eq!(
+            container
+                .mapped_host_ports
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![8080, 49092]
+        );
+
+        assert_eq!(1.0, container.usage_rate);
     }
 
     #[tokio::test]
@@ -568,20 +628,27 @@ mod test {
     }
 
     #[test]
-    fn test_parsing_network_ports() {
+    fn test_parsing_inspection_output() {
         let fixture = json!([
             {
+                "Id": "test-image-id",
+                "Created": "2024-02-02T14:39:11.958Z",
                 "Config":{
                     "ExposedPorts": {"567/tcp":{}, "123/udp": {}, "789":{} },
-                    "Labels":{"dev.estuary.port-public.567":"true","dev.estuary.port-proto.789":"h2"}
+                    "Labels":{
+                        "FLOW_RUNTIME_PROTOCOL": "derive",
+                        "dev.estuary.port-public.567":"true",
+                        "dev.estuary.port-proto.789":"h2",
+                        "dev.estuary.usage-rate": "1.3",
+                    }
                 }
             }
         ]);
-        let ports = parse_network_ports(fixture.to_string().as_bytes()).unwrap();
+        let inspection = parse_image_inspection(fixture.to_string().as_bytes()).unwrap();
 
         assert_eq!(
-            ports,
-            [
+            &inspection.network_ports,
+            &[
                 flow::NetworkPort {
                     number: 567,
                     protocol: String::new(),
@@ -594,23 +661,35 @@ mod test {
                 },
             ]
         );
+        assert_eq!(1.3, inspection.usage_rate);
+        assert_eq!("test-image-id", &inspection.id);
+        assert_eq!("2024-02-02T14:39:11.958Z", &inspection.image_created_at);
+    }
 
-        let fixture = json!([{"Invalid": "Inspection"}]);
-        insta::assert_debug_snapshot!(parse_network_ports(fixture.to_string().as_bytes()).unwrap_err(), @r###"
-        Error {
-            context: "failed to parse `docker inspect` output: [{\"Invalid\":\"Inspection\"}]",
-            source: Error("missing field `Config`", line: 1, column: 25),
-        }
-        "###);
+    #[test]
+    fn parse_image_inspection_failure_cases() {
+        let fixture = json!([{
+            "Id": "missing FLOW_RUNTIME_PROTOCOL",
+            "Created": "any time will do",
+            "Config": {
+                "Labels": {},
+            }
+        }]);
+        insta::assert_debug_snapshot!(parse_image_inspection(fixture.to_string().as_bytes()).unwrap_err(), @r###""image is missing required 'FLOW_RUNTIME_PROTOCOL' label""###);
 
         let fixture = json!([
             {
+                "Id": "any",
+                "Created": "any time will do",
                 "Config":{
+                    "Labels": {
+                        "FLOW_RUNTIME_PROTOCOL": "derive",
+                    },
                     "ExposedPorts": {"whoops":{}},
                 }
             }
         ]);
-        insta::assert_debug_snapshot!(parse_network_ports(fixture.to_string().as_bytes()).unwrap_err(), @r###"
+        insta::assert_debug_snapshot!(parse_image_inspection(fixture.to_string().as_bytes()).unwrap_err(), @r###"
         Error {
             context: "invalid key in inspected Config.ExposedPorts \'whoops\'",
             source: ParseIntError {
@@ -621,13 +700,18 @@ mod test {
 
         let fixture = json!([
             {
+                "Id": "any",
+                "Created": "any time will do",
                 "Config":{
                     "ExposedPorts": {"111/tcp":{}},
-                    "Labels":{"dev.estuary.port-public.111":"whoops"}
+                    "Labels":{
+                        "dev.estuary.port-public.111":"whoops",
+                        "FLOW_RUNTIME_PROTOCOL": "derive",
+                    }
                 }
             }
         ]);
-        insta::assert_debug_snapshot!(parse_network_ports(fixture.to_string().as_bytes()).unwrap_err(), @r###"
+        insta::assert_debug_snapshot!(parse_image_inspection(fixture.to_string().as_bytes()).unwrap_err(), @r###"
         Error {
             context: "invalid \'dev.estuary.port-public.111\' label value: \'whoops\', must be either \'true\' or \'false\'",
             source: ParseBoolError,

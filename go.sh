@@ -12,6 +12,10 @@ else
 fi;
 export CGO_CPPFLAGS="-I $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE}/librocksdb-exp/include"
 
+# RocksDB requires std::string_view, which is only available starting in C++17.
+# We currently build on Ubuntu 20.04, where C++17 isn't the default.
+export CGO_CXXFLAGS="-std=c++17"
+
 # Uncomment me if you'd like to grab the resolved, final variables.
 # Try placing them in your User VSCode settings, under `go.testEnvVars`.
 # env | grep CGO

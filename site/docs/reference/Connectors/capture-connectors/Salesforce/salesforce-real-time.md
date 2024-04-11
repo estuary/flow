@@ -2,7 +2,7 @@
 
 This connector captures data from Salesforce objects into Flow collections in real time via the [Salesforce PushTopic API](https://developer.salesforce.com/docs/atlas.en-us.api_streaming.meta/api_streaming/pushtopic_events_intro.htm).
 
-[A separate connector is available for syncing historical Salesforce data](./salesforce.md).
+[A separate connector is available for syncing historical Salesforce data](./salesforce-historical-data.md).
 For help using both connectors in parallel, [contact your Estuary account manager](mailto:info@estuary.dev).
 
 This connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce-next:dev`](https://ghcr.io/estuary/source-salesforce-next:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
@@ -38,7 +38,7 @@ There are several ways to control this:
 
 * Create a [dedicated Salesforce user](#create-a-read-only-salesforce-user) with access only to the objects you'd like to capture.
 
-* During [capture creation in the web application](../../../guides/create-dataflow.md#create-a-capture),
+* During [capture creation in the web application](/guides/create-dataflow.md#create-a-capture),
 remove the bindings for objects you don't want to capture.
 
 ## Prerequisites
@@ -92,7 +92,7 @@ Through this process, you'll obtain the client ID, client secret, and refresh to
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the real-time Salesforce source connector.
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the real-time Salesforce source connector.
 
 ### Properties
 

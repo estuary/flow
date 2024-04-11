@@ -377,7 +377,7 @@ func (r *read) sendReadResult(resp *pr.ShuffleResponse, err error, wakeCh chan<-
 
 	var queue, cap = len(r.ch), cap(r.ch)
 	if queue == cap {
-		r.log(ops.Log_warn,
+		r.log(ops.Log_debug,
 			"cancelling shuffle read due to full channel timeout",
 			"queue", queue,
 			"cap", cap,
@@ -696,8 +696,8 @@ func pickHRW(h uint32, from []shuffleMember, start, stop int) int {
 }
 
 // readChannelCapacity is sized so that sendReadResult will overflow and
-// cancel the read after ~35 minutes of no progress (1<<20 + 1<<19 + 1<<18 ... millis).
-var readChannelCapacity = 22
+// cancel the read after ~2 minutes of no progress (1<<16 + 1<<15 + 1<<14 ... millis).
+var readChannelCapacity = 18
 
 func backoff(attempt int) time.Duration {
 	// The choices of backoff time reflect that we're usually waiting for the

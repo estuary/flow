@@ -43,7 +43,6 @@ dirs = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
 itertools = { workspace = true }
-json-patch = { workspace = true }
 lazy_static = { workspace = true }
 open = { workspace = true }               # used for opening URLs in the user's browser
 page-turner = { workspace = true }

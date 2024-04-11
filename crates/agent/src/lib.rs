@@ -14,7 +14,7 @@ pub use connector_tags::TagHandler;
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
 pub use evolution::EvolutionHandler;
-pub use handlers::{serve, Handler, HandlerStatus};
+pub use handlers::{serve, HandleResult, Handler};
 use lazy_static::lazy_static;
 pub use publications::PublishHandler;
 use regex::Regex;
@@ -25,6 +25,18 @@ const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/
 
 lazy_static! {
     static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
+}
+
+/// Returns true if the given error represents a failure to acquire a lock, as indicated
+/// by the "sql state" code.
+fn is_acquire_lock_error(err: &anyhow::Error) -> bool {
+    let Some(sql_err) = err.downcast_ref::<sqlx::Error>() else {
+        return false;
+    };
+    sql_err
+        .as_database_error()
+        .filter(|e| e.code().as_ref().map(|c| c.as_ref()) == Some("55P03"))
+        .is_some()
 }
 
 /// Takes an existing name and returns a new name with an incremeted version suffix.

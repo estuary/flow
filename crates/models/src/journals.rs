@@ -41,8 +41,8 @@ impl GcsBucketAndPrefix {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
-#[schemars(example = "S3BucketAndPrefix::example")]
-pub struct S3BucketAndPrefix {
+#[schemars(example = "S3StorageConfig::example")]
+pub struct S3StorageConfig {
     /// Bucket into which Flow will store data.
     #[validate(regex = "S3_BUCKET_RE")]
     pub bucket: String,
@@ -51,24 +51,34 @@ pub struct S3BucketAndPrefix {
     #[validate]
     #[serde(default)]
     pub prefix: Option<Prefix>,
+
+    /// AWS region of the S3 bucket. Uses the default value from the AWS credentials of the Gazette
+    /// broker if unset.
+    pub region: Option<String>,
 }
 
-impl S3BucketAndPrefix {
+impl S3StorageConfig {
     fn as_url(&self) -> url::Url {
         // These are validated when we validate storage mappings
         // to at least be legal characters in a URI
-        url::Url::parse(&format!(
+        let mut u = url::Url::parse(&format!(
             "s3://{}/{}",
             self.bucket,
             self.prefix.as_deref().unwrap_or("")
         ))
-        .expect("parsing as URL should never fail")
+        .expect("parsing as URL should never fail");
+
+        if let Some(region) = &self.region {
+            u.query_pairs_mut().append_pair("region", region);
+        }
+        u
     }
 
     pub fn example() -> Self {
         Self {
             bucket: "my-bucket".to_string(),
             prefix: None,
+            region: None,
         }
     }
 }
@@ -77,7 +87,7 @@ impl S3BucketAndPrefix {
 #[schemars(example = "AzureStorageConfig::example")]
 pub struct AzureStorageConfig {
     /// The tenant ID that owns the storage account that we're writing into
-    /// NOTE: This is not the tenant ID that owns the servie principal
+    /// NOTE: This is not the tenant ID that owns the service principal
     pub account_tenant_id: String,
 
     /// Storage accounts in Azure are the equivalent to a "bucket" in S3
@@ -174,7 +184,7 @@ impl CustomStore {
 #[serde(tag = "provider", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Store {
     ///# Amazon Simple Storage Service.
-    S3(S3BucketAndPrefix),
+    S3(S3StorageConfig),
     ///# Google Cloud Storage.
     Gcs(GcsBucketAndPrefix),
     ///# Azure object storage service.
@@ -196,7 +206,7 @@ impl Validate for Store {
 
 impl Store {
     pub fn example() -> Self {
-        Self::S3(S3BucketAndPrefix::example())
+        Self::S3(S3StorageConfig::example())
     }
     pub fn to_url(&self, catalog_name: &str) -> url::Url {
         match self {

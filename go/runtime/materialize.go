@@ -87,6 +87,10 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, er
 	var openedExt = pr.FromInternal[pr.MaterializeResponseExt](opened.Internal)
 	m.container.Store(openedExt.Container)
 	var checkpoint = *opened.Opened.RuntimeCheckpoint
+	if m.termCount == 1 {
+		// See comment in capture.go
+		m.taskBase.StartTaskHeartbeatLoop(shard, openedExt.Container)
+	}
 
 	// TODO(johnny): Remove after migration.
 	if len(checkpoint.Sources) == 0 && len(checkpoint.AckIntents) == 0 {

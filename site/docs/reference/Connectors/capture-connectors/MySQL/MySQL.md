@@ -1,11 +1,23 @@
 ---
 sidebar_position: 5
 ---
-# Google Cloud SQL for MySQL
+# MySQL
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+## Supported platforms
+
+This connector supports MySQL on major cloud providers, as well as self-hosted instances.
+
+Setup instructions are provided for the following platforms:
+
+* [Self-hosted MySQL](#self-hosted-mysql)
+* [Amazon RDS](./amazon-rds-mysql/)
+* [Amazon Aurora](#amazon-aurora)
+* [Google Cloud SQL](./google-cloud-sql-mysql/)
+* [Azure Database for MySQL](#azure-database-for-mysql)
 
 ## Prerequisites
 To use this connector, you'll need a MySQL database setup with the following.
@@ -17,6 +29,8 @@ To use this connector, you'll need a MySQL database setup with the following.
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
   - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
+  - The watermark table will only ever have one row per capture from that database and that row is updated once per 50k rows scanned in each table during the initial backfill for MySQL databases.
+  - As each table backfills, the previous watermark record will be replaced.  After the initial backfill, watermark records are updated approximately once per minute.  At no time does a watermark table have more than one record.
 * A database user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
   - Permission to insert, update, and delete on the watermarks table.
@@ -25,21 +39,123 @@ To use this connector, you'll need a MySQL database setup with the following.
 * If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
+:::tip Configuration Tip
+To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](/guides/connect-network/).
+:::
+
 ## Setup
+
+To meet these requirements, follow the steps for  your hosting type.
+
+* [Self-hosted MySQL](#self-hosted-mysql)
+* [Amazon RDS](./amazon-rds-mysql/)
+* [Amazon Aurora](#amazon-aurora)
+* [Google Cloud SQL](./google-cloud-sql-mysql/)
+* [Azure Database for MySQL](#azure-database-for-mysql)
+
+### Self-hosted MySQL
+
+1. Create the watermarks table. This table can have any name and be in any database, so long as the capture's `config.json` file is modified accordingly.
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+```
+2. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
+
+  The `SELECT` permission can be restricted to just the tables that need to be
+  captured, but automatic discovery requires `information_schema` access as well.
+```sql
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data capture';
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
+3. Configure the binary log to retain data for the default MySQL setting of 30 days, if previously set lower.
+```sql
+SET PERSIST binlog_expire_logs_seconds = 2592000;
+```
+4. Configure the database's time zone. See [below](#setting-the-mysql-time-zone) for more information.
+```sql
+SET PERSIST time_zone = '-05:00'
+```
+
+### Amazon Aurora
+
+You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster.
+For each step, take note of which entity you're working with.
 
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
+        * [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings. 
+        * Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+        * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+        * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
-2. Set the instance's `binlog_expire_logs_seconds` [flag](https://cloud.google.com/sql/docs/mysql/flags?_ga=2.8077298.-1359189752.1655241239&_gac=1.226418280.1655849730.Cj0KCQjw2MWVBhCQARIsAIjbwoOczKklaVaykkUiCMZ4n3_jVtsInpmlugWN92zx6rL5i7zTxm3AALIaAv6nEALw_wcB)
+2. Create a RDS parameter group to enable replication on your Aurora DB cluster.
+
+   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.CreatingCluster).
+   Create a unique name and description and set the following properties:
+      * **Family**: aurora-mysql8.0
+      * **Type**: DB ClusterParameter group
+
+   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) and update the following parameters:
+      * binlog_format: ROW
+      * binlog_row_metadata: FULL
+      * read_only: 0
+
+   3. [Associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.AssociatingCluster)
+   with the DB cluster.
+   While you're modifying the cluster, also set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Managing.Backups.html) to 7 days.
+
+   4. Reboot the cluster to allow the changes to take effect.
+
+4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
+and set up the watermarks table:
+
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data capture';
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
+
+5. Run the following command to set the binary log retention to 7 days, the maximum value Aurora permits:
+```sql
+CALL mysql.rds_set_configuration('binlog retention hours', 168);
+```
+
+6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
+
+### Azure Database for MySQL
+
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+
+   1. To allow direct access:
+       * Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+
+2. Set the `binlog_expire_logs_seconds` [server perameter](https://docs.microsoft.com/en-us/azure/mysql/single-server/concepts-server-parameters#configurable-server-parameters)
 to `2592000`.
 
-3. Using [Google Cloud Shell](https://cloud.google.com/sql/docs/mysql/connect-instance-cloud-shell) or your preferred client, create the watermarks table.
+3. Using [MySQL workbench](https://docs.microsoft.com/en-us/azure/mysql/single-server/connect-workbench) or your preferred client, create the watermarks table.
+
+:::tip
+Your username must be specified in the format `username@servername`.
+:::
+
 ```sql
 CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
@@ -57,8 +173,10 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
-5. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `3306`.
+
+4. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
 Together, you'll use the host:port as the `address` property when you configure the connector.
+
 
 ### Setting the MySQL time zone
 
@@ -102,7 +220,8 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
+
+See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
 
@@ -159,7 +278,8 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
+
 
 ## Troubleshooting Capture Errors
 
@@ -201,4 +321,5 @@ The `"binlog retention period is too short"` error should normally be fixed by s
 
 ### Empty Collection Key
 
-Every Flow collection must declare a [key](../../../concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](../../../concepts/collections.md#empty-keys).
+Every Flow collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).
+

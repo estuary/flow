@@ -136,6 +136,10 @@ message Container {
   // as either IPv4 or IPv6, through which the port can be accessed. If empty,
   // then the container `ip_addr` should be used directly.
   map<uint32, string> mapped_host_ports = 3;
+
+  // The usage rate of a container is the number of connector credits per second that
+  // are consumed by the connector.
+  float usage_rate = 4;
 }
 
 message CaptureRequestExt {
