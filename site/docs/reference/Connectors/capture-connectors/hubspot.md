@@ -96,7 +96,6 @@ The following properties reflect the access token authentication method.
 | **`/credentials/access_token`** | Access Token | HubSpot Access token. | string | Required |
 | **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
 | **`/start_date`** | Start Date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
-| `/subscription_type` | Your HubSpot account subscription type | Some streams are only available to certain subscription packages, we use this information to select which streams to pull data from. | string | `"starter"` |
 
 #### Bindings
 
