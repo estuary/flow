@@ -20,7 +20,7 @@ harness = false
 json = { path = "../json" }
 doc = { path = "../doc" }
 
-avro-rs = { workspace = true }
+apache-avro = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 caseless = { workspace = true }

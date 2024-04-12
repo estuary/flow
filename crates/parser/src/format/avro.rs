@@ -1,6 +1,6 @@
 use crate::format::{Output, ParseError, ParseResult, Parser};
 use crate::input::Input;
-use avro_rs::{schema::SchemaKind, types::Value as AvroValue, Reader, Schema};
+use apache_avro::{schema::SchemaKind, types::Value as AvroValue, Reader, Schema};
 use chrono::{NaiveDateTime, NaiveTime};
 use serde_json::Value;
 use std::io;
@@ -19,7 +19,7 @@ pub enum AvroError {
     )]
     NonRecordSchema(SchemaKind),
     #[error(transparent)]
-    Read(avro_rs::Error),
+    Read(apache_avro::Error),
     #[error("invalid floating point value '{0}' for column '{1}'")]
     InvalidFloat(String, String),
 
@@ -46,7 +46,7 @@ impl AvroIter {
             .map_err(|err| ParseError::Parse(Box::new(err)))?;
 
         match reader.writer_schema() {
-            Schema::Record { fields, .. } => {
+            Schema::Record(fields) => {
                 tracing::debug!(avro_writer_schema = ?fields, "parsed avro header");
                 Ok(AvroIter { reader })
             }
@@ -94,10 +94,10 @@ impl Iterator for AvroIter {
 /// location by converting the timestamp to a json number.
 fn avro_to_json(
     column_name: &str,
-    avro_value: avro_rs::types::Value,
+    avro_value: apache_avro::types::Value,
     allow_string_repr: bool,
 ) -> Result<Value, AvroError> {
-    use avro_rs::types::Value::*;
+    use apache_avro::types::Value::*;
 
     match avro_value {
         Null => Ok(Value::Null),
@@ -134,7 +134,7 @@ fn avro_to_json(
         Enum(_, s) => Ok(Value::String(s)),
         // union is just a wrapper around a boxed avro Value, so we just unwrap it here and
         // propagate `allow_string_repr`.
-        Union(boxed) => avro_to_json(column_name, *boxed, allow_string_repr),
+        Union(_index, boxed) => avro_to_json(column_name, *boxed, allow_string_repr),
 
         // Within nested structures, we always allow types to be represented as strings, as that's
         // the more sane default. If we ever wanted to get fancy, we could try to resolve the full
@@ -178,14 +178,24 @@ fn avro_to_json(
         TimestampMillis(t) if allow_string_repr => {
             timestamp_from_unix_epoch("timestamp-millis", column_name, t, MILLIS_PER_SEC)
         }
+        LocalTimestampMillis(t) if allow_string_repr => {
+            timestamp_from_unix_epoch("local-timestamp-millis", column_name, t, MILLIS_PER_SEC)
+        }
         TimestampMicros(t) if allow_string_repr => {
             timestamp_from_unix_epoch("timestamp-micros", column_name, t, MICROS_PER_SEC)
+        }
+        LocalTimestampMicros(t) if allow_string_repr => {
+            timestamp_from_unix_epoch("local-timestamp-micros", column_name, t, MICROS_PER_SEC)
         }
         // If !allow_string_repr, then all the date values will be converted directly to json
         // numbers. This allows users to handle any conversions themselves, by disallowing string
         // types in their json schema.
         Date(i) | TimeMillis(i) => Ok(Value::Number(i.into())),
-        TimeMicros(i) | TimestampMicros(i) | TimestampMillis(i) => Ok(Value::Number(i.into())),
+        TimeMicros(i)
+        | TimestampMicros(i)
+        | LocalTimestampMicros(i)
+        | TimestampMillis(i)
+        | LocalTimestampMillis(i) => Ok(Value::Number(i.into())),
 
         Duration(avro_dur) => {
             // avro durations are really weird. We always convert them to json objects, since
@@ -198,7 +208,7 @@ fn avro_to_json(
             }))
         }
         Uuid(uuid) => Ok(Value::String(uuid.to_string())),
-        // The decimal type in avro_rs does't allow access to the underlying value (which seems
+        // The decimal type in apache_avro does't allow access to the underlying value (which seems
         // like a bug). So we just use the built-in converstion, which results in a json array of
         // the underlying byte values. It probably doesn't matter much, since probably not many
         // people are using these anyway.
@@ -264,7 +274,7 @@ fn timestamp_from_unix_epoch(
 #[cfg(test)]
 mod test {
     use super::*;
-    use avro_rs::{types::Record, Writer};
+    use apache_avro::{types::Record, Writer};
 
     #[test]
     fn test_to_secs_and_nanos() {
@@ -288,7 +298,7 @@ mod test {
 
     #[test]
     fn test_conversion_of_avro_logical_types() {
-        let schema = avro_rs::Schema::parse_str(
+        let schema = apache_avro::Schema::parse_str(
             r#"{
                 "name": "therecord",
                 "type": "record",
