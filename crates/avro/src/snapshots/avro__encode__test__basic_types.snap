@@ -1,0 +1,332 @@
+---
+source: crates/avro/src/encode.rs
+expression: "json!({ \"key\": &key, \"value\": &value, })"
+---
+{
+  "key": {
+    "fields": [
+      {
+        "name": "_flow_key",
+        "type": {
+          "fields": [
+            {
+              "name": "p1",
+              "type": "long"
+            },
+            {
+              "default": 42,
+              "name": "p2",
+              "type": "long"
+            },
+            {
+              "name": "p3",
+              "type": {
+                "logicalType": "date",
+                "type": "int"
+              }
+            },
+            {
+              "name": "p4",
+              "type": {
+                "logicalType": "uuid",
+                "type": "string"
+              }
+            }
+          ],
+          "name": "Parts",
+          "namespace": "root.Key",
+          "type": "record"
+        }
+      }
+    ],
+    "name": "Key",
+    "namespace": "root",
+    "type": "record"
+  },
+  "value": {
+    "fields": [
+      {
+        "name": "a",
+        "type": [
+          {
+            "fields": [
+              {
+                "name": "json",
+                "type": "string"
+              }
+            ],
+            "name": "RawJSON",
+            "namespace": "root.a",
+            "type": "record"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "b",
+        "type": "boolean"
+      },
+      {
+        "name": "c1_neg",
+        "type": [
+          "long",
+          "null"
+        ]
+      },
+      {
+        "name": "c2_pos",
+        "type": "long"
+      },
+      {
+        "default": 42,
+        "name": "c3_def",
+        "type": "long"
+      },
+      {
+        "name": "d1_neg",
+        "type": [
+          "double",
+          "null"
+        ]
+      },
+      {
+        "name": "d2_pos",
+        "type": [
+          "double",
+          "null"
+        ]
+      },
+      {
+        "name": "d3_f64",
+        "type": [
+          "double",
+          "null"
+        ]
+      },
+      {
+        "name": "d4_str",
+        "type": [
+          "double",
+          "null"
+        ]
+      },
+      {
+        "name": "e1_str",
+        "type": "string"
+      },
+      {
+        "default": "the-default",
+        "name": "e2_str_def",
+        "type": "string"
+      },
+      {
+        "name": "e4_pos_int",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      {
+        "name": "e5_neg_int",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      {
+        "name": "e6_int_str",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      {
+        "name": "f",
+        "type": [
+          {
+            "logicalType": "date",
+            "type": "int"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "g",
+        "type": [
+          {
+            "logicalType": "duration",
+            "type": {
+              "name": "duration",
+              "size": 12,
+              "type": "fixed"
+            }
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "h",
+        "type": [
+          {
+            "logicalType": "timestamp-micros",
+            "type": "long"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "i",
+        "type": [
+          {
+            "logicalType": "uuid",
+            "type": "string"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "j",
+        "type": {
+          "fields": [
+            {
+              "name": "json",
+              "type": "string"
+            }
+          ],
+          "name": "RawJSON",
+          "namespace": "root.j",
+          "type": "record"
+        }
+      },
+      {
+        "name": "k",
+        "type": [
+          {
+            "type": "map",
+            "values": "long"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "l",
+        "type": [
+          {
+            "items": "boolean",
+            "type": "array"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "m1_with_addl",
+        "type": {
+          "items": {
+            "fields": [
+              {
+                "name": "d",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              {
+                "name": "f",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              {
+                "name": "_flow_extra",
+                "type": {
+                  "type": "map",
+                  "values": [
+                    {
+                      "fields": [
+                        {
+                          "name": "json",
+                          "type": "string"
+                        }
+                      ],
+                      "name": "RawJSON",
+                      "namespace": "root.m1_with_addl._items._flow_extra",
+                      "type": "record"
+                    },
+                    "null"
+                  ]
+                }
+              }
+            ],
+            "name": "_items",
+            "namespace": "root.m1_with_addl",
+            "type": "record"
+          },
+          "type": "array"
+        }
+      },
+      {
+        "name": "m2_disallowed_field",
+        "type": [
+          {
+            "fields": [
+              {
+                "name": "_flow_extra",
+                "type": {
+                  "type": "map",
+                  "values": "boolean"
+                }
+              }
+            ],
+            "name": "m2_disallowed_field",
+            "namespace": "root",
+            "type": "record"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "m2_no_addl",
+        "type": [
+          {
+            "fields": [
+              {
+                "name": "d",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            ],
+            "name": "m2_no_addl",
+            "namespace": "root",
+            "type": "record"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "_flow_extra",
+        "type": {
+          "type": "map",
+          "values": [
+            {
+              "fields": [
+                {
+                  "name": "json",
+                  "type": "string"
+                }
+              ],
+              "name": "RawJSON",
+              "namespace": "root._flow_extra",
+              "type": "record"
+            },
+            "null"
+          ]
+        }
+      }
+    ],
+    "name": "root",
+    "type": "record"
+  }
+}

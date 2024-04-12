@@ -1,0 +1,39 @@
+---
+source: crates/avro/src/encode.rs
+expression: recovered
+---
+Record(
+    [
+        (
+            "_flow_key",
+            Record(
+                [
+                    (
+                        "p1",
+                        Long(
+                            9223372036854775807,
+                        ),
+                    ),
+                    (
+                        "p2",
+                        Long(
+                            42,
+                        ),
+                    ),
+                    (
+                        "p3",
+                        Date(
+                            19122,
+                        ),
+                    ),
+                    (
+                        "p4",
+                        Uuid(
+                            a0b0c0d0-1000-2000-3000-400000000000,
+                        ),
+                    ),
+                ],
+            ),
+        ),
+    ],
+)
