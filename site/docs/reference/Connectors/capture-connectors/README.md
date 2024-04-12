@@ -144,6 +144,9 @@ The versions made available in Flow have been adapted for compatibility.
 * Hubspot
   * [Configuration](./hubspot.md)
   * Package - ghcr.io/estuary/source-hubspot:dev
+* Hubspot (Real-Time)
+  * [Configuration](./hubspot-real-time.md)
+  * Package - ghcr.io/estuary/source-hubspot-native:dev
 * Instagram
   * [Configuration](./instagram.md)
   * Package - ghcr.io/estuary/source-instagram:dev
