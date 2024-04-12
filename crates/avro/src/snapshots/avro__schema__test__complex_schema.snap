@@ -1,0 +1,242 @@
+---
+source: crates/avro/src/schema.rs
+expression: "schema_test(&fixture, &key)"
+---
+{
+  "key": {
+    "fields": [
+      {
+        "name": "_flow_key",
+        "type": {
+          "fields": [
+            {
+              "name": "p1",
+              "type": "boolean"
+            },
+            {
+              "name": "p2",
+              "type": [
+                {
+                  "fields": [
+                    {
+                      "name": "json",
+                      "type": "string"
+                    }
+                  ],
+                  "name": "RawJSON",
+                  "namespace": "root.Key.Parts.p2",
+                  "type": "record"
+                },
+                "null"
+              ]
+            }
+          ],
+          "name": "Parts",
+          "namespace": "root.Key",
+          "type": "record"
+        }
+      }
+    ],
+    "name": "Key",
+    "namespace": "root",
+    "type": "record"
+  },
+  "value": {
+    "fields": [
+      {
+        "name": "a_bool",
+        "type": "boolean"
+      },
+      {
+        "name": "a_date",
+        "type": {
+          "logicalType": "date",
+          "type": "int"
+        }
+      },
+      {
+        "name": "a_date_time",
+        "type": [
+          {
+            "logicalType": "timestamp-micros",
+            "type": "long"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "a_duration",
+        "type": [
+          {
+            "logicalType": "duration",
+            "type": {
+              "name": "duration",
+              "size": 12,
+              "type": "fixed"
+            }
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "a_fractional",
+        "type": [
+          "double",
+          "null"
+        ]
+      },
+      {
+        "name": "a_integer_like",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      {
+        "name": "a_null",
+        "type": [
+          {
+            "fields": [
+              {
+                "name": "json",
+                "type": "string"
+              }
+            ],
+            "name": "RawJSON",
+            "namespace": "root.a_null",
+            "type": "record"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "a_number_like",
+        "type": [
+          "double",
+          "null"
+        ]
+      },
+      {
+        "name": "a_number_like_mixed1",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      {
+        "name": "a_number_like_mixed2",
+        "type": [
+          "double",
+          "null"
+        ]
+      },
+      {
+        "default": "xyz",
+        "name": "a_str",
+        "type": "string"
+      },
+      {
+        "default": 32,
+        "name": "an_int",
+        "type": "long"
+      },
+      {
+        "name": "arr_items",
+        "type": [
+          {
+            "items": "boolean",
+            "type": "array"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "arr_tuple",
+        "type": [
+          {
+            "items": "double",
+            "type": "array"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "arr_tuple_items",
+        "type": [
+          {
+            "items": "double",
+            "type": "array"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "map",
+        "type": [
+          {
+            "type": "map",
+            "values": "boolean"
+          },
+          "null"
+        ]
+      },
+      {
+        "name": "obj",
+        "type": {
+          "fields": [
+            {
+              "name": "bar",
+              "type": {
+                "fields": [
+                  {
+                    "name": "a_const",
+                    "type": "long"
+                  },
+                  {
+                    "name": "_flow_extra",
+                    "type": {
+                      "type": "map",
+                      "values": "string"
+                    }
+                  }
+                ],
+                "name": "bar",
+                "namespace": "root.obj",
+                "type": "record"
+              }
+            },
+            {
+              "name": "foo",
+              "type": "boolean"
+            }
+          ],
+          "name": "obj",
+          "namespace": "root",
+          "type": "record"
+        }
+      },
+      {
+        "name": "_flow_extra",
+        "type": {
+          "type": "map",
+          "values": [
+            {
+              "fields": [
+                {
+                  "name": "json",
+                  "type": "string"
+                }
+              ],
+              "name": "RawJSON",
+              "namespace": "root._flow_extra",
+              "type": "record"
+            },
+            "null"
+          ]
+        }
+      }
+    ],
+    "name": "root",
+    "type": "record"
+  }
+}
