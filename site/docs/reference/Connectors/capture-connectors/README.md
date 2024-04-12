@@ -47,6 +47,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * HTTP ingest (webhook)
   * [Configuration](./http-ingest.md)
   * Package - ghcr.io/estuary/source-http-ingest:dev
+* Hubspot (Real-Time)
+  * [Configuration](./hubspot-real-time.md)
+  * Package - ghcr.io/estuary/source-hubspot-native:dev
 * MariaDB
   * [Configuration](./MariaDB/)
   * Package - ghcr.io/estuary/source-mariadb:dev
