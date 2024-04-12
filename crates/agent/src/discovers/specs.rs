@@ -413,7 +413,7 @@ mod tests {
 
         let out = super::merge_collections(discovered_bindings, fetched_collections, targets);
 
-        insta::assert_display_snapshot!(serde_json::to_string_pretty(&out).unwrap());
+        insta::assert_snapshot!(serde_json::to_string_pretty(&out).unwrap());
     }
 
     #[test]

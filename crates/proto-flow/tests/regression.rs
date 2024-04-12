@@ -804,179 +804,179 @@ fn proto_test<M: prost::Message + PartialEq + std::fmt::Debug + Default>(msg: M)
 #[test]
 fn test_collection_spec_json() {
     let msg = ex_collection_spec();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_collection_spec_proto() {
     let msg = ex_collection_spec();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_capture_spec_json() {
     let msg = ex_capture_spec();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_capture_spec_proto() {
     let msg = ex_capture_spec();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_derivation_spec_json() {
     let msg = ex_derivation_spec();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_derivation_spec_proto() {
     let msg = ex_derivation_spec();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_materialization_spec_json() {
     let msg = ex_materialization_spec();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_materialization_spec_proto() {
     let msg = ex_materialization_spec();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_test_spec_json() {
     let msg = ex_test_spec();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_test_spec_proto() {
     let msg = ex_test_spec();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_oauth2_json() {
     let msg = ex_oauth2();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_oauth2_proto() {
     let msg = ex_oauth2();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_shard_labeling_json() {
     let msg = ex_shard_labeling();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_shard_labeling_proto() {
     let msg = ex_shard_labeling();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_log_json() {
     let msg = ex_log();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_log_proto() {
     let msg = ex_log();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_stats_json() {
     let msg = ex_stats();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_stats_proto() {
     let msg = ex_stats();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_capture_request_json() {
     let msg = ex_capture_request();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_capture_request_proto() {
     let msg = ex_capture_request();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_capture_response_json() {
     let msg = ex_capture_response();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_capture_response_proto() {
     let msg = ex_capture_response();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_derive_request_json() {
     let msg = ex_derive_request();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_derive_request_proto() {
     let msg = ex_derive_request();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_derive_response_json() {
     let msg = ex_derive_response();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_derive_response_proto() {
     let msg = ex_derive_response();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_materialize_request_json() {
     let msg = ex_materialize_request();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_materialize_request_proto() {
     let msg = ex_materialize_request();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }
 
 #[test]
 fn test_materialize_response_json() {
     let msg = ex_materialize_response();
-    insta::assert_display_snapshot!(json_test(msg));
+    insta::assert_snapshot!(json_test(msg));
 }
 
 #[test]
 fn test_materialize_response_proto() {
     let msg = ex_materialize_response();
-    insta::assert_display_snapshot!(proto_test(msg));
+    insta::assert_snapshot!(proto_test(msg));
 }

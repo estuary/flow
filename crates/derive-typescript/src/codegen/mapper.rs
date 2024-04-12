@@ -306,6 +306,6 @@ mod test {
             w.push_str("\n\n");
         }
 
-        insta::assert_display_snapshot!(w);
+        insta::assert_snapshot!(w);
     }
 }
