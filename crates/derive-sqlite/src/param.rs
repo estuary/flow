@@ -148,19 +148,19 @@ mod test {
             );
         }
 
-        insta::assert_display_snapshot!(
+        insta::assert_snapshot!(
             Param::resolve("$simplee", &params).unwrap_err(),
             @"parameter $simplee not found: did you mean $Simple ?");
 
-        insta::assert_display_snapshot!(
+        insta::assert_snapshot!(
             Param::resolve("$with$nesting", &params).unwrap_err(),
             @"parameter $with$nesting not found: did you mean $With$Nesting ?");
 
-        insta::assert_display_snapshot!(
+        insta::assert_snapshot!(
             Param::resolve("$With$Nesting$and_special_hyphen", &params).unwrap_err(),
             @"parameter $With$Nesting$and_special_hyphen not found: did you mean $p::(With/Nesting/and+special-hyphen) ?");
 
-        insta::assert_display_snapshot!(
+        insta::assert_snapshot!(
             Param::resolve("$way_off", &params).unwrap_err(),
             @"parameter $way_off not found: did you mean $Simple ?");
     }
