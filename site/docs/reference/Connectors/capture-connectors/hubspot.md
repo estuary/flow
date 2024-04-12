@@ -5,6 +5,8 @@ sidebar_position: 3
 
 This connector captures data from a Hubspot account.
 
+Estuary offers a in-house real time version of this connector. For more information take a look at our [HubSpot Real-Time](/reference/Connectors/capture-connectors/hubspot-real-time.md) docs.
+
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-hubspot:dev`](https://ghcr.io/estuary/source-hubspot:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
@@ -50,7 +52,7 @@ The following data resources are supported for pro accounts (set **Subscription 
 
 ## Prerequisites
 
-There are two ways to authenticate with Hubspot when capturing data: using OAuth2, and manually, with a private app access token.
+There are two ways to authenticate with Hubspot when capturing data: using OAuth2 or with a private app access token.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
