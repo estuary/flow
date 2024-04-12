@@ -327,7 +327,7 @@ mod test {
                 |row| row.get(0),
             )
             .unwrap();
-        insta::assert_display_snapshot!(fixture_content, @r###"[{"id":4,"value":"hello"},{"id":5,"value":"updated"},{"thing":"hi","other":32},{"thing":"there","other":32},{"thing":"bye","other":42}]"###);
+        insta::assert_snapshot!(fixture_content, @r###"[{"id":4,"value":"hello"},{"id":5,"value":"updated"},{"thing":"hi","other":32},{"thing":"there","other":32},{"thing":"bye","other":42}]"###);
     }
 
     #[test]
@@ -377,6 +377,6 @@ mod test {
         ]
         "###);
 
-        insta::assert_display_snapshot!(sql_block_to_statements("select 1; \0 select 2;").unwrap_err(), @"SQL block contains illegal NULL characters");
+        insta::assert_snapshot!(sql_block_to_statements("select 1; \0 select 2;").unwrap_err(), @"SQL block contains illegal NULL characters");
     }
 }
