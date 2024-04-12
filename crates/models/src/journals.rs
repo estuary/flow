@@ -408,6 +408,8 @@ lazy_static! {
 
 #[cfg(test)]
 mod test {
+    use schemars::gen::SchemaGenerator;
+
     use super::*;
 
     #[test]
@@ -499,5 +501,16 @@ mod test {
             "s3://test-bucket/test/?profile=testTenant&endpoint=http%3A%2F%2Fcanary.test%3A1234",
             &actual_url
         );
+    }
+
+    // The main catalog schema does not include storage definitions. This test ensures that the
+    // storage schemas are available in the snapshot and up-to-date, since we need them for the UI.
+    #[test]
+    fn storage_schemas() {
+        let mut settings = schemars::gen::SchemaSettings::draft2019_09();
+        settings.option_add_null_type = false;
+        let schema_gen = SchemaGenerator::new(settings);
+        let schema = schema_gen.into_root_schema_for::<StorageDef>();
+        insta::assert_json_snapshot!("storage-json-schema", schema);
     }
 }
