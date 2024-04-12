@@ -73,6 +73,8 @@ local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve
 local_resource('agent', serve_cmd='%s/flow/.build/package/bin/agent \
     --connector-network supabase_network_flow \
     --allow-local \
+    --broker-address http://localhost:8080 \
+    --consumer-address=http://localhost:9000 \
     --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, REPO_BASE),
     deps=[],
     resource_deps=['reactor', 'gazette'])
