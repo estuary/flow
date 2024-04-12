@@ -1,4 +1,4 @@
-# HubSpot ( Incremental )
+# HubSpot ( Real-Time )
 
 This connector captures data from HubSpot into Flow collections.
 
@@ -69,7 +69,7 @@ To create a private app in HubSpot and generate its access token, do the followi
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the HubSpot Incremental connector.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the HubSpot Real-Time connector.
 
 #### Endpoint
 
