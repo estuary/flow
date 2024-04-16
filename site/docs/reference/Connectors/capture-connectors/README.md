@@ -32,6 +32,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * Apache Kafka
   * [Configuration](./apache-kafka.md)
   * Package — ghcr.io/estuary/source-kafka:dev
+* Azure Blob Storage
+  * [Configuration](./azure-blob-storage.md)
+  * Package — ghcr.io/estuary/azure-blob-storage:dev
 * BigQuery
   * [Configuration](./bigquery-batch.md)
   * Package — ghcr.io/estuary/source-bigquery-batch:dev
