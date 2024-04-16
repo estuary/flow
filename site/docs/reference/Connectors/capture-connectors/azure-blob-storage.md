@@ -79,7 +79,7 @@ captures:
             azureSubscriptionID: f1a5bc81-aaaa-bbbb-cccc-b926c154ecc7
             azureTenantID: d494a2c6-aaaa-bbbb-cccc-ef1e5eaa64a6
             storageAccountName: example
-	      parser:
+          parser:
             compression: zip
             format:
               type: csv
