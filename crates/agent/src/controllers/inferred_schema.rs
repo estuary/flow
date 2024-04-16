@@ -1,13 +1,12 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::controllers::publication_status::{PublicationHistory, PublicationStatus};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tables::SpecRow;
 
 use super::{
-    jittered_next_run, ControlJob, ControlPlane, ControllerState, ControllerUpdate, NextRun,
-    PublicationResult,
+    ControlJob, ControlPlane, ControllerState, ControllerUpdate, NextRun, PublicationResult,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -36,26 +35,6 @@ impl InferredSchemaStatus {
             .max(min_backoff_minutes)
             .min(90);
         NextRun::after_minutes(after_minutes as u32).with_jitter_percent(25)
-    }
-
-    fn initial(
-        collection_name: &str,
-        schema_md5: Option<String>,
-        publication: &PublicationResult,
-    ) -> InferredSchemaStatus {
-        // let mut consumers = BTreeMap::new();
-        let pub_status = PublicationStatus::observed(publication);
-        // for (consumer_name, _, _) in publication.consumers_of(collection_name) {
-        //     consumers.insert(
-        //         consumer_name.to_string(),
-        //         ConsumerStatus::new(schema_md5.clone(), pub_status.clone()),
-        //     );
-        // }
-        InferredSchemaStatus {
-            schema_last_updated: publication.completed_at,
-            schema_md5,
-            publications: PublicationHistory::initial(pub_status),
-        }
     }
 
     fn is_publication_pending(&self) -> bool {
@@ -109,10 +88,6 @@ fn get_inferred_schema_md5(collection: &str, publication: &PublicationResult) ->
         .iter()
         .find(|p| p.collection_name == collection)
         .map(|s| s.md5.clone())
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
 }
 
 pub struct InferredSchemaController;

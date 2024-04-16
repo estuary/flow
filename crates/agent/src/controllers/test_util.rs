@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use chrono::{DateTime, Utc};
-use rand::RngCore;
 use serde::Serialize;
 use serde_json::Value;
 use tables::Id;
@@ -10,15 +9,6 @@ use tables::Id;
 use crate::publications;
 
 use super::{ControlJob, ControlPlane, ControllerState, ControllerUpdate, PublicationResult};
-
-pub fn id_of(id: &str) -> Id {
-    id.parse().expect("invalid id str")
-}
-
-pub fn random_id() -> Id {
-    let bytes = rand::thread_rng().next_u64().to_le_bytes();
-    Id::new(bytes)
-}
 
 fn mock_inferred_schema(collection_name: &str, num_properties: usize) -> tables::InferredSchema {
     let properties = (0..num_properties)
@@ -42,16 +32,6 @@ pub fn md5_hash<T: serde::Serialize>(val: &T) -> String {
     let s = serde_json::to_string(val).unwrap();
     let bytes = md5::compute(s);
     format!("{bytes:x}")
-}
-
-pub fn redact_next_run() -> insta::internals::Redaction {
-    use insta::internals::Content;
-
-    insta::dynamic_redaction(|value, _| match value {
-        Content::None => Content::String("redacted(None)".to_string()),
-        Content::Some(_) => Content::String("redacted(Some)".to_string()),
-        other => panic!("invalid next_run value: {other:?}"),
-    })
 }
 
 pub fn draft_of(catalog_json: Value) -> tables::Catalog {
@@ -169,8 +149,6 @@ pub struct Harness<C: ControlJob> {
     controller: C,
     control_plane: MockControlPlane,
 
-    last_pub_info: Option<PublicationInfo<C>>,
-
     states: BTreeMap<String, ControllerState<C::Status>>,
     rt: tokio::runtime::Runtime,
 }
@@ -181,18 +159,11 @@ impl<C: ControlJob> Harness<C> {
         Harness {
             controller,
             control_plane: MockControlPlane::new(time),
-            last_pub_info: None,
             states: BTreeMap::new(),
             rt: tokio::runtime::Builder::new_current_thread()
                 .build()
                 .unwrap(),
         }
-    }
-
-    pub fn last_pub_info(&self) -> &PublicationInfo<C> {
-        self.last_pub_info
-            .as_ref()
-            .expect("no publication was observed")
     }
 
     pub fn update_inferred_schema(&mut self, collection_name: &str, schema_generation: usize) {
@@ -363,39 +334,11 @@ impl<C: ControlJob> Harness<C> {
     }
 
     fn apply_updates(&mut self, updates: &BTreeMap<String, ControllerUpdate<C::Status>>) {
-        let time = self.control_plane.time;
         for (name, update) in updates.iter() {
             self.apply_state_update(name.as_str(), update);
         }
     }
 }
-
-macro_rules! assert_update_snapshot {
-    ($snapshot_name:expr, $info:expr, $value:expr) => {
-        insta::with_settings!({ info => $info }, {
-            insta::assert_json_snapshot!($snapshot_name, $value);
-        })
-    }
-}
-pub(crate) use assert_update_snapshot;
-
-macro_rules! assert_observed_publication_snapshot {
-    ($snapshot_name:expr, $pub_info:expr, $updates:expr) => {
-        // let mut settings = insta::Settings::clone_current();
-        // let info = $harness.last_pub_info();
-        // settings.set_info(info);
-        // let guard = settings.bind_to_scope();
-        insta::with_settings!({ info => $pub_info }, {
-            insta::assert_json_snapshot!($snapshot_name, $updates);
-        })
-
-        // insta::assert_json_snapshot!($snapshot_name, $updates, {
-        //     ".*.next_run" => redact_next_run(),
-        // });
-        // std::mem::drop(guard);
-    };
-}
-pub(crate) use assert_observed_publication_snapshot;
 
 fn pub_id(counter: u8) -> Id {
     Id::new([counter, 0, 0, 0, 0, 0, 0, 0])
@@ -421,6 +364,7 @@ impl MockControlPlane {
         }
     }
 
+    // TODO: assign spec IDs using a counter.
     fn update_live_specs(&mut self, mut draft: tables::Catalog, pub_id: Id) {
         let live = &mut self.live;
         for capture in draft.captures.iter_mut() {
