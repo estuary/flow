@@ -18,27 +18,7 @@ pub struct PublicationStatus {
 }
 
 impl PublicationStatus {
-    pub fn is_success(&self) -> bool {
-        // TODO: should EmptyDraft be considered successful?
-        self.result.as_ref().is_some_and(|s| s.is_success())
-    }
-
-    pub fn is_incompatible_collection_error(
-        &self,
-        collection_name: &str,
-    ) -> Option<Vec<publications::builds::AffectedConsumer>> {
-        match &self.result {
-            Some(publications::JobStatus::BuildFailed {
-                incompatible_collections,
-                ..
-            }) => incompatible_collections
-                .iter()
-                .find(|ic| ic.collection == collection_name)
-                .map(|ic| ic.affected_materializations.clone()),
-            _ => None,
-        }
-    }
-
+    /// Returns a status for a newly created publication that is still pending.
     pub fn created(id: Id, time: DateTime<Utc>) -> Self {
         PublicationStatus {
             id,
@@ -48,6 +28,7 @@ impl PublicationStatus {
         }
     }
 
+    /// Creates a status for a publication that has just completed.
     pub fn observed(publication: &PublicationResult) -> Self {
         PublicationStatus {
             id: publication.publication_id,
@@ -57,11 +38,15 @@ impl PublicationStatus {
         }
     }
 
+    /// Updates the status with the result of a publication that has just completed.
+    /// Panics if the id of the publication does not match the id of this status.
     pub fn with_update(mut self, publication: PublicationStatus) -> Self {
         self.update(publication);
         self
     }
 
+    /// Updates the status with the result of a publication that has just completed.
+    /// Panics if the id of the publication does not match the id of this status.
     pub fn update(&mut self, publication: PublicationStatus) {
         assert_eq!(
             self.id, publication.id,
@@ -72,6 +57,8 @@ impl PublicationStatus {
     }
 }
 
+/// A controller status showing the history of publications that have been created or observed.
+/// Note that failed publications are not recorded here if they were not created by the controller.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PublicationHistory {
     pub pending: Option<PublicationStatus>,
@@ -90,6 +77,7 @@ impl PublicationHistory {
         }
     }
 
+    /// Returns true if the given publication is currently pending.
     pub fn is_pending(&self, publication_id: Id) -> bool {
         self.pending.iter().any(|p| p.id == publication_id)
     }

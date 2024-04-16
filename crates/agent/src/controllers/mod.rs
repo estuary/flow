@@ -5,15 +5,12 @@ mod publication_status;
 #[cfg(test)]
 pub mod test_util;
 
-use chrono::{DateTime, Duration, Utc};
-use itertools::EitherOrBoth;
-use itertools::Itertools;
+use chrono::{DateTime, Utc};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
 };
-use tables::AnySpec;
 
 // TODO: move PublicationResult into publications module
 /// Represents a publication that is just completing.
@@ -30,25 +27,6 @@ pub struct PublicationResult {
     /// The final status of the publication. Note that this is not neccessarily `Success`,
     /// even if there are no `errors`.
     pub publication_status: crate::publications::JobStatus,
-}
-
-impl PublicationResult {
-    // TODO: it might be better to convert into a `models::Catalog` and then define this sort of function for that type
-    // pub fn to_final_catalog(&self) -> models::Catalog
-    // TODO: this function assumes that the publication was successful
-    // pub fn consumers_of<'a, 'b: 'a>(
-    //     &'a self,
-    //     collection_name: &'b str,
-    // ) -> impl Iterator<Item = (&'a str, Option<AnySpec<'a>>, Option<AnySpec<'a>>)> + 'a {
-    //     self.draft
-    //         .consumers_of(collection_name)
-    //         .merge_join_by(self.live.consumers_of(collection_name), |l, r| l.0.cmp(r.0))
-    //         .map(move |eob| match eob {
-    //             EitherOrBoth::Left((name, spec)) => (name, Some(spec), None),
-    //             EitherOrBoth::Right((name, spec)) => (name, None, Some(spec)),
-    //             EitherOrBoth::Both((name, drafted), (_, live)) => (name, Some(drafted), Some(live)),
-    //         })
-    // }
 }
 
 /// Represents the state of a specific controller and catalog_name.
@@ -97,7 +75,7 @@ impl NextRun {
     pub fn compute_time(&self) -> DateTime<Utc> {
         use rand::Rng;
 
-        let mut delta_millis = self.after_seconds as i64 * 1000;
+        let delta_millis = self.after_seconds as i64 * 1000;
 
         let jitter_mul = self.jitter_percent as f64 / 100.0;
         let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
@@ -139,22 +117,12 @@ impl<T: Debug + Serialize + DeserializeOwned + Clone> ControllerUpdate<T> {
         self
     }
 
-    pub fn set_next_run(&mut self, next_run: Option<NextRun>) -> &mut Self {
-        self.next_run = next_run;
-        self
-    }
-
     pub fn with_next_run(mut self, next_run: NextRun) -> Self {
         self.next_run = Some(next_run);
         self
     }
 
     pub fn with_status(mut self, status: T) -> Self {
-        self.status = Some(status);
-        self
-    }
-
-    pub fn set_status(&mut self, status: T) -> &mut Self {
         self.status = Some(status);
         self
     }
@@ -239,12 +207,4 @@ fn set_of(s: &str) -> BTreeSet<String> {
     let mut set = BTreeSet::new();
     set.insert(s.to_owned());
     set
-}
-
-fn jittered_next_run(base: Duration, add_multiplier: f64) -> DateTime<Utc> {
-    use rand::Rng;
-
-    let max_jitter = (base.num_seconds() as f64 * add_multiplier) as i64;
-    let add_secs = rand::thread_rng().gen_range(0..=max_jitter);
-    Utc::now() + (base + chrono::Duration::seconds(add_secs))
 }

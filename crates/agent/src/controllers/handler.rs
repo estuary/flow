@@ -2,7 +2,7 @@ use agent_sql::controllers::{dequeue, upsert, ControllerJob};
 use anyhow::Context;
 use chrono::Utc;
 use rand::Rng;
-use serde_json::{value::RawValue, Value};
+use serde_json::Value;
 
 use crate::{HandleResult, Handler};
 
@@ -103,7 +103,7 @@ fn backoff_next_run(failures: i32) -> Option<chrono::DateTime<Utc>> {
 
 async fn run_controller(
     job: &ControllerJob,
-    txn: &mut sqlx::Transaction<'static, sqlx::Postgres>,
+    _txn: &mut sqlx::Transaction<'static, sqlx::Postgres>,
 ) -> anyhow::Result<ControllerUpdate<Value>> {
     match job.controller.as_str() {
         "AutoDiscover" => Err(anyhow::anyhow!(
