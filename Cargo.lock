@@ -92,6 +92,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tables",
  "tokio",
  "tracing",
 ]

@@ -2,8 +2,6 @@ use std::{fmt::Debug, str::FromStr};
 
 use crate::Column;
 
-/// Copied from crates/agent-sql/src/id.rs
-/// TODO: move Id type to common crate
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; 8]);
 
@@ -22,6 +20,10 @@ impl Id {
             .map_err(|_| hex::FromHexError::InvalidStringLength)?;
 
         Ok(Id(exact))
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
     }
 }
 
