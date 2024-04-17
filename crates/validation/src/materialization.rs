@@ -133,6 +133,7 @@ pub async fn walk_all_materializations(
                     priority,
                     resource: _,
                     backfill: _,
+                    on_incompatible_schema_change: _,
                 } = binding_models[binding_index];
 
                 let field_selection = Some(walk_materialization_response(
@@ -328,6 +329,7 @@ fn walk_materialization_binding<'a>(
         disable: _,
         priority: _,
         backfill,
+        on_incompatible_schema_change: _,
     } = binding;
 
     let (collection, source_partitions) = match source {
