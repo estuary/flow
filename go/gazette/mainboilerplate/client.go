@@ -3,6 +3,7 @@ package mainboilerplate
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -23,6 +24,14 @@ func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
 	var cc, err = grpc.DialContext(ctx,
 		c.Address.GRPCAddr(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// A single Gazette broker frequently serves LOTS of Journals.
+		// Readers will start many concurrent reads of various journals,
+		// but may process them in arbitrary orders, which means a journal
+		// stream could be "readable" and have available stream-level flow control,
+		// but still not send data because the connection-level flow control window
+		// is filled. So, effectively disable connection-level flow control and use
+		// only stream-level flow control.
+		grpc.WithInitialConnWindowSize(math.MaxInt32),
 		grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, pb.DispatcherGRPCBalancerName)),
 		// Use a tighter bound for the maximum back-off delay (default is 120s).
 		// TODO(johnny): Make this configurable?
