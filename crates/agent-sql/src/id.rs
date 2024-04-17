@@ -3,34 +3,35 @@ use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 /// Id is the Rust equivalent of the Postgres `flowid` type domain.
 /// It's a fixed 8-byte payload which is represented in hexadecimal notation.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id([u8; 8]);
+pub struct Id(tables::Id);
+
+impl Into<tables::Id> for Id {
+    fn into(self) -> tables::Id {
+        self.0
+    }
+}
 
 impl Id {
     pub fn is_zero(&self) -> bool {
-        self.0 == [0u8; 8]
+        self.0.is_zero()
     }
     pub fn new(b: [u8; 8]) -> Self {
-        Self(b)
+        Self(tables::Id::new(b))
     }
     pub fn from_hex<T: AsRef<[u8]>>(hex: T) -> Result<Self, hex::FromHexError> {
-        let vec_bytes = hex::decode(hex)?;
-        let exact: [u8; 8] = vec_bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| hex::FromHexError::InvalidStringLength)?;
-
-        Ok(Id(exact))
+        let id = tables::Id::from_hex(hex)?;
+        Ok(Id(id))
     }
 }
 
 impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:016x}", i64::from_be_bytes(self.0))
+        std::fmt::Display::fmt(&self.0, f)
     }
 }
 impl std::fmt::Debug for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <Self as std::fmt::Display>::fmt(self, f)
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 impl serde::Serialize for Id {
@@ -70,7 +71,7 @@ impl sqlx::postgres::PgHasArrayType for Id {
 
 impl Encode<'_, postgres::Postgres> for Id {
     fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
-        buf.extend_from_slice(&self.0);
+        buf.extend_from_slice(self.0.as_slice());
         sqlx::encode::IsNull::No
     }
 }
@@ -80,6 +81,7 @@ impl Encode<'_, postgres::Postgres> for Id {
 //  https://github.com/launchbadge/sqlx/issues/1758
 impl Decode<'_, postgres::Postgres> for Id {
     fn decode(value: postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
-        <i64 as Decode<'_, postgres::Postgres>>::decode(value).map(|i| Self(i.to_be_bytes()))
+        <i64 as Decode<'_, postgres::Postgres>>::decode(value)
+            .map(|i| Self(tables::Id::new(i.to_be_bytes())))
     }
 }
