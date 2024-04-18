@@ -170,6 +170,21 @@ async fn check_bucket_access(
                     ; region conf.region.as_ref()),
             ),
             (
+                "get object",
+                // Copy to stdout to avoid needing to cleanup a temp file.
+                // Don't use /dev/null because the cli will exit non-zero even when it gets the file successfully.
+                check_command!(
+                    "aws",
+                    "s3",
+                    "cp",
+                    without_query(conf.as_url())
+                        .join(TEST_FILENAME)?
+                        .to_string(),
+                    "/dev/stdout"
+                    ; region conf.region.as_ref()
+                ),
+            ),
+            (
                 "delete object",
                 check_command!(
                     "aws",
@@ -201,6 +216,17 @@ async fn check_bucket_access(
                     "storage",
                     "ls",
                     without_query(conf.as_url()).to_string()
+                ),
+            ),
+            (
+                "get object",
+                check_command!(
+                    "gcloud",
+                    "storage",
+                    "cat",
+                    without_query(conf.as_url())
+                        .join(TEST_FILENAME)?
+                        .to_string()
                 ),
             ),
             (
