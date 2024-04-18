@@ -238,6 +238,27 @@ impl<'a, T: NamedRow> NamedRow for &'a T {
     }
 }
 
+impl NamedRow for BuiltCapture {
+    fn name(&self) -> &str {
+        &self.capture
+    }
+}
+impl NamedRow for BuiltCollection {
+    fn name(&self) -> &str {
+        &self.collection
+    }
+}
+impl NamedRow for BuiltMaterialization {
+    fn name(&self) -> &str {
+        &self.materialization
+    }
+}
+impl NamedRow for BuiltTest {
+    fn name(&self) -> &str {
+        &self.test
+    }
+}
+
 spec_row! {Collection, models::CollectionDef, collection}
 spec_row! {Capture, models::CaptureDef, capture}
 spec_row! {Materialization, models::MaterializationDef, materialization}
@@ -476,7 +497,7 @@ impl Catalog {
     }
 }
 
-fn scope_for(catalog_type: &str, catalog_name: &str) -> url::Url {
+pub fn synthetic_scope(catalog_type: &str, catalog_name: &str) -> url::Url {
     // TODO: sanitize catalog_name to make this infallible
     url::Url::parse(&format!("flow://{catalog_type}/{catalog_name}")).unwrap()
 }
@@ -493,7 +514,7 @@ impl From<models::Catalog> for Catalog {
         let captures = captures
             .into_iter()
             .map(|(k, v)| Capture {
-                scope: scope_for("capture", &k),
+                scope: synthetic_scope("capture", &k),
                 capture: k,
                 id: None,
                 action: Some(Action::Update),
@@ -506,7 +527,7 @@ impl From<models::Catalog> for Catalog {
         let collections = collections
             .into_iter()
             .map(|(k, v)| Collection {
-                scope: scope_for("collection", &k),
+                scope: synthetic_scope("collection", &k),
                 collection: k,
                 id: None,
                 action: Some(Action::Update),
@@ -520,7 +541,7 @@ impl From<models::Catalog> for Catalog {
         let materializations = materializations
             .into_iter()
             .map(|(k, v)| Materialization {
-                scope: scope_for("materialization", &k),
+                scope: synthetic_scope("materialization", &k),
                 materialization: models::Materialization::new(k),
                 id: None,
                 action: Some(Action::Update),
@@ -533,7 +554,7 @@ impl From<models::Catalog> for Catalog {
         let tests = tests
             .into_iter()
             .map(|(k, v)| Test {
-                scope: scope_for("test", &k),
+                scope: synthetic_scope("test", &k),
                 test: models::Test::new(k),
                 id: None,
                 action: Some(Action::Update),

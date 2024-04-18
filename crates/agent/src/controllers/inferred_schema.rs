@@ -83,11 +83,12 @@ impl InferredSchemaStatus {
 }
 
 fn get_inferred_schema_md5(collection: &str, publication: &PublicationResult) -> Option<String> {
+    use tables::Table;
     publication
-        .inferred_schemas
-        .iter()
-        .find(|p| p.collection_name == collection)
-        .map(|s| s.md5.clone())
+        .validated
+        .built_collections
+        .get_named(collection)
+        .and_then(|s| s.inferred_schema_md5.clone())
 }
 
 pub struct InferredSchemaController;
@@ -173,17 +174,23 @@ fn on_successful_publication(
         .collections
         .iter()
         .filter(|c| c.drafted.is_some());
-    for (collection, maybe_inferred_schema) in
-        tables::left_outer_join(drafted_collections, publication.inferred_schemas.iter())
-    {
+    for (collection, built_collection) in tables::left_outer_join(
+        drafted_collections,
+        publication.validated.built_collections.iter(),
+    ) {
         let current_state = current_states.get(collection.get_name());
         let desired_active = uses_inferred_schema(collection.drafted.as_ref().unwrap());
+        let schema_md5 = built_collection
+            .as_ref()
+            .expect("must have built spec because publication was successful")
+            .inferred_schema_md5
+            .clone();
 
         let maybe_update = match (current_state, desired_active) {
             (Some(state), true) => {
                 let next_status = state.status.on_successful_collection_publication(
                     collection.get_name(),
-                    maybe_inferred_schema.map(|s| s.md5.clone()),
+                    schema_md5,
                     publication,
                 );
                 let next_run = next_status.next_run(publication.completed_at);
@@ -200,7 +207,7 @@ fn on_successful_publication(
             // Need to initialize a new state for this collection
             (None, true) => {
                 let next_status = InferredSchemaStatus {
-                    schema_md5: maybe_inferred_schema.map(|s| s.md5.clone()),
+                    schema_md5,
                     schema_last_updated: publication.completed_at,
                     publications: PublicationHistory::initial(PublicationStatus::observed(
                         publication,

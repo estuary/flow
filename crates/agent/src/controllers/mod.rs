@@ -19,11 +19,10 @@ pub struct PublicationResult {
     pub completed_at: DateTime<Utc>,
     pub publication_id: tables::Id,
     pub catalog: tables::Catalog,
-    /// The inferred schemas that were resolved for the publication
-    pub inferred_schemas: tables::InferredSchemas,
+    pub validated: tables::Validations,
     /// Errors that occurred during the publication. If non-empty, then the
     /// `publication_status` will not be `Success`.
-    pub errors: tables::Errors,
+    pub errors: Vec<crate::draft::Error>,
     /// The final status of the publication. Note that this is not neccessarily `Success`,
     /// even if there are no `errors`.
     pub publication_status: crate::publications::JobStatus,

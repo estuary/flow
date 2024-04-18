@@ -205,6 +205,91 @@ impl Output {
     }
 }
 
+pub async fn build_catalog_without_connector_validations(
+    allow_local: bool,
+    build_id: String,
+    connector_network: String,
+    control_plane: Box<dyn validation::ControlPlane>,
+    catalog: tables::Catalog,
+    storage_mappings: tables::StorageMappings,
+    log_handler: impl runtime::LogHandler,
+) -> Output {
+    managed_build_catalog(
+        allow_local,
+        build_id,
+        connector_network,
+        control_plane,
+        catalog,
+        storage_mappings,
+        log_handler,
+        true,
+    )
+    .await
+}
+
+async fn managed_build_catalog(
+    allow_local: bool,
+    build_id: String,
+    connector_network: String,
+    control_plane: Box<dyn validation::ControlPlane>,
+    catalog: tables::Catalog,
+    storage_mappings: tables::StorageMappings,
+    log_handler: impl runtime::LogHandler,
+    noop_connector_validations: bool,
+) -> Output {
+    let runtime = runtime::Runtime::new(
+        allow_local,
+        connector_network,
+        log_handler,
+        None,
+        format!("build/{}", build_id),
+    );
+
+    let connectors = Connectors {
+        noop_captures: noop_connector_validations,
+        noop_derivations: noop_connector_validations,
+        noop_materializations: noop_connector_validations,
+        runtime,
+    };
+
+    let tables::Catalog {
+        captures,
+        collections,
+        materializations,
+        tests,
+    } = catalog;
+
+    let project_root = url::Url::parse("file:///").unwrap();
+    let validations = validation::validate(
+        &build_id,
+        &project_root,
+        &connectors,
+        &*control_plane,
+        &captures,
+        &collections,
+        &tables::Fetches::default(),
+        &tables::Imports::default(),
+        &materializations,
+        &storage_mappings,
+        &tests,
+    )
+    .await;
+
+    let sources = tables::Sources {
+        captures,
+        collections,
+        materializations,
+        tests,
+        storage_mappings,
+        errors: Default::default(),
+        fetches: Default::default(),
+        imports: Default::default(),
+        resources: Default::default(),
+    };
+
+    Output::new(sources, validations)
+}
+
 /// Perform a "managed" build, which is a convenience for:
 /// * Loading `source` and failing-fast on any load errors.
 /// * Then performing all validations and producing built specs.

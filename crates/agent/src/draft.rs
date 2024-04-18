@@ -4,7 +4,7 @@ use super::Id;
 use agent_sql::{drafts as drafts_sql, CatalogType};
 use anyhow::Context;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Error {
     pub catalog_name: String,
     pub scope: Option<String>,

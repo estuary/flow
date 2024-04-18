@@ -1,5 +1,6 @@
 use crate::Action;
 use crate::Id;
+use crate::NamedRow;
 
 /// Column is a column of a table.
 pub trait Column: std::fmt::Debug {
@@ -20,7 +21,21 @@ pub trait Row: Sized {
 pub trait Table: Sized {
     type Row: Row;
 
-    fn iter(&self) -> std::slice::Iter<Self::Row>;
+    fn as_slice(&self) -> &[Self::Row];
+
+    fn iter(&self) -> std::slice::Iter<Self::Row> {
+        self.as_slice().iter()
+    }
+
+    fn get_named(&self, name: &str) -> Option<&Self::Row>
+    where
+        Self::Row: NamedRow,
+    {
+        self.as_slice()
+            .binary_search_by(|r| r.name().cmp(name))
+            .ok()
+            .map(|idx| &self.as_slice()[idx])
+    }
 }
 
 #[cfg(feature = "persist")]
@@ -491,8 +506,8 @@ macro_rules! tables {
         impl Table for $table {
             type Row = $row;
 
-            fn iter(&self) -> std::slice::Iter<Self::Row> {
-                self.0.iter()
+            fn as_slice(&self) -> &[Self::Row] {
+                self.0.as_slice()
             }
         }
         impl Row for $row {

@@ -242,6 +242,9 @@ pub struct SpecRow {
     pub live_spec_id: Id,
     // Spec type of the live specification.
     pub live_type: Option<CatalogType>,
+    // MD5 hash of the inferred schema that was used to build the live spec, for collections only.
+    // May also be None for collections if the inferred schema was not used or doesn't exist yet.
+    pub inferred_schema_md5: Option<String>,
     // Capabilities of the specification with respect to other roles.
     pub spec_capabilities: Json<Vec<RoleGrant>>,
     // User's capability to the specification `catalog_name`.
@@ -267,6 +270,7 @@ pub async fn resolve_spec_rows(
             live_specs.spec as "live_spec: Json<Box<RawValue>>",
             live_specs.id as "live_spec_id: Id",
             live_specs.spec_type as "live_type: CatalogType",
+            live_specs.inferred_schema_md5,
             coalesce(
                 (select json_agg(row_to_json(role_grants))
                 from role_grants
