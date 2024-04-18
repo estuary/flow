@@ -245,6 +245,7 @@ fn inline_materialization(
     resources: &[tables::Resource],
 ) {
     let models::MaterializationDef {
+        on_incompatible_schema_change: _,
         source_capture: _,
         endpoint,
         bindings,
