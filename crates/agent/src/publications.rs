@@ -206,10 +206,11 @@ impl PublishHandler {
             specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?;
         tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
 
-        let (result_catalog, errors) = specs::to_catalog(&spec_rows)?;
+        let (mut result_catalog, errors) = specs::to_catalog(&spec_rows)?;
         if !errors.is_empty() {
             return stop_with_errors(
                 result_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(Vec::new()),
                 row,
@@ -264,6 +265,7 @@ impl PublishHandler {
         if !errors.is_empty() {
             return stop_with_errors(
                 result_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(Vec::new()),
                 row,
@@ -277,6 +279,7 @@ impl PublishHandler {
         {
             return stop_with_errors(
                 result_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(incompatible_collections),
                 row,
@@ -310,14 +313,22 @@ impl PublishHandler {
         let pruned_collections = pruned_collections.into_iter().collect::<HashSet<_>>();
 
         if spec_rows.len() - pruned_collections.len() == 0 {
-            return stop_with_errors(result_catalog, Vec::new(), JobStatus::EmptyDraft, row, txn)
-                .await;
+            return stop_with_errors(
+                result_catalog,
+                Default::default(),
+                Vec::new(),
+                JobStatus::EmptyDraft,
+                row,
+                txn,
+            )
+            .await;
         }
 
         let errors = specs::enforce_resource_quotas(&spec_rows, prev_quota_usage, txn).await?;
         if !errors.is_empty() {
             return stop_with_errors(
                 result_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(Vec::new()),
                 row,
@@ -346,6 +357,7 @@ impl PublishHandler {
         if !errors.is_empty() {
             return stop_with_errors(
                 result_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(Vec::new()),
                 row,
@@ -398,6 +410,7 @@ impl PublishHandler {
         if !errors.is_empty() {
             return stop_with_errors(
                 result_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(Vec::new()),
                 row,
@@ -412,6 +425,7 @@ impl PublishHandler {
         if !errors.is_empty() {
             return stop_with_errors(
                 result_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(Vec::new()),
                 row,
@@ -425,7 +439,7 @@ impl PublishHandler {
                 completed_at: Utc::now(),
                 publication_id: row.pub_id.into(),
                 catalog: result_catalog,
-                inferred_schemas: Default::default(),
+                validated: Default::default(),
                 errors: Vec::new(),
                 publication_status: JobStatus::success(Vec::new()),
             });
@@ -455,6 +469,7 @@ impl PublishHandler {
             let incompatible_collections = builds::get_incompatible_collections(&build_output);
             return stop_with_errors(
                 result_catalog,
+                build_output.into_parts().1,
                 errors,
                 JobStatus::build_failed(incompatible_collections),
                 row,
@@ -491,8 +506,15 @@ impl PublishHandler {
             }?;
 
             if !errors.is_empty() {
-                return stop_with_errors(result_catalog, errors, JobStatus::TestFailed, row, txn)
-                    .await;
+                return stop_with_errors(
+                    result_catalog,
+                    build_output.into_parts().1,
+                    errors,
+                    JobStatus::TestFailed,
+                    row,
+                    txn,
+                )
+                .await;
             }
         }
 
@@ -511,7 +533,7 @@ impl PublishHandler {
                 completed_at: Utc::now(),
                 publication_id: row.pub_id.into(),
                 catalog: result_catalog,
-                inferred_schemas: Default::default(),
+                validated: build_output.into_parts().1,
                 errors: Vec::new(),
                 publication_status: JobStatus::success(Vec::new()),
             });
@@ -540,8 +562,15 @@ impl PublishHandler {
         std::mem::drop(tmpdir_handle);
 
         if !errors.is_empty() {
-            return stop_with_errors(result_catalog, errors, JobStatus::PublishFailed, row, txn)
-                .await;
+            return stop_with_errors(
+                result_catalog,
+                build_output.into_parts().1,
+                errors,
+                JobStatus::PublishFailed,
+                row,
+                txn,
+            )
+            .await;
         }
 
         let maybe_source_captures =
@@ -573,6 +602,7 @@ impl PublishHandler {
 
 async fn stop_with_errors(
     catalog: tables::Catalog,
+    validated: tables::Validations,
     errors: Vec<Error>,
     mut job_status: JobStatus,
     row: Row,
@@ -615,7 +645,7 @@ async fn stop_with_errors(
         catalog,
         completed_at: chrono::Utc::now(),
         publication_id: row.pub_id.into(),
-        inferred_schemas: Default::default(),
+        validated,
         errors,
         publication_status: job_status,
     })
