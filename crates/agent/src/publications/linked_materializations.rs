@@ -312,6 +312,7 @@ async fn update_linked_materialization(
             fields: Default::default(),
             priority: Default::default(),
             backfill: 0,
+            on_incompatible_schema_change: materialization.on_incompatible_schema_change,
         };
         materialization.bindings.push(binding);
     }

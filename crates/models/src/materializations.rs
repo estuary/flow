@@ -16,6 +16,13 @@ pub struct MaterializationDef {
     /// # Automatically materialize new bindings from a named capture
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_capture: Option<Capture>,
+    /// # Default handling of schema changes that are incompatible with the target resource.
+    /// This can be overridden on a per-binding basis.
+    #[serde(
+        default,
+        skip_serializing_if = "OnIncompatibleSchemaChange::is_default"
+    )]
+    pub on_incompatible_schema_change: OnIncompatibleSchemaChange,
     /// # Endpoint to materialize into.
     pub endpoint: MaterializationEndpoint,
     /// # Bound collections to materialize into the endpoint.
@@ -113,6 +120,7 @@ impl MaterializationDef {
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
+            on_incompatible_schema_change: OnIncompatibleSchemaChange::default(),
         }
     }
 }
