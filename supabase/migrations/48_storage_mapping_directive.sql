@@ -1,8 +1,9 @@
 
 begin;
 
--- Add the storageMappings directive
-insert into directives (catalog_prefix, spec) values ('ops/', '{"type": "storageMappings"}');
+-- Add the storageMappings directive, using a static token so that we can hard code the token in the UI.
+-- This token is not sensitive, and is safe to be shared publicly.
+insert into directives (catalog_prefix, spec, token) values ('ops/', '{"type": "storageMappings"}', 'dd1319b2-e72b-421c-ad2b-082352569bb1');
 
 create or replace function republish_prefix(prefix catalog_prefix)
 returns flowid as $$
