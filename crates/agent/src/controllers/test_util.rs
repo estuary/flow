@@ -189,27 +189,18 @@ impl<C: ControlJob> Harness<C> {
 
         let errors = match &status {
             publications::JobStatus::Queued => panic!("cannot observe Queued publication"),
-            publications::JobStatus::Success { .. } => tables::Errors::new(),
-            publications::JobStatus::EmptyDraft => tables::Errors::new(),
+            publications::JobStatus::Success { .. } => Vec::new(),
+            publications::JobStatus::EmptyDraft => Vec::new(),
             other => {
-                let err = tables::Error {
-                    scope: "test://test.test/test".parse().unwrap(),
-                    error: anyhow::anyhow!("oh no the publication failed: {other:?}"),
-                };
-                let mut t = tables::Errors::new();
-                t.insert(err);
-                t
+                vec![crate::draft::Error {
+                    scope: Some("test://test.test/test".to_owned()),
+                    detail: format!("oh no the publication failed: {other:?}"),
+                    ..Default::default()
+                }]
             }
         };
 
         let publication_specs = participating_specs(&self.control_plane.live, draft);
-
-        let inferred_schemas = tables::inner_join(
-            publication_specs.collections.iter(),
-            self.control_plane.inferred_schemas.iter(),
-        )
-        .map(|j| j.1.clone())
-        .collect();
 
         // Convert the draft and live tables into `models::Catalog`s, so that they can be
         // directly serialized as part of PublicationInfo.
@@ -222,12 +213,17 @@ impl<C: ControlJob> Harness<C> {
             .into_iter()
             .flat_map(|name: String| self.states.get(&name).map(|s| (name, (*s).clone())))
             .collect::<BTreeMap<_, _>>();
+        let build_id = pub_id.to_string();
+
+        // TODO: get validated specs into the publication result by building the catalog
+        // TODO: ^this probably requires unifying controllers::ControlPlane and validation::ControlPlane
+        //build::build_catalog_without_connector_validations(true, build_id, String::new(), control_plane, catalog, storage_mappings, log_handler)
 
         let result = PublicationResult {
             completed_at: time,
             publication_id: pub_id,
             catalog: publication_specs,
-            inferred_schemas,
+            validated: Default::default(),
             errors,
             publication_status: status,
         };

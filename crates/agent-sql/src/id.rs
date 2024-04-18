@@ -10,6 +10,11 @@ impl Into<tables::Id> for Id {
         self.0
     }
 }
+impl From<tables::Id> for Id {
+    fn from(id: tables::Id) -> Self {
+        Self(id)
+    }
+}
 
 impl Id {
     pub fn is_zero(&self) -> bool {
