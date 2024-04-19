@@ -1,5 +1,5 @@
 use super::{connector, protocol::*, RequestStream, ResponseStream, Task, Transaction};
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{rocksdb::RocksDB, verify, Accumulator, LogHandler, Runtime};
 use anyhow::Context;
 use futures::channel::oneshot;
 use futures::future::FusedFuture;
@@ -172,7 +172,7 @@ async fn serve_session<L: LogHandler>(
         }
 
         // Prepare to drain `accumulator`.
-        let mut drainer = accumulator
+        let (mut drainer, parser) = accumulator
             .into_drainer()
             .context("preparing to drain combiner")?;
 
@@ -200,17 +200,17 @@ async fn serve_session<L: LogHandler>(
         () = co.yield_(send_client_started_commit()).await;
 
         last_checkpoints = txn.checkpoints;
-        next_accumulator = drainer.into_new_accumulator()?;
+        next_accumulator = Accumulator::from_drainer(drainer, parser)?;
     }
 }
 
 pub async fn read_transaction<R: ResponseStream + FusedStream + Unpin>(
-    mut accumulator: doc::combine::Accumulator,
+    mut accumulator: Accumulator,
     mut connector_rx: R,
     task: Task,
     timeout: std::time::Duration, // How long we'll wait for a first checkpoint.
     yield_rx: oneshot::Receiver<()>, // Signaled when we should return.
-) -> anyhow::Result<(doc::combine::Accumulator, R, Task, Transaction)> {
+) -> anyhow::Result<(Accumulator, R, Task, Transaction)> {
     let timeout = tokio::time::sleep(timeout).fuse();
     let mut txn = Transaction::new();
     let mut yield_rx = yield_rx.fuse();
@@ -257,7 +257,7 @@ pub async fn read_transaction<R: ResponseStream + FusedStream + Unpin>(
 }
 
 async fn read_checkpoint(
-    accumulator: &mut doc::combine::Accumulator,
+    accumulator: &mut Accumulator,
     connector_rx: &mut (impl ResponseStream + Unpin),
     mut response: Response,
     task: &Task,

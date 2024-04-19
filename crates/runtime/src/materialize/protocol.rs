@@ -1,6 +1,6 @@
 use super::{Binding, LoadKeySet, Task, Transaction};
 use crate::rocksdb::{queue_connector_state_update, RocksDB};
-use crate::verify;
+use crate::{verify, Accumulator};
 use anyhow::Context;
 use bytes::{Buf, BufMut};
 use prost::Message;
@@ -109,7 +109,7 @@ pub async fn recv_connector_opened(
     opened: Option<Response>,
 ) -> anyhow::Result<(
     Task,
-    doc::combine::Accumulator,
+    Accumulator,
     consumer::Checkpoint,
     Response,
     Vec<(bytes::Bytes, bytes::Bytes)>,
@@ -125,7 +125,7 @@ pub async fn recv_connector_opened(
     };
 
     let task = Task::new(&open)?;
-    let accumulator = doc::combine::Accumulator::new(task.combine_spec()?, tempfile::tempfile()?)?;
+    let accumulator = Accumulator::new(task.combine_spec()?)?;
 
     let mut checkpoint = db
         .load_checkpoint()
@@ -182,7 +182,7 @@ pub async fn recv_connector_opened(
 }
 
 pub fn recv_client_load_or_flush(
-    accumulator: &mut doc::combine::Accumulator,
+    accumulator: &mut Accumulator,
     buf: &mut bytes::BytesMut,
     load_keys: &mut LoadKeySet,
     max_keys: &mut [(bytes::Bytes, bytes::Bytes)],
@@ -208,11 +208,11 @@ pub fn recv_client_load_or_flush(
             ..
         }) => {
             let binding = &task.bindings[binding_index as usize];
-            let memtable = accumulator.memtable()?;
 
-            let doc = memtable
-                .parse_json_str(&doc_json)
-                .context("couldn't parse captured document as JSON")?;
+            let (memtable, _alloc, doc) =
+                accumulator
+                    .doc_bytes_to_heap_node(doc_json.as_bytes())
+                    .context("couldn't parse materialized document as JSON")?;
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
@@ -276,7 +276,7 @@ pub fn recv_client_load_or_flush(
 }
 
 pub async fn recv_connector_acked_or_loaded_or_flushed(
-    accumulator: &mut doc::combine::Accumulator,
+    accumulator: &mut Accumulator,
     db: &RocksDB,
     response: Option<Response>,
     saw_acknowledged: &mut bool,
@@ -294,10 +294,8 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
                 }),
             ..
         }) => {
-            let memtable = accumulator.memtable()?;
-
-            let doc = memtable
-                .parse_json_str(&doc_json)
+            let (memtable, _alloc, doc) = accumulator
+                .doc_bytes_to_heap_node(doc_json.as_bytes())
                 .context("couldn't parse loaded document as JSON")?;
 
             memtable.add(binding_index, doc, true)?;

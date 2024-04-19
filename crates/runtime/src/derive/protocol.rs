@@ -1,6 +1,6 @@
 use super::{Task, Transaction};
 use crate::rocksdb::{queue_connector_state_update, RocksDB};
-use crate::verify;
+use crate::{verify, Accumulator};
 use anyhow::Context;
 use prost::Message;
 use proto_flow::derive::{request, response, Request, Response};
@@ -46,7 +46,7 @@ pub async fn recv_connector_opened(
 ) -> anyhow::Result<(
     Task,
     Vec<doc::Validator>,
-    doc::combine::Accumulator,
+    Accumulator,
     consumer::Checkpoint,
     Response,
 )> {
@@ -54,7 +54,7 @@ pub async fn recv_connector_opened(
 
     let task = Task::new(&open, &opened)?;
     let validators = task.validators()?;
-    let accumulator = doc::combine::Accumulator::new(task.combine_spec()?, tempfile::tempfile()?)?;
+    let accumulator = Accumulator::new(task.combine_spec()?)?;
 
     let mut checkpoint = db
         .load_checkpoint()
@@ -159,7 +159,7 @@ pub fn recv_client_read_or_flush(
 }
 
 pub fn recv_connector_published_or_flushed(
-    accumulator: &mut doc::combine::Accumulator,
+    accumulator: &mut Accumulator,
     response: Option<Response>,
     saw_flush: bool,
     saw_flushed: &mut bool,
@@ -186,12 +186,9 @@ pub fn recv_connector_published_or_flushed(
         response => return verify("connector", "Published or Flushed").fail(response),
     };
 
-    let memtable = accumulator.memtable()?;
-    let alloc = memtable.alloc();
-
-    let mut doc = memtable
-        .parse_json_str(&doc_json)
-        .context("couldn't parse captured document as JSON")?;
+    let (memtable, alloc, mut doc) = accumulator
+        .doc_bytes_to_heap_node(doc_json.as_bytes())
+        .context("couldn't parse derived document as JSON")?;
 
     let uuid_ptr = &task.document_uuid_ptr;
 
