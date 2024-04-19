@@ -180,6 +180,47 @@ fn parse_shard_labeling(
     labels::parse::shard_labeling(set).context("parsing shard labeling")
 }
 
+struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);
+
+impl Accumulator {
+    fn new(spec: doc::combine::Spec) -> anyhow::Result<Self> {
+        Ok(Self(
+            doc::combine::Accumulator::new(spec, tempfile::tempfile()?)?,
+            simd_doc::Parser::new(),
+        ))
+    }
+
+    // Parse document bytes into a HeapNode backed by the Accumulator's current
+    // MemTable and Allocator. Return the MemTable, Allocator, and HeapNode.
+    fn doc_bytes_to_heap_node<'a>(
+        &'a mut self,
+        doc_bytes: &[u8],
+    ) -> anyhow::Result<(
+        &'a doc::combine::MemTable,
+        &'a doc::Allocator,
+        doc::HeapNode<'a>,
+    )> {
+        // Currently, we assume that `doc_bytes` is a JSON document.
+        // In the future, it could be an ArchivedNode serialization.
+        let memtable = self.0.memtable()?;
+        let alloc = memtable.alloc();
+        Ok((memtable, alloc, self.1.parse_one(doc_bytes, alloc)?))
+    }
+
+    fn into_drainer(
+        self,
+    ) -> Result<(doc::combine::Drainer, simd_doc::Parser), doc::combine::Error> {
+        Ok((self.0.into_drainer()?, self.1))
+    }
+
+    fn from_drainer(
+        drainer: doc::combine::Drainer,
+        parser: simd_doc::Parser,
+    ) -> Result<Self, doc::combine::Error> {
+        Ok(Self(drainer.into_new_accumulator()?, parser))
+    }
+}
+
 // verify is a convenience for building protocol error messages in a standard, structured way.
 // You call verify to establish a Verify instance, which is then used to assert expectations
 // over protocol requests or responses.

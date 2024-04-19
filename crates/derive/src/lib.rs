@@ -65,21 +65,6 @@ impl<S: Serialize> std::fmt::Debug for DebugJson<S> {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("JSON error in document: {doc}")]
-pub struct JsonError {
-    pub doc: String,
-    #[source]
-    pub err: serde_json::Error,
-}
-
-impl JsonError {
-    pub fn new(data: impl AsRef<[u8]>, err: serde_json::Error) -> JsonError {
-        let doc = String::from_utf8_lossy(data.as_ref()).into_owned();
-        JsonError { doc, err }
-    }
-}
-
 pub fn new_validator(schema: &str) -> Result<doc::Validator, anyhow::Error> {
     let schema = json::schema::build::build_schema(
         // Bundled schemas carry their own $id so this isn't used in practice.

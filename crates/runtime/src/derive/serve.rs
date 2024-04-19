@@ -1,5 +1,5 @@
 use super::{connector, protocol::*, RequestStream, ResponseStream, Transaction};
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{rocksdb::RocksDB, verify, Accumulator, LogHandler, Runtime};
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;
@@ -165,7 +165,7 @@ async fn serve_session<L: LogHandler>(
         }
 
         // Prepare to drain `accumulator`.
-        let mut drainer = accumulator
+        let (mut drainer, parser) = accumulator
             .into_drainer()
             .context("preparing to drain combiner")?;
 
@@ -189,7 +189,7 @@ async fn serve_session<L: LogHandler>(
         () = co.yield_(started_commit).await;
 
         last_checkpoint = txn.checkpoint;
-        accumulator = drainer.into_new_accumulator()?;
+        accumulator = Accumulator::from_drainer(drainer, parser)?;
     }
 }
 
