@@ -33,6 +33,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "materialize_server",
     "runtime_server",
     ]}
+simd-doc = { path = "../simd-doc" }
 tuple = { path = "../tuple" }
 
 anyhow = { workspace = true }

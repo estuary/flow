@@ -35,7 +35,7 @@ impl<L: LogHandler> Runtime<L> {
                 recv_client_add(&mut accumulator, add, &bindings)?;
             }
 
-            let mut drainer = accumulator
+            let (mut drainer, _parser) = accumulator
                 .into_drainer()
                 .context("preparing to drain combiner")?;
             let mut buf = bytes::BytesMut::new();

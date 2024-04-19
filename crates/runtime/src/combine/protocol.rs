@@ -1,11 +1,10 @@
 use super::{Binding, Request, Response};
+use crate::Accumulator;
 use anyhow::Context;
 use doc::HeapNode;
 use proto_flow::runtime::combine_request;
 
-pub fn recv_client_open(
-    open: Request,
-) -> anyhow::Result<(doc::combine::Accumulator, Vec<Binding>)> {
+pub fn recv_client_open(open: Request) -> anyhow::Result<(Accumulator, Vec<Binding>)> {
     let Some(open) = open.open else {
         anyhow::bail!("expected Open");
     };
@@ -49,17 +48,13 @@ pub fn recv_client_open(
     }
 
     Ok((
-        doc::combine::Accumulator::new(
-            doc::combine::Spec::with_bindings(specs.into_iter()),
-            tempfile::tempfile()?,
-        )
-        .context("building combiner")?,
+        Accumulator::new(doc::combine::Spec::with_bindings(specs.into_iter()))?,
         bindings,
     ))
 }
 
 pub fn recv_client_add(
-    accumulator: &mut doc::combine::Accumulator,
+    accumulator: &mut Accumulator,
     add: Request,
     bindings: &[Binding],
 ) -> anyhow::Result<()> {
@@ -76,11 +71,8 @@ pub fn recv_client_add(
         .get(binding_index as usize)
         .with_context(|| "invalid binding {binding}")?;
 
-    let memtable = accumulator.memtable()?;
-    let alloc = memtable.alloc();
-
-    let mut doc = memtable
-        .parse_json_str(&doc_json)
+    let (memtable, alloc, mut doc) = accumulator
+        .doc_bytes_to_heap_node(doc_json.as_bytes())
         .context("couldn't parse added document as JSON")?;
 
     if let Some(uuid_ptr) = &binding.uuid_ptr {

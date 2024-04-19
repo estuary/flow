@@ -1,5 +1,5 @@
 use super::{Task, Transaction};
-use crate::{rocksdb::RocksDB, verify};
+use crate::{rocksdb::RocksDB, verify, Accumulator};
 use anyhow::Context;
 use prost::Message;
 use proto_flow::capture::{request, response, Request, Response};
@@ -115,8 +115,8 @@ pub async fn recv_connector_opened(
     Task,
     Task,
     Vec<doc::Shape>,
-    doc::combine::Accumulator,
-    doc::combine::Accumulator,
+    Accumulator,
+    Accumulator,
     Response,
 )> {
     let mut opened = verify("connecter", "Opened").not_eof(opened)?;
@@ -126,8 +126,8 @@ pub async fn recv_connector_opened(
     let shapes = task.binding_shapes_by_index(std::mem::take(shapes_by_key));
 
     // Create a pair of accumulators. While one is draining, the other is accumulating.
-    let a1 = doc::combine::Accumulator::new(task.combine_spec()?, tempfile::tempfile()?)?;
-    let a2 = doc::combine::Accumulator::new(task.combine_spec()?, tempfile::tempfile()?)?;
+    let a1 = Accumulator::new(task.combine_spec()?)?;
+    let a2 = Accumulator::new(task.combine_spec()?)?;
 
     let checkpoint = db.load_checkpoint().await?;
 
@@ -354,18 +354,15 @@ pub fn send_client_started_commit() -> Response {
 }
 
 pub fn recv_connector_captured(
-    accumulator: &mut doc::combine::Accumulator,
+    accumulator: &mut Accumulator,
     captured: response::Captured,
     task: &Task,
     txn: &mut Transaction,
 ) -> anyhow::Result<()> {
     let response::Captured { binding, doc_json } = captured;
 
-    let memtable = accumulator.memtable()?;
-    let alloc = memtable.alloc();
-
-    let mut doc = memtable
-        .parse_json_str(&doc_json)
+    let (memtable, alloc, mut doc) = accumulator
+        .doc_bytes_to_heap_node(doc_json.as_bytes())
         .context("couldn't parse captured document as JSON")?;
 
     let uuid_ptr = &task
@@ -390,7 +387,7 @@ pub fn recv_connector_captured(
 }
 
 pub fn recv_connector_checkpoint(
-    accumulator: &mut doc::combine::Accumulator,
+    accumulator: &mut Accumulator,
     response: Response,
     task: &Task,
     txn: &mut Transaction,
@@ -404,9 +401,8 @@ pub fn recv_connector_checkpoint(
         merge_patch,
     } = state;
 
-    let memtable = accumulator.memtable()?;
-    let doc = memtable
-        .parse_json_str(&updated_json)
+    let (memtable, _alloc, doc) = accumulator
+        .doc_bytes_to_heap_node(updated_json.as_bytes())
         .context("couldn't parse connector state as JSON")?;
 
     // Combine over the checkpoint state.

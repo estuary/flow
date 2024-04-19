@@ -1,10 +1,10 @@
-use crate::{new_validator, JsonError};
+use crate::new_validator;
+use doc::AsNode;
 use prost::Message;
 use proto_flow::flow::{
     self,
     extract_api::{self, Code},
 };
-use serde_json::Value;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -12,8 +12,8 @@ pub enum Error {
     Url(#[from] url::ParseError),
     #[error("schema index")]
     SchemaIndex(#[from] json::schema::index::Error),
-    #[error(transparent)]
-    Json(JsonError),
+    #[error("failed to parse JSON document")]
+    Json(std::io::Error),
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
     #[error("Protobuf decoding error")]
@@ -30,24 +30,27 @@ pub enum Error {
 
 /// Extract a UUID at the given location within the document, returning its UuidParts,
 /// or None if the Pointer does not resolve to a valid v1 UUID.
-pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
-    let v_uuid = ptr.query(v).unwrap_or(&serde_json::Value::Null);
-    v_uuid
-        .as_str()
-        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-        .and_then(|u| {
-            if u.get_version_num() != 1 {
-                return None;
-            }
-            let (c_low, c_mid, c_high, seq_node_id) = u.as_fields();
+pub fn extract_uuid_parts<N: AsNode>(v: &N, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
+    let Some(v_uuid) = ptr.query(v) else {
+        return None;
+    };
+    let doc::Node::String(v_uuid) = v_uuid.as_node() else {
+        return None;
+    };
 
-            Some(flow::UuidParts {
-                clock: (c_low as u64) << 4          // Clock low bits.
+    uuid::Uuid::parse_str(v_uuid).ok().and_then(|u| {
+        if u.get_version_num() != 1 {
+            return None;
+        }
+        let (c_low, c_mid, c_high, seq_node_id) = u.as_fields();
+
+        Some(flow::UuidParts {
+            clock: (c_low as u64) << 4          // Clock low bits.
             | (c_mid as u64) << 36                  // Clock middle bits.
             | (c_high as u64) << 52                 // Clock high bits.
             | ((seq_node_id[0] as u64) >> 2) & 0xf, // High 4 bits of sequence number.
 
-                node: (seq_node_id[2] as u64) << 56 // 6 bytes of big-endian node ID.
+            node: (seq_node_id[2] as u64) << 56 // 6 bytes of big-endian node ID.
             | (seq_node_id[3] as u64) << 48
             | (seq_node_id[4] as u64) << 40
             | (seq_node_id[5] as u64) << 32
@@ -55,8 +58,8 @@ pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &doc::Pointer) -> Option<f
             | (seq_node_id[7] as u64) << 16
             | ((seq_node_id[0] as u64) & 0x3) << 8 // High 2 bits of flags.
             | (seq_node_id[1] as u64), // Low 8 bits of flags.
-            })
         })
+    })
 }
 
 /// API provides extraction as a cgo::Service.
@@ -65,6 +68,8 @@ pub struct API {
 }
 
 struct State {
+    alloc: doc::Allocator,
+    parser: simd_doc::Parser,
     uuid_ptr: doc::Pointer,
     extractors: Vec<doc::Extractor>,
     validator: Option<doc::Validator>,
@@ -106,6 +111,8 @@ impl cgo::Service for API {
                 };
 
                 self.state = Some(State {
+                    alloc: doc::Allocator::new(),
+                    parser: simd_doc::Parser::new(),
                     uuid_ptr: doc::Pointer::from(&uuid_ptr),
                     extractors: extractors::for_key(
                         &field_ptrs,
@@ -118,11 +125,14 @@ impl cgo::Service for API {
             }
             // Extract from JSON document.
             (Code::Extract, Some(mut state)) => {
-                let doc: Value = serde_json::from_slice(data)
-                    .map_err(|e| Error::Json(JsonError::new(data, e)))?;
+                let doc = state
+                    .parser
+                    .parse_one(data, &state.alloc)
+                    .map_err(|err| Error::Json(err))?;
+
                 let uuid = extract_uuid_parts(&doc, &state.uuid_ptr).ok_or_else(|| {
                     Error::InvalidUuid {
-                        value: state.uuid_ptr.query(&doc).cloned(),
+                        value: state.uuid_ptr.query(&doc).map(AsNode::to_debug_json_value),
                     }
                 })?;
 
@@ -146,6 +156,7 @@ impl cgo::Service for API {
                 }
                 cgo::send_bytes(Code::ExtractedFields as u32, begin, arena, out);
 
+                state.alloc.reset();
                 self.state = Some(state);
                 Ok(())
             }
