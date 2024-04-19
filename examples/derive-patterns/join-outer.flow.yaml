@@ -20,6 +20,31 @@ collections:
           source: { name: patterns/strings }
           shuffle: { key: [/Key] }
 
+  # This shows how to implement the same join using SQL.
+  # As demonstrated by the tests below, the two collections will have the same
+  # data.
+  patterns/outer-join-sql:
+    schema:
+      $ref: schema.yaml#Join
+      required: [Key]
+    key: [/Key]
+    derive:
+      using:
+        sqlite:
+          migrations: []
+      transforms:
+        - name: fromInts
+          source: { name: patterns/ints }
+          shuffle: { key: [/Key] }
+          lambda: |
+            select $Key, $Int as LHS;
+
+        - name: fromStrings
+          source: { name: patterns/strings }
+          shuffle: { key: [/Key] }
+          lambda: |
+            select $Key, json_array($String) as RHS;
+
 tests:
   patterns/test/outer-join:
     - ingest:
@@ -28,6 +53,10 @@ tests:
     - verify:
         collection: patterns/outer-join
         documents: [{ Key: key, LHS: 5 }]
+    - verify:
+        collection: patterns/outer-join-sql
+        documents: [{ Key: key, LHS: 5 }]
+
     - ingest:
         collection: patterns/strings
         documents: [{ Key: key, String: hello }]
@@ -35,6 +64,11 @@ tests:
         description: Expect outer join reflects documents so far.
         collection: patterns/outer-join
         documents: [{ Key: key, LHS: 5, RHS: [hello] }]
+    - verify:
+        description: Expect outer join reflects documents so far.
+        collection: patterns/outer-join-sql
+        documents: [{ Key: key, LHS: 5, RHS: [hello] }]
+
     - ingest:
         collection: patterns/ints
         documents: [{ Key: key, Int: 7 }]
@@ -44,4 +78,8 @@ tests:
     - verify:
         description: Expect outer join reflects all accumulated documents.
         collection: patterns/outer-join
+        documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]
+    - verify:
+        description: Expect outer join reflects all accumulated documents.
+        collection: patterns/outer-join-sql
         documents: [{ Key: key, LHS: 12, RHS: [hello, goodbye] }]
