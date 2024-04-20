@@ -23,16 +23,12 @@ jobs:
             assetName: flowctl-x86_64-linux
           # On mac, it's the opposite. Programs built on the latest macos can run on older versions,
           # but not the other way around.
-          - os: macos-latest
+          - os: macos-14
             assetName: flowctl-multiarch-macos
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Linux build steps:
       - name: Build Linux
@@ -42,7 +38,7 @@ jobs:
 
       # Mac build steps:
       - name: Setup mac signing certificate
-        if: matrix.config.os == 'macos-latest'
+        if: matrix.config.os == 'macos-14'
         env:
           MAC_SIGNING_CERTIFICATE_BASE64: ${{ secrets.MAC_SIGNING_CERTIFICATE_BASE64 }}
           MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -72,7 +68,7 @@ jobs:
 
       # This one mac build runs on both intel and m1 macs
       - name: Build Mac
-        if: matrix.config.os == 'macos-latest'
+        if: matrix.config.os == 'macos-14'
         env:
           MAC_CERTIFICATE_IDENTITY: ${{ secrets.MAC_CERTIFICATE_IDENTITY }}
         # The toolchain action always gives you the default target, but we always need both
