@@ -5,8 +5,9 @@ name: Flowctl Tests on macos
 on:
   push:
     paths:
-      - "crates/flowctl/**"
+      - ".github/workflows/flowctl-test.yaml"
       - "Cargo.lock"
+      - "crates/flowctl/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,14 +16,10 @@ concurrency:
 jobs:
   test:
     name: Test flowctl on macos
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Run tests
         run: cargo test -p flowctl
