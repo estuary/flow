@@ -226,6 +226,59 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the PostgreSQL source connector.
 
+## WAL Retention and Tuning Parameters
+
+Postgres logical replication works by reading change events from the writeahead log,
+reordering WAL events in memory on the server, and sending them to the client in the
+order that transactions were committed. The replication slot used by the capture is
+essentially a cursor into that logical sequence of changes.
+
+Because of how Postgres reorders WAL events into atomic transactions, there are two
+distinct LSNs which matter when it comes to WAL retention. The `confirmed_flush_lsn`
+property of a replication slot represents the latest event in the WAL which has been
+sent to and confirmed by the client. However there may be some number of uncommitted
+changes prior to this point in the WAL which are still relevant and will be sent to
+the client in later transactions. Thus there is also a `restart_lsn` property which
+represents the point in the WAL from which logical decoding must resume in the future
+if the replication connection is closed and restarted.
+
+The server cannot clean up old WAL files so long as there are active replication slots
+whose `restart_lsn` position requires them. There are two ways that `restart_lsn` might
+get stuck at a particular point in the WAL:
+
+1. When a capture is deleted, disabled, or repeatedly failing for other reasons,
+   it is not able to advance the `confirmed_flush_lsn` and thus `restart_lsn` cannot
+   advance either.
+2. When a long-running transaction is open on the server the `restart_lsn` of a
+   replication slot may be unable to advance even though `confirmed_flush_lsn` is.
+
+By default Postgres will retain an unbounded amount of WAL data and fill up the entire
+disk if a replication slot stops advancing. There are two ways to address this:
+
+1. When deleting a capture, make sure that the replication slot is also successfully deleted.
+   - You can list replication slots with the query `SELECT * FROM pg_replication_slots` and
+     can drop the replication slot manually with `pg_drop_replication_slot('flow_slot')`.
+2. The database setting `max_slot_wal_keep_size` can be used to bound the maximum amount of
+   WAL data which a replication slot can force the database to retain.
+   - This setting defaults to `-1` (unlimited) but should be set on production databases
+     to protect them from unbounded WAL retention filling up the entire disk.
+   - Proper sizing of this setting is complex for reasons discussed below, but a value
+     of `50GB` should be enough for many databases.
+
+When the `max_slot_wal_keep_size` limit is exceeded, Postgres will terminate any active
+replication connections using that slot and invalidate the replication slot so that it
+can no longer be used. If Postgres invalidates the replication slot, the Flow capture
+using that slot will fail and manual intervention will be required to restart the capture
+and re-backfill all tables.
+
+Setting too low of a limit for `max_slot_wal_keep_size` can cause additional failures
+in the presence of long-running transactions. Even when a client is actively receiving
+and acknowledging replication events, a long-running transaction can cause the `restart_lsn`
+of the replication slot to remain stuck until that transaction commits. Thus the value of
+`max_slot_wal_keep_size` needs to be set high enough to avoid this happening. The precise
+value depends on the overall change rate of your database and worst-case transaction open
+time, but there is no downside to using a larger value provided you have enough free disk
+space.
 
 ### Properties
 
