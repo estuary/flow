@@ -114,7 +114,6 @@ impl SpecExt for models::CollectionDef {
     }
 }
 
-// TODO: IDK if produces and consumes makes a lot of sense for tests
 impl SpecExt for models::TestDef {
     fn consumes(&self, collection_name: &str) -> bool {
         self.0.iter().any(|step| match step {
@@ -131,10 +130,22 @@ impl SpecExt for models::TestDef {
     }
 
     fn reads_from(&self) -> BTreeSet<String> {
-        Default::default()
+        self.0
+            .iter()
+            .filter_map(|step| match step {
+                TestStep::Verify(v) => Some(v.collection.collection().to_string()),
+                _ => None,
+            })
+            .collect()
     }
 
     fn writes_to(&self) -> BTreeSet<String> {
-        Default::default()
+        self.0
+            .iter()
+            .filter_map(|step| match step {
+                TestStep::Ingest(i) => Some(i.collection.to_string()),
+                _ => None,
+            })
+            .collect()
     }
 }
