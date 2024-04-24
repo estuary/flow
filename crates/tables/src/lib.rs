@@ -1,10 +1,16 @@
 #[macro_use]
 mod macros;
+mod behaviors;
+mod ext;
+
+use std::str::FromStr;
+
 use macros::*;
 
 // Re-exports for users of this crate.
+pub use ext::{AnySpec, SpecExt};
 pub use itertools::EitherOrBoth;
-pub use macros::Table;
+pub use macros::{Row, Table};
 
 #[cfg(feature = "persist")]
 pub use macros::{load_tables, persist_tables, SqlTableObj};
@@ -240,17 +246,212 @@ tables!(
     }
 );
 
+pub fn parse_synthetic_scope(url: &url::Url) -> anyhow::Result<(models::CatalogType, String)> {
+    if url.scheme() != "flow" {
+        return Err(anyhow::anyhow!("expected flow:// URL, got {}", url));
+    }
+    let Some(host) = url.host_str() else {
+        return Err(anyhow::anyhow!(
+            "expected flow:// URL with host, got {}",
+            url
+        ));
+    };
+    let catalog_type = models::CatalogType::from_str(host)
+        .map_err(|_| anyhow::anyhow!("invalid CatalogType {host:?}"))?;
+    let catalog_name = url.path().trim_start_matches('/').to_string();
+    Ok((catalog_type, catalog_name))
+}
+
+/// Generate a synthetic scope URL for a given catalog type and name, for when a meaningful scope
+/// URL is otherwise not avaialble.
+pub fn synthetic_scope(
+    catalog_type: models::CatalogType,
+    catalog_name: impl AsRef<str>,
+) -> url::Url {
+    let url_str = format!("flow://{}/", catalog_type.as_ref());
+    let mut url = url::Url::parse(&url_str).unwrap();
+    // using set_path for the catalog name ensures that the name gets properly escaped so that the URL is
+    // guaranteed to be valid, even if the catalog_name is not.
+    url.set_path(catalog_name.as_ref());
+    url
+}
+
 /// DraftCatalog are tables which are populated by catalog loads of the `sources` crate.
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct DraftCatalog {
     pub captures: DraftCaptures,
     pub collections: DraftCollections,
+    pub materializations: DraftMaterializations,
     pub errors: Errors,
     pub fetches: Fetches,
     pub imports: Imports,
-    pub materializations: DraftMaterializations,
     pub resources: Resources,
     pub tests: DraftTests,
+    pub storage_mappings: StorageMappings,
+}
+
+impl DraftCatalog {
+    pub fn spec_count(&self) -> usize {
+        self.captures.len()
+            + self.collections.len()
+            + self.materializations.len()
+            + self.tests.len()
+    }
+
+    pub fn all_spec_names(&self) -> impl Iterator<Item = &str> {
+        self.captures
+            .iter()
+            .map(|c| c.catalog_name().as_str())
+            .chain(self.collections.iter().map(|c| c.catalog_name().as_str()))
+            .chain(
+                self.materializations
+                    .iter()
+                    .map(|m| m.catalog_name().as_str()),
+            )
+            .chain(self.tests.iter().map(|t| t.catalog_name().as_str()))
+    }
+
+    // pub fn get_spec(&self, name: &str) -> Option<AnySpec<'_>> {
+    //     let capture = models::Capture::new(name);
+    //     if let Some(s) = self.captures.get_key(&capture) {
+    //         return s.model().map(Into::into);
+    //     }
+    //     let collection = models::Collection::new(capture);
+    //     if let Some(s) = self.collections.get_key(&collection) {
+    //         return s.model().map(Into::into);
+    //     }
+    //     let materialization = models::Materialization::new(collection);
+    //     if let Some(s) = self.materializations.get_key(&materialization) {
+    //         return s.model().map(Into::into);
+    //     }
+    //     let test = models::Test::new(materialization);
+    //     if let Some(s) = self.tests.get_key(&test) {
+    //         return s.model().map(Into::into);
+    //     }
+    //     None
+    // }
+
+    pub fn to_models_catalog(&self) -> models::Catalog {
+        models::Catalog {
+            captures: self
+                .captures
+                .iter()
+                .filter_map(|r| r.model.clone().map(|s| (r.capture.clone(), s)))
+                .collect(),
+            collections: self
+                .collections
+                .iter()
+                .filter_map(|r| r.model.clone().map(|s| (r.collection.clone(), s)))
+                .collect(),
+            materializations: self
+                .materializations
+                .iter()
+                .filter_map(|r| r.model.clone().map(|s| (r.materialization.clone(), s)))
+                .collect(),
+            tests: self
+                .tests
+                .iter()
+                .filter_map(|r| r.model.clone().map(|s| (r.test.clone(), s)))
+                .collect(),
+            ..Default::default()
+        }
+    }
+}
+
+impl std::fmt::Debug for DraftCatalog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = &mut f.debug_struct("DraftCatalog");
+
+        fn field<'a, 'b, 'c, T: Row>(
+            s: &'c mut std::fmt::DebugStruct<'a, 'b>,
+            name: &str,
+            value: &Table<T>,
+        ) -> &'c mut std::fmt::DebugStruct<'a, 'b> {
+            if !value.is_empty() {
+                s.field(name, value);
+            }
+            s
+        }
+
+        s = field(s, "captures", &self.captures);
+        s = field(s, "collections", &self.collections);
+        s = field(s, "materializations", &self.materializations);
+        s = field(s, "tests", &self.tests);
+        s = field(s, "errors", &self.errors);
+        s = field(s, "fetches", &self.fetches);
+        s = field(s, "imports", &self.imports);
+        s = field(s, "resources", &self.resources);
+        s = field(s, "storage_mappings", &self.storage_mappings);
+        s.finish()
+    }
+}
+
+impl From<models::Catalog> for DraftCatalog {
+    fn from(value: models::Catalog) -> Self {
+        Self {
+            captures: value
+                .captures
+                .into_iter()
+                .map(|(name, spec)| DraftCapture {
+                    scope: synthetic_scope(models::CatalogType::Capture, &name),
+                    capture: name,
+                    model: Some(spec),
+                    expect_pub_id: None,
+                })
+                .collect(),
+            collections: value
+                .collections
+                .into_iter()
+                .map(|(name, spec)| DraftCollection {
+                    scope: synthetic_scope(models::CatalogType::Collection, &name),
+                    collection: name,
+                    model: Some(spec),
+                    expect_pub_id: None,
+                })
+                .collect(),
+            materializations: value
+                .materializations
+                .into_iter()
+                .map(|(name, spec)| DraftMaterialization {
+                    scope: synthetic_scope(models::CatalogType::Materialization, &name),
+                    materialization: name,
+                    model: Some(spec),
+                    expect_pub_id: None,
+                })
+                .collect(),
+            tests: value
+                .tests
+                .into_iter()
+                .map(|(name, spec)| DraftTest {
+                    scope: synthetic_scope(models::CatalogType::Test, &name),
+                    test: name,
+                    model: Some(spec),
+                    expect_pub_id: None,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<LiveCatalog> for DraftCatalog {
+    fn from(live: LiveCatalog) -> Self {
+        Self {
+            captures: live.captures.into_iter().map(DraftCapture::from).collect(),
+            collections: live
+                .collections
+                .into_iter()
+                .map(DraftCollection::from)
+                .collect(),
+            materializations: live
+                .materializations
+                .into_iter()
+                .map(DraftMaterialization::from)
+                .collect(),
+            tests: live.tests.into_iter().map(DraftTest::from).collect(),
+            ..Default::default()
+        }
+    }
 }
 
 // LiveCatalog are tables which are populated from the Estuary control plane.
@@ -263,6 +464,29 @@ pub struct LiveCatalog {
     pub materializations: LiveMaterializations,
     pub storage_mappings: StorageMappings,
     pub tests: LiveTests,
+}
+
+impl LiveCatalog {
+    pub fn is_empty(&self) -> bool {
+        self.captures.is_empty()
+            && self.collections.is_empty()
+            && self.inferred_schemas.is_empty()
+            && self.materializations.is_empty()
+            && self.tests.is_empty()
+    }
+
+    pub fn all_spec_names(&self) -> impl Iterator<Item = &str> {
+        self.captures
+            .iter()
+            .map(|c| c.capture.as_str())
+            .chain(self.collections.iter().map(|c| c.collection.as_str()))
+            .chain(
+                self.materializations
+                    .iter()
+                    .map(|c| c.materialization.as_str()),
+            )
+            .chain(self.tests.iter().map(|c| c.test.as_str()))
+    }
 }
 
 /// Validations are tables populated by catalog validations of the `validation` crate.
@@ -296,6 +520,7 @@ impl DraftCatalog {
             materializations,
             resources,
             tests,
+            storage_mappings,
         } = self;
 
         vec![
@@ -307,6 +532,7 @@ impl DraftCatalog {
             materializations,
             resources,
             tests,
+            storage_mappings,
         ]
     }
 
@@ -321,6 +547,7 @@ impl DraftCatalog {
             materializations,
             resources,
             tests,
+            storage_mappings,
         } = self;
 
         vec![
@@ -332,6 +559,7 @@ impl DraftCatalog {
             materializations,
             resources,
             tests,
+            storage_mappings,
         ]
     }
 }
@@ -504,9 +732,6 @@ proto_sql_types!(
     proto_flow::flow::build_api::Config,
     proto_flow::materialize::response::Validated,
 );
-
-// Modules that extend tables with additional implementations.
-mod behaviors;
 
 // Additional bespoke column implementations for types that require extra help.
 impl Column for anyhow::Error {

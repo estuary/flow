@@ -2,6 +2,7 @@
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
 os.putenv("DATABASE_URL", DATABASE_URL)
 os.putenv("RUST_LOG", "info")
+os.putenv("RUST_BACKTRACE", "1")
 os.putenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
 
 
@@ -19,12 +20,18 @@ local_resource('supabase', cmd='supabase start', links='http://localhost:5433')
 # Builds many of the binaries that we'll need
 local_resource('make', cmd='make', resource_deps=['supabase'])
 
+# The basic ops collections for logs and stats must be published before any other publication can
+# succeed. This does not include any of the ops-related tasks, which themselves will require these
+# collections to be present.
+local_resource('ops-collections',
+    cmd='./local/ops-publication.sh "base-collections.flow.yaml" | psql "%s"' % DATABASE_URL,
+    resource_deps=['agent'])
 
 local_resource('ops-catalog',
-    cmd='./local/ops-publication.sh | psql "%s"' % DATABASE_URL,
+    cmd='./local/ops-publication.sh "template-local.flow.yaml" | psql "%s"' % DATABASE_URL,
     auto_init=False,
     trigger_mode=TRIGGER_MODE_MANUAL,
-    resource_deps=['supabase'])
+    resource_deps=['agent'])
 
 local_resource('etcd', serve_cmd='%s/flow/.build/package/bin/etcd \
     --data-dir %s \
@@ -121,4 +128,3 @@ local_resource('data-plane-gateway',
         ),
     links='https://localhost:28318/',
     resource_deps=['gazette', 'reactor', 'dpg-tls-cert'])
-

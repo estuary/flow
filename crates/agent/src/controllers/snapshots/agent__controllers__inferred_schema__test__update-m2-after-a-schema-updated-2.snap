@@ -1,0 +1,101 @@
+---
+source: crates/agent/src/controllers/inferred_schema.rs
+expression: "(update, &publications)"
+info:
+  catalog_name: a/m2
+  prev_state:
+    active: true
+    next_run: "2024-01-01T08:42:00Z"
+    updated_at: "2024-01-01T08:22:00Z"
+    status:
+      collections:
+        a/a:
+          inferred_schema_md5: 9a715d81eee48cba22c4469c1417d697
+          md5_last_updated: "2024-01-01T08:02:00Z"
+      publications:
+        pending: ~
+        history:
+          - id: "0300000000000000"
+            created: "2024-01-01T08:02:00Z"
+            completed: "2024-01-01T08:02:00Z"
+            result:
+              type: success
+        last_observed:
+          id: "0300000000000000"
+          created: "2024-01-01T08:02:00Z"
+          completed: "2024-01-01T08:02:00Z"
+          result:
+            type: success
+    failures: 0
+---
+[
+  {
+    "active": true,
+    "next_run": null,
+    "status": {
+      "collections": {
+        "a/a": {
+          "inferred_schema_md5": "9a715d81eee48cba22c4469c1417d697",
+          "md5_last_updated": "2024-01-01T08:02:00Z"
+        }
+      },
+      "publications": {
+        "pending": {
+          "id": "0600000000000000",
+          "created": "2024-01-01T08:42:00Z"
+        },
+        "history": [
+          {
+            "id": "0300000000000000",
+            "created": "2024-01-01T08:02:00Z",
+            "completed": "2024-01-01T08:02:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        ],
+        "last_observed": {
+          "id": "0300000000000000",
+          "created": "2024-01-01T08:02:00Z",
+          "completed": "2024-01-01T08:02:00Z",
+          "result": {
+            "type": "success"
+          }
+        }
+      }
+    }
+  },
+  [
+    {
+      "draft": {
+        "materializations": {
+          "a/m2": {
+            "endpoint": {
+              "connector": {
+                "image": "foo:test",
+                "config": {
+                  "$serde_json::private::RawValue": "{}"
+                }
+              }
+            },
+            "bindings": [
+              {
+                "resource": {
+                  "$serde_json::private::RawValue": "{\"thing\":\"a/a\"}"
+                },
+                "source": "a/a",
+                "fields": {
+                  "recommended": true
+                }
+              }
+            ]
+          }
+        }
+      },
+      "publication_meta": [
+        "0600000000000000",
+        "2024-01-01T08:42:00Z"
+      ]
+    }
+  ]
+]

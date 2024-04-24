@@ -147,10 +147,11 @@ pub async fn validate(
 /// some use cases. For example, you may be executing a build for the purpose
 /// of getting the collection projections, in which case you may not want to
 /// consider errors from materialization validations to be terminal.
+#[derive(Default)]
 pub struct Output {
-    draft: tables::DraftCatalog,
-    live: tables::LiveCatalog,
-    built: tables::Validations,
+    pub draft: tables::DraftCatalog,
+    pub live: tables::LiveCatalog,
+    pub built: tables::Validations,
 }
 
 impl Output {
@@ -193,52 +194,6 @@ impl Output {
     pub fn built_tests(&self) -> &tables::BuiltTests {
         &self.built.built_tests
     }
-}
-
-/// Perform a "managed" build, which is a convenience for:
-/// * Loading `source` and failing-fast on any load errors.
-/// * Resolving the live catalog and failing-fast on resolution errors.
-/// * Then performing all validations and producing built specs.
-///
-/// This function is used to produce builds by managed control-plane
-/// components but not the `flowctl` CLI, which requires finer-grain
-/// control over build behavior.
-pub async fn managed_build(
-    pub_id: models::Id,
-    build_id: models::Id,
-    allow_local: bool,
-    connector_network: String,
-    control_plane: Box<dyn tables::CatalogResolver>,
-    file_root: PathBuf,
-    log_handler: impl runtime::LogHandler,
-    project_root: url::Url,
-    source: url::Url,
-) -> Output {
-    let draft = load(&source, &file_root).await;
-    if !draft.errors.is_empty() {
-        return Output::new(draft, Default::default(), Default::default());
-    }
-
-    let live = control_plane.resolve(draft.all_catalog_names()).await;
-    if !live.errors.is_empty() {
-        return Output::new(draft, live, Default::default());
-    }
-
-    validate(
-        pub_id,
-        build_id,
-        allow_local,
-        &connector_network,
-        true, // Generate ops collections.
-        log_handler,
-        false, // Don't no-op captures.
-        false, // Don't no-op derivations.
-        false, // Don't no-op materializations.
-        &project_root,
-        draft,
-        live,
-    )
-    .await
 }
 
 /// Persist a managed build Result into the SQLite tables commonly known as a "build DB".
@@ -405,6 +360,26 @@ pub struct Connectors<L: runtime::LogHandler> {
     noop_derivations: bool,
     noop_materializations: bool,
     runtime: runtime::Runtime<L>,
+}
+
+impl<L: runtime::LogHandler> Connectors<L> {
+    pub fn new(runtime: runtime::Runtime<L>) -> Self {
+        Self {
+            noop_captures: false,
+            noop_derivations: false,
+            noop_materializations: false,
+            runtime,
+        }
+    }
+
+    pub fn with_noop_validations(self) -> Self {
+        Self {
+            noop_captures: true,
+            noop_derivations: true,
+            noop_materializations: true,
+            runtime: self.runtime,
+        }
+    }
 }
 
 impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {

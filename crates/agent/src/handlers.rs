@@ -5,7 +5,7 @@ use sqlx::postgres::PgListener;
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum HandleResult {
     HadJob,
     NoJobs,

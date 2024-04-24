@@ -222,12 +222,12 @@ impl tables::CatalogResolver for Resolver {
 
 impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
-        use crate::catalog::SpecType;
+        use models::CatalogType;
 
         #[derive(serde::Deserialize)]
         struct LiveSpec {
             catalog_name: String,
-            spec_type: SpecType,
+            spec_type: CatalogType,
             #[serde(alias = "spec")]
             model: models::RawValue,
             built_spec: models::RawValue,
@@ -265,28 +265,28 @@ impl Resolver {
             let scope = url::Url::parse(&format!("flow://control/{catalog_name}")).unwrap();
 
             match spec_type {
-                SpecType::Capture => live.captures.insert_row(
+                CatalogType::Capture => live.captures.insert_row(
                     models::Capture::new(catalog_name),
                     scope,
                     last_pub_id,
                     serde_json::from_str::<models::CaptureDef>(model.get())?,
                     serde_json::from_str::<flow::CaptureSpec>(built_spec.get())?,
                 ),
-                SpecType::Collection => live.collections.insert_row(
+                CatalogType::Collection => live.collections.insert_row(
                     models::Collection::new(catalog_name),
                     scope,
                     last_pub_id,
                     serde_json::from_str::<models::CollectionDef>(model.get())?,
                     serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
                 ),
-                SpecType::Materialization => live.materializations.insert_row(
+                CatalogType::Materialization => live.materializations.insert_row(
                     models::Materialization::new(catalog_name),
                     scope,
                     last_pub_id,
                     serde_json::from_str::<models::MaterializationDef>(model.get())?,
                     serde_json::from_str::<flow::MaterializationSpec>(built_spec.get())?,
                 ),
-                SpecType::Test => live.tests.insert_row(
+                CatalogType::Test => live.tests.insert_row(
                     models::Test::new(catalog_name),
                     scope,
                     last_pub_id,

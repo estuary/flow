@@ -1,3 +1,8 @@
+use anyhow::Context;
+use serde_json::value::RawValue;
+
+use crate::{LiveCapture, LiveCollection, LiveMaterialization, LiveTest};
+
 // CatalogResolver is a trait which maps `catalog_names`, such as those from
 // DraftCatalog::all_catalog_names(), into their live specifications.
 pub trait CatalogResolver {
@@ -114,5 +119,89 @@ impl LiveRow for crate::LiveTest {
     }
     fn spec(&self) -> &Self::BuiltSpec {
         &self.spec
+    }
+}
+
+impl super::LiveCatalog {
+    pub fn spec_count(&self) -> usize {
+        self.captures.len()
+            + self.collections.len()
+            + self.materializations.len()
+            + self.tests.len()
+    }
+
+    pub fn last_pub_ids<'a>(&'a self) -> impl Iterator<Item = models::Id> + 'a {
+        self.captures
+            .iter()
+            .map(|v| v.last_pub_id)
+            .chain(self.collections.iter().map(|v| v.last_pub_id))
+            .chain(self.materializations.iter().map(|v| v.last_pub_id))
+            .chain(self.tests.iter().map(|v| v.last_pub_id))
+    }
+
+    pub fn add_spec(
+        &mut self,
+        spec_type: models::CatalogType,
+        catalog_name: &str,
+        scope: url::Url,
+        last_pub_id: models::Id,
+        model_json: &RawValue,
+        built_spec_json: &RawValue,
+    ) -> anyhow::Result<()> {
+        match spec_type {
+            models::CatalogType::Capture => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live capture spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built capture spec")?;
+                self.captures.insert(LiveCapture {
+                    capture: models::Capture::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+            models::CatalogType::Collection => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live collection spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built collection spec")?;
+                self.collections.insert(LiveCollection {
+                    collection: models::Collection::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+            models::CatalogType::Materialization => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live materialization spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built materialization spec")?;
+                self.materializations.insert(LiveMaterialization {
+                    materialization: models::Materialization::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+            models::CatalogType::Test => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live test spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built test spec")?;
+                self.tests.insert(LiveTest {
+                    test: models::Test::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+        }
+        Ok(())
     }
 }

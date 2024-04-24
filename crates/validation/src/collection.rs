@@ -97,6 +97,7 @@ fn walk_collection(
             let write_schema =
                 walk_collection_schema(scope.push_prop("writeSchema"), write_bundle, errors);
 
+            tracing::info!(%collection, "updating inferred schema bundle");
             // Potentially extend the user's read schema with definitions
             // for the collection's current write and inferred schemas.
             let read_bundle =

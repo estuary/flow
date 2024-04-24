@@ -69,6 +69,15 @@ impl RuntimeProtocol {
             RuntimeProtocol::Derive => "derive",
         }
     }
+
+    pub fn from_database_string_value(proto: &str) -> Option<Self> {
+        match proto {
+            "capture" => Some(RuntimeProtocol::Capture),
+            "materialization" => Some(RuntimeProtocol::Materialize),
+            "derive" => Some(RuntimeProtocol::Derive),
+            _ => None,
+        }
+    }
 }
 
 fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {

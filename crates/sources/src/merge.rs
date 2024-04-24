@@ -97,6 +97,7 @@ pub fn into_catalog(draft: tables::DraftCatalog) -> models::Catalog {
         resources: _,
         tests,
         errors,
+        storage_mappings: _,
     } = draft;
 
     assert!(errors.is_empty());

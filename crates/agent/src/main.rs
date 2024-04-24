@@ -1,7 +1,9 @@
+use agent::publications::Publisher;
 use anyhow::Context;
 use clap::Parser;
 use derivative::Derivative;
 use futures::{FutureExt, TryFutureExt};
+use rand::Rng;
 use serde::Deserialize;
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -101,6 +103,10 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         .await
         .context("connecting to database")?;
 
+    let system_user_id = agent_sql::get_user_id_for_email(&args.accounts_email, &pg_pool)
+        .await
+        .context("querying for agent user id")?;
+
     let builds_root = resolve_builds_root(&args.consumer_address)
         .await
         .context("resolving builds root")?;
@@ -110,19 +116,33 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
 
+    // Generate a random shard ID to use for generating unique IDs.
+    // Range starts at 1 because 0 is always used for ids generated in postgres.
+    let id_gen_shard = rand::thread_rng().gen_range(1u16..1024u16);
+    let id_gen = models::IdGenerator::new(id_gen_shard);
+    let publisher = Publisher::new(
+        &args.accounts_email,
+        args.allow_local,
+        false, // test mode is always false in prod
+        &bindir,
+        &args.broker_address,
+        &builds_root,
+        &args.connector_network,
+        &args.consumer_address,
+        &logs_tx,
+        pg_pool.clone(),
+        id_gen.clone(),
+    );
+    let control_plane = agent::PGControlPlane::new(
+        pg_pool.clone(),
+        system_user_id,
+        publisher.clone(),
+        id_gen.clone(),
+    );
+
     let serve_fut = agent::serve(
         vec![
-            Box::new(agent::PublishHandler::new(
-                &args.accounts_email,
-                args.allow_local,
-                &bindir,
-                &args.broker_address,
-                &builds_root,
-                &args.connector_network,
-                &args.consumer_address,
-                &logs_tx,
-                Some(&pg_pool),
-            )),
+            Box::new(publisher),
             Box::new(agent::TagHandler::new(
                 &args.connector_network,
                 &logs_tx,
@@ -136,6 +156,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )),
             Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
             Box::new(agent::EvolutionHandler),
+            Box::new(agent::controllers::ControllerHandler::new(control_plane)),
         ],
         pg_pool.clone(),
         tokio::signal::ctrl_c().map(|_| ()),

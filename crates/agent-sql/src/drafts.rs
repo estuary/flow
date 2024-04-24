@@ -1,4 +1,7 @@
+use sqlx::PgPool;
+
 use super::{CatalogType, Id, TextJson};
+use serde_json::value::RawValue;
 
 /// Creates a draft for the given user and returns the draft id. A user with
 /// the given email must exist, and the email must have been confirmed, or else
@@ -18,6 +21,37 @@ pub async fn create(
     ).fetch_one(txn)
     .await?;
     Ok(row.id)
+}
+
+pub struct DraftSpec {
+    pub draft_id: Id,
+    pub catalog_name: String,
+    pub spec_type: Option<CatalogType>,
+    pub spec: Option<TextJson<Box<RawValue>>>,
+    pub expect_pub_id: Option<Id>,
+}
+
+pub async fn fetch_draft_specs(
+    draft_id: Id,
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+) -> sqlx::Result<Vec<DraftSpec>> {
+    sqlx::query_as!(
+        DraftSpec,
+        r#"
+        select
+            ds.draft_id as "draft_id!: Id",
+            ds.catalog_name as "catalog_name!: String",
+            coalesce(ds.spec_type, ls.spec_type) as "spec_type?: CatalogType",
+            ds.spec as "spec?: TextJson<Box<RawValue>>",
+            ds.expect_pub_id as "expect_pub_id?: Id"
+        from draft_specs ds
+        left join live_specs ls on ds.catalog_name = ls.catalog_name
+        where ds.draft_id = $1;
+        "#,
+        draft_id as Id,
+    )
+    .fetch_all(db)
+    .await
 }
 
 #[tracing::instrument(err, level = "debug", skip(spec, txn))]
@@ -58,10 +92,11 @@ where
 }
 
 pub async fn add_built_spec<S, V>(
-    draft_spec_id: Id,
+    draft_id: Id,
+    catalog_name: &str,
     built_spec: S,
     validated: Option<V>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: &PgPool,
 ) -> sqlx::Result<()>
 where
     S: serde::Serialize + Send + Sync,
@@ -70,14 +105,14 @@ where
     sqlx::query!(
         r#"
         update draft_specs set built_spec = $1, validated = $2
-        where id = $3
-        returning 1 as "must_exist";
+        where draft_id = $3 and catalog_name = $4;
         "#,
         TextJson(built_spec) as TextJson<S>,
         validated.map(|v| TextJson(v)) as Option<TextJson<V>>,
-        draft_spec_id as Id
+        draft_id as Id,
+        catalog_name as &str,
     )
-    .fetch_one(&mut *txn)
+    .execute(db)
     .await?;
 
     Ok(())

@@ -146,4 +146,8 @@ impl super::ModelDef for CaptureDef {
     fn targets(&self) -> impl Iterator<Item = &crate::Collection> {
         self.bindings.iter().map(|b| &b.target)
     }
+
+    fn catalog_type(&self) -> crate::CatalogType {
+        crate::CatalogType::Capture
+    }
 }

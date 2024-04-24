@@ -163,16 +163,19 @@ fn into_built_captures(built_captures: Vec<Value>) -> tables::BuiltCaptures {
 
     for cap in built_captures {
         let spec: CaptureSpec = serde_json::from_value(cap).unwrap();
+        let previous_spec = spec.clone();
         // The validated response isn't actually used during this process.
-        let validated = proto_flow::capture::response::Validated {
+        let validated = Some(proto_flow::capture::response::Validated {
             bindings: Vec::new(),
-        };
-        out.insert_row(
-            Url::parse("test://not-real").unwrap(),
-            "acmeCo/captureA/source-happy".to_string(),
+        });
+        out.insert(tables::BuiltCapture {
+            capture: models::Capture::new("acmeCo/captureA/source-happy"),
+            scope: Url::parse("test://not-real").unwrap(),
+            expect_version_id: None,
             validated,
-            spec,
-        );
+            spec: Some(spec),
+            previous_spec: Some(previous_spec),
+        });
     }
     out
 }
