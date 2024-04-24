@@ -1,18 +1,18 @@
-use crate::{draft::Error, jobs, logs, Id};
-use agent_sql::publications::{ExpandedRow, SpecRow};
-use agent_sql::CatalogType;
+//use crate::controllers::ControlPlane;
+use crate::publications::PublicationResult;
+use crate::{jobs, logs};
 use anyhow::Context;
-use build::Output;
-use itertools::Itertools;
+use build::Connectors;
+use models::Id;
 use proto_flow::{
     materialize::response::validated::constraint::Type as ConstraintType,
     ops::log::Level as LogLevel,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
-use std::collections::{BTreeMap, HashSet};
-use std::io::Write;
+use std::collections::BTreeMap;
 use std::path;
+use tables::BuiltRow;
 
 /// Reasons why a draft collection spec would need to be published under a new name.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
@@ -48,33 +48,19 @@ pub struct RejectedField {
     pub reason: String,
 }
 
-pub fn draft_errors(output: &Output) -> Vec<Error> {
-    output
-        .errors()
-        .map(|e| Error {
-            scope: Some(e.scope.to_string()),
-            // Use "alternate" form to include compact, chained error causes.
-            // See: https://docs.rs/anyhow/latest/anyhow/struct.Error.html#display-representations
-            detail: format!("{:#}", e.error),
-            ..Default::default()
-        })
-        .collect()
-}
-
-pub fn get_incompatible_collections(output: &Output) -> Vec<IncompatibleCollection> {
+pub fn get_incompatible_collections(output: &PublicationResult) -> Vec<IncompatibleCollection> {
     // We'll collect a map of collection names to lists of materializations that have rejected the proposed collection changes.
     let mut naughty_collections = BTreeMap::new();
 
     // Look at materialization validation responses for any collections that have been rejected due to unsatisfiable constraints.
-    for mat in output.built_materializations().iter() {
-        for (i, binding) in mat.validated.bindings.iter().enumerate() {
-            let Some(collection_name) = mat.spec.bindings[i]
-                .collection
-                .as_ref()
-                .map(|c| c.name.as_str())
-            else {
-                continue;
-            };
+    for mat in output.built.built_materializations.iter() {
+        let Some(validated) = mat.validated() else {
+            continue;
+        };
+        let Some(model) = mat.model() else {
+            continue;
+        };
+        for (i, binding) in validated.bindings.iter().enumerate() {
             let naughty_fields: Vec<RejectedField> = binding
                 .constraints
                 .iter()
@@ -85,11 +71,12 @@ pub fn get_incompatible_collections(output: &Output) -> Vec<IncompatibleCollecti
                 })
                 .collect();
             if !naughty_fields.is_empty() {
+                let collection_name = model.bindings[i].source.collection().to_string();
                 let affected_consumers = naughty_collections
-                    .entry(collection_name.to_owned())
+                    .entry(collection_name)
                     .or_insert_with(|| Vec::new());
                 affected_consumers.push(AffectedConsumer {
-                    name: mat.catalog_name.clone(),
+                    name: mat.catalog_name().to_string(),
                     fields: naughty_fields,
                 });
             }
@@ -109,22 +96,19 @@ pub fn get_incompatible_collections(output: &Output) -> Vec<IncompatibleCollecti
 }
 
 pub async fn build_catalog(
+    noop_validations: bool,
     allow_local: bool,
     builds_root: &url::Url,
-    catalog: &models::Catalog,
-    connector_network: &str,
-    control_plane: super::ControlPlane,
-    logs_token: Uuid,
-    logs_tx: &logs::Tx,
+    draft: tables::DraftCatalog,
+    live: tables::LiveCatalog,
+    connector_network: String,
     pub_id: Id,
+    build_id: Id,
     tmpdir: &path::Path,
-) -> anyhow::Result<Output> {
-    // TODO(johnny): It's silly, at this point, to be writing `catalog` out to a file only
-    // to then read it back in again. Rather than building a models::Catalog at all,
-    // we should directly build tables::Draft* rows for each drafted specification,
-    // and require that all drafted specs are already fully resolved and inlined
-    // (we should no longer uses `sources` from the control plane, only flowctl).
-    // This function should probably go away altogether!
+    logs_tx: logs::Tx,
+    logs_token: sqlx::types::Uuid,
+) -> anyhow::Result<build::Output> {
+    let log_handler = logs::ops_handler(logs_tx.clone(), "build".to_string(), logs_token);
 
     // We perform the build under a ./builds/ subdirectory, which is a
     // specific sub-path expected by temp-data-plane underneath its
@@ -134,37 +118,47 @@ pub async fn build_catalog(
     std::fs::create_dir(&builds_dir).context("creating builds directory")?;
     tracing::debug!(?builds_dir, "using build directory");
 
-    // Write our catalog source file within the build directory.
-    std::fs::File::create(&builds_dir.join("flow.json"))
-        .and_then(|mut f| f.write_all(serde_json::to_string_pretty(catalog).unwrap().as_bytes()))
-        .context("writing catalog file")?;
-
-    let build_id = format!("{pub_id}");
-    let db_path = builds_dir.join(&build_id);
-    let log_handler = logs::ops_handler(logs_tx.clone(), "build".to_string(), logs_token);
+    // colons were causing grpc validation errors
+    let build_id_str = build_id.to_string();
+    let db_path = builds_dir.join(&build_id_str);
     let project_root = url::Url::parse("file:///").unwrap();
     let source = url::Url::parse("file:///flow.json").unwrap();
-
-    let managed_build = build::managed_build(
-        allow_local,
-        build_id.clone(),
-        connector_network.to_string(),
-        Box::new(control_plane),
-        builds_dir.clone(), // Root for file:// resolution.
-        log_handler.clone(),
-        project_root,
-        source.clone(),
-    );
 
     // Build a tokio::Runtime that dispatches all tracing events to `log_handler`.
     let tokio_context = runtime::TokioContext::new(
         LogLevel::Warn,
-        log_handler,
-        format!("agent-build-{build_id}"),
+        log_handler.clone(),
+        format!("agent-build-{build_id_str}"),
         1,
     );
+
+    let runtime = runtime::Runtime::new(
+        allow_local,
+        connector_network.to_string(),
+        log_handler,
+        None,
+        format!("build/{build_id}"),
+    );
+    let mut connectors = Connectors::new(runtime);
+    if noop_validations {
+        eprintln!("disabling validations for tests");
+        connectors = connectors.with_noop_validations();
+    }
+
     let build_result = tokio_context
-        .spawn(managed_build)
+        .spawn(async move {
+            let built = validation::validate(
+                pub_id,
+                build_id,
+                &project_root,
+                &connectors,
+                &draft,
+                &live,
+                true, // fail_fast
+            )
+            .await;
+            build::Output { draft, live, built }
+        })
         .await
         .context("unable to join catalog build handle due to panic")?;
 
@@ -172,7 +166,7 @@ pub async fn build_catalog(
     build::persist(
         proto_flow::flow::build_api::Config {
             build_db: db_path.to_string_lossy().to_string(),
-            build_id,
+            build_id: build_id_str,
             source: source.into(),
             source_type: proto_flow::flow::ContentType::Catalog as i32,
             ..Default::default()
@@ -180,7 +174,7 @@ pub async fn build_catalog(
         &db_path,
         &build_result,
     )?;
-    let dest_url = builds_root.join(&pub_id.to_string())?;
+    let dest_url = builds_root.join(&build_id.to_string())?;
 
     // The gsutil job needs to access the GOOGLE_APPLICATION_CREDENTIALS environment variable,
     // so we cannot use `jobs::run` here.
@@ -195,7 +189,7 @@ pub async fn build_catalog(
             .arg(dest_url.to_string()),
     )
     .await
-    .with_context(|| format!("persisting build sqlite DB {db_path:?}"))?;
+    .with_context(|| format!("persisting built sqlite DB {db_path:?}"))?;
 
     if !persist_job.success() {
         anyhow::bail!("persist of {db_path:?} exited with an error");
@@ -243,9 +237,9 @@ pub async fn test_catalog(
     bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
-    pub_id: Id,
+    build_id: Id,
     tmpdir: &path::Path,
-) -> anyhow::Result<Vec<Error>> {
+) -> anyhow::Result<Vec<tables::Error>> {
     let mut errors = Vec::new();
 
     let broker_sock = format!(
@@ -256,7 +250,7 @@ pub async fn test_catalog(
         "unix://localhost/{}/consumer.sock",
         tmpdir.as_os_str().to_string_lossy()
     );
-    let build_id = format!("{pub_id}");
+    let build_id = build_id.to_string();
 
     // Activate all derivations.
     let job = jobs::run(
@@ -284,10 +278,11 @@ pub async fn test_catalog(
     .context("starting test setup")?;
 
     if !job.success() {
-        errors.push(Error {
-            detail: "Test setup failed. View logs for details and reach out to support@estuary.dev"
-                .to_string(),
-            ..Default::default()
+        errors.push(tables::Error {
+            error: anyhow::anyhow!(
+                "Test setup failed. View logs for details and reach out to support@estuary.dev"
+            ),
+            scope: url::Url::parse("flow://publication/test/api/activate").unwrap(),
         });
         return Ok(errors);
     }
@@ -313,9 +308,9 @@ pub async fn test_catalog(
     .context("starting test runner")?;
 
     if !job.success() {
-        errors.push(Error {
-            detail: "One or more test cases failed. View logs for details.".to_string(),
-            ..Default::default()
+        errors.push(tables::Error {
+            error: anyhow::anyhow!("One or more test cases failed. View logs for details."),
+            scope: url::Url::parse("flow://publication/test/api/test").unwrap(),
         });
     }
 
@@ -342,56 +337,52 @@ pub async fn test_catalog(
     .await?;
 
     if !job.success() {
-        errors.push(Error {
-            detail:
+        errors.push(tables::Error {
+            error: anyhow::anyhow!(
                 "Test cleanup failed. View logs for details and reach out to support@estuary.dev"
-                    .to_string(),
-            ..Default::default()
+            ),
+            scope: url::Url::parse("flow://publication/test/api/delete").unwrap(),
         });
     }
 
     Ok(errors)
 }
 
+#[tracing::instrument(level = "debug", skip(logs_tx, built))]
 pub async fn deploy_build(
     bindir: &str,
     broker_address: &url::Url,
     connector_network: &str,
     consumer_address: &url::Url,
-    expanded_rows: &[ExpandedRow],
     logs_token: Uuid,
     logs_tx: &logs::Tx,
-    pub_id: Id,
-    spec_rows: &[SpecRow],
-    pruned_collections: &HashSet<String>,
-) -> anyhow::Result<Vec<Error>> {
-    let mut errors = Vec::new();
-
-    let spec_rows = spec_rows
-        .iter()
-        // Filter specs to be activated
-        .filter(|r| match (r.live_type, r.draft_type) {
-            // Before and after are both deleted.
-            (None, None) => false,
-            // Tests don't need activated
-            (Some(CatalogType::Test), _) | (_, Some(CatalogType::Test)) => false,
-            // Collections may have been pruned if they are not bound to anything
-            (Some(_), Some(CatalogType::Collection)) => {
-                !pruned_collections.contains(r.catalog_name.as_str())
-            }
-            _ => true,
-        });
+    build_id: Id,
+    built: &build::Output,
+) -> anyhow::Result<tables::Errors> {
+    let mut errors = tables::Errors::default();
 
     // Activate non-deleted drafts plus all non-test expanded specifications.
-    let activate_names = spec_rows
-        .clone()
-        .filter(|r| r.draft_type.is_some())
-        .map(|r| format!("--name={}", r.catalog_name))
+
+    let activate_names = built
+        .built_captures()
+        .iter()
+        .filter(|r| !r.is_delete())
+        .map(|r| format!("--name={}", r.catalog_name()))
         .chain(
-            expanded_rows
+            built
+                .built_collections()
                 .iter()
-                .filter(|r| !matches!(r.live_type, CatalogType::Test))
-                .map(|r| format!("--name={}", r.catalog_name)),
+                .filter(|r| {
+                    !r.is_delete() && r.model().map(|m| m.derive.is_some()).unwrap_or_default()
+                })
+                .map(|r| format!("--name={}", r.catalog_name())),
+        )
+        .chain(
+            built
+                .built_materializations()
+                .iter()
+                .filter(|r| !r.is_delete())
+                .map(|r| format!("--name={}", r.catalog_name())),
         );
 
     let job = jobs::run(
@@ -404,7 +395,7 @@ pub async fn deploy_build(
             .arg("--broker.address")
             .arg(broker_address.as_str())
             .arg("--build-id")
-            .arg(format!("{pub_id}"))
+            .arg(build_id.to_string())
             .arg("--consumer.address")
             .arg(consumer_address.as_str())
             .arg("--network")
@@ -418,11 +409,14 @@ pub async fn deploy_build(
     .context("starting activation")?;
 
     if !job.success() {
-        errors.push(Error {
-            detail: "One or more task activations failed. View logs for details and reach out to support@estuary.dev".to_string(),
-             ..Default::default()
+        tracing::error!(exit_status = ?job, "flowctl-go api activate failed");
+        errors.push(tables::Error {
+            error: anyhow::anyhow!("One or more task activations failed. View logs for details and reach out to support@estuary.dev"),
+            scope: url::Url::parse("flow://api/activate").unwrap(),
         });
     }
+
+    // TODO: fix deletions once flowctl-go no longer requires these to be grouped by last_build_id
 
     // Delete drafts which are deleted, grouped on their `last_build_id`
     // under which they're deleted. Note that `api delete` requires that
@@ -430,50 +424,82 @@ pub async fn deploy_build(
     // in order to provide the last-applicable built specification to
     // connector ApplyDelete RPCs.
 
-    let delete_groups = spec_rows
-        .filter(|r| r.draft_type.is_none())
-        .map(|r| (r.last_build_id, format!("--name={}", r.catalog_name)))
-        .sorted()
-        .group_by(|(last_build_id, _)| *last_build_id)
-        .into_iter()
-        .map(|(last_build_id, delete_names)| {
-            (
-                last_build_id,
-                delete_names.map(|(_, name)| name).collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
+    // let delete_groups = built
+    //     .built_captures()
+    //     .iter()
+    //     .filter(|r| r.is_delete())
+    //     .map(|r| {
+    //         (
+    //             r.last_build_id.unwrap(),
+    //             format!("--name={}", r.catalog_name),
+    //         )
+    //     })
+    //     .chain(
+    //         built
+    //             .built_collections()
+    //             .iter()
+    //             .filter(|r| r.is_delete())
+    //             .map(|r| {
+    //                 (
+    //                     r.expect_version_id.unwrap(),
+    //                     format!("--name={}", r.catalog_name),
+    //                 )
+    //             }),
+    //     )
+    //     .chain(
+    //         built
+    //             .built_materializations()
+    //             .iter()
+    //             .filter(|r| r.is_delete())
+    //             .map(|r| {
+    //                 (
+    //                     r.expect_version_id.unwrap(),
+    //                     format!("--name={}", r.catalog_name),
+    //                 )
+    //             }),
+    //     )
+    //     .sorted()
+    //     .group_by(|(last_build_id, _)| *last_build_id)
+    //     .into_iter()
+    //     .map(|(last_build_id, delete_names)| {
+    //         (
+    //             last_build_id,
+    //             delete_names.map(|(_, name)| name).collect::<Vec<_>>(),
+    //         )
+    //     })
+    //     .collect::<Vec<_>>();
 
-    for (last_build_id, delete_names) in delete_groups {
-        let job = jobs::run(
-            "delete",
-            logs_tx,
-            logs_token,
-            async_process::Command::new(format!("{bindir}/flowctl-go"))
-                .arg("api")
-                .arg("delete")
-                .arg("--broker.address")
-                .arg(broker_address.as_str())
-                .arg("--build-id")
-                .arg(format!("{last_build_id}"))
-                .arg("--consumer.address")
-                .arg(consumer_address.as_str())
-                .arg("--network")
-                .arg(connector_network)
-                .args(delete_names)
-                .arg("--log.level=info")
-                .arg("--log.format=color"),
-        )
-        .await
-        .context("starting deletions")?;
+    // for (last_build_id, delete_names) in delete_groups {
+    //     let job = jobs::run(
+    //         "delete",
+    //         logs_tx,
+    //         logs_token,
+    //         async_process::Command::new(format!("{bindir}/flowctl-go"))
+    //             .arg("api")
+    //             .arg("delete")
+    //             .arg("--broker.address")
+    //             .arg(broker_address.as_str())
+    //             .arg("--build-id")
+    //             .arg(format!("{last_build_id}"))
+    //             .arg("--consumer.address")
+    //             .arg(consumer_address.as_str())
+    //             .arg("--network")
+    //             .arg(connector_network)
+    //             .args(delete_names)
+    //             .arg("--log.level=info")
+    //             .arg("--log.format=color"),
+    //     )
+    //     .await
+    //     .context("starting deletions")?;
 
-        if !job.success() {
-            errors.push(Error {
-            detail: "One or more task deletions failed. View logs for details and reach out to support@estuary.dev".to_string(),
-            ..Default::default()
-            });
-        }
-    }
+    //     if !job.success() {
+    //         tracing::error!(exit_status = ?job, delete_expect_build_id = %last_build_id, "flowctl-go api delete failed");
+    //         errors.push(tables::Error {
+    //             error: anyhow::anyhow!("One or more task deletions failed. View logs for details and reach out to support@estuary.dev"),
+    //             scope: url::Url::parse("flow://api/delete"),
+    //         });
+    //     }
+    // }
 
     Ok(errors)
 }

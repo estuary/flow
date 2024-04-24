@@ -138,4 +138,8 @@ impl super::ModelDef for CollectionDef {
     fn targets(&self) -> impl Iterator<Item = &crate::Collection> {
         std::iter::empty()
     }
+
+    fn catalog_type(&self) -> crate::CatalogType {
+        crate::CatalogType::Collection
+    }
 }

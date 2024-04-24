@@ -76,9 +76,23 @@ pub async fn resolve_unknown_connectors(
     res
 }
 
+// pub async fn does_connector_exist(
+//     connector_image: &str,
+//     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+// ) -> sqlx::Result<bool> {
+//     sqlx::query!(
+//         r#"select 1 as "exists: bool" from connectors
+//         where connectors.image_name = $1;"#,
+//         connector_image
+//     )
+//     .fetch_optional(txn)
+//     .await
+//     .map(|exists| exists.is_some())
+// }
+
 pub async fn does_connector_exist(
     connector_image: &str,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: impl sqlx::PgExecutor<'_>,
 ) -> sqlx::Result<bool> {
     sqlx::query!(
         r#"select 1 as "exists: bool" from connectors
@@ -195,4 +209,44 @@ pub async fn fetch_resource_path_pointers(
     .await?;
 
     Ok(row.and_then(|r| r.pointers).unwrap_or_default())
+}
+
+pub struct ConnectorSpec {
+    pub protocol: String,
+    pub documentation_url: String,
+    pub endpoint_config_schema: Json<Box<RawValue>>,
+    pub resource_config_schema: Json<Box<RawValue>>,
+    pub resource_path_pointers: Vec<String>,
+    pub oauth2: Option<Json<Box<RawValue>>>,
+}
+
+pub async fn fetch_connector_spec(
+    image_name: &str,
+    image_tag: &str,
+    pool: &sqlx::PgPool,
+) -> sqlx::Result<Option<ConnectorSpec>> {
+    let row = sqlx::query_as!(
+        ConnectorSpec,
+        r#"
+        select
+            ct.protocol as "protocol!",
+            ct.documentation_url as "documentation_url!",
+            ct.endpoint_spec_schema as "endpoint_config_schema!: Json<Box<RawValue>>",
+            ct.resource_spec_schema as "resource_config_schema!: Json<Box<RawValue>>",
+            coalesce(ct.resource_path_pointers, array[]::json_pointer[]) as "resource_path_pointers!: Vec<String>",
+            c.oauth2_spec as "oauth2: Json<Box<RawValue>>"
+        from connectors c
+        join connector_tags ct on c.id = ct.connector_id
+        where c.image_name = $1
+            and ct.image_tag = $2
+            and ct.endpoint_spec_schema is not null
+            and ct.resource_spec_schema is not null;
+        "#,
+        image_name,
+        image_tag
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row)
 }

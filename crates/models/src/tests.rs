@@ -163,6 +163,10 @@ impl super::ModelDef for TestDef {
             Some(&ingest.collection)
         })
     }
+
+    fn catalog_type(&self) -> crate::CatalogType {
+        crate::CatalogType::Test
+    }
 }
 
 // TEMPORARY: support a custom deserializer that maps from the legacy array
@@ -219,8 +223,10 @@ impl<'de> serde::de::Visitor<'de> for TestDefVisitor {
         const EXPECT_PUB_ID: &str = "expectPubId";
         const DELETE: &str = "delete";
 
-        while let Some(key) = map.next_key()? {
-            match key {
+        // We must deserialize the key as an owned String, or else deserialization of a
+        // `serde_json::Value` will fail, because it only uses owned Strings for keys.
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
                 DESCRIPTION => {
                     if description.is_some() {
                         return Err(serde::de::Error::duplicate_field(DESCRIPTION));
@@ -247,7 +253,7 @@ impl<'de> serde::de::Visitor<'de> for TestDefVisitor {
                 }
                 _ => {
                     return Err(serde::de::Error::unknown_field(
-                        key,
+                        key.as_str(),
                         &[DESCRIPTION, STEPS, EXPECT_PUB_ID, DELETE],
                     ))
                 }

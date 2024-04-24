@@ -10,7 +10,7 @@ use crate::{
 use anyhow::Context;
 use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
-use models::RawValue;
+use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, clap::Args)]
@@ -131,10 +131,10 @@ impl SpecTypeSelector {
     /// Adds postgrest query parameters based on the arugments provided to filter specs based on the `spec_type` column.
     pub fn add_spec_type_filters(&self, mut builder: postgrest::Builder) -> postgrest::Builder {
         let all = &[
-            (SpecType::Capture.as_ref(), self.captures),
-            (SpecType::Collection.as_ref(), self.collections),
-            (SpecType::Materialization.as_ref(), self.materializations),
-            (SpecType::Test.as_ref(), self.tests),
+            (CatalogType::Capture.as_ref(), self.captures),
+            (CatalogType::Collection.as_ref(), self.collections),
+            (CatalogType::Materialization.as_ref(), self.materializations),
+            (CatalogType::Test.as_ref(), self.tests),
         ];
 
         // If any of the types were explicitly included, then we'll add
@@ -163,33 +163,6 @@ impl SpecTypeSelector {
             || self.collections == Some(true)
             || self.materializations == Some(true)
             || self.tests == Some(true)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SpecType {
-    Capture,
-    Collection,
-    Materialization,
-    Test,
-}
-
-impl std::fmt::Display for SpecType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str(self.as_ref())
-    }
-}
-
-impl std::convert::AsRef<str> for SpecType {
-    fn as_ref(&self) -> &str {
-        // These strings match what's used by serde, and also match the definitions in the database.
-        match *self {
-            SpecType::Capture => "capture",
-            SpecType::Collection => "collection",
-            SpecType::Materialization => "materialization",
-            SpecType::Test => "test",
-        }
     }
 }
 
@@ -327,7 +300,7 @@ pub struct LiveSpecRow {
     pub catalog_name: String,
     pub id: models::Id,
     pub updated_at: crate::Timestamp,
-    pub spec_type: SpecType,
+    pub spec_type: CatalogType,
     pub last_pub_id: models::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pub_user_email: Option<String>,
@@ -379,7 +352,7 @@ impl crate::output::CliOutput for LiveSpecRow {
 /// Trait that's common to database rows of catalog specs, which can be turned into a bundled catalog.
 pub trait SpecRow {
     fn catalog_name(&self) -> &str;
-    fn spec_type(&self) -> SpecType;
+    fn spec_type(&self) -> CatalogType;
     fn spec(&self) -> Option<&RawValue>;
     fn expect_pub_id(&self) -> Option<models::Id>;
 }
@@ -388,7 +361,7 @@ impl SpecRow for LiveSpecRow {
     fn catalog_name(&self) -> &str {
         &self.catalog_name
     }
-    fn spec_type(&self) -> SpecType {
+    fn spec_type(&self) -> CatalogType {
         self.spec_type
     }
     fn spec(&self) -> Option<&RawValue> {
@@ -419,7 +392,7 @@ pub fn collect_specs(
         let scope = url::Url::parse(&format!("flow://control/{}", row.catalog_name())).unwrap();
 
         match row.spec_type() {
-            SpecType::Capture => {
+            CatalogType::Capture => {
                 catalog.captures.insert_row(
                     models::Capture::new(row.catalog_name()),
                     &scope,
@@ -427,7 +400,7 @@ pub fn collect_specs(
                     parse::<models::CaptureDef>(row.spec())?,
                 );
             }
-            SpecType::Collection => {
+            CatalogType::Collection => {
                 catalog.collections.insert_row(
                     models::Collection::new(row.catalog_name()),
                     &scope,
@@ -435,7 +408,7 @@ pub fn collect_specs(
                     parse::<models::CollectionDef>(row.spec())?,
                 );
             }
-            SpecType::Materialization => {
+            CatalogType::Materialization => {
                 catalog.materializations.insert_row(
                     models::Materialization::new(row.catalog_name()),
                     &scope,
@@ -443,7 +416,7 @@ pub fn collect_specs(
                     parse::<models::MaterializationDef>(row.spec())?,
                 );
             }
-            SpecType::Test => {
+            CatalogType::Test => {
                 catalog.tests.insert_row(
                     models::Test::new(row.catalog_name()),
                     &scope,
@@ -562,7 +535,7 @@ async fn do_draft(
         last_pub_id: models::Id,
         pub_id: models::Id,
         spec: Option<RawValue>,
-        spec_type: SpecType,
+        spec_type: CatalogType,
     }
 
     let Row {
@@ -605,7 +578,7 @@ async fn do_draft(
     struct DraftSpec {
         draft_id: models::Id,
         catalog_name: String,
-        spec_type: SpecType,
+        spec_type: CatalogType,
         spec: Option<RawValue>,
         expect_pub_id: models::Id,
     }
@@ -635,7 +608,7 @@ async fn do_draft(
 #[derive(Deserialize, Serialize)]
 pub struct SpecSummaryItem {
     pub catalog_name: String,
-    pub spec_type: SpecType,
+    pub spec_type: CatalogType,
 }
 
 impl SpecSummaryItem {
@@ -651,19 +624,19 @@ impl SpecSummaryItem {
 
         summary.extend(captures.into_iter().map(|r| SpecSummaryItem {
             catalog_name: r.capture.to_string(),
-            spec_type: SpecType::Capture,
+            spec_type: CatalogType::Capture,
         }));
         summary.extend(collections.into_iter().map(|r| SpecSummaryItem {
             catalog_name: r.collection.to_string(),
-            spec_type: SpecType::Collection,
+            spec_type: CatalogType::Collection,
         }));
         summary.extend(materializations.into_iter().map(|r| SpecSummaryItem {
             catalog_name: r.materialization.to_string(),
-            spec_type: SpecType::Materialization,
+            spec_type: CatalogType::Materialization,
         }));
         summary.extend(tests.into_iter().map(|r| SpecSummaryItem {
             catalog_name: r.test.to_string(),
-            spec_type: SpecType::Test,
+            spec_type: CatalogType::Test,
         }));
 
         summary

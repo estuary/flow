@@ -11,6 +11,7 @@ pub fn inline_draft_catalog(catalog: &mut tables::DraftCatalog) {
         resources,
         tests,
         errors: _,
+        storage_mappings: _,
     } = catalog;
 
     for capture in captures.iter_mut() {
@@ -240,6 +241,7 @@ fn inline_materialization(
         shards: _,
         expect_pub_id: _,
         delete: _,
+        on_incompatible_schema_change: _,
     } = model;
 
     match endpoint {

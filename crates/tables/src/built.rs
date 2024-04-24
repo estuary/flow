@@ -232,3 +232,12 @@ impl BuiltRow for crate::BuiltTest {
         self.previous_spec.as_ref()
     }
 }
+
+impl super::Validations {
+    pub fn count(&self) -> usize {
+        self.built_captures.len()
+            + self.built_collections.len()
+            + self.built_materializations.len()
+            + self.built_tests.len()
+    }
+}

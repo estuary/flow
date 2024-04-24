@@ -1,4 +1,6 @@
-mod connector_tags;
+pub(crate) mod connector_tags;
+pub mod controllers;
+pub(crate) mod controlplane;
 mod directives;
 mod discovers;
 pub(crate) mod draft;
@@ -6,17 +8,21 @@ pub(crate) mod evolution;
 mod handlers;
 mod jobs;
 pub mod logs;
-pub(crate) mod publications;
+pub mod publications;
 pub(crate) mod resource_configs;
+
+#[cfg(test)]
+pub(crate) mod integration_tests;
 
 pub use agent_sql::{CatalogType, Id};
 pub use connector_tags::TagHandler;
+pub use controlplane::{ControlPlane, PGControlPlane};
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
 pub use evolution::EvolutionHandler;
 pub use handlers::{serve, HandleResult, Handler};
 use lazy_static::lazy_static;
-pub use publications::PublishHandler;
+//pub use publications::{JobStatus, PublicationResult, Publisher, UncommittedBuild};
 use regex::Regex;
 
 // Used during tests.

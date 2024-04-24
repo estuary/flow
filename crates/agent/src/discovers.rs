@@ -8,6 +8,11 @@ use sqlx::types::Uuid;
 
 mod specs;
 
+// TODO: discovers should get a similar treatment as publications...
+// - Create `pub async fn discover(discover_args: ...) -> Result<tables::DraftCatalog>`
+// - call that function from the handler
+// - create a `ControlPlane::discover` function for use by controllers
+
 /// JobStatus is the possible outcomes of a handled discover operation.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
@@ -108,7 +113,9 @@ impl DiscoverHandler {
             return Ok((row.id, JobStatus::TagFailed));
         } else if row.protocol != "capture" {
             return Ok((row.id, JobStatus::WrongProtocol));
-        } else if !agent_sql::connector_tags::does_connector_exist(&row.image_name, txn).await? {
+        } else if !agent_sql::connector_tags::does_connector_exist(&row.image_name, &mut *txn)
+            .await?
+        {
             return Ok((row.id, JobStatus::ImageForbidden));
         }
 

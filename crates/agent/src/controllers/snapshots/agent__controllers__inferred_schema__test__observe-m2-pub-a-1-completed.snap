@@ -1,0 +1,104 @@
+---
+source: crates/agent/src/controllers/inferred_schema.rs
+expression: "&updates"
+info:
+  id: "0300000000000000"
+  completed_at: "2024-01-01T08:02:00Z"
+  draft:
+    materializations:
+      a/m2:
+        endpoint:
+          connector:
+            image: "foo:test"
+            config:
+              "$serde_json::private::RawValue": "{}"
+        bindings:
+          - resource:
+              "$serde_json::private::RawValue": "{\"thing\":\"a/a\"}"
+            source: a/a
+            fields:
+              recommended: true
+  live:
+    collections:
+      a/a:
+        writeSchema:
+          "$serde_json::private::RawValue": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"type\":\"object\"}"
+        readSchema:
+          "$serde_json::private::RawValue": "{\"allOf\":[{\"$ref\":\"flow://inferred-schema\"},{\"$ref\":\"flow://write-schema\"}]}"
+        key:
+          - /id
+    materializations:
+      a/m2:
+        endpoint:
+          connector:
+            image: "foo:test"
+            config:
+              "$serde_json::private::RawValue": "{}"
+        bindings:
+          - resource:
+              "$serde_json::private::RawValue": "{\"thing\":\"a/a\"}"
+            source: a/a
+            fields:
+              recommended: true
+  starting_states:
+    a/m2:
+      active: true
+      next_run: ~
+      updated_at: "2024-01-01T08:02:00Z"
+      status:
+        collections:
+          a/a:
+            inferred_schema_md5: ~
+            md5_last_updated: "2024-01-01T08:01:00Z"
+        publications:
+          pending:
+            id: "0300000000000000"
+            created: "2024-01-01T08:02:00Z"
+          history: []
+          last_observed:
+            id: "0100000000000000"
+            completed: "2024-01-01T08:01:00Z"
+            result:
+              type: success
+      failures: 0
+  publication_status:
+    type: success
+---
+{
+  "a/m2": {
+    "active": true,
+    "next_run": {
+      "after_seconds": 600,
+      "jitter_percent": 20
+    },
+    "status": {
+      "collections": {
+        "a/a": {
+          "inferred_schema_md5": "9a715d81eee48cba22c4469c1417d697",
+          "md5_last_updated": "2024-01-01T08:02:00Z"
+        }
+      },
+      "publications": {
+        "pending": null,
+        "history": [
+          {
+            "id": "0300000000000000",
+            "created": "2024-01-01T08:02:00Z",
+            "completed": "2024-01-01T08:02:00Z",
+            "result": {
+              "type": "success"
+            }
+          }
+        ],
+        "last_observed": {
+          "id": "0300000000000000",
+          "created": "2024-01-01T08:02:00Z",
+          "completed": "2024-01-01T08:02:00Z",
+          "result": {
+            "type": "success"
+          }
+        }
+      }
+    }
+  }
+}

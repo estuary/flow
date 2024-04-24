@@ -30,6 +30,18 @@ pub trait Row: std::fmt::Debug + Sized {
     fn cmp_row(&self, other: &Self) -> std::cmp::Ordering;
 }
 
+impl<'a, T: Row> Row for &'a T {
+    type Key = T::Key;
+
+    fn cmp_key(&self, other: &Self::Key) -> std::cmp::Ordering {
+        T::cmp_key(*self, other)
+    }
+
+    fn cmp_row(&self, other: &Self) -> std::cmp::Ordering {
+        T::cmp_row(*self, other)
+    }
+}
+
 #[cfg(feature = "persist")]
 /// SqlRow is a Row which can persist to and from sqlite.
 pub trait SqlRow: Row {
@@ -68,6 +80,8 @@ pub trait SqlTableObj {
 /// Table is a collection of Rows.
 pub struct Table<R: Row>(Vec<R>);
 impl<R: Row> TableObj for Table<R> {}
+
+//impl<R: Row + DraftRow> Table<R>
 
 impl<R: Row> Table<R> {
     /// New returns an empty Table.
@@ -143,6 +157,67 @@ impl<R: Row> Table<R> {
             itertools::EitherOrBoth::Both(row, (k, v)) => join(row, k, v),
             _ => None,
         })
+    }
+
+    pub fn outer_join_mut<'s, I, IK, IV, M, O>(
+        &'s mut self,
+        it: I,
+        join: M,
+    ) -> impl Iterator<Item = O> + 's
+    where
+        I: Iterator<Item = (IK, IV)> + 's,
+        IK: std::borrow::Borrow<R::Key>,
+        M: FnMut(itertools::EitherOrBoth<&'s mut R, (IK, IV)>) -> Option<O> + 's,
+    {
+        itertools::merge_join_by(self.iter_mut(), it, |l, (rk, _rv)| l.cmp_key(rk.borrow()))
+            .filter_map(join)
+    }
+
+    pub fn get_by_key(&self, key: &R::Key) -> Option<&R> {
+        self.0
+            .binary_search_by(|r| r.cmp_key(key))
+            .ok()
+            .map(|i| &self.0[i])
+    }
+
+    pub fn get_mut_by_key(&mut self, key: &R::Key) -> Option<&mut R> {
+        self.0
+            .binary_search_by(|r| r.cmp_key(key))
+            .ok()
+            .map(move |i| &mut self.0[i])
+    }
+
+    pub fn get_or_insert_with<F>(&mut self, key: &R::Key, make_new: F) -> &mut R
+    where
+        F: FnOnce() -> R,
+    {
+        match self.0.binary_search_by(|r| r.cmp_key(key)) {
+            Ok(i) => &mut self.0[i],
+            Err(i) => {
+                self.0.insert(i, make_new());
+                &mut self.0[i]
+            }
+        }
+    }
+
+    pub fn upsert<F>(&mut self, row: R, mut merge: F)
+    where
+        F: FnMut(&mut R, Option<R>),
+    {
+        match self.0.binary_search_by(|r| r.cmp_row(&row)) {
+            Ok(i) => {
+                // TODO: finish upsert and use it in test_util
+                let prev = std::mem::replace(&mut self.0[i], row);
+                merge(&mut self.0[i], Some(prev));
+            }
+            Err(i) => {
+                self.0.insert(i, row);
+            }
+        };
+    }
+
+    pub fn upsert_overwrite(&mut self, row: R) {
+        self.upsert(row, |_, _| {});
     }
 
     // Re-index the Table as a bulk operation.
@@ -497,12 +572,14 @@ macro_rules! proto_sql_types {
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $row:ident, sql $sql_name:literal ) {
+        table $table:ident ( row $( #[$rowattrs:meta] )? $row:ident, sql $sql_name:literal ) {
             $(key $key:ident: $key_type:ty,)*
             $(val $val:ident: $val_type:ty,)*
         }
     )*) => {
         $(
+
+        $( #[$rowattrs] )?
         pub struct $row {
             $(pub $key: $key_type,)*
             $(pub $val: $val_type,)*

@@ -1,9 +1,158 @@
-use super::{Capability, CatalogType, Id, TextJson as Json};
+use crate::FlowType;
+
+use super::{Capability, CatalogType, Id, RoleGrant, TextJson as Json};
 
 use chrono::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
+
+#[derive(Debug)]
+pub struct LiveRevision {
+    pub catalog_name: String,
+    pub last_pub_id: Id,
+}
+
+/// Locks the given live specs rows and returns their current revisions. This is used for verifying the revisions
+/// for specs that were used during the build, but are not being updated. We verify the revisions in-memory in order
+/// to handle the case where a row has subsequently been deleted, since you can't use `for update` on the nullable
+/// side of an outer join.
+pub async fn lock_live_specs(
+    catalog_names: &[&str],
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<LiveRevision>> {
+    let fails = sqlx::query_as!(
+        LiveRevision,
+        r#"
+        select
+            ls.catalog_name,
+            ls.last_pub_id as "last_pub_id: Id"
+        from  live_specs ls
+        where ls.catalog_name = any($1::text[])
+        for update of ls
+        "#,
+        catalog_names as &[&str],
+    )
+    .fetch_all(txn)
+    .await?;
+    Ok(fails)
+}
+
+pub struct LiveSpecUpdate {
+    pub catalog_name: String,
+    pub live_spec_id: Id,
+    pub expect_pub_id: Id,
+    pub last_pub_id: Id,
+}
+
+pub async fn persist_updates(
+    pub_id: Id,
+    catalog_names: &[String],
+    spec_types: &[CatalogType],
+    models: &[Option<Json<Box<RawValue>>>],
+    built_specs: &[Option<Json<Box<RawValue>>>],
+    expect_revisions: &[Id],
+    reads_from: &[Option<Json<Vec<String>>>],
+    writes_to: &[Option<Json<Vec<String>>>],
+    images: &[Option<String>],
+    image_tags: &[Option<String>],
+    controller_next_run: DateTime<Utc>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<LiveSpecUpdate>> {
+    tracing::warn!(?reads_from, ?writes_to, ?catalog_names, "persist_updates");
+    // TODO: comment on persist_updates query
+    let fails = sqlx::query_as!(
+        LiveSpecUpdate,
+        r#"
+        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag) as (
+            select * from unnest(
+                $3::text[],
+                $4::catalog_spec_type[],
+                $5::json[],
+                $6::json[],
+                $7::flowid[],
+                $8::json[],
+                $9::json[],
+                $10::text[],
+                $11::text[]
+            )
+        ),
+        joined(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, tag, last_pub_id) as (
+            select
+                inputs.*,
+                case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_pub_id end as last_pub_id
+            from inputs
+            left outer join live_specs ls on ls.catalog_name = inputs.catalog_name
+        ),
+        insert_live_specs(catalog_name,live_spec_id) as (
+            insert into live_specs (catalog_name, spec_type, spec, built_spec, last_build_id, last_pub_id, controller_next_run, reads_from, writes_to, connector_image_name, connector_image_tag)
+            select
+                catalog_name,
+                spec_type,
+                spec,
+                built_spec,
+                $1::flowid,
+                $1::flowid,
+                $2,
+                case when json_typeof(reads_from) is null then
+                    null
+                else
+                    array(select json_array_elements_text(reads_from))
+                end,
+                case when json_typeof(reads_from) is null then
+                    null
+                else
+                    array(select json_array_elements_text(writes_to))
+                end,
+                image,
+                tag
+            from joined
+            on conflict (catalog_name) do update set
+                updated_at = now(),
+                spec_type = excluded.spec_type,
+                spec = excluded.spec,
+                built_spec = excluded.built_spec,
+                last_build_id = excluded.last_build_id,
+                last_pub_id = excluded.last_pub_id,
+                controller_next_run = least(live_specs.controller_next_run, excluded.controller_next_run),
+                reads_from = excluded.reads_from,
+                writes_to = excluded.writes_to,
+                connector_image_name = excluded.connector_image_name,
+                connector_image_tag = excluded.connector_image_tag
+            returning
+                catalog_name,
+                id as live_spec_id,
+                last_pub_id
+        ),
+        insert_controller_jobs as (
+            insert into controller_jobs(live_spec_id)
+            select live_spec_id from insert_live_specs
+            on conflict (live_spec_id) do nothing
+        )
+        select
+            joined.catalog_name as "catalog_name!: String",
+            insert_live_specs.live_spec_id as "live_spec_id!: Id",
+            joined.expect_pub_id as "expect_pub_id!: Id",
+            joined.last_pub_id as "last_pub_id!: Id"
+        from insert_live_specs
+        join joined using (catalog_name)
+    "#,
+    pub_id as Id, // 1
+    controller_next_run as DateTime<Utc>, // 2
+    catalog_names, // 3
+    spec_types as &[CatalogType], // 4
+    models as &[Option<Json<Box<RawValue>>>], // 5
+    built_specs as &[Option<Json<Box<RawValue>>>], // 6
+    expect_revisions as &[Id], // 7
+    reads_from as &[Option<Json<Vec<String>>>], // 8
+    writes_to as &[Option<Json<Vec<String>>>], // 9
+    images as &[Option<String>], // 10
+    image_tags as &[Option<String>], // 11
+    )
+    .fetch_all(txn)
+    .await?;
+    Ok(fails)
+}
 
 /// Enqueues a new publication of the given `draft_id`.
 pub async fn create(
@@ -144,29 +293,6 @@ pub async fn rollback_noop(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> s
     Ok(())
 }
 
-pub async fn insert_new_live_specs(
-    draft_id: Id,
-    pub_id: Id,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<u64> {
-    let rows = sqlx::query!(
-        r#"
-        insert into live_specs(catalog_name, last_build_id, last_pub_id) (
-            select catalog_name, $2, $2
-            from draft_specs
-            where draft_specs.draft_id = $1
-            for update of draft_specs
-        ) on conflict (catalog_name) do nothing
-        "#,
-        draft_id as Id,
-        pub_id as Id,
-    )
-    .execute(&mut *txn)
-    .await?;
-
-    Ok(rows.rows_affected())
-}
-
 pub async fn add_inferred_schema_md5(
     live_spec_id: Id,
     inferred_schema_md5: Option<String>,
@@ -207,13 +333,6 @@ where
     .await?;
 
     Ok(())
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RoleGrant {
-    pub subject_role: String,
-    pub object_role: String,
-    pub capability: Capability,
 }
 
 #[derive(Debug, Serialize)]
@@ -266,7 +385,7 @@ pub async fn resolve_spec_rows(
             live_specs.last_pub_id as "last_pub_id: Id",
             live_specs.spec as "live_spec: Json<Box<RawValue>>",
             live_specs.id as "live_spec_id: Id",
-            live_specs.spec_type as "live_type: CatalogType",
+            live_specs.spec_type as "live_type?: CatalogType",
             coalesce(
                 (select json_agg(row_to_json(role_grants))
                 from role_grants
@@ -301,18 +420,14 @@ pub struct Tenant {
 }
 
 pub async fn find_tenant_quotas(
-    live_spec_ids: Vec<Id>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant_names: &[&str],
+    txn: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> sqlx::Result<Vec<Tenant>> {
     sqlx::query_as!(
         Tenant,
         r#"
-        with tenant_names as (
-            select tenants.tenant as tenant_name
-            from tenants
-            join live_specs on starts_with(live_specs.catalog_name, tenants.tenant)
-            where live_specs.id = ANY($1::flowid[])
-            group by tenants.tenant
+        with tenant_names(tenant_name) as (
+            select unnest($1::text[]) as tenant_name
         ),
         tenant_usages as (
             select
@@ -341,7 +456,7 @@ pub async fn find_tenant_quotas(
         from tenant_usages
         join tenants on tenants.tenant = tenant_usages.tenant_name
         order by tenants.tenant;"#,
-        live_spec_ids as Vec<Id>
+        tenant_names as &[&str]
     )
     .fetch_all(txn)
     .await
@@ -480,7 +595,7 @@ pub async fn delete_stale_flow(
         }
         CatalogType::Materialization => {
             sqlx::query!(
-                "delete from live_spec_flows where target_id = $1 and flow_type = 'materialization'",
+                "delete from live_spec_flows where target_id = $1 and (flow_type = 'materialization' or flow_type = 'source_capture')",
                 live_spec_id as Id,
             )
             .execute(&mut *txn)
@@ -597,11 +712,13 @@ pub async fn update_expanded_live_specs(
 
 pub async fn insert_live_spec_flows(
     live_spec_id: Id,
-    draft_type: &Option<CatalogType>,
+    draft_type: CatalogType,
     reads_from: Option<Vec<&str>>,
     writes_to: Option<Vec<&str>>,
+    source_capture: Option<&str>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
+    let flow_type = FlowType::from(draft_type);
     // Precondition: `reads_from` and `writes_to` may or may not have a live_specs row,
     // and we silently ignore entries which don't match a live_specs row.
     //
@@ -611,16 +728,21 @@ pub async fn insert_live_spec_flows(
     sqlx::query!(
         r#"
         insert into live_spec_flows (source_id, target_id, flow_type)
-            select live_specs.id, $1, $2::catalog_spec_type
+        select live_specs.id, $1, $2::flow_type
             from unnest($3::text[]) as n inner join live_specs on catalog_name = n
         union
             select $1, live_specs.id, $2
-            from unnest($4::text[]) as n inner join live_specs on catalog_name = n;
+            from unnest($4::text[]) as n inner join live_specs on catalog_name = n
+        union
+            select live_specs.id, $1, 'source_capture'
+            from live_specs
+            where catalog_name = $5
         "#,
         live_spec_id as Id,
-        draft_type as &Option<CatalogType>,
+        flow_type as FlowType,
         reads_from as Option<Vec<&str>>,
         writes_to as Option<Vec<&str>>,
+        source_capture,
     )
     .execute(&mut *txn)
     .await?;
@@ -636,7 +758,7 @@ pub struct StorageRow {
 
 pub async fn resolve_storage_mappings(
     names: Vec<&str>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> sqlx::Result<Vec<StorageRow>> {
     sqlx::query_as!(
         StorageRow,
@@ -654,7 +776,7 @@ pub async fn resolve_storage_mappings(
         "#,
         names as Vec<&str>,
     )
-    .fetch_all(&mut *txn)
+    .fetch_all(db)
     .await
 }
 
@@ -673,31 +795,6 @@ pub async fn resolve_collections(
             from live_specs
             where catalog_name = ANY($1::text[])
             and spec_type = 'collection'
-            "#,
-        collections as Vec<String>,
-    )
-    .fetch_all(&pool)
-    .await
-}
-
-pub struct InferredSchemaRow {
-    pub collection_name: String,
-    pub schema: Json<Box<RawValue>>,
-    pub md5: String,
-}
-
-pub async fn get_inferred_schemas(
-    collections: Vec<String>,
-    pool: sqlx::PgPool,
-) -> sqlx::Result<Vec<InferredSchemaRow>> {
-    sqlx::query_as!(
-        InferredSchemaRow,
-        r#"select
-            collection_name,
-            schema as "schema!: Json<Box<RawValue>>",
-            md5 as "md5!: String"
-            from inferred_schemas
-            where collection_name = ANY($1::text[])
             "#,
         collections as Vec<String>,
     )
