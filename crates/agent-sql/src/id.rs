@@ -5,6 +5,17 @@ use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; 8]);
 
+impl From<models::Id> for Id {
+    fn from(value: models::Id) -> Self {
+        Id(value.as_array())
+    }
+}
+impl Into<models::Id> for Id {
+    fn into(self) -> models::Id {
+        models::Id::new(self.0)
+    }
+}
+
 impl Id {
     pub fn is_zero(&self) -> bool {
         self.0 == [0u8; 8]

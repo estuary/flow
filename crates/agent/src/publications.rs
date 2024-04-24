@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use crate::controllers::PublicationResult;
+
 use self::builds::IncompatibleCollection;
 use self::validation::ControlPlane;
 use super::{
@@ -8,6 +10,7 @@ use super::{
 };
 use agent_sql::{connector_tags::UnknownConnector, publications::Row, CatalogType};
 use anyhow::Context;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -44,6 +47,17 @@ pub enum JobStatus {
 }
 
 impl JobStatus {
+    pub fn is_success(&self) -> bool {
+        // TODO: should EmptyDraft also be considered successful?
+        match self {
+            JobStatus::Success { .. } => true,
+            _ => false,
+        }
+    }
+    fn is_empty_draft(&self) -> bool {
+        matches!(self, JobStatus::EmptyDraft)
+    }
+
     fn success(materialization_pubs: impl Into<Vec<Id>>) -> JobStatus {
         JobStatus::Success {
             linked_materialization_publications: materialization_pubs.into(),
@@ -111,20 +125,17 @@ impl Handler for PublishHandler {
                     None => return Ok(HandleResult::NoJobs),
                     Some(row) => row,
                 };
-            let background = row.background;
 
-            let delete_draft_id = if !row.dry_run {
-                Some(row.draft_id)
-            } else {
-                None
-            };
+            let id = row.pub_id;
+            let background = row.background;
+            let dry_run = row.dry_run;
+            let draft_id = row.draft_id;
 
             let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-            let id = row.pub_id;
             let process_result = self.process(row, &mut txn, false).await;
 
-            let status = match process_result {
-                Ok((_, status)) => status,
+            let result = match process_result {
+                Ok(result) => result,
                 Err(err) if crate::is_acquire_lock_error(&err) => {
                     tracing::info!(%id, %time_queued, "cannot acquire all row locks for publication (will retry)");
                     // Since we failed to acquire a necessary row lock, wait a short
@@ -145,14 +156,22 @@ impl Handler for PublishHandler {
                 }
                 Err(other_err) => return Err(other_err),
             };
-            info!(%id, %time_queued, ?status, %background, "finished");
-            agent_sql::publications::resolve(id, &status, &mut txn).await?;
+            info!(%id, %time_queued, %background, status = ?result.publication_status, "build finished");
+            agent_sql::publications::resolve(id, &result.publication_status, &mut txn).await?;
+
+            crate::controllers::observe_publication(&mut txn, &result)
+                .await
+                .context("controllers::observe_publication")?;
+
             txn.commit().await?;
 
             // As a separate transaction, delete the draft if it has no draft_specs.
             // The user could have raced an insertion of a new spec.
-            if let (Some(delete_draft_id), JobStatus::Success { .. }) = (delete_draft_id, status) {
-                agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
+            if (result.publication_status.is_success()
+                || result.publication_status.is_empty_draft())
+                && !dry_run
+            {
+                agent_sql::publications::delete_draft(draft_id, pg_pool).await?;
             }
             return Ok(HandleResult::HadJob);
         }
@@ -170,7 +189,7 @@ impl PublishHandler {
         row: Row,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         test_run: bool,
-    ) -> anyhow::Result<(Id, JobStatus)> {
+    ) -> anyhow::Result<PublicationResult> {
         info!(
             %row.created_at,
             %row.draft_id,
@@ -195,6 +214,25 @@ impl PublishHandler {
         let spec_rows =
             specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?;
         tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
+
+        let (hack_draft_catalog, mut hack_live_catalog) = specs::to_catalog(&spec_rows)?;
+        if !hack_draft_catalog.errors.is_empty() {
+            let errors = hack_draft_catalog
+                .errors
+                .iter()
+                .map(Error::from_tables_error)
+                .collect();
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
+                errors,
+                JobStatus::build_failed(Vec::new()),
+                row,
+                txn,
+            )
+            .await;
+        }
 
         // Keep track of which collections are being deleted so that we can account for them
         // while resolving "remote" collection specs during the build.
@@ -240,13 +278,25 @@ impl PublishHandler {
             }),
         );
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
+                errors,
+                JobStatus::build_failed(Vec::new()),
+                row,
+                txn,
+            )
+            .await;
         }
 
         if let Err((errors, incompatible_collections)) =
             specs::validate_transition(&draft_catalog, &live_catalog, row.pub_id, &spec_rows)
         {
             return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
                 errors,
                 JobStatus::build_failed(incompatible_collections),
                 row,
@@ -280,12 +330,30 @@ impl PublishHandler {
         let pruned_collections = pruned_collections.into_iter().collect::<HashSet<_>>();
 
         if spec_rows.len() - pruned_collections.len() == 0 {
-            return stop_with_errors(Vec::new(), JobStatus::EmptyDraft, row, txn).await;
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
+                Vec::new(),
+                JobStatus::EmptyDraft,
+                row,
+                txn,
+            )
+            .await;
         }
 
         let errors = specs::enforce_resource_quotas(&spec_rows, prev_quota_usage, txn).await?;
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
+                errors,
+                JobStatus::build_failed(Vec::new()),
+                row,
+                txn,
+            )
+            .await;
         }
 
         let unknown_connectors =
@@ -306,11 +374,21 @@ impl PublishHandler {
             .collect();
 
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
+                errors,
+                JobStatus::build_failed(Vec::new()),
+                row,
+                txn,
+            )
+            .await;
         }
 
         let expanded_rows = specs::expanded_specifications(row.user_id, &spec_rows, txn).await?;
         tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
+        specs::add_expanded_specs(&mut hack_live_catalog, &expanded_rows)?;
 
         // Touch all expanded specifications to update their build ID.
         // TODO(johnny): This can potentially deadlock. We may eventually want
@@ -350,18 +428,43 @@ impl PublishHandler {
         )
         .await?;
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
+                errors,
+                JobStatus::build_failed(Vec::new()),
+                row,
+                txn,
+            )
+            .await;
         }
 
         let errors =
             linked_materializations::validate_source_captures(txn, &draft_catalog, &spec_rows)
                 .await?;
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                Default::default(),
+                errors,
+                JobStatus::build_failed(Vec::new()),
+                row,
+                txn,
+            )
+            .await;
         }
 
         if test_run {
-            return Ok((row.pub_id, JobStatus::success(Vec::new())));
+            return Ok(PublicationResult {
+                completed_at: Utc::now(),
+                publication_id: row.pub_id.into(),
+                draft: hack_draft_catalog,
+                live: hack_live_catalog,
+                validated: Default::default(),
+                publication_status: JobStatus::success(Vec::new()),
+            });
         }
 
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
@@ -387,6 +490,9 @@ impl PublishHandler {
             // We'll report those in the status so that the UI can present a dialog allowing users to take action.
             let incompatible_collections = builds::get_incompatible_collections(&build_output);
             return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                build_output.into_parts().1,
                 errors,
                 JobStatus::build_failed(incompatible_collections),
                 row,
@@ -423,7 +529,16 @@ impl PublishHandler {
             }?;
 
             if !errors.is_empty() {
-                return stop_with_errors(errors, JobStatus::TestFailed, row, txn).await;
+                return stop_with_errors(
+                    hack_draft_catalog,
+                    hack_live_catalog,
+                    build_output.into_parts().1,
+                    errors,
+                    JobStatus::TestFailed,
+                    row,
+                    txn,
+                )
+                .await;
             }
         }
 
@@ -438,7 +553,14 @@ impl PublishHandler {
                 .await
                 .context("adding built specs to draft")?;
 
-            return Ok((row.pub_id, JobStatus::success(Vec::new())));
+            return Ok(PublicationResult {
+                completed_at: Utc::now(),
+                publication_id: row.pub_id.into(),
+                draft: hack_draft_catalog,
+                live: hack_live_catalog,
+                validated: build_output.into_parts().1,
+                publication_status: JobStatus::success(Vec::new()),
+            });
         }
 
         // Add built specs to the live spec when publishing a build.
@@ -464,7 +586,16 @@ impl PublishHandler {
         std::mem::drop(tmpdir_handle);
 
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::PublishFailed, row, txn).await;
+            return stop_with_errors(
+                hack_draft_catalog,
+                hack_live_catalog,
+                build_output.into_parts().1,
+                errors,
+                JobStatus::PublishFailed,
+                row,
+                txn,
+            )
+            .await;
         }
 
         let maybe_source_captures =
@@ -483,16 +614,26 @@ impl PublishHandler {
         .await
         .context("creating linked materialization publications")?;
 
-        Ok((row.pub_id, JobStatus::success(pub_ids)))
+        Ok(PublicationResult {
+            completed_at: Utc::now(),
+            publication_id: row.pub_id.into(),
+            draft: hack_draft_catalog,
+            live: hack_live_catalog,
+            validated: build_output.into_parts().1,
+            publication_status: JobStatus::success(pub_ids),
+        })
     }
 }
 
 async fn stop_with_errors(
+    draft: tables::DraftCatalog,
+    live: tables::LiveCatalog,
+    validated: tables::Validations,
     errors: Vec<Error>,
     mut job_status: JobStatus,
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<(Id, JobStatus)> {
+) -> anyhow::Result<PublicationResult> {
     agent_sql::publications::rollback_noop(txn)
         .await
         .context("rolling back to savepoint")?;
@@ -526,7 +667,14 @@ async fn stop_with_errors(
         }
     }
 
-    Ok((row.pub_id, job_status))
+    Ok(PublicationResult {
+        draft,
+        live,
+        completed_at: chrono::Utc::now(),
+        publication_id: row.pub_id.into(),
+        validated,
+        publication_status: job_status,
+    })
 }
 
 fn create_evolutions_requests(

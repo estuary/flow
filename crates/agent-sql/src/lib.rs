@@ -1,4 +1,5 @@
 pub mod connector_tags;
+pub mod controllers;
 pub mod directives;
 pub mod discovers;
 pub mod drafts;
@@ -33,6 +34,17 @@ impl Display for CatalogType {
             CatalogType::Test => "test",
         };
         f.write_str(s)
+    }
+}
+
+impl Into<models::CatalogType> for CatalogType {
+    fn into(self) -> models::CatalogType {
+        match self {
+            CatalogType::Capture => models::CatalogType::Capture,
+            CatalogType::Collection => models::CatalogType::Collection,
+            CatalogType::Materialization => models::CatalogType::Materialization,
+            CatalogType::Test => models::CatalogType::Test,
+        }
     }
 }
 

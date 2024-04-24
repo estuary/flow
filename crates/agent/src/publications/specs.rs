@@ -1,9 +1,12 @@
 use super::builds::{IncompatibleCollection, ReCreateReason};
 use super::draft::Error;
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
-use agent_sql::{Capability, CatalogType, Id};
+use agent_sql::{Capability, Id};
 use anyhow::Context;
 use itertools::Itertools;
+use models::CatalogType;
+use serde::de::DeserializeOwned;
+use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -68,6 +71,229 @@ pub async fn resolve_specifications(
     Ok(spec_rows)
 }
 
+pub fn to_catalog(
+    spec_rows: &[SpecRow],
+) -> anyhow::Result<(tables::DraftCatalog, tables::LiveCatalog)> {
+    let mut draft = tables::DraftCatalog::default();
+    let mut live = tables::LiveCatalog::default();
+
+    for row in spec_rows {
+        let spec_type: models::CatalogType = row
+            .live_type
+            .or(row.draft_type)
+            .expect("spec row must have either live or draft spec type")
+            .into();
+        let n_errors = draft.errors.len();
+        let scope = tables::synthetic_scope(spec_type, &row.catalog_name);
+
+        // TODO: pull in code to fetch the built spec from control-jobs-2
+        match spec_type {
+            CatalogType::Capture => {
+                if let Some(s) = deserialize_spec::<models::CaptureDef>(&row.live_spec)
+                    .context("deserializing live spec")?
+                {
+                    live.captures.insert(tables::LiveCapture {
+                        catalog_name: models::Capture::new(&row.catalog_name),
+                        live_spec_id: row.live_spec_id.into(),
+                        last_build_id: row.last_build_id.into(),
+                        spec: s,
+                        built_spec: Default::default(),
+                    })
+                }
+                match deserialize_spec::<models::CaptureDef>(&row.draft_spec) {
+                    Ok(maybe_spec) => {
+                        draft.captures.insert(tables::DraftCapture {
+                            catalog_name: models::Capture::new(&row.catalog_name),
+                            scope,
+                            spec: maybe_spec,
+                            // TODO: expect build vs pub id
+                            expect_build_id: row.expect_pub_id.map(Into::into),
+                        })
+                    }
+                    Err(err) => {
+                        draft.errors.push(tables::Error {
+                            scope,
+                            error: err.into(),
+                        });
+                    }
+                }
+            }
+            CatalogType::Collection => {
+                if let Some(s) = deserialize_spec::<models::CollectionDef>(&row.live_spec)
+                    .context("deserializing live spec")?
+                {
+                    live.collections.insert(tables::LiveCollection {
+                        catalog_name: models::Collection::new(&row.catalog_name),
+                        live_spec_id: row.live_spec_id.into(),
+                        last_build_id: row.last_build_id.into(),
+                        spec: s,
+                        built_spec: Default::default(),
+                        // TODO: fetch inferred schema md5 on spec rows
+                        inferred_schema_md5: None,
+                    });
+                }
+                match deserialize_spec::<models::CollectionDef>(&row.draft_spec) {
+                    Ok(maybe_spec) => {
+                        draft.collections.insert(tables::DraftCollection {
+                            catalog_name: models::Collection::new(&row.catalog_name),
+                            scope,
+                            spec: maybe_spec,
+                            // TODO: expect build vs pub id
+                            expect_build_id: row.expect_pub_id.map(Into::into),
+                        })
+                    }
+                    Err(err) => {
+                        draft.errors.push(tables::Error {
+                            scope,
+                            error: err.into(),
+                        });
+                    }
+                }
+            }
+            CatalogType::Materialization => {
+                if let Some(s) = deserialize_spec::<models::MaterializationDef>(&row.live_spec)
+                    .context("deserializing live spec")?
+                {
+                    live.materializations.insert(tables::LiveMaterialization {
+                        catalog_name: models::Materialization::new(&row.catalog_name),
+                        live_spec_id: row.live_spec_id.into(),
+                        last_build_id: row.last_build_id.into(),
+                        spec: s,
+                        built_spec: Default::default(),
+                    });
+                }
+                match deserialize_spec::<models::MaterializationDef>(&row.draft_spec) {
+                    Ok(maybe_spec) => {
+                        draft.materializations.insert(tables::DraftMaterialization {
+                            catalog_name: models::Materialization::new(&row.catalog_name),
+                            scope,
+                            spec: maybe_spec,
+                            // TODO: expect build vs pub id
+                            expect_build_id: row.expect_pub_id.map(Into::into),
+                        })
+                    }
+                    Err(err) => {
+                        draft.errors.push(tables::Error {
+                            scope,
+                            error: err.into(),
+                        });
+                    }
+                }
+            }
+            CatalogType::Test => {
+                if let Some(s) = deserialize_spec::<models::TestDef>(&row.live_spec)
+                    .context("deserializing live spec")?
+                {
+                    live.tests.insert(tables::LiveTest {
+                        catalog_name: models::Test::new(&row.catalog_name),
+                        live_spec_id: row.live_spec_id.into(),
+                        last_build_id: row.last_build_id.into(),
+                        spec: s,
+                        built_spec: Default::default(),
+                    });
+                }
+                match deserialize_spec::<models::TestDef>(&row.draft_spec) {
+                    Ok(maybe_spec) => {
+                        draft.tests.insert(tables::DraftTest {
+                            catalog_name: models::Test::new(&row.catalog_name),
+                            scope,
+                            spec: maybe_spec,
+                            // TODO: expect build vs pub id
+                            expect_build_id: row.expect_pub_id.map(Into::into),
+                        })
+                    }
+                    Err(err) => {
+                        draft.errors.push(tables::Error {
+                            scope,
+                            error: err.into(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((draft, live))
+}
+
+fn deserialize_spec<T: DeserializeOwned>(
+    maybe_spec: &Option<agent_sql::TextJson<Box<RawValue>>>,
+) -> serde_json::Result<Option<T>> {
+    if let Some(json) = maybe_spec {
+        let spec = serde_json::from_str(json.get())?;
+        Ok(Some(spec))
+    } else {
+        Ok(None)
+    }
+}
+
+/// TODO: This does not yet populate the `built_spec` field. We'll need to do that once we
+/// start fetching them as part of spec expansion.
+/// TODO: also need to fetch and populate inferred schema md5 for collections
+pub fn add_expanded_specs(
+    catalog: &mut tables::LiveCatalog,
+    specs: &[ExpandedRow],
+) -> anyhow::Result<()> {
+    for row in specs {
+        let live_type = row.live_type.into();
+        let scope = tables::synthetic_scope(live_type, &row.catalog_name);
+
+        match row.live_type.into() {
+            CatalogType::Capture => {
+                let spec = serde_json::from_str(row.live_spec.get())
+                    .context("deserializing capture spec")?;
+                catalog.captures.insert(tables::LiveCapture {
+                    live_spec_id: row.live_spec_id.into(),
+                    catalog_name: models::Capture::new(&row.catalog_name),
+                    spec,
+                    last_build_id: row.last_build_id.into(),
+                    built_spec: Default::default(),
+                });
+            }
+            CatalogType::Collection => {
+                let spec = serde_json::from_str(row.live_spec.get())
+                    .context("deserializing collection spec")?;
+
+                // TODO: do we need to set inferred_schema_md5 for expanded collections?
+                catalog.collections.insert(tables::LiveCollection {
+                    live_spec_id: row.live_spec_id.into(),
+                    catalog_name: models::Collection::new(&row.catalog_name),
+                    spec,
+                    last_build_id: row.last_build_id.into(),
+                    built_spec: Default::default(),
+                    // TODO: set inferred_schema_md5
+                    inferred_schema_md5: None,
+                });
+            }
+            CatalogType::Materialization => {
+                let spec = serde_json::from_str(row.live_spec.get())
+                    .context("deserializing materialization spec")?;
+                catalog
+                    .materializations
+                    .insert(tables::LiveMaterialization {
+                        live_spec_id: row.live_spec_id.into(),
+                        catalog_name: models::Materialization::new(&row.catalog_name),
+                        spec,
+                        last_build_id: row.last_build_id.into(),
+                        built_spec: Default::default(),
+                    });
+            }
+            CatalogType::Test => {
+                let spec =
+                    serde_json::from_str(row.live_spec.get()).context("deserializing test spec")?;
+                catalog.tests.insert(tables::LiveTest {
+                    live_spec_id: row.live_spec_id.into(),
+                    catalog_name: models::Test::new(&row.catalog_name),
+                    spec,
+                    last_build_id: row.last_build_id.into(),
+                    built_spec: Default::default(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 // expanded_specifications returns additional specifications which should be
 // included in this publication's build. Attempts to acquire a lock on each expanded `live_specs`
 // row, with the assumption that we will be updating the `built_spec` and `last_build_id`.
@@ -125,6 +351,8 @@ pub fn validate_transition(
         user_capability,
     } in spec_rows
     {
+        let draft_type: Option<CatalogType> = draft_type.map(Into::into);
+        let live_type: Option<CatalogType> = live_type.map(Into::into);
         // Check that the user is authorized to change this spec.
         if !matches!(user_capability, Some(Capability::Admin)) {
             errors.push(Error {
@@ -228,7 +456,7 @@ pub fn validate_transition(
                     ..Default::default()
                 });
             // If this is a collection spec, then we can suggest re-creating the spec with a _v2 suffix, so why not be helpful
-            if draft_type == &Some(CatalogType::Collection) {
+            if draft_type == Some(CatalogType::Collection) {
                 let reasons = incompatible_collections
                     .entry(catalog_name.to_string())
                     .or_insert(Vec::new());
@@ -648,7 +876,7 @@ fn extract_spec_metadata<'a>(
     let mut writes_to = Vec::new();
     let mut image_parts = None;
 
-    match *draft_type {
+    match draft_type.map(Into::into) {
         Some(CatalogType::Capture) => {
             let key = models::Capture::new(catalog_name);
             let capture = catalog.captures.get(&key).unwrap();
@@ -697,7 +925,7 @@ fn extract_spec_metadata<'a>(
             let key = models::Test::new(catalog_name);
             let steps = catalog.tests.get(&key).unwrap();
 
-            for step in steps {
+            for step in steps.iter() {
                 match step {
                     models::TestStep::Ingest(ingest) => writes_to.push(ingest.collection.as_ref()),
                     models::TestStep::Verify(verify) => {
@@ -802,13 +1030,14 @@ mod test {
             .unwrap()
         {
             let row_draft_id = row.draft_id.clone();
-            let (pub_id, status) = handler.process(row, &mut *txn, true).await.unwrap();
+            let result = handler.process(row, &mut *txn, true).await.unwrap();
+            let pub_id = result.publication_id.into();
 
-            agent_sql::publications::resolve(pub_id, &status, &mut *txn)
+            agent_sql::publications::resolve(pub_id, &result.publication_status, &mut *txn)
                 .await
                 .unwrap();
 
-            match status {
+            match result.publication_status {
                 JobStatus::Success { .. } => {
                     let specs = sqlx::query_as!(
                         LiveSpec,
@@ -831,7 +1060,7 @@ mod test {
 
                     results.push(ScenarioResult {
                         draft_id: row_draft_id,
-                        status,
+                        status: result.publication_status.clone(),
                         errors: vec![],
                         live_specs: specs,
                     })
@@ -855,7 +1084,7 @@ mod test {
 
                     results.push(ScenarioResult {
                         draft_id: row_draft_id,
-                        status: status.clone(),
+                        status: result.publication_status.clone(),
                         errors: formatted_errors,
                         live_specs: vec![],
                     });

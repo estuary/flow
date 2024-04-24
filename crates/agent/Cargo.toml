@@ -35,6 +35,7 @@ futures = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
+rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 schemars = { workspace = true }
@@ -52,6 +53,7 @@ validator = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+md5 = { workspace = true }
 tokio = { workspace = true }
 serial_test = { workspace = true }
 uuid = { workspace = true }

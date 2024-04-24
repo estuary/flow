@@ -1,5 +1,5 @@
 use crate::{api_exec_paginated, catalog, local_specs};
-use models::RawValue;
+use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, clap::Args)]
@@ -55,7 +55,7 @@ pub async fn do_develop(
 pub struct DraftSpecRow {
     pub catalog_name: String,
     pub spec: RawValue,
-    pub spec_type: Option<catalog::CatalogSpecType>,
+    pub spec_type: Option<CatalogType>,
 }
 
 impl catalog::SpecRow for DraftSpecRow {
@@ -63,7 +63,7 @@ impl catalog::SpecRow for DraftSpecRow {
         &self.catalog_name
     }
 
-    fn spec_type(&self) -> Option<catalog::CatalogSpecType> {
+    fn spec_type(&self) -> Option<CatalogType> {
         self.spec_type
     }
 

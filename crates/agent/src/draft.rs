@@ -11,6 +11,30 @@ pub struct Error {
     pub detail: String,
 }
 
+impl Error {
+    pub fn to_tables_error(&self) -> tables::Error {
+        // Use a bogus scope. This is admittedly pretty dumb, but it's only used temporarily by
+        // controllers, which need to observe failed publications.
+        let mut scope = url::Url::parse("flow://unknown/").unwrap();
+        scope.set_path(&self.catalog_name);
+        tables::Error {
+            scope,
+            error: anyhow::Error::msg(self.detail),
+        }
+    }
+
+    pub fn from_tables_error(err: &tables::Error) -> Self {
+        let catalog_name = tables::parse_synthetic_scope(&err.scope)
+            .map(|(_, name)| name)
+            .unwrap_or_default();
+        Error {
+            catalog_name,
+            scope: Some(err.scope.to_string()),
+            detail: err.error.to_string(),
+        }
+    }
+}
+
 /// upsert_specs updates the given draft with specifications of the catalog.
 /// The `expect_pub_ids` parameter is used to lookup the `last_pub_id` by catalog name.
 /// For each item in the catalog, if an entry exists in `expect_pub_ids`, then it will

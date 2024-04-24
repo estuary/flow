@@ -17,6 +17,9 @@ impl Id {
 
         Ok(Id(exact))
     }
+    pub fn as_array(&self) -> [u8; 8] {
+        self.0
+    }
 }
 
 impl std::str::FromStr for Id {

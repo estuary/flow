@@ -1,4 +1,5 @@
 mod connector_tags;
+mod controllers;
 mod directives;
 mod discovers;
 pub(crate) mod draft;

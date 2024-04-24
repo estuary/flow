@@ -10,7 +10,7 @@ use crate::{
 use anyhow::Context;
 use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
-use models::RawValue;
+use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, clap::Args)]
@@ -138,14 +138,14 @@ impl SpecTypeSelector {
         include_deleted: bool,
     ) -> postgrest::Builder {
         let all = &[
-            (CatalogSpecType::Capture.as_ref(), "eq", self.captures),
-            (CatalogSpecType::Collection.as_ref(), "eq", self.collections),
+            (CatalogType::Capture.as_ref(), "eq", self.captures),
+            (CatalogType::Collection.as_ref(), "eq", self.collections),
             (
-                CatalogSpecType::Materialization.as_ref(),
+                CatalogType::Materialization.as_ref(),
                 "eq",
                 self.materializations,
             ),
-            (CatalogSpecType::Test.as_ref(), "eq", self.tests),
+            (CatalogType::Test.as_ref(), "eq", self.tests),
             // Deleted specs, will always be Some, so that an empty type selector
             ("null", "is", Some(include_deleted)),
         ];
@@ -181,33 +181,6 @@ impl SpecTypeSelector {
             || self.collections == Some(true)
             || self.materializations == Some(true)
             || self.tests == Some(true)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CatalogSpecType {
-    Capture,
-    Collection,
-    Materialization,
-    Test,
-}
-
-impl std::fmt::Display for CatalogSpecType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str(self.as_ref())
-    }
-}
-
-impl std::convert::AsRef<str> for CatalogSpecType {
-    fn as_ref(&self) -> &str {
-        // These strings match what's used by serde, and also match the definitions in the database.
-        match *self {
-            CatalogSpecType::Capture => "capture",
-            CatalogSpecType::Collection => "collection",
-            CatalogSpecType::Materialization => "materialization",
-            CatalogSpecType::Test => "test",
-        }
     }
 }
 
@@ -350,7 +323,7 @@ pub struct LiveSpecRow {
     pub catalog_name: String,
     pub id: String,
     pub updated_at: crate::Timestamp,
-    pub spec_type: Option<CatalogSpecType>,
+    pub spec_type: Option<CatalogType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pub_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -406,7 +379,7 @@ impl crate::output::CliOutput for LiveSpecRow {
 /// Trait that's common to database rows of catalog specs, which can be turned into a bundled catalog.
 pub trait SpecRow {
     fn catalog_name(&self) -> &str;
-    fn spec_type(&self) -> Option<CatalogSpecType>;
+    fn spec_type(&self) -> Option<CatalogType>;
     fn spec(&self) -> Option<&RawValue>;
 
     fn parse_spec<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
@@ -423,7 +396,7 @@ impl SpecRow for LiveSpecRow {
         &self.catalog_name
     }
 
-    fn spec_type(&self) -> Option<CatalogSpecType> {
+    fn spec_type(&self) -> Option<CatalogType> {
         self.spec_type
     }
 
@@ -441,27 +414,27 @@ pub fn collect_specs(
 
     for row in rows {
         match row.spec_type() {
-            Some(CatalogSpecType::Capture) => {
+            Some(CatalogType::Capture) => {
                 let cap = row.parse_spec::<models::CaptureDef>()?;
                 catalog
                     .captures
                     .insert(models::Capture::new(row.catalog_name()), cap);
             }
-            Some(CatalogSpecType::Collection) => {
+            Some(CatalogType::Collection) => {
                 let collection = row.parse_spec::<models::CollectionDef>()?;
                 catalog
                     .collections
                     .insert(models::Collection::new(row.catalog_name()), collection);
             }
-            Some(CatalogSpecType::Materialization) => {
+            Some(CatalogType::Materialization) => {
                 let materialization = row.parse_spec::<models::MaterializationDef>()?;
                 catalog.materializations.insert(
                     models::Materialization::new(row.catalog_name()),
                     materialization,
                 );
             }
-            Some(CatalogSpecType::Test) => {
-                let test = row.parse_spec::<Vec<models::TestStep>>()?;
+            Some(CatalogType::Test) => {
+                let test = row.parse_spec::<models::TestDef>()?;
                 catalog
                     .tests
                     .insert(models::Test::new(row.catalog_name()), test);

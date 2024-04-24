@@ -191,7 +191,7 @@ where
     {
         let root = draft.fetches[0].resource.clone();
 
-        tbl.outer_join(it, |eob| match eob {
+        tbl.into_outer_join(it, |eob| match eob {
             EitherOrBoth::Left(row) => Some(row), // Do not modify.
             EitherOrBoth::Both(row, (catalog_name, spec)) => {
                 let chain = eval_policy(

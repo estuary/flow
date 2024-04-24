@@ -41,9 +41,51 @@ pub use references::{
     RelativeUrl, StorageEndpoint, Test, Transform, CATALOG_PREFIX_RE, TOKEN_RE,
 };
 pub use schemas::Schema;
+use serde::{Deserialize, Serialize};
 pub use shards::ShardTemplate;
 pub use source::{FullSource, PartitionSelector, Source};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CatalogType {
+    Capture,
+    Collection,
+    Materialization,
+    Test,
+}
+
+impl std::str::FromStr for CatalogType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "capture" => Ok(CatalogType::Capture),
+            "collection" => Ok(CatalogType::Collection),
+            "materialization" => Ok(CatalogType::Materialization),
+            "test" => Ok(CatalogType::Test),
+            _ => Err(()),
+        }
+    }
+}
+
+impl std::fmt::Display for CatalogType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
+impl std::convert::AsRef<str> for CatalogType {
+    fn as_ref(&self) -> &str {
+        // These strings match what's used by serde, and also match the definitions in the database.
+        match *self {
+            CatalogType::Capture => "capture",
+            CatalogType::Collection => "collection",
+            CatalogType::Materialization => "materialization",
+            CatalogType::Test => "test",
+        }
+    }
+}
 
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({

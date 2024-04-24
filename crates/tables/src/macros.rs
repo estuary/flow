@@ -30,6 +30,18 @@ pub trait Row: std::fmt::Debug + Sized {
     fn cmp_row(&self, other: &Self) -> std::cmp::Ordering;
 }
 
+impl<'a, T: Row> Row for &'a T {
+    type Key = T::Key;
+
+    fn cmp_key(&self, other: &Self::Key) -> std::cmp::Ordering {
+        T::cmp_key(*self, other)
+    }
+
+    fn cmp_row(&self, other: &Self) -> std::cmp::Ordering {
+        T::cmp_row(*self, other)
+    }
+}
+
 #[cfg(feature = "persist")]
 /// SqlRow is a Row which can persist to and from sqlite.
 pub trait SqlRow: Row {
@@ -92,7 +104,47 @@ impl<R: Row> Table<R> {
         self.0.into_iter()
     }
 
-    pub fn outer_join<I, IK, IV, M, O>(self, it: I, join: M) -> impl Iterator<Item = O>
+    pub fn outer_join_mut<'s, I, IK, IV, M, O>(
+        &'s mut self,
+        it: I,
+        join: M,
+    ) -> impl Iterator<Item = O> + 's
+    where
+        I: Iterator<Item = (IK, IV)> + 's,
+        IK: std::borrow::Borrow<R::Key>,
+        M: FnMut(itertools::EitherOrBoth<&'s mut R, (IK, IV)>) -> Option<O> + 's,
+    {
+        itertools::merge_join_by(self.iter_mut(), it, |l, (rk, _rv)| l.cmp_key(rk.borrow()))
+            .filter_map(join)
+    }
+
+    pub fn outer_join<'s, I, IK, IV, M, O>(&'s self, it: I, join: M) -> impl Iterator<Item = O> + 's
+    where
+        I: Iterator<Item = (IK, IV)> + 's,
+        IK: std::borrow::Borrow<R::Key>,
+        M: FnMut(itertools::EitherOrBoth<&'s R, (IK, IV)>) -> Option<O> + 's,
+    {
+        itertools::merge_join_by(self.iter(), it, |l, (rk, _rv)| l.cmp_key(rk.borrow()))
+            .filter_map(join)
+    }
+
+    pub fn inner_join<'s, I, IK, IV, M, O>(
+        &'s self,
+        it: I,
+        mut join: M,
+    ) -> impl Iterator<Item = O> + 's
+    where
+        I: Iterator<Item = (IK, IV)> + 's,
+        IK: std::borrow::Borrow<R::Key>,
+        M: FnMut(&'s R, IK, IV) -> Option<O> + 's,
+    {
+        self.outer_join(it, move |eob| match eob {
+            itertools::EitherOrBoth::Both(row, (k, v)) => join(row, k, v),
+            _ => None,
+        })
+    }
+
+    pub fn into_outer_join<I, IK, IV, M, O>(self, it: I, join: M) -> impl Iterator<Item = O>
     where
         I: Iterator<Item = (IK, IV)>,
         IK: std::borrow::Borrow<R::Key>,
@@ -102,16 +154,39 @@ impl<R: Row> Table<R> {
             .filter_map(join)
     }
 
-    pub fn inner_join<I, IK, IV, M, O>(self, it: I, mut join: M) -> impl Iterator<Item = O>
+    pub fn into_inner_join<I, IK, IV, M, O>(self, it: I, mut join: M) -> impl Iterator<Item = O>
     where
         I: Iterator<Item = (IK, IV)>,
         IK: std::borrow::Borrow<R::Key>,
         M: FnMut(R, IK, IV) -> Option<O>,
     {
-        self.outer_join(it, move |eob| match eob {
+        self.into_outer_join(it, move |eob| match eob {
             itertools::EitherOrBoth::Both(row, (k, v)) => join(row, k, v),
             _ => None,
         })
+    }
+
+    pub fn get_by_key(&self, key: &R::Key) -> Option<&R> {
+        self.0
+            .binary_search_by(|r| r.cmp_key(key))
+            .ok()
+            .map(|i| &self.0[i])
+    }
+
+    pub fn upsert<F>(&mut self, row: R, mut merge: F)
+    where
+        F: FnMut(&mut R, Option<R>),
+    {
+        match self.0.binary_search_by(|r| r.cmp_row(&row)) {
+            Ok(i) => {
+                // TODO: finish upsert and use it in test_util
+                let prev = std::mem::replace(&mut self.0[i], row);
+                merge(&mut self.0[i], Some(prev));
+            }
+            Err(i) => {
+                self.0.insert(i, row);
+            }
+        };
     }
 
     // Re-index the Table as a bulk operation.
@@ -448,12 +523,14 @@ macro_rules! proto_sql_types {
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $row:ident, sql $sql_name:literal ) {
+        table $table:ident ( row $( #[$rowattrs:meta] )? $row:ident, sql $sql_name:literal ) {
             $(key $key:ident: $key_type:ty,)*
             $(val $val:ident: $val_type:ty,)*
         }
     )*) => {
         $(
+
+        $( #[$rowattrs] )?
         pub struct $row {
             $(pub $key: $key_type,)*
             $(pub $val: $val_type,)*

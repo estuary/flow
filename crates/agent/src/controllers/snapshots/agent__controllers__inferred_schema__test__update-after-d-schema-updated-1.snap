@@ -1,0 +1,84 @@
+---
+source: crates/agent/src/controllers/inferred_schema.rs
+expression: "(update, &publications)"
+info:
+  catalog_name: a/d
+  prev_state:
+    active: true
+    next_run: "2024-01-01T08:01:00Z"
+    updated_at: "2024-01-01T08:00:00Z"
+    status:
+      schema_last_updated: "2024-01-01T08:00:00Z"
+      schema_md5: ~
+      publications:
+        pending: ~
+        history: []
+        last_observed:
+          id: "0000000000000001"
+          completed: "2024-01-01T08:00:00Z"
+          result:
+            type: success
+    failures: 0
+---
+[
+  {
+    "active": true,
+    "next_run": null,
+    "status": {
+      "schema_last_updated": "2024-01-01T08:00:00Z",
+      "schema_md5": null,
+      "publications": {
+        "pending": {
+          "id": "000000000000000b",
+          "created": "2024-01-01T08:01:00Z"
+        },
+        "history": [],
+        "last_observed": {
+          "id": "0000000000000001",
+          "completed": "2024-01-01T08:00:00Z",
+          "result": {
+            "type": "success"
+          }
+        }
+      }
+    }
+  },
+  [
+    {
+      "draft": {
+        "collections": {
+          "a/d": {
+            "writeSchema": {
+              "$serde_json::private::RawValue": "{\"properties\":{\"id\":{\"type\":\"string\"}},\"type\":\"object\"}"
+            },
+            "readSchema": {
+              "$serde_json::private::RawValue": "{\"allOf\":[{\"$ref\":\"flow://inferred-schema\"},{\"$ref\":\"flow://write-schema\"}]}"
+            },
+            "key": [
+              "/id"
+            ],
+            "derive": {
+              "using": {
+                "sqlite": {}
+              },
+              "transforms": [
+                {
+                  "name": "a/a",
+                  "source": "a/a",
+                  "shuffle": "unset",
+                  "lambda": {
+                    "$serde_json::private::RawValue": "\"shelect shtar\""
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "publication_meta": [
+        "000000000000000b",
+        "2024-01-01T08:01:00Z"
+      ]
+    }
+  ]
+]
