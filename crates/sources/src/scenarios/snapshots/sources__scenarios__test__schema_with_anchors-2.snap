@@ -2,12 +2,13 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
+        DraftCollection {
+            catalog_name: test,
             scope: test://example/catalog.yaml#/collections/test,
-            collection: test,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"$id":"test://example/schema.json","type":"string"},
               "key": [

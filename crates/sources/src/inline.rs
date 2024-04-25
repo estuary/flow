@@ -1,8 +1,8 @@
 use crate::Scope;
 use superslice::Ext;
 
-pub fn inline_sources(sources: &mut tables::Sources) {
-    let tables::Sources {
+pub fn inline_draft_catalog(catalog: &mut tables::DraftCatalog) {
+    let tables::DraftCatalog {
         captures,
         collections,
         fetches: _,
@@ -12,24 +12,27 @@ pub fn inline_sources(sources: &mut tables::Sources) {
         storage_mappings: _,
         tests,
         errors: _,
-    } = sources;
+    } = catalog;
 
     for capture in captures.iter_mut() {
-        inline_capture(&capture.scope, &mut capture.spec, imports, resources);
+        if let Some(spec) = &mut capture.spec {
+            inline_capture(&capture.scope, spec, imports, resources);
+        }
     }
     for collection in collections.iter_mut() {
-        inline_collection(&collection.scope, &mut collection.spec, imports, resources);
+        if let Some(spec) = &mut collection.spec {
+            inline_collection(&collection.scope, spec, imports, resources);
+        }
     }
     for materialization in materializations.iter_mut() {
-        inline_materialization(
-            &materialization.scope,
-            &mut materialization.spec,
-            imports,
-            resources,
-        );
+        if let Some(spec) = &mut materialization.spec {
+            inline_materialization(&materialization.scope, spec, imports, resources);
+        }
     }
     for test in tests.iter_mut() {
-        inline_test(&test.scope, &mut test.spec, imports, resources);
+        if let Some(spec) = &mut test.spec {
+            inline_test(&test.scope, spec, imports, resources);
+        }
     }
 }
 
@@ -277,7 +280,7 @@ fn inline_materialization(
 
 fn inline_test(
     scope: &url::Url,
-    spec: &mut Vec<models::TestStep>,
+    spec: &mut models::TestDef,
     imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {

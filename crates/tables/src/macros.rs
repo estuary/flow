@@ -280,13 +280,15 @@ macro_rules! replace_expr {
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $row:ident, order_by [ $($order_by:ident)* ], sql $sql_name:literal ) {
-            $($field:ident: $rust_type:ty,)*
+        table $table:ident ( row $row:ident, sql $sql_name:literal ) {
+            $(key $key:ident: $key_type:ty,)*
+            $(val $val:ident: $val_type:ty,)*
         }
     )*) => {
         $(
         pub struct $row {
-            $(pub $field: $rust_type,)*
+            $(pub $key: $key_type,)*
+            $(pub $val: $val_type,)*
         }
 
         /// New-type wrapper of a Row vector.
@@ -296,46 +298,54 @@ macro_rules! tables {
         impl $table {
             /// New returns an empty Table.
             pub fn new() -> Self { Self(Vec::new()) }
+
             /// Insert a new ordered Row into the Table.
             /// Arguments match the positional order of the table's definition.
             #[allow(dead_code)]
-            pub fn insert_row(&mut self, $( $field: impl OwnOrClone<$rust_type>, )*) {
+            pub fn insert_row(&mut self, $( $key: impl OwnOrClone<$key_type>, )* $( $val: impl OwnOrClone<$val_type>, )*) {
                 self.insert($row {
-                    $($field: $field.own_or_clone(),)*
+                    $($key: $key.own_or_clone(),)*
+                    $($val: $val.own_or_clone(),)*
                 });
             }
+
             /// Insert a new ordered Row into the Table.
             #[allow(dead_code)]
             pub fn insert(&mut self, row: $row) {
                 use superslice::Ext;
 
-                let r = ($(&row.$order_by,)*);
+                let r = ($(&row.$key,)*);
 
                 let index = self.0.upper_bound_by(move |_l| {
-                    let l = ($(&_l.$order_by,)*);
+                    let l = ($(&_l.$key,)*);
                     l.cmp(&r)
                 });
                 self.0.insert(index, row);
             }
+
             /// Convert the Table into an Iterator.
             #[allow(dead_code)]
             pub fn into_iter(self) -> impl Iterator<Item=$row> {
                 self.0.into_iter()
             }
+
             /// Extend the Table from the given Iterator.
             #[allow(dead_code)]
             pub fn extend(&mut self, it: impl Iterator<Item=$row>) {
                 self.0.extend(it);
                 self.reindex();
             }
+
             // Re-index the Table as a bulk operation.
             fn reindex(&mut self) {
                 self.0.sort_by(|_l, _r| {
-                    let l = ($(&_l.$order_by,)*);
-                    let r = ($(&_r.$order_by,)*);
+                    let l = ($(&_l.$key,)*);
+                    let r = ($(&_r.$key,)*);
                     l.cmp(&r)
                 });
             }
+
+            table_join!($table, $row, [ $($key: $key_type,)* ]);
         }
 
         impl Table for $table {
@@ -372,7 +382,10 @@ macro_rules! tables {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 let mut f = f.debug_struct(stringify!($row));
                 $(
-                let f = f.field(stringify!($field), &crate::macros::ColumnDebugWrapper(&self.$field));
+                let f = f.field(stringify!($key), &crate::macros::ColumnDebugWrapper(&self.$key));
+                )*
+                $(
+                let f = f.field(stringify!($val), &crate::macros::ColumnDebugWrapper(&self.$val));
                 )*
                 f.finish()
             }
@@ -387,9 +400,9 @@ macro_rules! tables {
                     "INSERT INTO ",
                     $sql_name,
                     " ( ",
-                    [ $( stringify!($field), )* ].join(", ").as_str(),
+                    [ $( stringify!($key), )* $( stringify!($val), )* ].join(", ").as_str(),
                     " ) VALUES ( ",
-                    [ $( replace_expr!($field "?"), )* ].join(", ").as_str(),
+                    [ $( replace_expr!($key "?"), )* $( replace_expr!($val "?"), )* ].join(", ").as_str(),
                     " );"
                 ].concat()
             }
@@ -397,7 +410,7 @@ macro_rules! tables {
             fn select_sql() -> String {
                 [
                     "SELECT ",
-                    [ $( stringify!($field), )* ].join(", ").as_str(),
+                    [ $( stringify!($key), )* $( stringify!($val), )* ].join(", ").as_str(),
                     " FROM ",
                     $sql_name,
                     // Closing ';' is omitted so that WHERE clauses may be chained.
@@ -415,14 +428,11 @@ macro_rules! tables {
                     "CREATE TABLE IF NOT EXISTS ",
                     $sql_name,
                     " ( ",
-                    [ $(
-                        [
-                            stringify!($field),
-                            " ",
-                            <$rust_type as SqlColumn>::sql_type(),
-                        ].concat(),
-                    )* ].join(", ").as_str(),
-                    " ); "
+                    [
+                        $( [ stringify!($key), " ", <$key_type as SqlColumn>::sql_type() ].concat(), )*
+                        $( [ stringify!($val), " ", <$val_type as SqlColumn>::sql_type() ].concat(), )*
+                    ].join(", ").as_str(),
+                    " );"
                 ].concat()
             }
 
@@ -455,25 +465,98 @@ macro_rules! tables {
             type SqlTable = $table;
 
             fn persist(&self, stmt: &mut rusqlite::Statement<'_>) -> rusqlite::Result<()> {
-                stmt.execute(rusqlite::params![ $(
-                    <$rust_type as SqlColumn>::to_sql(&self.$field)?,
-                )* ])?;
+                stmt.execute(rusqlite::params![
+                    $( <$key_type as SqlColumn>::to_sql(&self.$key)?, )*
+                    $( <$val_type as SqlColumn>::to_sql(&self.$val)?, )*
+                ])?;
                 Ok(())
             }
 
             fn scan<'stmt>(row: &rusqlite::Row<'stmt>) -> rusqlite::Result<Self> {
                 let mut _idx = 0;
                 $(
-                let $field = <$rust_type as SqlColumn>::column_result(row.get_ref_unwrap(_idx))?;
+                let $key = <$key_type as SqlColumn>::column_result(row.get_ref_unwrap(_idx))?;
+                _idx += 1;
+                )*
+                $(
+                let $val = <$val_type as SqlColumn>::column_result(row.get_ref_unwrap(_idx))?;
                 _idx += 1;
                 )*
 
-                Ok($row { $( $field, )* })
+                Ok($row { $( $key, )* $( $val, )* })
             }
         }
 
         )*
     }
+}
+
+macro_rules! table_join {
+    // Tables without a key do not have join methods.
+    ($table:ident, $row:ident, [ ] ) => {
+        #[allow(dead_code)]
+        pub fn zero(&self) {}
+    };
+    // Handle single-component keys.
+    ($table:ident, $row:ident, [ $key:ident: $key_type:ty, ] ) => {
+        #[allow(dead_code)]
+        pub fn outer_join<I, IK, IV, M, O>(self, it: I, join: M) -> impl Iterator<Item = O>
+        where
+            I: Iterator<Item = (IK, IV)>,
+            IK: std::borrow::Borrow<$key_type>,
+            M: FnMut(itertools::EitherOrBoth<$row, (IK, IV)>) -> Option<O>,
+        {
+            itertools::merge_join_by(self.into_iter(), it, |l, (rk, _rv)| l.$key.cmp(rk.borrow()))
+                .filter_map(join)
+        }
+
+        #[allow(dead_code)]
+        pub fn inner_join<I, IK, IV, M, O>(self, it: I, mut join: M) -> impl Iterator<Item = O>
+        where
+            I: Iterator<Item = (IK, IV)>,
+            IK: std::borrow::Borrow<$key_type>,
+            M: FnMut($row, IK, IV) -> Option<O>,
+        {
+            self.outer_join(it, move |eob| match eob {
+                itertools::EitherOrBoth::Both(row, (k, v)) => join(row, k, v),
+                _ => None,
+            })
+        }
+    };
+    // Handle two-component keys.
+    ($table:ident, $row:ident, [ $key1:ident: $key1_type:ty, $key2:ident: $key2_type:ty, ] ) => {
+        #[allow(dead_code)]
+        pub fn outer_join<I, IK1, IK2, IV, M, O>(self, it: I, join: M) -> impl Iterator<Item = O>
+        where
+            I: Iterator<Item = (IK1, IK2, IV)>,
+            IK1: std::borrow::Borrow<$key1_type>,
+            IK2: std::borrow::Borrow<$key2_type>,
+            M: FnMut(itertools::EitherOrBoth<$row, (IK1, IK2, IV)>) -> Option<O>,
+        {
+            itertools::merge_join_by(self.into_iter(), it, |l, (rk1, rk2, _rv)| {
+                (&l.$key1, &l.$key2).cmp(&(rk1.borrow(), rk2.borrow()))
+            })
+            .filter_map(join)
+        }
+
+        #[allow(dead_code)]
+        pub fn inner_join<I, IK1, IK2, IV, M, O>(
+            self,
+            it: I,
+            mut join: M,
+        ) -> impl Iterator<Item = O>
+        where
+            I: Iterator<Item = (IK1, IK2, IV)>,
+            IK1: std::borrow::Borrow<$key1_type>,
+            IK2: std::borrow::Borrow<$key2_type>,
+            M: FnMut($row, IK1, IK2, IV) -> Option<O>,
+        {
+            self.outer_join(it, move |eob| match eob {
+                itertools::EitherOrBoth::Both(row, (k1, k2, v)) => join(row, k1, k2, v),
+                _ => None,
+            })
+        }
+    };
 }
 
 pub struct ColumnDebugWrapper<'a>(pub &'a dyn Column);

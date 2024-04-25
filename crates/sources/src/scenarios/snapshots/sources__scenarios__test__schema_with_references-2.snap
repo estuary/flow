@@ -2,12 +2,13 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
+        DraftCollection {
+            catalog_name: test,
             scope: test://example/catalog.yaml#/collections/test,
-            collection: test,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"a":{"$ref":"b#/$defs/c"}},"$id":"test://external/a"},"__flowInline2":{"$defs":{"c":{"$ref":"c"}},"$id":"test://external/b"},"__flowInline3":{"$id":"test://external/c","allOf":[true]}},"$id":"test://example/catalog.yaml?ptr=/collections/test/schema","$ref":"test://external/a#/$defs/a"},
               "key": [

@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 // Indirect sub-locations within `sources` into external resources which
 // are referenced through relative imports.
-pub fn indirect_large_files(sources: &mut tables::Sources, threshold: usize) {
-    let tables::Sources {
+pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) {
+    let tables::DraftCatalog {
         captures,
         collections,
         fetches: _,
@@ -16,27 +16,59 @@ pub fn indirect_large_files(sources: &mut tables::Sources, threshold: usize) {
         storage_mappings: _,
         tests,
         errors: _,
-    } = sources;
+    } = draft;
 
-    for capture in captures.iter_mut() {
-        indirect_capture(capture, imports, resources, threshold);
+    for tables::DraftCapture {
+        scope,
+        catalog_name,
+        expect_build_id: _,
+        spec,
+    } in captures.iter_mut()
+    {
+        if let Some(spec) = spec {
+            indirect_capture(scope, catalog_name, spec, imports, resources, threshold);
+        }
     }
-    for collection in collections.iter_mut() {
-        indirect_collection(collection, imports, resources, threshold);
+    for tables::DraftCollection {
+        scope,
+        catalog_name,
+        expect_build_id: _,
+        spec,
+    } in collections.iter_mut()
+    {
+        if let Some(spec) = spec {
+            indirect_collection(scope, catalog_name, spec, imports, resources, threshold);
+        }
     }
-    for materialization in materializations.iter_mut() {
-        indirect_materialization(materialization, imports, resources, threshold);
+    for tables::DraftMaterialization {
+        scope,
+        catalog_name,
+        expect_build_id: _,
+        spec,
+    } in materializations.iter_mut()
+    {
+        if let Some(spec) = spec {
+            indirect_materialization(scope, catalog_name, spec, imports, resources, threshold);
+        }
     }
-    for test in tests.iter_mut() {
-        indirect_test(test, imports, resources, threshold);
+    for tables::DraftTest {
+        scope,
+        catalog_name,
+        expect_build_id: _,
+        spec,
+    } in tests.iter_mut()
+    {
+        if let Some(spec) = spec {
+            indirect_test(scope, catalog_name, spec, imports, resources, threshold);
+        }
     }
 }
 
 // Extend Resources with Resource instances for each catalog specification
 // URL which is referenced by any and all imports, captures, collections,
 // materializations, and tests.
-pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
-    let tables::Sources {
+pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
+    let tables::DraftCatalog {
         captures,
         collections,
         fetches: _,
@@ -46,7 +78,7 @@ pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
         storage_mappings: _,
         tests,
         errors: _,
-    } = sources;
+    } = draft;
 
     let mut catalogs: BTreeMap<url::Url, models::Catalog> = BTreeMap::new();
 
@@ -70,41 +102,58 @@ pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
         entry.import.push(models::RelativeUrl::new(import));
     }
 
-    for tables::Capture {
+    for tables::DraftCapture {
         scope,
-        capture,
+        catalog_name,
         spec,
+        expect_build_id: _,
     } in captures.iter()
     {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
-        entry.captures.insert(capture.clone(), spec.clone());
+        if let Some(spec) = spec {
+            let entry = catalogs.entry(strip_scope(scope)).or_default();
+            entry.captures.insert(catalog_name.clone(), spec.clone());
+        }
     }
 
-    for tables::Collection {
+    for tables::DraftCollection {
         scope,
-        collection,
+        catalog_name,
         spec,
+        expect_build_id: _,
     } in collections.iter()
     {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
-        entry.collections.insert(collection.clone(), spec.clone());
+        if let Some(spec) = spec {
+            let entry = catalogs.entry(strip_scope(scope)).or_default();
+            entry.collections.insert(catalog_name.clone(), spec.clone());
+        }
     }
 
-    for tables::Materialization {
+    for tables::DraftMaterialization {
         scope,
-        materialization,
+        catalog_name,
         spec,
+        expect_build_id: _,
     } in materializations.iter()
     {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
-        entry
-            .materializations
-            .insert(materialization.clone(), spec.clone());
+        if let Some(spec) = spec {
+            let entry = catalogs.entry(strip_scope(scope)).or_default();
+            entry
+                .materializations
+                .insert(catalog_name.clone(), spec.clone());
+        }
     }
 
-    for tables::Test { scope, test, spec } in tests.iter() {
-        let entry = catalogs.entry(strip_scope(scope)).or_default();
-        entry.tests.insert(test.clone(), spec.clone());
+    for tables::DraftTest {
+        scope,
+        catalog_name,
+        spec,
+        expect_build_id: _,
+    } in tests.iter()
+    {
+        if let Some(spec) = spec {
+            let entry = catalogs.entry(strip_scope(scope)).or_default();
+            entry.tests.insert(catalog_name.clone(), spec.clone());
+        }
     }
 
     for (resource, mut catalog) in catalogs {
@@ -126,19 +175,17 @@ pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
 }
 
 fn indirect_capture(
-    capture: &mut tables::Capture,
+    scope: &url::Url,
+    catalog_name: &models::Capture,
+    spec: &mut models::CaptureDef,
     imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    let tables::Capture {
-        scope,
-        capture,
-        spec: models::CaptureDef {
-            endpoint, bindings, ..
-        },
-    } = capture;
-    let base = base_name(capture);
+    let models::CaptureDef {
+        endpoint, bindings, ..
+    } = spec;
+    let base = base_name(catalog_name);
 
     match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
@@ -188,26 +235,23 @@ fn indirect_capture(
 }
 
 fn indirect_collection(
-    collection: &mut tables::Collection,
+    scope: &url::Url,
+    catalog_name: &models::Collection,
+    spec: &mut models::CollectionDef,
     imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    let tables::Collection {
-        scope,
-        collection,
-        spec:
-            models::CollectionDef {
-                schema,
-                write_schema,
-                read_schema,
-                key: _,
-                projections: _,
-                journals: _,
-                derive,
-            },
-    } = collection;
-    let base = base_name(collection);
+    let models::CollectionDef {
+        schema,
+        write_schema,
+        read_schema,
+        key: _,
+        projections: _,
+        journals: _,
+        derive,
+    } = spec;
+    let base = base_name(catalog_name);
 
     if let Some(schema) = schema {
         indirect_schema(
@@ -399,19 +443,17 @@ fn indirect_derivation(
 }
 
 fn indirect_materialization(
-    materialization: &mut tables::Materialization,
+    scope: &url::Url,
+    catalog_name: &models::Materialization,
+    spec: &mut models::MaterializationDef,
     imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    let tables::Materialization {
-        scope,
-        materialization,
-        spec: models::MaterializationDef {
-            endpoint, bindings, ..
-        },
-    } = materialization;
-    let base = base_name(materialization);
+    let models::MaterializationDef {
+        endpoint, bindings, ..
+    } = spec;
+    let base = base_name(catalog_name);
 
     match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
@@ -460,13 +502,14 @@ fn indirect_materialization(
 }
 
 fn indirect_test(
-    test: &mut tables::Test,
+    scope: &url::Url,
+    catalog_name: &models::Test,
+    spec: &mut models::TestDef,
     imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
-    let tables::Test { scope, test, spec } = test;
-    let base = base_name(test);
+    let base = base_name(catalog_name);
 
     for (index, step) in spec.iter_mut().enumerate() {
         let documents = match step {

@@ -2,11 +2,12 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [
-        Capture {
+        DraftCapture {
+            catalog_name: capture/config-missing,
             scope: test://example/catalog.yaml#/captures/capture~1config-missing,
-            capture: capture/config-missing,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -23,9 +24,10 @@ Sources {
               ]
             },
         },
-        Capture {
+        DraftCapture {
+            catalog_name: capture/config-raw,
             scope: test://example/catalog.yaml#/captures/capture~1config-raw,
-            capture: capture/config-raw,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -36,9 +38,10 @@ Sources {
               "bindings": []
             },
         },
-        Capture {
+        DraftCapture {
+            catalog_name: capture/local,
             scope: test://example/catalog.yaml#/captures/capture~1local,
-            capture: capture/local,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "local": {
@@ -54,9 +57,10 @@ Sources {
               "bindings": []
             },
         },
-        Capture {
+        DraftCapture {
+            catalog_name: capture/second,
             scope: test://example/catalog.yaml#/captures/capture~1second,
-            capture: capture/second,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -77,9 +81,10 @@ Sources {
               }
             },
         },
-        Capture {
+        DraftCapture {
+            catalog_name: first/capture,
             scope: test://example/catalog.yaml#/captures/first~1capture,
-            capture: first/capture,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -193,9 +198,10 @@ Sources {
         },
     ],
     materializations: [
-        Materialization {
+        DraftMaterialization {
+            catalog_name: a/materialization,
             scope: test://example/catalog.yaml#/materializations/a~1materialization,
-            materialization: a/materialization,
+            expect_build_id: NULL,
             spec: {
               "sourceCapture": "a/capture",
               "endpoint": {
@@ -242,9 +248,10 @@ Sources {
               ]
             },
         },
-        Materialization {
+        DraftMaterialization {
+            catalog_name: materialization/local,
             scope: test://example/catalog.yaml#/materializations/materialization~1local,
-            materialization: materialization/local,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "local": {
@@ -271,9 +278,10 @@ Sources {
               }
             },
         },
-        Materialization {
+        DraftMaterialization {
+            catalog_name: materialization/missing-config,
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
-            materialization: materialization/missing-config,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -292,9 +300,10 @@ Sources {
               ]
             },
         },
-        Materialization {
+        DraftMaterialization {
+            catalog_name: materialization/with-config,
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
-            materialization: materialization/with-config,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -314,9 +323,10 @@ Sources {
               ]
             },
         },
-        Materialization {
+        DraftMaterialization {
+            catalog_name: materialization/with-config-fragment,
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
-            materialization: materialization/with-config-fragment,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {

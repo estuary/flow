@@ -2,12 +2,13 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
+        DraftCollection {
+            catalog_name: d1/collection,
             scope: test://example/catalog.yaml#/collections/d1~1collection,
-            collection: d1/collection,
+            expect_build_id: NULL,
             spec: {
               "schema": "a-schema.json",
               "key": [
@@ -53,9 +54,10 @@ Sources {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: d2/collection,
             scope: test://example/catalog.yaml#/collections/d2~1collection,
-            collection: d2/collection,
+            expect_build_id: NULL,
             spec: {
               "schema": "a-schema.json",
               "key": [
@@ -94,9 +96,10 @@ Sources {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: d3/collection,
             scope: test://example/catalog.yaml#/collections/d3~1collection,
-            collection: d3/collection,
+            expect_build_id: NULL,
             spec: {
               "writeSchema": "a-schema.json",
               "readSchema": "other-schema.json",
@@ -129,9 +132,10 @@ Sources {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: d4/local,
             scope: test://example/catalog.yaml#/collections/d4~1local,
-            collection: d4/local,
+            expect_build_id: NULL,
             spec: {
               "schema": "a-schema.json",
               "key": [

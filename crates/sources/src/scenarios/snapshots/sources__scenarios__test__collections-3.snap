@@ -2,12 +2,13 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
+        DraftCollection {
+            catalog_name: test/collection,
             scope: test://example/catalog.yaml#/collections/test~1collection,
-            collection: test/collection,
+            expect_build_id: NULL,
             spec: {
               "schema": "collection.schema.yaml",
               "key": [
@@ -26,18 +27,20 @@ Sources {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: test/collection-no-schema,
             scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
-            collection: test/collection-no-schema,
+            expect_build_id: NULL,
             spec: {
               "key": [
                 "/key"
               ]
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: test/collection-with-write-and-inferred-read,
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
-            collection: test/collection-with-write-and-inferred-read,
+            expect_build_id: NULL,
             spec: {
               "writeSchema": "collection-with-write-and-inferred-read.write.schema.yaml",
               "readSchema": "collection-with-write-and-inferred-read.read.schema.yaml",
@@ -47,9 +50,10 @@ Sources {
               ]
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: test/collection-with-write-and-read,
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
-            collection: test/collection-with-write-and-read,
+            expect_build_id: NULL,
             spec: {
               "writeSchema": "collection-with-write-and-read.write.schema.yaml",
               "readSchema": "collection-with-write-and-read.read.schema.yaml",
@@ -59,9 +63,10 @@ Sources {
               ]
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: test/collection/with-journals,
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
-            collection: test/collection/with-journals,
+            expect_build_id: NULL,
             spec: {
               "schema": "with-journals.schema.yaml",
               "key": [

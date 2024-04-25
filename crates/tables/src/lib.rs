@@ -1,146 +1,241 @@
 #[macro_use]
 mod macros;
-use macros::*;
 
-pub use macros::Table;
+use macros::*;
 
 #[cfg(feature = "persist")]
 pub use macros::{load_tables, persist_tables, SqlTableObj};
 #[cfg(feature = "persist")]
 use prost::Message;
 
+// Re-exports for users of this crate.
+pub use itertools::EitherOrBoth;
+pub use macros::Table;
+
 tables!(
-    table Fetches (row Fetch, order_by [depth resource], sql "fetches") {
+    table Fetches (row Fetch, sql "fetches") {
         // Import depth of this fetch.
-        depth: u32,
+        key depth: u32,
         // Fetched resource Url.
-        resource: url::Url,
+        key resource: url::Url,
     }
 
-    table Resources (row Resource, order_by [resource], sql "resources") {
+    table Resources (row Resource, sql "resources") {
         // Url of this resource.
-        resource: url::Url,
+        key resource: url::Url,
         // Content-type of this resource.
-        content_type: proto_flow::flow::ContentType,
+        val content_type: proto_flow::flow::ContentType,
         // Byte content of this resource.
-        content: bytes::Bytes,
+        val content: bytes::Bytes,
         // Document content of this resource.
-        content_dom: models::RawValue,
+        val content_dom: models::RawValue,
     }
 
-    table Imports (row Import, order_by [scope to_resource], sql "imports") {
+    table Imports (row Import, sql "imports") {
         // Scope is the referring resource and fragment location which caused the import.
-        scope: url::Url,
+        key scope: url::Url,
         // Resource which is imported. Never has a fragment.
-        to_resource: url::Url,
+        key to_resource: url::Url,
     }
 
-    table StorageMappings (row StorageMapping, order_by [prefix], sql "storage_mappings") {
-        scope: url::Url,
+    table StorageMappings (row StorageMapping, sql "storage_mappings") {
         // Catalog prefix to which this storage mapping applies.
-        prefix: models::Prefix,
+        key catalog_prefix: models::Prefix,
+        // Scope of the storage mapping.
+        val scope: url::Url,
         // Stores for journal fragments under this prefix.
-        stores: Vec<models::Store>,
+        val stores: Vec<models::Store>,
     }
 
-    table Collections (row Collection, order_by [collection], sql "collections") {
-        scope: url::Url,
+    table DraftCollections (row DraftCollection, sql "draft_collections") {
         // Name of this collection.
-        collection: models::Collection,
-        // Specification of this collection.
-        spec: models::CollectionDef,
+        key catalog_name: models::Collection,
+        // Scope of the draft collection.
+        val scope: url::Url,
+        // Expected last publication ID which built this collection.
+        val expect_build_id: Option<models::Id>,
+        // Specification of this collection, or None if the collection is being deleted.
+        val spec: Option<models::CollectionDef>,
     }
 
-    table Captures (row Capture, order_by [capture], sql "captures") {
-        scope: url::Url,
+    table DraftCaptures (row DraftCapture, sql "draft_captures") {
         // Name of this capture.
-        capture: models::Capture,
-        // Capture specification.
-        spec: models::CaptureDef,
+        key catalog_name: models::Capture,
+        // Scope of the draft capture.
+        val scope: url::Url,
+        // Expected last publication ID which built this capture.
+        val expect_build_id: Option<models::Id>,
+        // Specification of this capture, or None if the capture is being deleted.
+        val spec: Option<models::CaptureDef>,
     }
 
-    table Materializations (row Materialization, order_by [materialization], sql "materializations") {
-        scope: url::Url,
+    table DraftMaterializations (row DraftMaterialization, sql "draft_materializations") {
         // Name of this materialization.
-        materialization: models::Materialization,
-        // Materialization specification.
-        spec: models::MaterializationDef,
+        key catalog_name: models::Materialization,
+        // Scope of the draft materialization.
+        val scope: url::Url,
+        // Expected last publication ID which built this materialization.
+        val expect_build_id: Option<models::Id>,
+        // Specification of this materialization, or None if the materialization is being deleted.
+        val spec: Option<models::MaterializationDef>,
     }
 
-    table Tests (row Test, order_by [test], sql "tests") {
-        scope: url::Url,
+    table DraftTests (row DraftTest, sql "draft_tests") {
         // Name of the test.
-        test: models::Test,
+        key catalog_name: models::Test,
+        // Scope of the draft test.
+        val scope: url::Url,
+        // Expected last publication ID which built this materialization.
+        val expect_build_id: Option<models::Id>,
         // Specification of the test.
-        spec: Vec<models::TestStep>,
+        val spec: Option<models::TestDef>,
     }
 
-    table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
-        scope: url::Url,
-        // Name of this capture.
-        capture: String,
-        // Validated response which was used to build this spec.
-        validated: proto_flow::capture::response::Validated,
-        // Built specification for this capture.
-        spec: proto_flow::flow::CaptureSpec,
-    }
-
-    table BuiltCollections (row BuiltCollection, order_by [collection], sql "built_collections") {
-        scope: url::Url,
+    table LiveCollections (row LiveCollection, sql "live_collections") {
         // Name of this collection.
-        collection: models::Collection,
+        key catalog_name: models::Collection,
+        // Id of the live specification within the control plane.
+        val live_spec_id: models::Id,
+        // Id of the last publication which built this collection.
+        val last_build_id: models::Id,
+        // User specification of the collection.
+        val spec: models::CollectionDef,
+        // Last built specification of the collection.
+        val built_spec: proto_flow::flow::CollectionSpec,
+        // Inferred schema MD5 applied upon the last build of this collection.
+        val inferred_schema_md5: Option<String>,
+    }
+
+    table LiveCaptures (row LiveCapture, sql "live_captures") {
+        // Name of this capture.
+        key catalog_name: models::Capture,
+        // Id of the live specification within the control plane.
+        val live_spec_id: models::Id,
+        // Id of the last publication which built this capture.
+        val last_build_id: models::Id,
+        // User specification of the collection.
+        val spec: models::CaptureDef,
+        // Last built specification of the collection.
+        val built_spec: proto_flow::flow::CaptureSpec,
+    }
+
+    table LiveMaterializations (row LiveMaterialization, sql "live_materializations") {
+        // Name of this materialization.
+        key catalog_name: models::Materialization,
+        // Id of the live specification within the control plane.
+        val live_spec_id: models::Id,
+        // Id of the last publication which built this materialization.
+        val last_build_id: models::Id,
+        // User specification of the materialization.
+        val spec: models::MaterializationDef,
+        // Last built specification of the collection.
+        val built_spec: proto_flow::flow::MaterializationSpec,
+    }
+
+    table LiveTests (row LiveTest, sql "live_tests") {
+        // Name of this materialization.
+        key catalog_name: models::Test,
+        // Id of the live specification within the control plane.
+        val live_spec_id: models::Id,
+        // Id of the last publication which built this test.
+        val last_build_id: models::Id,
+        // User specification of the test.
+        val spec: models::TestDef,
+        // Last built specification of the test.
+        val built_spec: proto_flow::flow::TestSpec,
+    }
+
+    table InferredSchemas (row InferredSchema, sql "inferred_schemas") {
+        // Collection which this inferred schema reflects.
+        key collection_name: models::Collection,
+        // Inferred schema of the collection.
+        val schema: models::Schema,
+        // MD5 content sum of `schema`.
+        val md5: String,
+    }
+
+    table BuiltCaptures (row BuiltCapture, sql "built_captures") {
+        // Name of this capture.
+        key capture: String,
+        // Scope of this built capture.
+        val scope: url::Url,
         // Validated response which was used to build this spec.
-        validated: Option<proto_flow::derive::response::Validated>,
+        val validated: proto_flow::capture::response::Validated,
+        // Built specification for this capture.
+        val spec: proto_flow::flow::CaptureSpec,
+    }
+
+    table BuiltCollections (row BuiltCollection, sql "built_collections") {
+        // Name of this collection.
+        key collection: models::Collection,
+        // Scope of this built collection.
+        val scope: url::Url,
+        // Validated response which was used to build this spec.
+        val validated: Option<proto_flow::derive::response::Validated>,
         // Built specification for this collection.
-        spec: proto_flow::flow::CollectionSpec,
+        val spec: proto_flow::flow::CollectionSpec,
         // The md5 sum of the inferred schema at the time that this collection
         // was built. Note that this may be present even if the collection does
         // not actually use the inferred schema. And it may also be missing,
         // even if the collection _does_ use schema inference, for "remote"
         // collections that were resolve dynamically during the build.
-        inferred_schema_md5: Option<String>,
+        val inferred_schema_md5: Option<String>,
     }
 
-    table BuiltMaterializations (row BuiltMaterialization, order_by [materialization], sql "built_materializations") {
-        scope: url::Url,
+    table BuiltMaterializations (row BuiltMaterialization, sql "built_materializations") {
         // Name of this materialization.
-        materialization: String,
+        key materialization: String,
+        // Scope of this built materialization.
+        val scope: url::Url,
         // Validated response which was used to build this spec.
-        validated: proto_flow::materialize::response::Validated,
+        val validated: proto_flow::materialize::response::Validated,
         // Built specification for this materialization.
-        spec: proto_flow::flow::MaterializationSpec,
+        val spec: proto_flow::flow::MaterializationSpec,
     }
 
-    table BuiltTests (row BuiltTest, order_by [test], sql "built_tests") {
-        scope: url::Url,
+    table BuiltTests (row BuiltTest, sql "built_tests") {
         // Name of the test case.
-        test: models::Test,
+        key test: models::Test,
+        // Scope of this built test.
+        val scope: url::Url,
         // Built specification for this test case.
-        spec: proto_flow::flow::TestSpec,
+        val spec: proto_flow::flow::TestSpec,
     }
 
-    table Errors (row Error, order_by [], sql "errors") {
-        scope: url::Url,
-        error: anyhow::Error,
+    table Errors (row Error, sql "errors") {
+        // Scope of this error.
+        val scope: url::Url,
+        // Error content.
+        val error: anyhow::Error,
     }
 
-    table Meta (row Build, order_by [], sql "meta") {
-        build_config: proto_flow::flow::build_api::Config,
+    table Meta (row Build, sql "meta") {
+        val build_config: proto_flow::flow::build_api::Config,
     }
 );
 
-/// Sources are tables which are populated by catalog loads of the `sources` crate.
+/// DraftCatalog are tables which are populated by catalog loads of the `sources` crate.
 #[derive(Default, Debug)]
-pub struct Sources {
-    pub captures: Captures,
-    pub collections: Collections,
+pub struct DraftCatalog {
+    pub captures: DraftCaptures,
+    pub collections: DraftCollections,
     pub errors: Errors,
     pub fetches: Fetches,
     pub imports: Imports,
-    pub materializations: Materializations,
+    pub materializations: DraftMaterializations,
     pub resources: Resources,
     pub storage_mappings: StorageMappings,
-    pub tests: Tests,
+    pub tests: DraftTests,
+}
+
+// LiveCatalog are tables which are populated from the Estuary control plane.
+#[derive(Default, Debug)]
+pub struct LiveCatalog {
+    pub captures: LiveCaptures,
+    pub collections: LiveCollections,
+    pub inferred_schemas: InferredSchemas,
+    pub materializations: LiveMaterializations,
+    pub tests: LiveTests,
 }
 
 /// Validations are tables populated by catalog validations of the `validation` crate.
@@ -154,7 +249,7 @@ pub struct Validations {
 }
 
 #[cfg(feature = "persist")]
-impl Sources {
+impl DraftCatalog {
     pub fn into_result(mut self) -> Result<Self, Errors> {
         match std::mem::take(&mut self.errors) {
             errors if errors.is_empty() => Ok(self),
@@ -309,11 +404,13 @@ string_wrapper_types!(
 
 json_sql_types!(
     Vec<models::Store>,
-    Vec<models::TestStep>,
     models::CaptureDef,
     models::CollectionDef,
+    models::Id,
     models::MaterializationDef,
     models::RawValue,
+    models::Schema,
+    models::TestDef,
     proto_flow::flow::ContentType,
 );
 
@@ -377,18 +474,18 @@ mod test {
     use super::macros::*;
 
     tables!(
-        table Foos (row Foo, order_by [], sql "foos") {
-            f1: u32,
+        table Foos (row Foo, sql "foos") {
+            val f1: u32,
         }
 
-        table Bars (row Bar, order_by [b1], sql "bars") {
-            b1: u32,
-            b2: u32,
+        table Bars (row Bar, sql "bars") {
+            key b1: u32,
+            val b2: u32,
         }
 
-        table Quibs (row Quib, order_by [q1 q2], sql "quibs") {
-            q1: u32,
-            q2: u32,
+        table Quibs (row Quib, sql "quibs") {
+            key q1: u32,
+            key q2: u32,
         }
     );
 
@@ -402,7 +499,7 @@ mod test {
         tbl.insert_row(0);
         tbl.insert_row(1);
 
-        // When order_by is empty, the initial ordering is preserved.
+        // When key is empty, the initial ordering is preserved.
         assert_eq!(
             tbl.iter().map(|r| r.f1).collect::<Vec<_>>(),
             vec![1, 0, 2, 1, 0, 1]
@@ -417,11 +514,20 @@ mod test {
         tbl.insert_row(0, 12);
         tbl.insert_row(10, 90);
 
-        // Ordered with respect to order_by, but not to the extra columns.
+        // Ordered with respect to key, but not to the extra columns.
         assert_eq!(
             tbl.iter().map(|r| (r.b1, r.b2)).collect::<Vec<_>>(),
             vec![(0, 78), (0, 12), (10, 90), (10, 34), (10, 90), (20, 56)]
         );
+
+        let joined: Vec<usize> = tbl
+            .inner_join(
+                [(0, 1), (0, 2), (10, 3), (15, 4), (20, 5), (21, 6)].into_iter(),
+                |_bar, _k, v| Some(v),
+            )
+            .collect();
+
+        assert_eq!(joined, vec![1, 2, 3, 5]);
 
         // Table ordered on a composite key.
         let mut tbl = Quibs::new();
@@ -437,5 +543,22 @@ mod test {
             tbl.iter().map(|r| (r.q1, r.q2)).collect::<Vec<_>>(),
             vec![(0, 12), (0, 78), (10, 34), (10, 90), (10, 90), (20, 56)]
         );
+
+        let joined: Vec<usize> = tbl
+            .inner_join(
+                [
+                    (0, 10, 1),
+                    (0, 78, 2),
+                    (0, 90, 3),
+                    (10, 34, 4),
+                    (10, 90, 5),
+                    (21, 0, 6),
+                ]
+                .into_iter(),
+                |_quib, _k1, _k2, v| Some(v),
+            )
+            .collect();
+
+        assert_eq!(joined, vec![2, 4, 5]);
     }
 }

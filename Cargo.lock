@@ -2682,6 +2682,7 @@ name = "models"
 version = "0.0.0"
 dependencies = [
  "caseless",
+ "hex",
  "humantime-serde",
  "insta",
  "itertools 0.10.5",
@@ -4801,6 +4802,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "doc",
+ "itertools 0.10.5",
  "json",
  "labels",
  "models",

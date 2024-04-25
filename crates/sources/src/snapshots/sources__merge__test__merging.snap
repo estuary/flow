@@ -2,11 +2,12 @@
 source: crates/sources/src/merge.rs
 expression: target
 ---
-Sources {
+DraftCatalog {
     captures: [
-        Capture {
+        DraftCapture {
+            catalog_name: acmeCo/captures/exists,
             scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists,
-            capture: acmeCo/captures/exists,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -17,9 +18,10 @@ Sources {
               "bindings": []
             },
         },
-        Capture {
+        DraftCapture {
+            catalog_name: acmeCo/one/new,
             scope: test://example/acmeCo/one/flow.yaml#/captures/acmeCo~1one~1new,
-            capture: acmeCo/one/new,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -32,9 +34,10 @@ Sources {
         },
     ],
     collections: [
-        Collection {
+        DraftCollection {
+            catalog_name: acmeCo/collections/exists,
             scope: test://example/catalog.yaml#/collections/acmeCo~1collections~1exists,
-            collection: acmeCo/collections/exists,
+            expect_build_id: NULL,
             spec: {
               "schema": {"const":["updated-value"]},
               "key": [
@@ -42,9 +45,10 @@ Sources {
               ]
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: acmeCo/one/new,
             scope: test://example/acmeCo/one/flow.yaml#/collections/acmeCo~1one~1new,
-            collection: acmeCo/one/new,
+            expect_build_id: NULL,
             spec: {
               "schema": true,
               "key": [
@@ -83,9 +87,10 @@ Sources {
         },
     ],
     materializations: [
-        Materialization {
+        DraftMaterialization {
+            catalog_name: acmeCo/materializations/exists,
             scope: test://example/catalog.yaml#/materializations/acmeCo~1materializations~1exists,
-            materialization: acmeCo/materializations/exists,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -96,9 +101,10 @@ Sources {
               "bindings": []
             },
         },
-        Materialization {
+        DraftMaterialization {
+            catalog_name: acmeCo/two/new,
             scope: test://example/acmeCo/two/flow.yaml#/materializations/acmeCo~1two~1new,
-            materialization: acmeCo/two/new,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -138,14 +144,16 @@ Sources {
     ],
     storage_mappings: [],
     tests: [
-        Test {
+        DraftTest {
+            catalog_name: acmeCo/tests/exists,
             scope: test://example/catalog.yaml#/tests/acmeCo~1tests~1exists,
-            test: acmeCo/tests/exists,
+            expect_build_id: NULL,
             spec: [],
         },
-        Test {
+        DraftTest {
+            catalog_name: acmeCo/two/new,
             scope: test://example/acmeCo/two/flow.yaml#/tests/acmeCo~1two~1new,
-            test: acmeCo/two/new,
+            expect_build_id: NULL,
             spec: [],
         },
     ],

@@ -17,9 +17,10 @@ proto-flow = { path = "../proto-flow" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
+itertools = { workspace = true }
 pathfinding = { workspace = true }
 prost = { workspace = true }
-rusqlite = { workspace = true, optional = true}
+rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 superslice = { workspace = true }

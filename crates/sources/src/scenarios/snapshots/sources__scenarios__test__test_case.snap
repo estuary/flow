@@ -2,7 +2,7 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [],
     errors: [
@@ -120,9 +120,10 @@ Sources {
     ],
     storage_mappings: [],
     tests: [
-        Test {
+        DraftTest {
+            catalog_name: acmeCo/errors/test,
             scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test,
-            test: acmeCo/errors/test,
+            expect_build_id: NULL,
             spec: [
               {
                 "ingest": {
@@ -140,9 +141,10 @@ Sources {
               }
             ],
         },
-        Test {
+        DraftTest {
+            catalog_name: acmeCo/parse/failure,
             scope: test://example/catalog-err-not-an-array.yaml#/tests/acmeCo~1parse~1failure,
-            test: acmeCo/parse/failure,
+            expect_build_id: NULL,
             spec: [
               {
                 "ingest": {
@@ -152,9 +154,10 @@ Sources {
               }
             ],
         },
-        Test {
+        DraftTest {
+            catalog_name: acmeCo/parse/failure,
             scope: test://example/catalog-err-not-an-object.yaml#/tests/acmeCo~1parse~1failure,
-            test: acmeCo/parse/failure,
+            expect_build_id: NULL,
             spec: [
               {
                 "ingest": {
@@ -164,9 +167,10 @@ Sources {
               }
             ],
         },
-        Test {
+        DraftTest {
+            catalog_name: acmeCo/widgest/test,
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test,
-            test: acmeCo/widgest/test,
+            expect_build_id: NULL,
             spec: [
               {
                 "ingest": {

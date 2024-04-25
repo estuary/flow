@@ -2,7 +2,7 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [],
     errors: [],
@@ -12,8 +12,8 @@ Sources {
     resources: [],
     storage_mappings: [
         StorageMapping {
+            catalog_prefix: ,
             scope: test://example/catalog.yaml#/storageMappings/,
-            prefix: ,
             stores: [
               {
                 "provider": "S3",
@@ -24,8 +24,8 @@ Sources {
             ],
         },
         StorageMapping {
+            catalog_prefix: foo/bar/baz/,
             scope: test://example/catalog.yaml#/storageMappings/foo~1bar~1baz~1,
-            prefix: foo/bar/baz/,
             stores: [
               {
                 "provider": "GCS",
@@ -41,8 +41,8 @@ Sources {
             ],
         },
         StorageMapping {
+            catalog_prefix: other/thing/,
             scope: test://example/catalog.yaml#/storageMappings/other~1thing~1,
-            prefix: other/thing/,
             stores: [
               {
                 "provider": "AZURE",

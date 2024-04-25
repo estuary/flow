@@ -1,6 +1,7 @@
 use super::Format;
 use crate::Scope;
 use std::collections::BTreeMap;
+use tables::EitherOrBoth;
 
 /// Policy is a layout policy which maps a catalog name, source root,
 /// and possible current resource into a resource where the specification should live,
@@ -85,10 +86,10 @@ pub fn flat_layout_replace(
     }
 }
 
-// Map tables::Sources into a flattened Catalog.
-// Sources should already be inline.
-pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
-    let tables::Sources {
+// Map tables::DraftCatalog into a flattened Catalog.
+// The DraftCatalog should already be inline.
+pub fn into_catalog(draft: tables::DraftCatalog) -> models::Catalog {
+    let tables::DraftCatalog {
         captures,
         collections,
         fetches: _,
@@ -98,7 +99,7 @@ pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
         storage_mappings: _,
         tests,
         errors,
-    } = sources;
+    } = draft;
 
     assert!(errors.is_empty());
 
@@ -107,29 +108,35 @@ pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
         import: Vec::new(), // Fully inline and requires no imports.
         captures: captures
             .into_iter()
-            .map(|tables::Capture { capture, spec, .. }| (capture, spec))
+            .filter_map(
+                |tables::DraftCapture {
+                     catalog_name, spec, ..
+                 }| spec.map(|spec| (catalog_name, spec)),
+            )
             .collect(),
         collections: collections
             .into_iter()
-            .map(
-                |tables::Collection {
-                     collection, spec, ..
-                 }| (collection, spec),
+            .filter_map(
+                |tables::DraftCollection {
+                     catalog_name, spec, ..
+                 }| spec.map(|spec| (catalog_name, spec)),
             )
             .collect(),
         materializations: materializations
             .into_iter()
-            .map(
-                |tables::Materialization {
-                     materialization,
-                     spec,
-                     ..
-                 }| (materialization, spec),
+            .filter_map(
+                |tables::DraftMaterialization {
+                     catalog_name, spec, ..
+                 }| spec.map(|spec| (catalog_name, spec)),
             )
             .collect(),
         tests: tests
             .into_iter()
-            .map(|tables::Test { test, spec, .. }| (test, spec))
+            .filter_map(
+                |tables::DraftTest {
+                     catalog_name, spec, ..
+                 }| spec.map(|spec| (catalog_name, spec)),
+            )
             .collect(),
 
         // We deliberately omit storage mappings.
@@ -138,10 +145,10 @@ pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
     }
 }
 
-// Map specifications from a Catalog into tables::Sources.
-// Sources should already be inline.
+// Map specifications from a Catalog into tables::DraftCatalog.
+// The DraftCatalog should already be inline.
 pub fn extend_from_catalog<P>(
-    sources: &mut tables::Sources,
+    draft: &mut tables::DraftCatalog,
     catalog: models::Catalog,
     policy: P,
 ) -> usize
@@ -172,151 +179,172 @@ where
     const MATERIALIZATIONS: &str = "materializations";
     const TESTS: &str = "tests";
 
-    let root = sources.fetches[0].resource.clone();
+    let root = draft.fetches[0].resource.clone();
     let mut count = 0;
 
-    for (capture, spec) in captures {
-        match sources
-            .captures
-            .binary_search_by(|other| other.capture.cmp(&capture))
-        {
-            Ok(index) => {
-                let chain = eval_policy(
-                    &policy,
-                    CAPTURES,
-                    &capture,
-                    &root,
-                    Some(&sources.captures[index].scope),
-                );
+    draft.captures = std::mem::take(&mut draft.captures)
+        .outer_join(captures.into_iter(), |eob| match eob {
+            EitherOrBoth::Left(row) => Some(row), // Do not modify.
+            EitherOrBoth::Both(row, (catalog_name, spec)) => {
+                let chain = eval_policy(&policy, CAPTURES, &catalog_name, &root, Some(&row.scope));
 
                 if let Some(last) = chain.last() {
-                    sources.captures[index] = tables::Capture {
+                    add_imports(draft, &chain);
+                    count += 1;
+
+                    Some(tables::DraftCapture {
+                        catalog_name,
                         scope: last.clone(),
-                        capture,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    Some(row) // Do not modify.
                 }
             }
-            Err(_) => {
-                let chain = eval_policy(&policy, CAPTURES, &capture, &root, None);
-
+            EitherOrBoth::Right((catalog_name, spec)) => {
+                let chain = eval_policy(&policy, CAPTURES, &catalog_name, &root, None);
                 if let Some(last) = chain.last() {
-                    sources.captures.insert_row(last, capture, spec);
-                    add_imports(sources, &chain);
+                    add_imports(draft, &chain);
                     count += 1;
-                }
-            }
-        }
-    }
-    for (collection, spec) in collections {
-        match sources
-            .collections
-            .binary_search_by(|other| other.collection.cmp(&collection))
-        {
-            Ok(index) => {
-                let chain = eval_policy(
-                    &policy,
-                    COLLECTIONS,
-                    &collection,
-                    &root,
-                    Some(&sources.collections[index].scope),
-                );
 
-                if let Some(last) = chain.last() {
-                    sources.collections[index] = tables::Collection {
+                    Some(tables::DraftCapture {
+                        catalog_name,
                         scope: last.clone(),
-                        collection,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    None // Do not insert.
                 }
             }
-            Err(_) => {
-                let chain = eval_policy(&policy, COLLECTIONS, &collection, &root, None);
+        })
+        .collect();
+
+    draft.collections = std::mem::take(&mut draft.collections)
+        .outer_join(collections.into_iter(), |eob| match eob {
+            EitherOrBoth::Left(row) => Some(row), // Do not modify.
+            EitherOrBoth::Both(row, (catalog_name, spec)) => {
+                let chain =
+                    eval_policy(&policy, COLLECTIONS, &catalog_name, &root, Some(&row.scope));
 
                 if let Some(last) = chain.last() {
-                    sources.collections.insert_row(last, collection, spec);
-                    add_imports(sources, &chain);
+                    add_imports(draft, &chain);
                     count += 1;
+
+                    Some(tables::DraftCollection {
+                        catalog_name,
+                        scope: last.clone(),
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    Some(row) // Do not modify.
                 }
             }
-        }
-    }
-    for (materialization, spec) in materializations {
-        match sources
-            .materializations
-            .binary_search_by(|other| other.materialization.cmp(&materialization))
-        {
-            Ok(index) => {
+            EitherOrBoth::Right((catalog_name, spec)) => {
+                let chain = eval_policy(&policy, COLLECTIONS, &catalog_name, &root, None);
+                if let Some(last) = chain.last() {
+                    add_imports(draft, &chain);
+                    count += 1;
+
+                    Some(tables::DraftCollection {
+                        catalog_name,
+                        scope: last.clone(),
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    None // Do not insert.
+                }
+            }
+        })
+        .collect();
+
+    draft.materializations = std::mem::take(&mut draft.materializations)
+        .outer_join(materializations.into_iter(), |eob| match eob {
+            EitherOrBoth::Left(row) => Some(row), // Do not modify.
+            EitherOrBoth::Both(row, (catalog_name, spec)) => {
                 let chain = eval_policy(
                     &policy,
                     MATERIALIZATIONS,
-                    &materialization,
+                    &catalog_name,
                     &root,
-                    Some(&sources.materializations[index].scope),
+                    Some(&row.scope),
                 );
 
                 if let Some(last) = chain.last() {
-                    sources.materializations[index] = tables::Materialization {
+                    add_imports(draft, &chain);
+                    count += 1;
+
+                    Some(tables::DraftMaterialization {
+                        catalog_name,
                         scope: last.clone(),
-                        materialization,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    Some(row) // Do not modify.
                 }
             }
-            Err(_) => {
-                let chain = eval_policy(&policy, MATERIALIZATIONS, &materialization, &root, None);
-
+            EitherOrBoth::Right((catalog_name, spec)) => {
+                let chain = eval_policy(&policy, MATERIALIZATIONS, &catalog_name, &root, None);
                 if let Some(last) = chain.last() {
-                    sources
-                        .materializations
-                        .insert_row(last, materialization, spec);
-                    add_imports(sources, &chain);
+                    add_imports(draft, &chain);
                     count += 1;
-                }
-            }
-        }
-    }
-    for (test, spec) in tests {
-        match sources
-            .tests
-            .binary_search_by(|other| other.test.cmp(&test))
-        {
-            Ok(index) => {
-                let chain = eval_policy(
-                    &policy,
-                    TESTS,
-                    &test,
-                    &root,
-                    Some(&sources.tests[index].scope),
-                );
 
-                if let Some(last) = chain.last() {
-                    sources.tests[index] = tables::Test {
+                    Some(tables::DraftMaterialization {
+                        catalog_name,
                         scope: last.clone(),
-                        test,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    None // Do not insert.
                 }
             }
-            Err(_) => {
-                let chain = eval_policy(&policy, TESTS, &test, &root, None);
+        })
+        .collect();
+
+    draft.tests = std::mem::take(&mut draft.tests)
+        .outer_join(tests.into_iter(), |eob| match eob {
+            EitherOrBoth::Left(row) => Some(row), // Do not modify.
+            EitherOrBoth::Both(row, (catalog_name, spec)) => {
+                let chain = eval_policy(&policy, TESTS, &catalog_name, &root, Some(&row.scope));
 
                 if let Some(last) = chain.last() {
-                    sources.tests.insert_row(last, test, spec);
-                    add_imports(sources, &chain);
+                    add_imports(draft, &chain);
                     count += 1;
+
+                    Some(tables::DraftTest {
+                        catalog_name,
+                        scope: last.clone(),
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    Some(row) // Do not modify.
                 }
             }
-        }
-    }
+            EitherOrBoth::Right((catalog_name, spec)) => {
+                let chain = eval_policy(&policy, TESTS, &catalog_name, &root, None);
+                if let Some(last) = chain.last() {
+                    add_imports(draft, &chain);
+                    count += 1;
+
+                    Some(tables::DraftTest {
+                        catalog_name,
+                        scope: last.clone(),
+                        expect_build_id: None,
+                        spec: Some(spec),
+                    })
+                } else {
+                    None // Do not insert.
+                }
+            }
+        })
+        .collect();
+
     count
 }
 
@@ -345,7 +373,7 @@ where
     chain
 }
 
-fn add_imports(sources: &mut tables::Sources, chain: &[url::Url]) {
+fn add_imports(draft: &mut tables::DraftCatalog, chain: &[url::Url]) {
     for (importer, imports) in chain.windows(2).map(|pair| (&pair[0], &pair[1])) {
         let mut scope = importer.clone();
         scope.set_fragment(Some("/import/-"));
@@ -354,11 +382,11 @@ fn add_imports(sources: &mut tables::Sources, chain: &[url::Url]) {
         imports.set_fragment(None);
 
         // Add a new import if we haven't added one already. We'll do more de-duplication later.
-        if let Err(_) = sources
+        if let Err(_) = draft
             .imports
             .binary_search_by(|l| (&l.scope, &l.to_resource).cmp(&(&scope, &imports)))
         {
-            sources.imports.insert_row(scope, imports);
+            draft.imports.insert_row(scope, imports);
         }
     }
 }

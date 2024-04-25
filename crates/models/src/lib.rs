@@ -7,6 +7,7 @@ mod connector;
 mod derivation;
 mod derive_sqlite;
 mod derive_typescript;
+mod id;
 mod journals;
 mod labels;
 mod materializations;
@@ -25,6 +26,7 @@ pub use connector::{ConnectorConfig, LocalConfig};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
+pub use id::Id;
 pub use journals::{
     CompressionCodec, CustomStore, FragmentTemplate, JournalTemplate, S3StorageConfig, StorageDef,
     Store, AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
@@ -41,7 +43,7 @@ pub use references::{
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use source::{FullSource, PartitionSelector, Source};
-pub use tests::{TestDocuments, TestStep, TestStepIngest, TestStepVerify};
+pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({
