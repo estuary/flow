@@ -1,3 +1,6 @@
+#[cfg(feature = "persist")]
+use itertools::Itertools;
+
 /// Column is a column of a table.
 pub trait Column: std::fmt::Debug {
     // column_fmt is a debugging view over a column type.
@@ -6,16 +9,6 @@ pub trait Column: std::fmt::Debug {
     fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <Self as std::fmt::Debug>::fmt(self, f)
     }
-}
-
-/// Row is a row of a Table.
-pub trait Row: Sized {
-    type Table: Table;
-}
-
-/// Table is a collection of Rows.
-pub trait Table: Sized {
-    type Row: Row;
 }
 
 #[cfg(feature = "persist")]
@@ -29,10 +22,19 @@ pub trait SqlColumn: Sized + Column {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self>;
 }
 
+/// Row is a row of a Table.
+pub trait Row: std::fmt::Debug + Sized {
+    type Key: std::cmp::Ord;
+
+    fn cmp_key(&self, other: &Self::Key) -> std::cmp::Ordering;
+    fn cmp_row(&self, other: &Self) -> std::cmp::Ordering;
+}
+
 #[cfg(feature = "persist")]
 /// SqlRow is a Row which can persist to and from sqlite.
 pub trait SqlRow: Row {
-    type SqlTable: SqlTable;
+    fn sql_table_name() -> &'static str;
+    fn sql_columns() -> Vec<(&'static str, &'static str)>;
 
     /// Persist this row, using a Statement previously prepared from Table::insert_sql().
     fn persist<'stmt>(&self, stmt: &mut rusqlite::Statement<'stmt>) -> rusqlite::Result<()>;
@@ -40,20 +42,11 @@ pub trait SqlRow: Row {
     fn scan<'stmt>(row: &rusqlite::Row<'stmt>) -> rusqlite::Result<Self>;
 }
 
-#[cfg(feature = "persist")]
-/// SqlTable is a Table which can persist to and from sqlite.
-pub trait SqlTable: Table + SqlTableObj {
-    type SqlRow: SqlRow;
-
-    /// SQL for inserting table rows.
-    fn insert_sql() -> String;
-    /// SQL for querying table rows.
-    /// Filtering WHERE clauses may be appended to the returned string.
-    fn select_sql() -> String;
-}
+/// TableObj is the object-safe portion of a concrete Table type.
+pub trait TableObj: std::fmt::Debug {}
 
 #[cfg(feature = "persist")]
-/// SqlTableObj is the object-safe portion of a SqlTable.
+/// SqlTableObj is the object-safe portion of a concrete Table's SQL support.
 pub trait SqlTableObj {
     /// SQL name for this Table.
     fn sql_name(&self) -> &'static str;
@@ -70,6 +63,189 @@ pub trait SqlTableObj {
         filter: &str,
         params: &[&dyn rusqlite::types::ToSql],
     ) -> rusqlite::Result<()>;
+}
+
+/// Table is a collection of Rows.
+pub struct Table<R: Row>(Vec<R>);
+impl<R: Row> TableObj for Table<R> {}
+
+impl<R: Row> Table<R> {
+    /// New returns an empty Table.
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Insert a new ordered Row into the Table.
+    pub fn insert(&mut self, row: R) {
+        use superslice::Ext;
+        let index = self.0.upper_bound_by(|_l| _l.cmp_row(&row));
+        self.0.insert(index, row);
+    }
+
+    /// Extend the Table from the given Iterator.
+    pub fn extend(&mut self, it: impl Iterator<Item = R>) {
+        self.0.extend(it);
+        self.reindex();
+    }
+
+    pub fn into_iter(self) -> std::vec::IntoIter<R> {
+        self.0.into_iter()
+    }
+
+    pub fn outer_join<I, IK, IV, M, O>(self, it: I, join: M) -> impl Iterator<Item = O>
+    where
+        I: Iterator<Item = (IK, IV)>,
+        IK: std::borrow::Borrow<R::Key>,
+        M: FnMut(itertools::EitherOrBoth<R, (IK, IV)>) -> Option<O>,
+    {
+        itertools::merge_join_by(self.into_iter(), it, |l, (rk, _rv)| l.cmp_key(rk.borrow()))
+            .filter_map(join)
+    }
+
+    pub fn inner_join<I, IK, IV, M, O>(self, it: I, mut join: M) -> impl Iterator<Item = O>
+    where
+        I: Iterator<Item = (IK, IV)>,
+        IK: std::borrow::Borrow<R::Key>,
+        M: FnMut(R, IK, IV) -> Option<O>,
+    {
+        self.outer_join(it, move |eob| match eob {
+            itertools::EitherOrBoth::Both(row, (k, v)) => join(row, k, v),
+            _ => None,
+        })
+    }
+
+    // Re-index the Table as a bulk operation.
+    fn reindex(&mut self) {
+        self.0.sort_by(|l, r| l.cmp_row(r));
+    }
+}
+
+impl<R: Row> Default for Table<R> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<R: Row> std::ops::Deref for Table<R> {
+    type Target = Vec<R>;
+    fn deref(&self) -> &Vec<R> {
+        &self.0
+    }
+}
+
+impl<R: Row> std::ops::DerefMut for Table<R> {
+    fn deref_mut(&mut self) -> &mut Vec<R> {
+        &mut self.0
+    }
+}
+
+impl<R: Row> std::iter::FromIterator<R> for Table<R> {
+    fn from_iter<I: IntoIterator<Item = R>>(iter: I) -> Self {
+        let mut c = Self::new();
+        c.extend(iter.into_iter());
+        c
+    }
+}
+
+impl<R: Row> std::fmt::Debug for Table<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_slice().fmt(f)
+    }
+}
+
+#[cfg(feature = "persist")]
+impl<R: SqlRow> Table<R> {
+    /// SQL for inserting table rows.
+    fn insert_sql() -> String {
+        [
+            "INSERT INTO ",
+            R::sql_table_name(),
+            " ( ",
+            R::sql_columns()
+                .iter()
+                .map(|(sql_name, _sql_type)| *sql_name)
+                .join(", ")
+                .as_str(),
+            " ) VALUES ( ",
+            R::sql_columns().iter().map(|_| "?").join(", ").as_str(),
+            " );",
+        ]
+        .concat()
+    }
+
+    /// SQL for querying table rows.
+    /// Filtering WHERE clauses may be appended to the returned string.
+    fn select_sql() -> String {
+        [
+            "SELECT ",
+            R::sql_columns()
+                .iter()
+                .map(|(sql_name, _sql_type)| *sql_name)
+                .join(", ")
+                .as_str(),
+            " FROM ",
+            R::sql_table_name(),
+            // Closing ';' is omitted so that WHERE clauses may be chained.
+            // rusqlite is okay with a non-closed statement.
+        ]
+        .concat()
+    }
+}
+
+#[cfg(feature = "persist")]
+impl<R: SqlRow> SqlTableObj for Table<R> {
+    fn sql_name(&self) -> &'static str {
+        R::sql_table_name()
+    }
+
+    fn create_table_sql(&self) -> String {
+        [
+            "CREATE TABLE IF NOT EXISTS ",
+            R::sql_table_name(),
+            " ( ",
+            R::sql_columns()
+                .iter()
+                .map(|(name, typ)| format!("{name} {typ}"))
+                .join(", ")
+                .as_str(),
+            " );",
+        ]
+        .concat()
+    }
+
+    fn persist_all(&self, db: &rusqlite::Connection) -> rusqlite::Result<()> {
+        let mut stmt = db.prepare(&Self::insert_sql())?;
+
+        for row in &self.0 {
+            row.persist(&mut stmt)?;
+        }
+        Ok(())
+    }
+
+    fn load_all(&mut self, db: &rusqlite::Connection) -> rusqlite::Result<()> {
+        let mut stmt = db.prepare(&Self::select_sql())?;
+        self.extend(
+            stmt.query_map([], R::scan)?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter(),
+        );
+        Ok(())
+    }
+
+    fn load_where(
+        &mut self,
+        db: &rusqlite::Connection,
+        filter: &str,
+        params: &[&dyn rusqlite::types::ToSql],
+    ) -> rusqlite::Result<()> {
+        let mut stmt = db.prepare(&format!("{} WHERE {}", Self::select_sql(), filter))?;
+        self.extend(
+            stmt.query_map(params, R::scan)?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter(),
+        );
+        Ok(())
+    }
 }
 
 /// Trait for accepting arguments which may be owned, or can be cloned.
@@ -291,92 +467,10 @@ macro_rules! tables {
             $(pub $val: $val_type,)*
         }
 
-        /// New-type wrapper of a Row vector.
-        #[derive(Default)]
-        pub struct $table(Vec<$row>);
+        /// Type alias for a Table of this Row.
+        pub type $table = Table<$row>;
 
-        impl $table {
-            /// New returns an empty Table.
-            pub fn new() -> Self { Self(Vec::new()) }
-
-            /// Insert a new ordered Row into the Table.
-            /// Arguments match the positional order of the table's definition.
-            #[allow(dead_code)]
-            pub fn insert_row(&mut self, $( $key: impl OwnOrClone<$key_type>, )* $( $val: impl OwnOrClone<$val_type>, )*) {
-                self.insert($row {
-                    $($key: $key.own_or_clone(),)*
-                    $($val: $val.own_or_clone(),)*
-                });
-            }
-
-            /// Insert a new ordered Row into the Table.
-            #[allow(dead_code)]
-            pub fn insert(&mut self, row: $row) {
-                use superslice::Ext;
-
-                let r = ($(&row.$key,)*);
-
-                let index = self.0.upper_bound_by(move |_l| {
-                    let l = ($(&_l.$key,)*);
-                    l.cmp(&r)
-                });
-                self.0.insert(index, row);
-            }
-
-            /// Convert the Table into an Iterator.
-            #[allow(dead_code)]
-            pub fn into_iter(self) -> impl Iterator<Item=$row> {
-                self.0.into_iter()
-            }
-
-            /// Extend the Table from the given Iterator.
-            #[allow(dead_code)]
-            pub fn extend(&mut self, it: impl Iterator<Item=$row>) {
-                self.0.extend(it);
-                self.reindex();
-            }
-
-            // Re-index the Table as a bulk operation.
-            fn reindex(&mut self) {
-                self.0.sort_by(|_l, _r| {
-                    let l = ($(&_l.$key,)*);
-                    let r = ($(&_r.$key,)*);
-                    l.cmp(&r)
-                });
-            }
-
-            table_join!($table, $row, [ $($key: $key_type,)* ]);
-        }
-
-        impl Table for $table {
-            type Row = $row;
-        }
-        impl Row for $row {
-            type Table = $table;
-        }
-
-        impl std::ops::Deref for $table {
-            type Target = Vec<$row>;
-            fn deref(&self) -> &Vec<$row> { &self.0 }
-        }
-
-        impl std::ops::DerefMut for $table {
-            fn deref_mut(&mut self) -> &mut Vec<$row> { &mut self.0 }
-        }
-
-        impl std::iter::FromIterator<$row> for $table {
-            fn from_iter<I: IntoIterator<Item=$row>>(iter: I) -> Self {
-                let mut c = $table::new();
-                c.extend(iter.into_iter());
-                c
-            }
-        }
-
-        impl std::fmt::Debug for $table {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                self.as_slice().fmt(f)
-            }
-        }
+        table_impl_row!($table, $row, [ $($key: $key_type,)* ]);
 
         impl std::fmt::Debug for $row {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -392,77 +486,15 @@ macro_rules! tables {
         }
 
         #[cfg(feature = "persist")]
-        impl SqlTable for $table {
-            type SqlRow = $row;
-
-            fn insert_sql() -> String {
-                [
-                    "INSERT INTO ",
-                    $sql_name,
-                    " ( ",
-                    [ $( stringify!($key), )* $( stringify!($val), )* ].join(", ").as_str(),
-                    " ) VALUES ( ",
-                    [ $( replace_expr!($key "?"), )* $( replace_expr!($val "?"), )* ].join(", ").as_str(),
-                    " );"
-                ].concat()
-            }
-
-            fn select_sql() -> String {
-                [
-                    "SELECT ",
-                    [ $( stringify!($key), )* $( stringify!($val), )* ].join(", ").as_str(),
-                    " FROM ",
-                    $sql_name,
-                    // Closing ';' is omitted so that WHERE clauses may be chained.
-                    // rusqlite is okay with a non-closed statement.
-                ].concat()
-            }
-        }
-
-        #[cfg(feature = "persist")]
-        impl SqlTableObj for $table {
-            fn sql_name(&self) -> &'static str { $sql_name }
-
-            fn create_table_sql(&self) -> String {
-                [
-                    "CREATE TABLE IF NOT EXISTS ",
-                    $sql_name,
-                    " ( ",
-                    [
-                        $( [ stringify!($key), " ", <$key_type as SqlColumn>::sql_type() ].concat(), )*
-                        $( [ stringify!($val), " ", <$val_type as SqlColumn>::sql_type() ].concat(), )*
-                    ].join(", ").as_str(),
-                    " );"
-                ].concat()
-            }
-
-            fn persist_all(&self, db: &rusqlite::Connection) -> rusqlite::Result<()> {
-                let mut stmt = db.prepare(&Self::insert_sql())?;
-
-                for row in &self.0 {
-                    row.persist(&mut stmt)?;
-                }
-                Ok(())
-            }
-
-            fn load_all(&mut self, db: &rusqlite::Connection) -> rusqlite::Result<()> {
-                let mut stmt = db.prepare(&Self::select_sql())?;
-                self.extend(stmt.query_map([], $row::scan)?
-                              .collect::<Result<Vec<_>, _>>()?.into_iter());
-                Ok(())
-            }
-
-            fn load_where(&mut self, db: &rusqlite::Connection, filter: &str, params: &[&dyn rusqlite::types::ToSql]) -> rusqlite::Result<()> {
-                let mut stmt = db.prepare(&format!("{} WHERE {}", Self::select_sql(), filter))?;
-                self.extend(stmt.query_map(params, $row::scan)?
-                              .collect::<Result<Vec<_>, _>>()?.into_iter());
-                Ok(())
-            }
-        }
-
-        #[cfg(feature = "persist")]
         impl SqlRow for $row {
-            type SqlTable = $table;
+            fn sql_table_name() -> &'static str { $sql_name }
+
+            fn sql_columns() -> Vec<(&'static str, &'static str)> {
+                vec![
+                    $( (stringify!($key), <$key_type>::sql_type()), )*
+                    $( (stringify!($val), <$val_type>::sql_type()), )*
+                ]
+            }
 
             fn persist(&self, stmt: &mut rusqlite::Statement<'_>) -> rusqlite::Result<()> {
                 stmt.execute(rusqlite::params![
@@ -487,74 +519,65 @@ macro_rules! tables {
             }
         }
 
+        impl Table<$row> {
+            /// Insert a new ordered Row into the Table.
+            /// Arguments match the positional order of the table's definition.
+            #[allow(dead_code)]
+            pub fn insert_row(&mut self, $( $key: impl OwnOrClone<$key_type>, )* $( $val: impl OwnOrClone<$val_type>, )*) {
+                self.insert($row {
+                    $($key: $key.own_or_clone(),)*
+                    $($val: $val.own_or_clone(),)*
+                });
+            }
+        }
+
         )*
     }
 }
 
-macro_rules! table_join {
-    // Tables without a key do not have join methods.
+macro_rules! table_impl_row {
+    // Key N=0
     ($table:ident, $row:ident, [ ] ) => {
-        #[allow(dead_code)]
-        pub fn zero(&self) {}
+        impl Row for $row {
+            type Key = ();
+
+            fn cmp_key(&self, _other: &Self::Key) -> std::cmp::Ordering { std::cmp::Ordering::Equal }
+            fn cmp_row(&self, _other: &Self) -> std::cmp::Ordering { std::cmp::Ordering::Equal }
+        }
     };
-    // Handle single-component keys.
+    // Key N=1
     ($table:ident, $row:ident, [ $key:ident: $key_type:ty, ] ) => {
-        #[allow(dead_code)]
-        pub fn outer_join<I, IK, IV, M, O>(self, it: I, join: M) -> impl Iterator<Item = O>
-        where
-            I: Iterator<Item = (IK, IV)>,
-            IK: std::borrow::Borrow<$key_type>,
-            M: FnMut(itertools::EitherOrBoth<$row, (IK, IV)>) -> Option<O>,
-        {
-            itertools::merge_join_by(self.into_iter(), it, |l, (rk, _rv)| l.$key.cmp(rk.borrow()))
-                .filter_map(join)
-        }
+        impl Row for $row {
+            type Key = $key_type;
 
-        #[allow(dead_code)]
-        pub fn inner_join<I, IK, IV, M, O>(self, it: I, mut join: M) -> impl Iterator<Item = O>
-        where
-            I: Iterator<Item = (IK, IV)>,
-            IK: std::borrow::Borrow<$key_type>,
-            M: FnMut($row, IK, IV) -> Option<O>,
-        {
-            self.outer_join(it, move |eob| match eob {
-                itertools::EitherOrBoth::Both(row, (k, v)) => join(row, k, v),
-                _ => None,
-            })
+            fn cmp_key(&self, other: &Self::Key) -> std::cmp::Ordering { self.$key.cmp(other) }
+            fn cmp_row(&self, other: &Self) -> std::cmp::Ordering { self.$key.cmp(&other.$key) }
         }
     };
-    // Handle two-component keys.
+    // Key N=2
     ($table:ident, $row:ident, [ $key1:ident: $key1_type:ty, $key2:ident: $key2_type:ty, ] ) => {
-        #[allow(dead_code)]
-        pub fn outer_join<I, IK1, IK2, IV, M, O>(self, it: I, join: M) -> impl Iterator<Item = O>
-        where
-            I: Iterator<Item = (IK1, IK2, IV)>,
-            IK1: std::borrow::Borrow<$key1_type>,
-            IK2: std::borrow::Borrow<$key2_type>,
-            M: FnMut(itertools::EitherOrBoth<$row, (IK1, IK2, IV)>) -> Option<O>,
-        {
-            itertools::merge_join_by(self.into_iter(), it, |l, (rk1, rk2, _rv)| {
-                (&l.$key1, &l.$key2).cmp(&(rk1.borrow(), rk2.borrow()))
-            })
-            .filter_map(join)
-        }
+        impl Row for $row {
+            type Key = ($key1_type, $key2_type);
 
-        #[allow(dead_code)]
-        pub fn inner_join<I, IK1, IK2, IV, M, O>(
-            self,
-            it: I,
-            mut join: M,
-        ) -> impl Iterator<Item = O>
-        where
-            I: Iterator<Item = (IK1, IK2, IV)>,
-            IK1: std::borrow::Borrow<$key1_type>,
-            IK2: std::borrow::Borrow<$key2_type>,
-            M: FnMut($row, IK1, IK2, IV) -> Option<O>,
-        {
-            self.outer_join(it, move |eob| match eob {
-                itertools::EitherOrBoth::Both(row, (k1, k2, v)) => join(row, k1, k2, v),
-                _ => None,
-            })
+            fn cmp_key(&self, other: &Self::Key) -> std::cmp::Ordering {
+                (&self.$key1, &self.$key2).cmp(&(&other.0, &other.1))
+            }
+            fn cmp_row(&self, other: &Self) -> std::cmp::Ordering {
+                (&self.$key1, &self.$key2).cmp(&(&other.$key1, &other.$key2))
+            }
+        }
+    };
+    // Other N's are not implemented yet.
+    ($table:ident, $row:ident, [ $($key:ident: $key_type:ty,)* ] ) => {
+        impl Row for $row {
+            type Key = ( $($key_type,)* );
+
+            fn cmp_key(&self, _other: &Self::Key) -> std::cmp::Ordering {
+                todo!("cmp_key must be implemented for keys of this length")
+            }
+            fn cmp_row(&self, _other: &Self) -> std::cmp::Ordering {
+                todo!("cmp_row must be implemented for keys of this length")
+            }
         }
     };
 }

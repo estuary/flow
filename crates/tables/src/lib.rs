@@ -12,6 +12,9 @@ use prost::Message;
 pub use itertools::EitherOrBoth;
 pub use macros::Table;
 
+mod draft;
+pub use draft::DraftRow;
+
 tables!(
     table Fetches (row Fetch, sql "fetches") {
         // Import depth of this fetch.
@@ -543,7 +546,7 @@ mod test {
 
         let joined: Vec<usize> = tbl
             .inner_join(
-                [(0, 1), (0, 2), (10, 3), (15, 4), (20, 5), (21, 6)].into_iter(),
+                [(0u32, 1usize), (0, 2), (10, 3), (15, 4), (20, 5), (21, 6)].into_iter(),
                 |_bar, _k, v| Some(v),
             )
             .collect();
@@ -568,15 +571,15 @@ mod test {
         let joined: Vec<usize> = tbl
             .inner_join(
                 [
-                    (0, 10, 1),
-                    (0, 78, 2),
-                    (0, 90, 3),
-                    (10, 34, 4),
-                    (10, 90, 5),
-                    (21, 0, 6),
+                    ((0u32, 10u32), 1usize),
+                    ((0, 78), 2),
+                    ((0, 90), 3),
+                    ((10, 34), 4),
+                    ((10, 90), 5),
+                    ((21, 0), 6),
                 ]
                 .into_iter(),
-                |_quib, _k1, _k2, v| Some(v),
+                |_quib, _k, v| Some(v),
             )
             .collect();
 

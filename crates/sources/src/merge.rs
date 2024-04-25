@@ -174,176 +174,90 @@ where
         "catalog must not include storage mappings"
     );
 
-    const CAPTURES: &str = "captures";
-    const COLLECTIONS: &str = "collections";
-    const MATERIALIZATIONS: &str = "materializations";
-    const TESTS: &str = "tests";
-
-    let root = draft.fetches[0].resource.clone();
     let mut count = 0;
 
-    draft.captures = std::mem::take(&mut draft.captures)
-        .outer_join(captures.into_iter(), |eob| match eob {
-            EitherOrBoth::Left(row) => Some(row), // Do not modify.
-            EitherOrBoth::Both(row, (catalog_name, spec)) => {
-                let chain = eval_policy(&policy, CAPTURES, &catalog_name, &root, Some(&row.scope));
+    fn inner<R, P>(
+        tbl: tables::Table<R>,
+        it: impl Iterator<Item = (R::Key, R::Spec)>,
+        policy: P,
+        entity: &'static str,
+        draft: &mut tables::DraftCatalog,
+        count: &mut usize,
+    ) -> tables::Table<R>
+    where
+        R: tables::DraftRow,
+        R::Key: AsRef<str>,
+        P: Fn(&str, &url::Url, Option<&url::Url>) -> Vec<url::Url>,
+    {
+        let root = draft.fetches[0].resource.clone();
 
-                if let Some(last) = chain.last() {
-                    add_imports(draft, &chain);
-                    count += 1;
-
-                    Some(tables::DraftCapture {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
-                } else {
-                    Some(row) // Do not modify.
-                }
-            }
-            EitherOrBoth::Right((catalog_name, spec)) => {
-                let chain = eval_policy(&policy, CAPTURES, &catalog_name, &root, None);
-                if let Some(last) = chain.last() {
-                    add_imports(draft, &chain);
-                    count += 1;
-
-                    Some(tables::DraftCapture {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
-                } else {
-                    None // Do not insert.
-                }
-            }
-        })
-        .collect();
-
-    draft.collections = std::mem::take(&mut draft.collections)
-        .outer_join(collections.into_iter(), |eob| match eob {
-            EitherOrBoth::Left(row) => Some(row), // Do not modify.
-            EitherOrBoth::Both(row, (catalog_name, spec)) => {
-                let chain =
-                    eval_policy(&policy, COLLECTIONS, &catalog_name, &root, Some(&row.scope));
-
-                if let Some(last) = chain.last() {
-                    add_imports(draft, &chain);
-                    count += 1;
-
-                    Some(tables::DraftCollection {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
-                } else {
-                    Some(row) // Do not modify.
-                }
-            }
-            EitherOrBoth::Right((catalog_name, spec)) => {
-                let chain = eval_policy(&policy, COLLECTIONS, &catalog_name, &root, None);
-                if let Some(last) = chain.last() {
-                    add_imports(draft, &chain);
-                    count += 1;
-
-                    Some(tables::DraftCollection {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
-                } else {
-                    None // Do not insert.
-                }
-            }
-        })
-        .collect();
-
-    draft.materializations = std::mem::take(&mut draft.materializations)
-        .outer_join(materializations.into_iter(), |eob| match eob {
+        tbl.outer_join(it, |eob| match eob {
             EitherOrBoth::Left(row) => Some(row), // Do not modify.
             EitherOrBoth::Both(row, (catalog_name, spec)) => {
                 let chain = eval_policy(
                     &policy,
-                    MATERIALIZATIONS,
-                    &catalog_name,
+                    entity,
+                    catalog_name.as_ref(),
                     &root,
-                    Some(&row.scope),
+                    Some(row.scope()),
                 );
 
                 if let Some(last) = chain.last() {
                     add_imports(draft, &chain);
-                    count += 1;
+                    *count += 1;
 
-                    Some(tables::DraftMaterialization {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
+                    Some(R::new(catalog_name, last.clone(), None, Some(spec)))
                 } else {
                     Some(row) // Do not modify.
                 }
             }
             EitherOrBoth::Right((catalog_name, spec)) => {
-                let chain = eval_policy(&policy, MATERIALIZATIONS, &catalog_name, &root, None);
+                let chain = eval_policy(&policy, entity, catalog_name.as_ref(), &root, None);
                 if let Some(last) = chain.last() {
                     add_imports(draft, &chain);
-                    count += 1;
+                    *count += 1;
 
-                    Some(tables::DraftMaterialization {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
+                    Some(R::new(catalog_name, last.clone(), None, Some(spec)))
                 } else {
                     None // Do not insert.
                 }
             }
         })
-        .collect();
+        .collect()
+    }
 
-    draft.tests = std::mem::take(&mut draft.tests)
-        .outer_join(tests.into_iter(), |eob| match eob {
-            EitherOrBoth::Left(row) => Some(row), // Do not modify.
-            EitherOrBoth::Both(row, (catalog_name, spec)) => {
-                let chain = eval_policy(&policy, TESTS, &catalog_name, &root, Some(&row.scope));
-
-                if let Some(last) = chain.last() {
-                    add_imports(draft, &chain);
-                    count += 1;
-
-                    Some(tables::DraftTest {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
-                } else {
-                    Some(row) // Do not modify.
-                }
-            }
-            EitherOrBoth::Right((catalog_name, spec)) => {
-                let chain = eval_policy(&policy, TESTS, &catalog_name, &root, None);
-                if let Some(last) = chain.last() {
-                    add_imports(draft, &chain);
-                    count += 1;
-
-                    Some(tables::DraftTest {
-                        catalog_name,
-                        scope: last.clone(),
-                        expect_build_id: None,
-                        spec: Some(spec),
-                    })
-                } else {
-                    None // Do not insert.
-                }
-            }
-        })
-        .collect();
+    draft.captures = inner(
+        std::mem::take(&mut draft.captures),
+        captures.into_iter(),
+        &policy,
+        "captures",
+        draft,
+        &mut count,
+    );
+    draft.collections = inner(
+        std::mem::take(&mut draft.collections),
+        collections.into_iter(),
+        &policy,
+        "collections",
+        draft,
+        &mut count,
+    );
+    draft.materializations = inner(
+        std::mem::take(&mut draft.materializations),
+        materializations.into_iter(),
+        &policy,
+        "materializations",
+        draft,
+        &mut count,
+    );
+    draft.tests = inner(
+        std::mem::take(&mut draft.tests),
+        tests.into_iter(),
+        &policy,
+        "tests",
+        draft,
+        &mut count,
+    );
 
     count
 }
