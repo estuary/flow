@@ -47,6 +47,27 @@ tables!(
         val stores: Vec<models::Store>,
     }
 
+    table Collections (row Collection, sql "collections") {
+        key collection: models::Collection,
+        val scope: url::Url,
+        val spec: models::CollectionDef,
+    }
+    table Captures (row Capture, sql "collections") {
+        key collection: models::Capture,
+        val scope: url::Url,
+        val spec: models::CaptureDef,
+    }
+    table Materializations (row Materialization, sql "collections") {
+        key collection: models::Materialization,
+        val scope: url::Url,
+        val spec: models::MaterializationDef,
+    }
+    table Tests (row Test, sql "collections") {
+        key collection: models::Test,
+        val scope: url::Url,
+        val spec: models::TestDef,
+    }
+
     table DraftCollections (row DraftCollection, sql "draft_collections") {
         // Name of this collection.
         key catalog_name: models::Collection,
