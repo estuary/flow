@@ -93,7 +93,7 @@ pub fn inference_truncation_indicator() -> flow::Inference {
 // or updating data partitions of the collection.
 pub fn partition_template(
     build_id: &str,
-    collection: &models::Collection,
+    catalog_name: &models::Collection,
     journals: &models::JournalTemplate,
     stores: &[models::Store],
 ) -> broker::JournalSpec {
@@ -155,12 +155,12 @@ pub fn partition_template(
         },
         broker::Label {
             name: labels::COLLECTION.to_string(),
-            value: collection.to_string(),
+            value: catalog_name.to_string(),
         },
     ];
 
     broker::JournalSpec {
-        name: collection.to_string(),
+        name: catalog_name.to_string(),
         replication,
         fragment: Some(broker::journal_spec::Fragment {
             compression_codec: compression_codec as i32,
@@ -171,7 +171,7 @@ pub fn partition_template(
             retention,
             stores: stores
                 .iter()
-                .map(|s| s.to_url(&collection).into())
+                .map(|s| s.to_url(&catalog_name).into())
                 .collect(),
         }),
         flags,
@@ -420,27 +420,29 @@ fn shard_hostname_label(task_name: &str) -> String {
 
 pub fn collection_spec(
     build_id: &str,
-    collection: &tables::Collection,
+    collection: &tables::DraftCollection,
     projections: Vec<flow::Projection>,
     read_bundle: Option<models::Schema>,
     stores: &[models::Store],
     uuid_ptr: &str,
     write_bundle: models::Schema,
 ) -> flow::CollectionSpec {
-    let tables::Collection {
+    let tables::DraftCollection {
+        catalog_name,
         scope: _,
-        collection: name,
-        spec:
-            models::CollectionDef {
-                schema: _,
-                read_schema: _,
-                write_schema: _,
-                key,
-                projections: _,
-                journals,
-                derive: _,
-            },
+        expect_build_id: _,
+        spec,
     } = collection;
+
+    let models::CollectionDef {
+        schema: _,
+        read_schema: _,
+        write_schema: _,
+        key,
+        projections: _,
+        journals,
+        derive: _,
+    } = spec.as_ref().unwrap();
 
     // Projections must be ascending and unique on field.
     // We expect they already are.
@@ -464,7 +466,7 @@ pub fn collection_spec(
     };
 
     flow::CollectionSpec {
-        name: name.to_string(),
+        name: catalog_name.to_string(),
         write_schema_json: bundle_to_string(write_bundle),
         read_schema_json: read_bundle.map(bundle_to_string).unwrap_or_default(),
         key: key.iter().map(|p| p.to_string()).collect(),
@@ -476,7 +478,7 @@ pub fn collection_spec(
                 "ack": true,
             } })
         .to_string(),
-        partition_template: Some(partition_template(build_id, name, journals, stores)),
+        partition_template: Some(partition_template(build_id, catalog_name, journals, stores)),
         derivation: None,
     }
 }

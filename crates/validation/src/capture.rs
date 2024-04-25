@@ -4,15 +4,15 @@ use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 
 pub async fn walk_all_captures(
     build_id: &str,
-    built_collections: &[tables::BuiltCollection],
-    captures: &[tables::Capture],
+    built_collections: &tables::BuiltCollections,
+    captures: &tables::DraftCaptures,
     connectors: &dyn Connectors,
-    storage_mappings: &[tables::StorageMapping],
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
     let mut validations = Vec::new();
 
-    for capture in captures {
+    for capture in captures.iter() {
         let mut capture_errors = tables::Errors::new();
         let validation = walk_capture_request(built_collections, capture, &mut capture_errors);
 
@@ -33,14 +33,14 @@ pub async fn walk_all_captures(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &capture.spec.shards.log_level {
+                if let Some(s) = &capture.spec.as_ref().unwrap().shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             });
 
             // If shards are disabled, then don't ask the connector to validate.
             // A broken but disabled endpoint should not cause a build to fail.
-            let response = if capture.spec.shards.disable {
+            let response = if capture.spec.as_ref().unwrap().shards.disable {
                 NoOpConnectors.validate_capture(wrapped)
             } else {
                 connectors.validate_capture(wrapped)
@@ -49,7 +49,7 @@ pub async fn walk_all_captures(
         });
 
     let validations: Vec<(
-        &tables::Capture,
+        &tables::DraftCapture,
         capture::request::Validate,
         anyhow::Result<capture::Response>,
     )> = futures::future::join_all(validations).await;
@@ -57,13 +57,17 @@ pub async fn walk_all_captures(
     let mut built_captures = tables::BuiltCaptures::new();
 
     for (capture, mut request, response) in validations {
-        let tables::Capture {
+        let tables::DraftCapture {
+            catalog_name,
             scope,
-            capture: _,
-            spec: models::CaptureDef {
-                interval, shards, ..
-            },
+            expect_build_id: _,
+            spec,
         } = capture;
+
+        let models::CaptureDef {
+            interval, shards, ..
+        } = spec.as_ref().unwrap(); // TODO
+
         let scope = Scope::new(scope);
 
         // Unwrap `response` and bail out if it failed.
@@ -79,7 +83,7 @@ pub async fn walk_all_captures(
             connector_type,
             config_json,
             bindings: binding_requests,
-            name,
+            name: _,
             last_capture: _,
             last_version: _,
         } = &mut request;
@@ -139,7 +143,7 @@ pub async fn walk_all_captures(
 
             Error::BindingDuplicatesResource {
                 entity: "capture",
-                name: name.to_string(),
+                name: catalog_name.to_string(),
                 resource: binding.resource_path.iter().join("."),
                 rhs_scope,
             }
@@ -152,26 +156,26 @@ pub async fn walk_all_captures(
         let recovery_stores = storage_mapping::mapped_stores(
             scope,
             "capture",
-            &format!("recovery/{}", name.as_str()),
+            &format!("recovery/{}", catalog_name),
             storage_mappings,
             errors,
         );
 
         let spec = flow::CaptureSpec {
-            name: name.clone(),
+            name: catalog_name.to_string(),
             connector_type: *connector_type,
             config_json: std::mem::take(config_json),
             bindings: built_bindings,
             interval_seconds: interval.as_secs() as u32,
             recovery_log_template: Some(assemble::recovery_log_template(
                 build_id,
-                &name,
+                &catalog_name,
                 labels::TASK_TYPE_CAPTURE,
                 recovery_stores,
             )),
             shard_template: Some(assemble::shard_template(
                 build_id,
-                &name,
+                &catalog_name,
                 labels::TASK_TYPE_CAPTURE,
                 &shards,
                 false, // Don't disable wait_for_ack.
@@ -179,7 +183,7 @@ pub async fn walk_all_captures(
             )),
             network_ports,
         };
-        built_captures.insert_row(scope.flatten(), std::mem::take(name), validated, spec);
+        built_captures.insert_row(catalog_name, scope.flatten(), validated, spec);
     }
 
     built_captures
@@ -187,23 +191,26 @@ pub async fn walk_all_captures(
 
 fn walk_capture_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    capture: &'a tables::Capture,
+    capture: &'a tables::DraftCapture,
     errors: &mut tables::Errors,
-) -> Option<(&'a tables::Capture, capture::request::Validate)> {
-    let tables::Capture {
+) -> Option<(&'a tables::DraftCapture, capture::request::Validate)> {
+    let tables::DraftCapture {
+        catalog_name,
         scope,
-        capture: name,
-        spec: models::CaptureDef {
-            endpoint, bindings, ..
-        },
+        expect_build_id: _,
+        spec,
     } = capture;
     let scope = Scope::new(scope);
+
+    let models::CaptureDef {
+        endpoint, bindings, ..
+    } = spec.as_ref().unwrap(); // TODO
 
     // Require the capture name is valid.
     indexed::walk_name(
         scope,
         "capture",
-        &capture.capture,
+        &capture.catalog_name,
         models::Capture::regex(),
         errors,
     );
@@ -242,7 +249,7 @@ fn walk_capture_request<'a>(
         .collect();
 
     let request = capture::request::Validate {
-        name: name.to_string(),
+        name: catalog_name.to_string(),
         connector_type,
         config_json,
         bindings,
@@ -274,7 +281,7 @@ fn walk_capture_binding<'a>(
         "collection",
         target,
         built_collections,
-        |c| (&c.collection, Scope::new(&c.scope)),
+        |c| (&c.catalog_name, Scope::new(&c.scope)),
         errors,
     )?;
 

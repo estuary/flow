@@ -283,7 +283,7 @@ async fn do_combine(
 
     let collection = match validations
         .built_collections
-        .binary_search_by_key(&collection.as_str(), |c| c.collection.as_str())
+        .binary_search_by_key(&collection.as_str(), |c| c.catalog_name.as_str())
     {
         Ok(index) => &validations.built_collections[index],
         Err(_) => anyhow::bail!("collection {collection} not found"),

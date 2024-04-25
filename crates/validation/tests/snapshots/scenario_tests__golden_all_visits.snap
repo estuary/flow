@@ -5,8 +5,8 @@ expression: tables
 All {
     built_captures: [
         BuiltCapture {
+            catalog_name: testing/db-cdc,
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
-            capture: testing/db-cdc,
             validated: Validated {
                 bindings: [
                     Binding {
@@ -392,8 +392,8 @@ All {
             },
         },
         BuiltCapture {
+            catalog_name: testing/s3-source,
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
-            capture: testing/s3-source,
             validated: Validated {
                 bindings: [
                     Binding {
@@ -992,8 +992,8 @@ All {
     ],
     built_collections: [
         BuiltCollection {
+            catalog_name: testing/array-key,
             scope: test://example/array-key#/collections/testing~1array-key,
-            collection: testing/array-key,
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/array-key",
@@ -1187,8 +1187,8 @@ All {
             inferred_schema_md5: NULL,
         },
         BuiltCollection {
+            catalog_name: testing/from-array-key,
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
-            collection: testing/from-array-key,
             validated: Validated {
                 transforms: [
                     Transform {
@@ -1919,8 +1919,8 @@ All {
             inferred_schema_md5: NULL,
         },
         BuiltCollection {
+            catalog_name: testing/int-halve,
             scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
             validated: Validated {
                 transforms: [
                     Transform {
@@ -3147,8 +3147,8 @@ All {
             inferred_schema_md5: NULL,
         },
         BuiltCollection {
+            catalog_name: testing/int-reverse,
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
             validated: Validated {
                 transforms: [
                     Transform {
@@ -3721,8 +3721,8 @@ All {
             inferred_schema_md5: NULL,
         },
         BuiltCollection {
+            catalog_name: testing/int-string,
             scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string",
@@ -3945,8 +3945,8 @@ All {
             inferred_schema_md5: NULL,
         },
         BuiltCollection {
+            catalog_name: testing/int-string-inferred,
             scope: test://example/int-string#/collections/testing~1int-string-inferred,
-            collection: testing/int-string-inferred,
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-inferred",
@@ -4167,8 +4167,8 @@ All {
             inferred_schema_md5: mock md5,
         },
         BuiltCollection {
+            catalog_name: testing/int-string-inferred-not-found,
             scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
-            collection: testing/int-string-inferred-not-found,
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-inferred-not-found",
@@ -4421,8 +4421,8 @@ All {
             inferred_schema_md5: NULL,
         },
         BuiltCollection {
+            catalog_name: testing/int-string-rw,
             scope: test://example/int-string#/collections/testing~1int-string-rw,
-            collection: testing/int-string-rw,
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-rw",
@@ -4759,8 +4759,8 @@ All {
             inferred_schema_md5: NULL,
         },
         BuiltCollection {
+            catalog_name: testing/int-string.v2,
             scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string.v2",
@@ -4963,8 +4963,8 @@ All {
     ],
     built_materializations: [
         BuiltMaterialization {
+            catalog_name: testing/db-views,
             scope: test://example/db-views#/materializations/testing~1db-views,
-            materialization: testing/db-views,
             validated: Validated {
                 bindings: [
                     Binding {
@@ -5356,8 +5356,8 @@ All {
             },
         },
         BuiltMaterialization {
+            catalog_name: testing/webhook/deliveries,
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
-            materialization: testing/webhook/deliveries,
             validated: Validated {
                 bindings: [
                     Binding {
@@ -6229,8 +6229,8 @@ All {
     ],
     built_tests: [
         BuiltTest {
+            catalog_name: testing/test,
             scope: test://example/int-string-tests#/tests/testing~1test,
-            test: testing/test,
             spec: TestSpec {
                 name: "testing/test",
                 steps: [
@@ -6303,9 +6303,10 @@ All {
         },
     ],
     captures: [
-        Capture {
+        DraftCapture {
+            catalog_name: testing/db-cdc,
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
-            capture: testing/db-cdc,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -6326,9 +6327,10 @@ All {
               }
             },
         },
-        Capture {
+        DraftCapture {
+            catalog_name: testing/s3-source,
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
-            capture: testing/s3-source,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -6351,9 +6353,10 @@ All {
         },
     ],
     collections: [
-        Collection {
+        DraftCollection {
+            catalog_name: testing/array-key,
             scope: test://example/array-key#/collections/testing~1array-key,
-            collection: testing/array-key,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$id":"test://example/array-key.schema","properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
               "key": [
@@ -6364,9 +6367,10 @@ All {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/from-array-key,
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
-            collection: testing/from-array-key,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$id":"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema","properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
               "key": [
@@ -6410,9 +6414,10 @@ All {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/int-halve,
             scope: test://example/int-halve#/collections/testing~1int-halve,
-            collection: testing/int-halve,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
               "key": [
@@ -6488,9 +6493,10 @@ All {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/int-reverse,
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
-            collection: testing/int-reverse,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
@@ -6517,9 +6523,10 @@ All {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/int-string,
             scope: test://example/int-string#/collections/testing~1int-string,
-            collection: testing/int-string,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
@@ -6534,9 +6541,10 @@ All {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/int-string-inferred,
             scope: test://example/int-string#/collections/testing~1int-string-inferred,
-            collection: testing/int-string-inferred,
+            expect_build_id: NULL,
             spec: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
@@ -6545,9 +6553,10 @@ All {
               ]
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/int-string-inferred-not-found,
             scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
-            collection: testing/int-string-inferred-not-found,
+            expect_build_id: NULL,
             spec: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
@@ -6556,9 +6565,10 @@ All {
               ]
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/int-string-rw,
             scope: test://example/int-string#/collections/testing~1int-string-rw,
-            collection: testing/int-string-rw,
+            expect_build_id: NULL,
             spec: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
@@ -6576,9 +6586,10 @@ All {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: testing/int-string.v2,
             scope: test://example/int-string#/collections/testing~1int-string.v2,
-            collection: testing/int-string.v2,
+            expect_build_id: NULL,
             spec: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"}},"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
               "key": [
@@ -6759,9 +6770,10 @@ All {
         },
     ],
     materializations: [
-        Materialization {
+        DraftMaterialization {
+            catalog_name: testing/db-views,
             scope: test://example/db-views#/materializations/testing~1db-views,
-            materialization: testing/db-views,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -6784,9 +6796,10 @@ All {
               }
             },
         },
-        Materialization {
+        DraftMaterialization {
+            catalog_name: testing/webhook/deliveries,
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
-            materialization: testing/webhook/deliveries,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -6942,8 +6955,8 @@ All {
     ],
     storage_mappings: [
         StorageMapping {
+            catalog_prefix: not-matched/,
             scope: test://example/catalog.yaml#/storageMappings/not-matched~1,
-            prefix: not-matched/,
             stores: [
               {
                 "provider": "AZURE",
@@ -6955,8 +6968,8 @@ All {
             ],
         },
         StorageMapping {
+            catalog_prefix: recovery/testing/,
             scope: test://example/catalog.yaml#/storageMappings/recovery~1testing~1,
-            prefix: recovery/testing/,
             stores: [
               {
                 "provider": "GCS",
@@ -6966,8 +6979,8 @@ All {
             ],
         },
         StorageMapping {
+            catalog_prefix: testing/,
             scope: test://example/catalog.yaml#/storageMappings/testing~1,
-            prefix: testing/,
             stores: [
               {
                 "provider": "S3",
@@ -6979,9 +6992,10 @@ All {
         },
     ],
     tests: [
-        Test {
+        DraftTest {
+            catalog_name: testing/test,
             scope: test://example/int-string-tests#/tests/testing~1test,
-            test: testing/test,
+            expect_build_id: NULL,
             spec: [
               {
                 "ingest": {

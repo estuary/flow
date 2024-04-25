@@ -8,12 +8,12 @@ use superslice::Ext;
 
 pub async fn walk_all_derivations(
     build_id: &str,
-    built_collections: &[tables::BuiltCollection],
-    collections: &[tables::Collection],
+    built_collections: &tables::BuiltCollections,
+    collections: &tables::DraftCollections,
     connectors: &dyn Connectors,
-    imports: &[tables::Import],
+    imports: &tables::Imports,
     project_root: &url::Url,
-    storage_mappings: &[tables::StorageMapping],
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Vec<(
     usize,
@@ -22,20 +22,23 @@ pub async fn walk_all_derivations(
 )> {
     let mut validations = Vec::new();
 
-    for collection in collections {
+    for collection in collections.iter() {
         let mut derive_errors = tables::Errors::new();
 
-        let tables::Collection {
+        let tables::DraftCollection {
+            catalog_name,
             scope: _,
-            collection,
-            spec: models::CollectionDef { derive, .. },
+            expect_build_id: _,
+            spec,
         } = collection;
+
+        let models::CollectionDef { derive, .. } = spec.as_ref().unwrap();
 
         // Look at only collections that are derivations,
         // and skip if we cannot map into a BuiltCollection.
         let Some(derive) = derive else { continue };
         let Ok(built_index) =
-            built_collections.binary_search_by_key(&collection, |b| &b.collection)
+            built_collections.binary_search_by_key(&catalog_name, |b| &b.catalog_name)
         else {
             continue;
         };
@@ -89,7 +92,7 @@ pub async fn walk_all_derivations(
     for (built_index, derive, mut request, response) in validations {
         let tables::BuiltCollection {
             scope,
-            collection: this_collection,
+            catalog_name: this_collection,
             validated: _,
             spec: flow::CollectionSpec { name, .. },
             inferred_schema_md5: _,
@@ -287,7 +290,7 @@ fn walk_derive_request<'a>(
 ) -> Option<(usize, &'a models::Derivation, derive::request::Validate)> {
     let tables::BuiltCollection {
         scope,
-        collection: _,
+        catalog_name: _,
         validated: _,
         spec,
         inferred_schema_md5: _,
@@ -506,7 +509,7 @@ fn walk_derive_transform(
         "collection",
         source_name,
         built_collections,
-        |c| (&c.collection, Scope::new(&c.scope)),
+        |c| (&c.catalog_name, Scope::new(&c.scope)),
         errors,
     )?;
     let source_schema = schema::Schema::new(if source.spec.read_schema_json.is_empty() {

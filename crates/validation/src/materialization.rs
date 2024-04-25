@@ -7,15 +7,15 @@ use std::collections::{BTreeMap, HashMap};
 
 pub async fn walk_all_materializations(
     build_id: &str,
-    built_collections: &[tables::BuiltCollection],
+    built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
-    materializations: &[tables::Materialization],
-    storage_mappings: &[tables::StorageMapping],
+    materializations: &tables::DraftMaterializations,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
     let mut validations = Vec::new();
 
-    for materialization in materializations {
+    for materialization in materializations.iter() {
         let mut materialization_errors = tables::Errors::new();
         let validation = walk_materialization_request(
             built_collections,
@@ -40,14 +40,14 @@ pub async fn walk_all_materializations(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &materialization.spec.shards.log_level {
+                if let Some(s) = &materialization.spec.as_ref().unwrap().shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             });
 
             // If shards are disabled, then don't ask the connector to validate.
             // A broken but disabled endpoint should not cause a build to fail.
-            let response = if materialization.spec.shards.disable {
+            let response = if materialization.spec.as_ref().unwrap().shards.disable {
                 NoOpConnectors.validate_materialization(wrapped)
             } else {
                 connectors.validate_materialization(wrapped)
@@ -56,7 +56,7 @@ pub async fn walk_all_materializations(
         });
 
     let validations: Vec<(
-        &tables::Materialization,
+        &tables::DraftMaterialization,
         materialize::request::Validate,
         anyhow::Result<materialize::Response>,
     )> = futures::future::join_all(validations).await;
@@ -64,17 +64,19 @@ pub async fn walk_all_materializations(
     let mut built_materializations = tables::BuiltMaterializations::new();
 
     for (materialization, mut request, response) in validations {
-        let tables::Materialization {
+        let tables::DraftMaterialization {
+            catalog_name,
             scope,
-            materialization,
-            spec:
-                models::MaterializationDef {
-                    shards,
-                    bindings: binding_models,
-                    ..
-                },
+            expect_build_id: _,
+            spec,
         } = materialization;
         let scope = Scope::new(scope);
+
+        let models::MaterializationDef {
+            shards,
+            bindings: binding_models,
+            ..
+        } = spec.as_ref().unwrap();
 
         // Unwrap `response` and bail out if it failed.
         let (validated, network_ports) = match extract_validated(response) {
@@ -141,7 +143,7 @@ pub async fn walk_all_materializations(
 
                 let field_selection = Some(walk_materialization_response(
                     scope.push_prop("bindings").push_item(binding_index),
-                    materialization,
+                    catalog_name,
                     fields,
                     collection.as_ref().unwrap(),
                     constraints.clone(),
@@ -166,7 +168,7 @@ pub async fn walk_all_materializations(
                     Some(assemble::journal_selector(source_name, source_partitions));
 
                 let state_key = assemble::encode_state_key(resource_path, backfill);
-                let journal_read_suffix = format!("materialize/{}/{}", materialization, state_key);
+                let journal_read_suffix = format!("materialize/{}/{}", catalog_name, state_key);
 
                 (
                     binding_index,
@@ -241,31 +243,37 @@ pub async fn walk_all_materializations(
             )),
             network_ports,
         };
-        built_materializations.insert_row(scope.flatten(), std::mem::take(name), validated, spec);
+        built_materializations.insert_row(catalog_name, scope.flatten(), validated, spec);
     }
 
     built_materializations
 }
 
 fn walk_materialization_request<'a>(
-    built_collections: &'a [tables::BuiltCollection],
-    materialization: &'a tables::Materialization,
+    built_collections: &'a tables::BuiltCollections,
+    materialization: &'a tables::DraftMaterialization,
     errors: &mut tables::Errors,
-) -> Option<(&'a tables::Materialization, materialize::request::Validate)> {
-    let tables::Materialization {
+) -> Option<(
+    &'a tables::DraftMaterialization,
+    materialize::request::Validate,
+)> {
+    let tables::DraftMaterialization {
+        catalog_name,
         scope,
-        materialization: name,
-        spec: models::MaterializationDef {
-            endpoint, bindings, ..
-        },
+        expect_build_id: _,
+        spec,
     } = materialization;
     let scope = Scope::new(scope);
+
+    let models::MaterializationDef {
+        endpoint, bindings, ..
+    } = spec.as_ref().unwrap();
 
     // Require the materialization name is valid.
     indexed::walk_name(
         scope,
         "materialization",
-        &materialization.materialization,
+        catalog_name,
         models::Materialization::regex(),
         errors,
     );
@@ -289,7 +297,7 @@ fn walk_materialization_request<'a>(
         .map(|(binding_index, binding)| {
             walk_materialization_binding(
                 scope.push_prop("bindings").push_item(binding_index),
-                name,
+                catalog_name,
                 binding,
                 built_collections,
                 errors,
@@ -303,7 +311,7 @@ fn walk_materialization_request<'a>(
         .collect();
 
     let request = materialize::request::Validate {
-        name: name.to_string(),
+        name: catalog_name.to_string(),
         connector_type,
         config_json,
         bindings,
@@ -360,7 +368,7 @@ fn walk_materialization_binding<'a>(
         "collection",
         collection,
         built_collections,
-        |c| (&c.collection, Scope::new(&c.scope)),
+        |c| (&c.catalog_name, Scope::new(&c.scope)),
         errors,
     )?;
 

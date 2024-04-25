@@ -82,11 +82,11 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::DraftC
         models::JsonPointer::new("/ts"),
     ];
 
-    tables.collections.insert(tables::DraftCollection {
-        scope: scope.clone(),
-        catalog_name: name.clone(),
-        expect_build_id: None,
-        spec: Some(
+    tables.collections.insert_row(
+        name.clone(),
+        scope.clone(),
+        None,
+        Some(
             serde_json::from_value::<models::CollectionDef>(serde_json::json!({
                 "key": key,
                 "schema": schema_url.to_string(),
@@ -103,7 +103,7 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::DraftC
             }))
             .unwrap(),
         ),
-    });
+    );
     tables.imports.insert_row(schema_scope, schema_url);
 }
 
@@ -119,15 +119,16 @@ mod test {
     #[test]
     fn ops_collections_are_generated() {
         let mut tables = tables::DraftCatalog::default();
-        tables.captures.insert(tables::DraftCapture {
-            scope: builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
-            catalog_name: models::Capture::new("acmeCo/foo"),
-            spec: Some(from_value::<models::CaptureDef>(
+        tables.captures.insert_row(
+            models::Capture::new("acmeCo/foo"),
+            builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
+            None,
+            Some(
+            from_value::<models::CaptureDef>(
                 json!({"endpoint":{"connector": {"image": "foo/bar", "config": {}}}, "bindings":[]}),
             )
             .unwrap()),
-            expect_build_id: None,
-        });
+        );
 
         // Add an ops collection to the tables so that we can assert that a duplicate ops
         // collection is not generated. Note that this collection is intentionally different from
@@ -139,12 +140,13 @@ mod test {
         }))
         .unwrap();
 
-        tables.collections.insert(tables::DraftCollection {
-            scope: builtin_url("test.flow.yaml#/collections/acmeCo~1foo"),
-            catalog_name: models::Collection::new("acmeCo/foo"),
-            spec: Some(spec),
-            expect_build_id: None,
-        });
+        tables.collections.insert_row(
+            models::Collection::new("ops.test-dataplane/logs"),
+            Url::parse("test://foo.bar/collection").unwrap(),
+            None,
+            Some(spec),
+        );
+
         generate_ops_collections(&mut tables);
         insta::assert_debug_snapshot!(&tables);
     }

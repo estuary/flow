@@ -145,7 +145,7 @@ impl Preview {
         }
 
         for capture in validations.built_captures.iter() {
-            if !matches!(name, Some(n) if n == &capture.capture) && name.is_some() {
+            if !matches!(name, Some(n) if n == &capture.catalog_name) && name.is_some() {
                 continue;
             }
             let mut spec = capture.spec.clone();
@@ -168,7 +168,7 @@ impl Preview {
         }
 
         for collection in validations.built_collections.iter() {
-            if !matches!(name, Some(n) if n == collection.collection.as_str()) && name.is_some() {
+            if !matches!(name, Some(n) if n == collection.catalog_name.as_str()) && name.is_some() {
                 continue;
             } else if collection.spec.derivation.is_none() && name.is_some() {
                 anyhow::bail!("{} is not a derivation", name.as_ref().unwrap());
@@ -206,7 +206,7 @@ impl Preview {
         }
 
         for materialization in validations.built_materializations.iter() {
-            if !matches!(name, Some(n) if n == materialization.materialization.as_str())
+            if !matches!(name, Some(n) if n == materialization.catalog_name.as_str())
                 && name.is_some()
             {
                 continue;

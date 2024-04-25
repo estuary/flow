@@ -76,8 +76,8 @@ pub fn project_root(source: &url::Url) -> url::Url {
 
 /// Load a Flow specification `source` into tables::Sources.
 /// All file:// resources are rooted ("jailed") to the given `file_root`.
-pub async fn load(source: &url::Url, file_root: &Path) -> tables::Sources {
-    let loader = sources::Loader::new(tables::Sources::default(), Fetcher::new(file_root));
+pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
+    let loader = sources::Loader::new(tables::DraftCatalog::default(), Fetcher::new(file_root));
 
     loader
         .load_resource(
@@ -104,14 +104,14 @@ pub async fn validate(
     noop_derivations: bool,
     noop_materializations: bool,
     project_root: &url::Url,
-    mut sources: tables::Sources,
-) -> (tables::Sources, tables::Validations) {
+    mut draft: tables::DraftCatalog,
+) -> (tables::DraftCatalog, tables::Validations) {
     // TODO(johnny): We *really* need to kill this, and have ops collections
     // be injected exclusively from the control-plane.
     if generate_ops_collections {
-        assemble::generate_ops_collections(&mut sources);
+        assemble::generate_ops_collections(&mut draft);
     }
-    ::sources::inline_sources(&mut sources);
+    ::sources::inline_draft_catalog(&mut draft);
 
     let runtime = runtime::Runtime::new(
         allow_local,
@@ -128,7 +128,7 @@ pub async fn validate(
         runtime,
     };
 
-    let tables::Sources {
+    let tables::DraftCatalog {
         captures,
         collections,
         errors: _,
@@ -138,7 +138,7 @@ pub async fn validate(
         resources: _,
         storage_mappings,
         tests,
-    } = &sources;
+    } = &draft;
 
     let validations = validation::validate(
         build_id,
@@ -155,7 +155,7 @@ pub async fn validate(
     )
     .await;
 
-    (sources, validations)
+    (draft, validations)
 }
 
 /// The output of a build, which can be either successful, failed, or anything
@@ -164,19 +164,19 @@ pub async fn validate(
 /// of getting the collection projections, in which case you may not want to
 /// consider errors from materialization validations to be terminal.
 pub struct Output {
-    sources: tables::Sources,
+    sources: tables::DraftCatalog,
     validations: tables::Validations,
 }
 
 impl Output {
-    pub fn new(sources: tables::Sources, validations: tables::Validations) -> Self {
+    pub fn new(sources: tables::DraftCatalog, validations: tables::Validations) -> Self {
         Output {
             sources,
             validations,
         }
     }
 
-    pub fn into_parts(self) -> (tables::Sources, tables::Validations) {
+    pub fn into_parts(self) -> (tables::DraftCatalog, tables::Validations) {
         (self.sources, self.validations)
     }
 

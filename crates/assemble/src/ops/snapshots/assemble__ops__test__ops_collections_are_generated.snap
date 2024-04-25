@@ -2,11 +2,12 @@
 source: crates/assemble/src/ops/mod.rs
 expression: "&tables"
 ---
-Sources {
+DraftCatalog {
     captures: [
-        Capture {
+        DraftCapture {
+            catalog_name: acmeCo/foo,
             scope: builtin://flow/test-cap.flow.yaml#/collections/acmeCo~1foo,
-            capture: acmeCo/foo,
+            expect_build_id: NULL,
             spec: {
               "endpoint": {
                 "connector": {
@@ -19,9 +20,10 @@ Sources {
         },
     ],
     collections: [
-        Collection {
+        DraftCollection {
+            catalog_name: ops.test-dataplane/logs,
             scope: test://foo.bar/collection,
-            collection: ops.test-dataplane/logs,
+            expect_build_id: NULL,
             spec: {
               "schema": "test://foo.bar/schema",
               "key": [
@@ -29,9 +31,10 @@ Sources {
               ]
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: ops.us-central1.v1/logs,
             scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/logs,
-            collection: ops.us-central1.v1/logs,
+            expect_build_id: NULL,
             spec: {
               "schema": "builtin://flow/ops-catalog/ops-log-schema.json",
               "key": [
@@ -52,9 +55,10 @@ Sources {
               }
             },
         },
-        Collection {
+        DraftCollection {
+            catalog_name: ops.us-central1.v1/stats,
             scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/stats,
-            collection: ops.us-central1.v1/stats,
+            expect_build_id: NULL,
             spec: {
               "schema": "builtin://flow/ops-catalog/ops-stats-schema.json",
               "key": [

@@ -12,7 +12,7 @@ lazy_static! {
 fn test_golden_all_visits() {
     let (
         (
-            tables::Sources {
+            tables::DraftCatalog {
                 captures,
                 collections,
                 errors: _,
@@ -44,16 +44,16 @@ fn test_golden_all_visits() {
         built_collections: tables::BuiltCollections,
         built_materializations: tables::BuiltMaterializations,
         built_tests: tables::BuiltTests,
-        captures: tables::Captures,
-        collections: tables::Collections,
+        captures: tables::DraftCaptures,
+        collections: tables::DraftCollections,
         errors: tables::Errors,
         fetches: tables::Fetches,
         imports: tables::Imports,
-        materializations: tables::Materializations,
+        materializations: tables::DraftMaterializations,
         meta: tables::Meta,
         resources: tables::Resources,
         storage_mappings: tables::StorageMappings,
-        tests: tables::Tests,
+        tests: tables::DraftTests,
     }
     let tables = All {
         built_captures,
@@ -355,24 +355,24 @@ driver:
     assert_eq!(built_captures.len(), 2);
     let partly_disabled_cap = built_captures
         .iter()
-        .find(|c| c.capture == "testing/partially-disabled-capture")
+        .find(|c| c.catalog_name.as_str() == "testing/partially-disabled-capture")
         .unwrap();
     assert_eq!(1, partly_disabled_cap.spec.bindings.len());
 
     let fully_disabled_cap = built_captures
         .iter()
-        .find(|c| c.capture == "testing/fully-disabled-capture")
+        .find(|c| c.catalog_name.as_str() == "testing/fully-disabled-capture")
         .unwrap();
     assert_eq!(0, fully_disabled_cap.spec.bindings.len());
 
     let partly_disabled_mat = built_materializations
         .iter()
-        .find(|m| m.materialization == "testing/partially-disabled-materialization")
+        .find(|m| m.catalog_name.as_str() == "testing/partially-disabled-materialization")
         .unwrap();
     assert_eq!(1, partly_disabled_mat.spec.bindings.len());
     let fully_disabled_mat = built_materializations
         .iter()
-        .find(|m| m.materialization == "testing/fully-disabled-materialization")
+        .find(|m| m.catalog_name.as_str() == "testing/fully-disabled-materialization")
         .unwrap();
     assert_eq!(0, fully_disabled_mat.spec.bindings.len());
 }
@@ -387,7 +387,7 @@ fn test_database_round_trip() {
     tables::persist_tables(&db, &sources.as_tables()).unwrap();
     tables::persist_tables(&db, &validations.as_tables()).unwrap();
 
-    let mut reload_sources = tables::Sources::default();
+    let mut reload_sources = tables::DraftCatalog::default();
     let mut reload_validations = tables::Validations::default();
 
     tables::load_tables(&db, reload_sources.as_tables_mut().as_mut_slice()).unwrap();
@@ -1906,7 +1906,7 @@ impl validation::ControlPlane for MockDriverCalls {
 fn run_test(
     mut fixture: Value,
     build_id: &str,
-) -> ((tables::Sources, tables::Validations), tables::Errors) {
+) -> ((tables::DraftCatalog, tables::Validations), tables::Errors) {
     // Extract out driver mock call fixtures.
     let mock_calls = fixture
         .get_mut("driver")
@@ -1915,9 +1915,9 @@ fn run_test(
     let mock_calls: MockDriverCalls = serde_json::from_value(mock_calls).unwrap();
 
     let mut sources = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
-    sources::inline_sources(&mut sources);
+    sources::inline_draft_catalog(&mut sources);
 
-    let tables::Sources {
+    let tables::DraftCatalog {
         captures,
         collections,
         errors: _,

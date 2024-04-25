@@ -2,63 +2,79 @@ use super::{Error, Scope};
 use std::collections::BTreeSet;
 
 pub fn gather_referenced_collections<'a>(
-    captures: &'a [tables::Capture],
-    collections: &'a [tables::Collection],
-    materializations: &'a [tables::Materialization],
-    tests: &'a [tables::Test],
+    captures: &'a tables::DraftCaptures,
+    collections: &'a tables::DraftCollections,
+    materializations: &'a tables::DraftMaterializations,
+    tests: &'a tables::DraftTests,
 ) -> Vec<models::Collection> {
     let mut out = BTreeSet::new();
 
-    for capture in captures {
-        for binding in capture.spec.bindings.iter().filter(|b| !b.disable) {
-            out.insert(&binding.target);
+    for capture in captures.iter() {
+        if let Some(spec) = &capture.spec {
+            for binding in spec.bindings.iter().filter(|b| !b.disable) {
+                out.insert(&binding.target);
+            }
         }
     }
-    for collection in collections {
-        let Some(derive) = &collection.spec.derive else { continue };
+    for collection in collections.iter() {
+        let Some(models::CollectionDef {
+            derive: Some(derive),
+            ..
+        }) = &collection.spec
+        else {
+            continue;
+        };
 
         for transform in derive.transforms.iter().filter(|b| !b.disable) {
             out.insert(&transform.source.collection());
         }
     }
-    for materialization in materializations {
-        for binding in materialization.spec.bindings.iter().filter(|b| !b.disable) {
-            out.insert(&binding.source.collection());
+    for materialization in materializations.iter() {
+        if let Some(spec) = &materialization.spec {
+            for binding in spec.bindings.iter().filter(|b| !b.disable) {
+                out.insert(&binding.source.collection());
+            }
         }
     }
-    for test in tests {
-        for step in &test.spec {
-            match step {
-                models::TestStep::Ingest(models::TestStepIngest { collection, .. }) => {
-                    out.insert(collection);
-                }
-                models::TestStep::Verify(models::TestStepVerify { collection, .. }) => {
-                    out.insert(collection.collection());
+    for test in tests.iter() {
+        if let Some(spec) = &test.spec {
+            for step in spec.iter() {
+                match step {
+                    models::TestStep::Ingest(models::TestStepIngest { collection, .. }) => {
+                        out.insert(collection);
+                    }
+                    models::TestStep::Verify(models::TestStepVerify { collection, .. }) => {
+                        out.insert(collection.collection());
+                    }
                 }
             }
         }
     }
 
     // Now remove collections which are included locally.
-    for collection in collections {
-        out.remove(&collection.collection);
+    for collection in collections.iter() {
+        out.remove(&collection.catalog_name);
     }
 
     out.into_iter().cloned().collect()
 }
 
-pub fn gather_inferred_collections(collections: &[tables::Collection]) -> Vec<models::Collection> {
+pub fn gather_inferred_collections(
+    collections: &tables::DraftCollections,
+) -> Vec<models::Collection> {
     collections
         .iter()
         .filter_map(|row| {
             if row
                 .spec
+                .as_ref()
+                .unwrap()
                 .read_schema
                 .as_ref()
                 .map(|schema| schema.references_inferred_schema())
                 .unwrap_or_default()
             {
-                Some(row.collection.clone())
+                Some(row.catalog_name.clone())
             } else {
                 None
             }

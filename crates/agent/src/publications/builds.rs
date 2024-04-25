@@ -89,7 +89,7 @@ pub fn get_incompatible_collections(output: &Output) -> Vec<IncompatibleCollecti
                     .entry(collection_name.to_owned())
                     .or_insert_with(|| Vec::new());
                 affected_consumers.push(AffectedConsumer {
-                    name: mat.materialization.clone(),
+                    name: mat.catalog_name.clone(),
                     fields: naughty_fields,
                 });
             }

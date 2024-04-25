@@ -445,14 +445,6 @@ macro_rules! proto_sql_types {
     };
 }
 
-#[cfg(feature = "persist")]
-// Helper for swapping a token tree with another expression.
-macro_rules! replace_expr {
-    ($_t:tt $sub:expr) => {
-        $sub
-    };
-}
-
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(

@@ -5,14 +5,14 @@ use std::collections::BTreeMap;
 
 pub fn walk_all_collections(
     build_id: &str,
-    collections: &[tables::Collection],
+    collections: &tables::DraftCollections,
     inferred_schemas: &BTreeMap<models::Collection, InferredSchema>,
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCollections {
     let mut built_collections = tables::BuiltCollections::new();
 
-    for collection in collections {
+    for collection in collections.iter() {
         if let Some(spec) = walk_collection(
             build_id,
             collection,
@@ -21,11 +21,12 @@ pub fn walk_all_collections(
             errors,
         ) {
             let inferred_schema_md5 = inferred_schemas
-                .get(&collection.collection)
+                .get(&collection.catalog_name)
                 .map(|s| s.md5.clone());
+
             built_collections.insert_row(
+                &collection.catalog_name,
                 &collection.scope,
-                &collection.collection,
                 None,
                 spec,
                 inferred_schema_md5,
@@ -37,44 +38,46 @@ pub fn walk_all_collections(
 
 fn walk_collection(
     build_id: &str,
-    collection: &tables::Collection,
+    collection: &tables::DraftCollection,
     inferred_schemas: &BTreeMap<models::Collection, InferredSchema>,
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> Option<flow::CollectionSpec> {
-    let tables::Collection {
+    let tables::DraftCollection {
+        catalog_name,
         scope,
-        collection: name,
-        spec:
-            models::CollectionDef {
-                schema,
-                write_schema,
-                read_schema,
-                key,
-                projections,
-                journals: _,
-                derive: _,
-            },
+        expect_build_id: _,
+        spec,
     } = collection;
     let scope = Scope::new(scope);
+
+    let models::CollectionDef {
+        schema,
+        write_schema,
+        read_schema,
+        key,
+        projections,
+        journals: _,
+        derive: _,
+    } = spec.as_ref().unwrap();
 
     indexed::walk_name(
         scope,
         "collection",
-        name.as_ref(),
+        catalog_name,
         models::Collection::regex(),
         errors,
     );
 
     if key.is_empty() {
         Error::CollectionKeyEmpty {
-            collection: name.to_string(),
+            collection: catalog_name.to_string(),
         }
         .push(scope.push_prop("key"), errors);
     }
 
-    let inferred_schema = inferred_schemas.get(&collection.collection);
-    tracing::debug!(collection = %collection.collection, inferred_schema_md5 = ?inferred_schema.map(|s| s.md5.as_str()), "does collection have an inferred schema");
+    let inferred_schema = inferred_schemas.get(&collection.catalog_name);
+    tracing::debug!(collection = %collection.catalog_name, inferred_schema_md5 = ?inferred_schema.map(|s| s.md5.as_str()), "does collection have an inferred schema");
 
     let (write_schema, write_bundle, read_schema_bundle) = match (schema, write_schema, read_schema)
     {
@@ -107,7 +110,7 @@ fn walk_collection(
         }
         _ => {
             Error::InvalidSchemaCombination {
-                collection: name.to_string(),
+                collection: catalog_name.to_string(),
             }
             .push(scope, errors);
             return None;
@@ -142,7 +145,7 @@ fn walk_collection(
     let partition_stores = storage_mapping::mapped_stores(
         scope,
         "collection",
-        name.as_str(),
+        &catalog_name,
         storage_mappings,
         errors,
     );

@@ -71,13 +71,13 @@ pub async fn validate(
     project_root: &url::Url,
     connectors: &dyn Connectors,
     control_plane: &dyn ControlPlane,
-    captures: &[tables::Capture],
-    collections: &[tables::Collection],
-    fetches: &[tables::Fetch],
-    imports: &[tables::Import],
-    materializations: &[tables::Materialization],
-    storage_mappings: &[tables::StorageMapping],
-    tests: &[tables::Test],
+    captures: &tables::DraftCaptures,
+    collections: &tables::DraftCollections,
+    fetches: &tables::Fetches,
+    imports: &tables::Imports,
+    materializations: &tables::DraftMaterializations,
+    storage_mappings: &tables::StorageMappings,
+    tests: &tables::DraftTests,
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
@@ -128,7 +128,7 @@ pub async fn validate(
             spec.derivation = None;
 
             tables::BuiltCollection {
-                collection: models::Collection::new(&spec.name),
+                catalog_name: models::Collection::new(&spec.name),
                 scope: url::Url::parse("flow://control-plane").unwrap(),
                 spec,
                 validated: None,
@@ -168,7 +168,7 @@ pub async fn validate(
     let mut built_collections = built_collections
         .into_iter()
         .merge_join_by(remote_collections.into_iter(), |b, r| {
-            b.collection.cmp(&r.collection)
+            b.catalog_name.cmp(&r.catalog_name)
         })
         .map(|eob| match eob {
             EitherOrBoth::Left(local) | EitherOrBoth::Both(local, _) => local,
@@ -184,20 +184,20 @@ pub async fn validate(
     // as a heuristic to report more useful errors before less useful errors.
     let collections_it = built_collections
         .iter()
-        .map(|c| ("collection", c.collection.as_str(), Scope::new(&c.scope)));
+        .map(|c| ("collection", c.catalog_name.as_str(), Scope::new(&c.scope)));
     let captures_it = captures
         .iter()
-        .map(|c| ("capture", c.capture.as_str(), Scope::new(&c.scope)));
+        .map(|c| ("capture", c.catalog_name.as_str(), Scope::new(&c.scope)));
     let materializations_it = materializations.iter().map(|m| {
         (
             "materialization",
-            m.materialization.as_str(),
+            m.catalog_name.as_str(),
             Scope::new(&m.scope),
         )
     });
     let tests_it = tests
         .iter()
-        .map(|t| ("test", t.test.as_str(), Scope::new(&t.scope)));
+        .map(|t| ("test", t.catalog_name.as_str(), Scope::new(&t.scope)));
 
     indexed::walk_duplicates(
         captures_it

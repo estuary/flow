@@ -50,27 +50,6 @@ tables!(
         val stores: Vec<models::Store>,
     }
 
-    table Collections (row Collection, sql "collections") {
-        key collection: models::Collection,
-        val scope: url::Url,
-        val spec: models::CollectionDef,
-    }
-    table Captures (row Capture, sql "collections") {
-        key collection: models::Capture,
-        val scope: url::Url,
-        val spec: models::CaptureDef,
-    }
-    table Materializations (row Materialization, sql "collections") {
-        key collection: models::Materialization,
-        val scope: url::Url,
-        val spec: models::MaterializationDef,
-    }
-    table Tests (row Test, sql "collections") {
-        key collection: models::Test,
-        val scope: url::Url,
-        val spec: models::TestDef,
-    }
-
     table DraftCollections (row DraftCollection, sql "draft_collections") {
         // Name of this collection.
         key catalog_name: models::Collection,
@@ -180,7 +159,7 @@ tables!(
 
     table BuiltCaptures (row BuiltCapture, sql "built_captures") {
         // Name of this capture.
-        key capture: String,
+        key catalog_name: models::Capture,
         // Scope of this built capture.
         val scope: url::Url,
         // Validated response which was used to build this spec.
@@ -191,7 +170,7 @@ tables!(
 
     table BuiltCollections (row BuiltCollection, sql "built_collections") {
         // Name of this collection.
-        key collection: models::Collection,
+        key catalog_name: models::Collection,
         // Scope of this built collection.
         val scope: url::Url,
         // Validated response which was used to build this spec.
@@ -208,7 +187,7 @@ tables!(
 
     table BuiltMaterializations (row BuiltMaterialization, sql "built_materializations") {
         // Name of this materialization.
-        key materialization: String,
+        key catalog_name: models::Materialization,
         // Scope of this built materialization.
         val scope: url::Url,
         // Validated response which was used to build this spec.
@@ -219,7 +198,7 @@ tables!(
 
     table BuiltTests (row BuiltTest, sql "built_tests") {
         // Name of the test case.
-        key test: models::Test,
+        key catalog_name: models::Test,
         // Scope of this built test.
         val scope: url::Url,
         // Built specification for this test case.

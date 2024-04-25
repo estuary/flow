@@ -3,23 +3,25 @@ use flow::test_spec::step::Type as StepType;
 use proto_flow::flow;
 
 pub fn walk_all_tests(
-    built_collections: &[tables::BuiltCollection],
-    tests: &[tables::Test],
+    built_collections: &tables::BuiltCollections,
+    tests: &tables::DraftTests,
     errors: &mut tables::Errors,
 ) -> tables::BuiltTests {
     let mut built_tests = tables::BuiltTests::new();
 
-    for tables::Test {
+    for tables::DraftTest {
+        catalog_name,
         scope,
-        test,
-        spec: steps,
-    } in tests
+        expect_build_id: _,
+        spec,
+    } in tests.iter()
     {
         let scope = Scope::new(scope);
+        let spec = spec.as_ref().unwrap();
 
-        indexed::walk_name(scope, "test", test, models::Test::regex(), errors);
+        indexed::walk_name(scope, "test", catalog_name, models::Test::regex(), errors);
 
-        let steps = steps
+        let steps = spec
             .iter()
             .enumerate()
             .filter_map(|(step_index, test_step)| {
@@ -34,10 +36,10 @@ pub fn walk_all_tests(
             .collect();
 
         built_tests.insert_row(
+            catalog_name,
             scope.flatten(),
-            test,
             flow::TestSpec {
-                name: test.to_string(),
+                name: catalog_name.to_string(),
                 steps,
             },
         );
@@ -46,7 +48,7 @@ pub fn walk_all_tests(
     indexed::walk_duplicates(
         tests
             .iter()
-            .map(|s| ("test", s.test.as_str(), Scope::new(&s.scope))),
+            .map(|s| ("test", s.catalog_name.as_str(), Scope::new(&s.scope))),
         errors,
     );
 
@@ -112,7 +114,7 @@ pub fn walk_test_step(
         "collection",
         collection.as_str(),
         built_collections,
-        |c| (&c.collection, Scope::new(&c.scope)),
+        |c| (&c.catalog_name, Scope::new(&c.scope)),
         errors,
     )?;
     let documents = serde_json::from_str::<Vec<serde_json::Value>>(documents.get())
@@ -165,9 +167,12 @@ pub fn walk_test_step(
         step_type: step_type as i32,
         step_index: step_index as u32,
         step_scope: scope.flatten().into(),
-        collection: collection.collection.to_string(),
+        collection: collection.catalog_name.to_string(),
         docs_json_vec: documents.into_iter().map(|d| d.to_string()).collect(),
-        partitions: Some(assemble::journal_selector(&collection.collection, selector)),
+        partitions: Some(assemble::journal_selector(
+            &collection.catalog_name,
+            selector,
+        )),
         description: description.clone(),
     })
 }
