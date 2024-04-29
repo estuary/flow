@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Bing Ads
 
 This connector captures data from Bing Ads into Flow collections via the [Bing Ads API](https://learn.microsoft.com/en-us/advertising/guides/?view=bingads-13).

@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Amplitude
 
 This connector captures data from Amplitude into Flow collections.

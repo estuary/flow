@@ -1,6 +1,4 @@
----
-sidebar_position: 5
----
+
 
 # Google Sheets
 

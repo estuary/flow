@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Hubspot
 
 This connector captures data from a Hubspot account.

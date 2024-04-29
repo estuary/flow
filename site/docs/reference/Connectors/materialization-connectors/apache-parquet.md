@@ -1,6 +1,4 @@
----
-sidebar_position: 2
----
+
 
 # Apache Parquet in S3
 

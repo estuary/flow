@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Marketo
 
 This connector captures data from Marketo into Flow collections.

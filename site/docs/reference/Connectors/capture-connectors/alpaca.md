@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Alpaca
 
 This connector captures stock trade data from the [Alpaca Market Data API](https://alpaca.markets/docs/market-data/) into a Flow collection.

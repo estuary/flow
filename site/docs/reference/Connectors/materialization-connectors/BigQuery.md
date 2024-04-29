@@ -1,6 +1,4 @@
----
-sidebar_position: 4
----
+
 # Google BigQuery
 
 This Flow connector materializes Flow collections into tables within a Google BigQuery dataset.

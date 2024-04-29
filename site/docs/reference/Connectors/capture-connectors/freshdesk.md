@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Freshdesk
 
 This connector captures Freshdesk data into Flow collections via the [Freshdesk API](https://developers.freshdesk.com/api/#introduction).

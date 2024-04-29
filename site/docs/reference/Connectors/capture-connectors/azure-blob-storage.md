@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Azure Blob Storage
 
 This connector captures data from an Azure Blob Storage Account.

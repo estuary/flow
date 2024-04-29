@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Braintree
 
 This connector captures data from Braintree into Flow collections.
