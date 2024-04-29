@@ -217,7 +217,7 @@ As mentioned above, the next step is to make the database available for other se
 ngrok tcp 5432
 ```
 
-![ngrok](assets/images/ngrok.png)
+![ngrok](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//ngrok_87b04412a3/ngrok_87b04412a3.png)
 
 You should immediately be greeted with a screen that contains the public URL for the tunnel we just started! In the example above, the public URL `5.tcp.eu.ngrok.io:14407` is mapped to `localhost:5432`, which is the address of the Postgres database.
 
@@ -262,11 +262,11 @@ Good news, the hard part is over! Smooth sailing from here on out. Head over to 
 
 Go to the sources page by clicking on the **Sources** on the left hand side of your screen, then click on **+ New Capture**
 
-![Add new Capture](assets/images/new_capture.png)
+![Add new Capture](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//new_capture_4583a8a120/new_capture_4583a8a120.png)
 
 Configure the connection to the database based on the information we gathered in the previous step and press **Next.**
 
-![Configure Capture](assets/images/capture_configuration.png)
+![Configure Capture](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//capture_configuration_89e2133f83/capture_configuration_89e2133f83.png)
 
 On the following page, we can configure how our incoming data should be represented in Flow as collections. As a quick refresher, let’s recap how Flow represents data on a high level.
 
@@ -280,7 +280,7 @@ Flow documents and collections always have an associated schema that defines the
 
 To see how Flow parsed the incoming records, click on the Collection tab and verify the inferred schema looks correct.
 
-![Configure Collections](assets/images/collections_configuration.png)
+![Configure Collections](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//collections_configuration_34e53025c7/collections_configuration_34e53025c7.png)
 
 Before you advance to the next step, let’s take a look at the other configuration options we have here. You’ll see three toggles, all turned on by default:
 
@@ -364,31 +364,31 @@ COMMIT;
 
 Back in Flow, head over to the **Destinations** page, where you can [create a new Materialization](https://dashboard.estuary.dev/materializations/create).
 
-![Add new Materialization](assets/images/new_materialization.png)
+![Add new Materialization](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//new_materialization_31df04d81f/new_materialization_31df04d81f.png)
 
 Choose Snowflake and start filling out the connection details based on the values inside the script you executed in the previous step. If you haven’t changed anything, this is how the connector configuration should look like:
 
-![Configure Materialization endpoint](assets/images/materialization_endpoint_configuration.png)
+![Configure Materialization endpoint](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//materialization_endpoint_configuration_0d540a12b5/materialization_endpoint_configuration_0d540a12b5.png)
 
 You can grab your Snowflake host URL and account identifier by navigating to these two little buttons on the Snowflake UI.
 
-![Grab your Snowflake account id](assets/images/snowflake_account_id.png)
+![Grab your Snowflake account id](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_account_id_af1cc78df8/snowflake_account_id_af1cc78df8.png)
 
 After the connection details are in place, the next step is to link the capture we just created to Flow is able to see collections we are loading data into from Postgres.
 
 You can achieve this by clicking on the “Source from Capture” button, and selecting the name of the capture from the table.
 
-![Link Capture](assets/images/link_source_to_capture.png)
+![Link Capture](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//link_source_to_capture_b0d37a738f/link_source_to_capture_b0d37a738f.png)
 
 After pressing continue, you are met with a few configuration options, but for now, feel free to press **Next,** then **Save and Publish** in the top right corner, the defaults will work perfectly fine for this tutorial.
 
 A successful deployment will look something like this:
 
-![Successful Deployment screen](assets/images/publish_successful.png)
+![Successful Deployment screen](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//publish_successful_4e18642288/publish_successful_4e18642288.png)
 
 And that’s pretty much it, you’ve successfully published a real-time CDC pipeline. Let’s check out Snowflake to see how the data looks.
 
-![Results in Snowflake](assets/images/snowflake_verification.png)
+![Results in Snowflake](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_verification_2eb047efec/snowflake_verification_2eb047efec.png)
 
 Looks like the data is arriving as expected, and the schema of the table is properly configured by the connector based on the types of the original table in Postgres. To get a feel for how low latency the pipeline is, feel free to jump back into the terminal and insert or modify some records in our products table then head over to either the Flow web UI or straight to Snowflake and query the materialized dataset to see the changes!
 
