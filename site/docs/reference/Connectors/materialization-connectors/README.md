@@ -21,7 +21,7 @@ In the future, other open-source materialization connectors from third parties c
   * [Configuration](./amazon-redshift.md)
   * Package - ghrc.io/estuary/materialize-redshift:dev
 * Apache Parquet in S3
-  * [Configuration](./Parquet.md)
+  * [Configuration](./apache-parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
 * Databricks
   * [Configuration](./databricks.md)
