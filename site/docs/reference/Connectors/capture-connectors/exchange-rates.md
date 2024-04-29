@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Exchange Rates API
 
 This connector captures data from the [Exchange Rates API](https://exchangeratesapi.io/).

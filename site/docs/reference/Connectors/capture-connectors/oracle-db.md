@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # OracleDB
 This connector captures data from OracleDB into Flow collections.
 

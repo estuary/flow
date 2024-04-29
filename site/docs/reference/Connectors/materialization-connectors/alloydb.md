@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # AlloyDB
 
 This connector materializes Flow collections into tables in an AlloyDB database.

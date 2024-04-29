@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Iterable
 
 This connector captures data from Iterable into Flow collections.

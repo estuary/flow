@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # MixPanel
 
 This connector captures data from MixPanel into Flow collections.

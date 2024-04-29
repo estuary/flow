@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Confluence
 
 This connector captures data from Confluence into Flow collections via the Confluence [Cloud REST API](https://developer.atlassian.com/cloud/confluence/rest/v1/intro/#about).

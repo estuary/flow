@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Chargebee
 
 This connector captures data from Chargebee into Flow collections.

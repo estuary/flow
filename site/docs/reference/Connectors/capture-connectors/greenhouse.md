@@ -1,6 +1,4 @@
----
-sidebar_position: 2
----
+
 # Greenhouse
 
 This connector captures data from Greenhouse into Flow collections.

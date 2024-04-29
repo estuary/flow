@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Aircall
 
 This connector captures data from Aircall into Flow collections.

@@ -1,6 +1,4 @@
----
-sidebar_position: 5
----
+
 # Notion
 
 This connector captures data from Notion into Flow collections via the [Notion API](https://developers.notion.com/reference/intro).

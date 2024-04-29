@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Google Analytics 4
 
 This connector captures data from Google Analytics 4 properties into Flow collections via the

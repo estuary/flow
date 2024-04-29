@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Facebook Marketing
 
 This connector captures data from the Facebook Marketing API into Flow collections.

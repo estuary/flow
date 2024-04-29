@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Airtable
 
 This connector captures data from Airtable into Flow collections.

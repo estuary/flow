@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # GitLab
 
 This connector captures data from GitLab repositories and organizations into Flow collections via GitLabs's API V4. It can also work with self-hosted GitLab.

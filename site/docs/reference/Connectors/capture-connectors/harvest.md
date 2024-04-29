@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Harvest
 
 This connector captures data from Harvest into Flow collections.
