@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # AlloyDB
 
 This connector uses change data capture (CDC) to continuously capture table updates in an AlloyDB database into one or more Flow collections.
@@ -143,4 +141,3 @@ captures:
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
-

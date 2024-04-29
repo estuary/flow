@@ -1,6 +1,4 @@
----
-sidebar_position: 4
----
+
 # MongoDB
 
 This connector captures data from your MongoDB collections into Flow collections.

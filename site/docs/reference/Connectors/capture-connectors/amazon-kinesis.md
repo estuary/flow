@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Amazon Kinesis
 
 This connector captures data from Amazon Kinesis streams.

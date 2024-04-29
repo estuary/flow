@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Braze
 
 This connector captures data from Braze into Flow collections.

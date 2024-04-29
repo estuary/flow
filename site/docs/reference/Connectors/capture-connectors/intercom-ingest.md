@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Intercom HTTP Ingest (Webhook)
 
 The Intercom HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests from Intercom.
@@ -83,5 +81,3 @@ This connector does not yet support webhook signature verification. If this is a
 | **** | ResourceConfig |  | object | Required |
 | `/idFromHeader` |  | Set the &#x2F;&#x5F;meta&#x2F;webhookId from the given HTTP header in each request. If not set, then a random id will be generated automatically. If set, then each request will be required to have the header, and the header value will be used as the value of &#x60;&#x2F;&#x5F;meta&#x2F;webhookId&#x60;. | null, string |  |
 | `/path` |  | The URL path to use for adding documents to this binding. Defaults to the name of the collection. | null, string |  |
-
-

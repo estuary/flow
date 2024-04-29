@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 
 # Firebolt
 
@@ -153,8 +151,3 @@ Collections with field names that include a reserved word will automatically be 
 | exists |	offset |	with |
 | explain |	on | |
 | extract |	only | |
-
-
-
-
-

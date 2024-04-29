@@ -1,6 +1,4 @@
----
-sidebar_position: 5
----
+
 # NetSuite
 
 This connector captures data from Oracle NetSuite into Flow collections.

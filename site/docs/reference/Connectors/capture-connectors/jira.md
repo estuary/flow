@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Jira
 
 This connector captures data from Jira into Flow collections.

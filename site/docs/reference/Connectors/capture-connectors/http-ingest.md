@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # HTTP Ingest (Webhook)
 
 The HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests.

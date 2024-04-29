@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Instagram
 
 This connector captures data from Instagram into Flow collections.

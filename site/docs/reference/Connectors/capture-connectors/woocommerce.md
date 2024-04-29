@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # WooCommerce
 This connector captures data from WooCommerce into Flow collections.
 

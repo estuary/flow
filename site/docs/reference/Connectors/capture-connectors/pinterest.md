@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Pinterest
 This connector captures data from Pinterest into Flow collections.
 

@@ -1,6 +1,4 @@
----
-sidebar_position: 5
----
+
 # Paypal Transaction
 
 This connector captures data from Paypal Transaction into Flow collections.

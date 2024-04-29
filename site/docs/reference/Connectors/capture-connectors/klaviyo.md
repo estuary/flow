@@ -1,6 +1,4 @@
----
-sidebar_position: 3
----
+
 # Klaviyo
 
 This connector captures data from Klaviyo into Flow collections.

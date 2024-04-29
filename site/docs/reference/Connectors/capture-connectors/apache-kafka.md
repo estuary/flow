@@ -1,6 +1,4 @@
----
-sidebar_position: 1
----
+
 # Apache Kafka
 
 This connector captures streaming data from Apache Kafka topics.

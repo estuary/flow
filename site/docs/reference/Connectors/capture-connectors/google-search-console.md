@@ -1,6 +1,4 @@
----
-sidebar_position: 2
----
+
 # Google Search Console
 
 This connector captures data from Google Search Console into Flow collections via the [Google Search Console API](https://developers.google.com/webmaster-tools/v1/api_reference_index).

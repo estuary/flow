@@ -1,6 +1,4 @@
----
-sidebar_position: 2
----
+
 # Google Cloud Storage
 
 This connector captures data from a Google Cloud Storage (GCS) bucket.
