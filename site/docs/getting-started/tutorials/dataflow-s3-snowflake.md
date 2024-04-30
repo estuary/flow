@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+sidebar_position: 2
 ---
 # Create your first dataflow with Amazon S3 and Snowflake
 
