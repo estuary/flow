@@ -1,6 +1,12 @@
 ---
+id: postgresql_cdc_to_snowflake
+title: PostgreSQL CDC streaming to Snowflake
 sidebar_position: 1
 ---
+
+<head>
+    <meta property="og:image" content="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//architecture_6bbaf2c5a6/architecture_6bbaf2c5a6.png" />
+</head>
 
 # PostgreSQL CDC streaming to Snowflake
 
