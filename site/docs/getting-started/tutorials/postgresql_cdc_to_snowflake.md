@@ -390,11 +390,9 @@ If you scroll down to the Advanced Options section, you will be able to configur
 
 ![Update Delay](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_update_delay_dark_f26179d3fc/snowflake_update_delay_dark_f26179d3fc.png)
 
-The Update Delay parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period.
+The Update Delay parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. It represents the amount of time the system will wait before it begins materializing the latest data.
 
-It represents the amount of time the system will wait before it begins materializing the latest data.
-
-For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
+For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing your Snowflake warehouse to go idle and be suspended in between updates, which can significantly reduce the number of credits consumed.
 
 After the connection details are in place, the next step is to link the capture we just created to Flow is able to see collections we are loading data into from Postgres.
 
@@ -414,9 +412,9 @@ And that’s pretty much it, you’ve successfully published a real-time CDC pip
 
 Looks like the data is arriving as expected, and the schema of the table is properly configured by the connector based on the types of the original table in Postgres.
 
-To get a feel for how the data flow works; feel free to jump back into the terminal and insert or modify some records in our products table then head over to either the Flow web UI or to Snowflake and query the materialized dataset to see the changes!
+To get a feel for how the data flow works; head over to the collection details page on the Flow web UI to see your changes immediately. On the Snowflake end, they will be materialized after the next update.
 
-:::note Based on your configuration of the "Update Delay" parameter when setting up the Snowflake Materialization, you might have to wait until the configured amount of time passes in order for the Materialization process to be triggered.
+:::note Based on your configuration of the "Update Delay" parameter when setting up the Snowflake Materialization, you might have to wait until the configured amount of time passes for your changes to make it to the destination.
 :::
 
 
