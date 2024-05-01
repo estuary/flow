@@ -164,17 +164,20 @@ GRANT pg_read_all_data TO flow_capture;
 
 Granting the `pg_read_all_data` privilege to the `flow_capture` user ensures that it can access and read data from all tables in the database, essential for capturing changes.
 
+:::note `pg_read_all_data` is used for convenience, but is not a hard requirement, since it is possible to grant a more granular set of permissions. For more details check out the [connector docs](https://docs.estuary.dev/reference/Connectors/capture-connectors/PostgreSQL/#self-hosted-postgresql).
+:::
+
 ```sql
 CREATE TABLE products (...)
 ```
 
-The source tables, such as the `products` table in this example, contain the data whose changes we want to capture and replicate. These tables must have a primary key defined to uniquely identify rows.
+The source tables, such as the `products` table in this example, contain the data whose changes we want to capture and replicate. It is recommended for tables to have a primary key defined, although not a hard requirement for CDC.
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (...)
 ```
 
-The `flow_watermarks` table is used to store metadata about the replication process, specifically the position of the replication slot and the corresponding watermark. This information helps track the progress of replication and ensures consistency.
+The `flow_watermarks` table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
 
 ```sql
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
@@ -191,6 +194,9 @@ ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, public.prod
 A publication defines a set of tables whose changes will be replicated. In this case, the `flow_publication` publication includes the `public.flow_watermarks` and `public.products` tables.
 
 These commands configure the `flow_publication` publication to publish changes via partition root and add the specified tables to the publication. By setting `publish_via_partition_root` to true, the publication ensures that updates to partitioned tables are correctly captured and replicated.
+
+:::note The table in this tutorial is not partitioned, but we recommend always setting `publish_via_partition_root` when creating a publication.
+:::
 
 These objects form the backbone of a robust CDC replication setup, ensuring data consistency and integrity across systems. After the initial setup, you will not have to touch these objects in the future, unless you wish to start ingesting change events from a new table.
 
@@ -253,7 +259,7 @@ postgres=# select count(*) from products;
 (1 row)
 ```
 
-By executing a `count(*)` statement a few seconds apart you are able to verify that data is in fact being replicated into the table.
+By executing a `count(*)` statement a few seconds apart you are able to verify that data is in fact being written into the table.
 
 
 ## Step 2. Set up a Capture<a id="step-2-set-up-a-capture"></a>
@@ -374,6 +380,16 @@ You can grab your Snowflake host URL and account identifier by navigating to the
 
 ![Grab your Snowflake account id](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_account_id_af1cc78df8/snowflake_account_id_af1cc78df8.png)
 
+If you scroll down to the Advanced Options section, you will be able to configure the "Update Delay" parameter. If you leave this parameter unset, the default value of 30 minutes will be used.
+
+![Update Delay](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_update_delay_dark_f26179d3fc/snowflake_update_delay_dark_f26179d3fc.png)
+
+The Update Delay parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period.
+
+It represents the amount of time the system will wait before it begins materializing the latest data.
+
+For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
+
 After the connection details are in place, the next step is to link the capture we just created to Flow is able to see collections we are loading data into from Postgres.
 
 You can achieve this by clicking on the “Source from Capture” button, and selecting the name of the capture from the table.
@@ -390,7 +406,12 @@ And that’s pretty much it, you’ve successfully published a real-time CDC pip
 
 ![Results in Snowflake](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_verification_2eb047efec/snowflake_verification_2eb047efec.png)
 
-Looks like the data is arriving as expected, and the schema of the table is properly configured by the connector based on the types of the original table in Postgres. To get a feel for how low latency the pipeline is, feel free to jump back into the terminal and insert or modify some records in our products table then head over to either the Flow web UI or straight to Snowflake and query the materialized dataset to see the changes!
+Looks like the data is arriving as expected, and the schema of the table is properly configured by the connector based on the types of the original table in Postgres.
+
+To get a feel for how the data flow works; feel free to jump back into the terminal and insert or modify some records in our products table then head over to either the Flow web UI or to Snowflake and query the materialized dataset to see the changes!
+
+:::note Based on your configuration of the "Update Delay" parameter when setting up the Snowflake Materialization, you might have to wait until the configured amount of time passes in order for the Materialization process to be triggered.
+:::
 
 
 ## Party time!<a id="party-time"></a>
