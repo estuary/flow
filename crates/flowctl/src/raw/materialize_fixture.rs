@@ -20,10 +20,17 @@ pub struct MaterializeFixture {
 }
 
 #[derive(serde::Deserialize)]
+struct FixtureItem {
+    document: serde_json::Value,
+    exists: bool,
+    delete: bool,
+}
+
+#[derive(serde::Deserialize)]
 struct Fixture {
     #[serde(default)]
     checkpoint: serde_json::Value,
-    transactions: Vec<BTreeMap<String, Vec<(bool, serde_json::Value)>>>,
+    transactions: Vec<BTreeMap<String, Vec<FixtureItem>>>,
 }
 
 pub async fn do_materialize_fixture(
@@ -111,12 +118,12 @@ pub async fn do_materialize_fixture(
                 let values_ex =
                     extractors::for_fields(values, projections, &doc::SerPolicy::noop())?;
 
-                for (exists, doc) in &docs {
+                for item in &docs {
                     if !delta_updates {
                         loads.push(Request {
                             load: Some(request::Load {
                                 binding: binding_index as u32,
-                                key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
+                                key_packed: doc::Extractor::extract_all(&item.document, &key_ex, buf),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -125,10 +132,11 @@ pub async fn do_materialize_fixture(
                     stores.push(Request {
                         store: Some(request::Store {
                             binding: binding_index as u32,
-                            key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
-                            values_packed: doc::Extractor::extract_all(doc, &values_ex, buf),
-                            doc_json: doc.to_string(),
-                            exists: *exists && !delta_updates,
+                            key_packed: doc::Extractor::extract_all(&item.document, &key_ex, buf),
+                            values_packed: doc::Extractor::extract_all(&item.document, &values_ex, buf),
+                            doc_json: item.document.to_string(),
+                            exists: item.exists && !delta_updates,
+                            delete: item.delete,
                             ..Default::default()
                         }),
                         ..Default::default()
