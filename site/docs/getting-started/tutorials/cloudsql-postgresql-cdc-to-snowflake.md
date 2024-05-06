@@ -1,3 +1,12 @@
+---
+id: cloudsql_postgresql_cdc_to_snowflake
+title: CloudSQL (PostgreSQL) CDC streaming to Snowflake
+---
+
+<head>
+    <meta property="og:image" content="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//architecture_diagram_f3cef5fe7f/architecture_diagram_f3cef5fe7f.png" />
+</head>
+
 # CloudSQL (PostgreSQL) CDC streaming to Snowflake
 
 ![Architecture diagram](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//architecture_diagram_f3cef5fe7f/architecture_diagram_f3cef5fe7f.png)
@@ -110,7 +119,7 @@ If you don’t have any readily available data to replicate in your database –
 
 The easiest way to execute it is to open a Cloud shell inside your GCP console, which is pre-configured to be authenticated toward the database, so you can just save this script as a file called `datagen.sh` and execute it.
 
-:::note Don’t forget to update the connection details at the top of the script, and to make the file executable using `chmod u+x datagen.sh` before running it!\
+:::note Don’t forget to update the connection details at the top of the script, and to make the file executable using `chmod u+x datagen.sh` before running it!
 :::
 
 ```shell
@@ -196,7 +205,9 @@ Adds tables to the publication for selective data replication. This is where we 
 
 ## Step 2. Set up Capture
 
-Good news, the hard part is over! Smooth sailing from here on out. Head over to your Flow dashboard (if you haven’t registered yet, you can do so [here](https://dashboard.estuary.dev/register)) and create a new **Capture.**Configure the connection to the database based on the information you find on the GCP console and press **Next.**
+Good news, the hard part is over! Smooth sailing from here on out. Head over to your Flow dashboard (if you haven’t registered yet, you can do so [here](https://dashboard.estuary.dev/register)) and create a new **Capture.**
+
+Configure the connection to the database based on the information you find on the GCP console and press **Next.**
 
 ![PostgreSQL capture configuration](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//configure_cloudsql_capture_2adc597c83/configure_cloudsql_capture_2adc597c83.png)
 
