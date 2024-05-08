@@ -185,6 +185,16 @@ fn parser_for(format: Format) -> Box<dyn Parser> {
         Format::Protobuf(proto_config) => protobuf::new_protobuf_parser(proto_config),
         Format::W3cExtendedLog => character_separated::new_w3c_extended_log_parser(),
         Format::Avro => avro::new_parser(),
+        unsupported => Box::new(UnsupportedParser(unsupported)),
+    }
+}
+
+/// The purpose of this is to provide better error messages for well known formats that we don't
+/// support. These are formats that we'd like to support in the future, but don't yet.
+struct UnsupportedParser(Format);
+impl Parser for UnsupportedParser {
+    fn parse(&self, _content: Input) -> Result<Output, ParseError> {
+        Err(ParseError::UnsupportedFormat(self.0.to_string()))
     }
 }
 
@@ -285,6 +295,10 @@ fn format_for_file_extension(extension: &str) -> Option<Format> {
         "csv" => Some(Format::Csv(Default::default())),
         "tsv" => Some(Format::Csv(Default::default())),
         "avro" => Some(Format::Avro),
+        "xls" | "xlsx" | "xlsm" => Some(Format::Excel),
+        "parquet" => Some(Format::Parquet),
+        "xml" => Some(Format::Xml),
+        "ods" => Some(Format::Ods),
         _ => None,
     }
 }

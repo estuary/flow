@@ -318,6 +318,16 @@ pub enum Format {
     #[serde(rename = "w3cExtendedLog")]
     #[schemars(title = "W3C Extended Log")]
     W3cExtendedLog,
+
+    /// Placeholders for files types that are unsupported at this time.
+    #[schemars(skip)]
+    Excel,
+    #[schemars(skip)]
+    Parquet,
+    #[schemars(skip)]
+    Xml,
+    #[schemars(skip)]
+    Ods, // Open-document spreadsheet, for LibreOffice, etc.
 }
 
 impl fmt::Display for Format {
@@ -329,6 +339,10 @@ impl fmt::Display for Format {
             Format::Csv(_) => "csv",
             Format::Protobuf(_) => "protobuf",
             Format::W3cExtendedLog => "w3cExtendedLog",
+            Format::Excel => "excel",
+            Format::Parquet => "parquet",
+            Format::Xml => "xml",
+            Format::Ods => "ods",
         };
         f.write_str(s)
     }
