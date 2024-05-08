@@ -110,9 +110,12 @@ details and a sample.
 Redshift has requirements for [names and
 identifiers](https://docs.aws.amazon.com/redshift/latest/dg/r_names.html) and this connector will
 automatically apply quoting when needed. All table identifiers and column identifiers (corresponding
-to Flow collection fields) are treated as lowercase. Table names for bindings must be unique on a
-case-insensitive basis, as well as field names of the source collection. If any names are not unique
-on a case-insensitive basis (ex: `myField` vs. `MyField`) the materialization will fail to apply.
+to Flow collection fields) are treated as lowercase, unless the
+[enable_case_sensitive_identifier](https://docs.aws.amazon.com/redshift/latest/dg/r_enable_case_sensitive_identifier.html)
+configuration is enabled on the cluster being materialized to. Table names for bindings must be
+unique on a case-insensitive basis, as well as field names of the source collection. If any names
+are not unique on a case-insensitive basis (ex: `myField` vs. `MyField`) the materialization will
+fail to apply.
 
 If necessary, you can add [projections](../../../concepts/advanced/projections.md) to your
 collection specification to change field names.
