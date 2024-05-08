@@ -24,7 +24,7 @@ fn transcoded_and_fallback(input: &mut Vec<u8>) -> (crate::Transcoded, crate::Tr
 fn parsed_and_fallback<'a>(
     input: &mut Vec<u8>,
     alloc: &'a doc::Allocator,
-) -> (Vec<(i64, doc::HeapNode<'a>)>, Vec<(i64, doc::HeapNode<'a>)>) {
+) -> (Vec<(doc::HeapNode<'a>, i64)>, Vec<(doc::HeapNode<'a>, i64)>) {
     let mut simd = Vec::new();
     crate::parse_simd(
         input,
