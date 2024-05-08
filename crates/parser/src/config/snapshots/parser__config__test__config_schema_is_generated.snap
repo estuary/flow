@@ -459,6 +459,12 @@ expression: schema
                       "const": null
                     }
                   ]
+                },
+                "skipLines": {
+                  "description": "Skip a number of lines at the beginning of the file before parsing begins. This is useful for skipping over metadata that is sometimes added to the top of files.",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
                 }
               }
             },

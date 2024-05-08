@@ -41,14 +41,20 @@ impl Parser for CsvParser {
             .encoding
             .as_option()
             .unwrap_or_else(|| detect_encoding(raw_peek.as_ref()));
-
-        let (peek, input) = if input_encoding.is_utf8() {
-            (raw_peek, raw_input)
+        let mut utf8_input = if input_encoding.is_utf8() {
+            raw_input
         } else {
-            // If we transcoded the input, then re-peek before we try to detect the CSV dialect
-            let utf8_input = raw_input.transcode_non_utf8(Some(input_encoding), 0)?;
-            utf8_input.peek(PEEK_PREFIX_LEN)?
+            raw_input.transcode_to_utf8(input_encoding)
         };
+
+        // If the config says to skip lines, do that now, before we try to detect the dialect, so
+        // that the skipped bytes don't interfere with the detection.
+        if self.config.skip_lines > 0 {
+            utf8_input = utf8_input.skip_lines(self.config.skip_lines)?;
+        }
+
+        // We're finished transforming the input, and are ready to start dialect detection.
+        let (peek, input) = utf8_input.peek(PEEK_PREFIX_LEN)?;
 
         // line ending _detection_ is not yet implemented, but CRLF is a pretty reasonable default
         // since it also permits lone CR or LF characters.
