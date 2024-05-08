@@ -2,45 +2,28 @@
 
 This connector captures data from HubSpot into Flow collections.
 
-## Supported data resources
+## Supported HubSpot Resources
+
+The connector automatically discovers bindings for the following HubSpot resources:
 
 * [Companies](https://developers.hubspot.com/docs/api/crm/companies)
 * [Contacts](https://developers.hubspot.com/docs/api/crm/contacts)
+* [Custom Objects](https://developers.hubspot.com/docs/api/crm/crm-custom-objects)
 * [Deals](https://developers.hubspot.com/docs/api/crm/deals)
 * [Engagements](https://developers.hubspot.com/docs/api/crm/engagements)
-* [Contact Lists](https://legacydocs.hubspot.com/docs/methods/lists/get_lists)
-* [Contact Lists Subscriptions](https://legacydocs.hubspot.com/docs/methods/contacts/get_contacts)
-* [Campaigns](https://legacydocs.hubspot.com/docs/methods/email/get_campaign_data)
-* [Subscription Changes](https://developers.hubspot.com/docs/methods/email/get_subscriptions_timeline)
 * [Email Events](https://developers.hubspot.com/docs/methods/email/get_events)
-* [Ticket Pipelines](https://developers.hubspot.com/docs/methods/pipelines/get_pipelines_for_object_type)
-* [Deal Pipelines](https://developers.hubspot.com/docs/methods/pipelines/get_pipelines_for_object_type)
-* [Engagements Calls](https://developers.hubspot.com/docs/api/crm/calls)
-* [Engagements Emails](https://developers.hubspot.com/docs/api/crm/email)
-* [Engagements Meetings](https://developers.hubspot.com/docs/api/crm/meetings)
-* [Engagements Notes](https://developers.hubspot.com/docs/api/crm/notes)
-* [Engagements Tasks](https://developers.hubspot.com/docs/api/crm/tasks)
-* [Goal Targets](https://developers.hubspot.com/docs/api/crm/goals)
-* [Line Items](https://developers.hubspot.com/docs/api/crm/line-items)
-* [Products](https://developers.hubspot.com/docs/api/crm/products)
-* [Tickets](https://developers.hubspot.com/docs/api/crm/tickets)
-* [Emails Subscriptions](https://developers.hubspot.com/docs/api/marketing-api/subscriptions-preferences)
-* [Marketing Forms](https://developers.hubspot.com/docs/api/marketing/forms)
-* [Owners](https://developers.hubspot.com/docs/api/crm/owners)
 * [Properties](https://developers.hubspot.com/docs/api/crm/properties)
+* [Tickets](https://developers.hubspot.com/docs/api/crm/tickets)
 
-The following data resources are supported for pro accounts:
-
-* [Feedback Submissions](https://developers.hubspot.com/docs/api/crm/feedback-submissions)
-* [Marketing Emails](https://developers.hubspot.com/docs/api/marketing/marketing-email)
-* [Workflows](https://legacydocs.hubspot.com/docs/methods/workflows/v3/get_workflows)
+Updates for **Email Events** and **Custom Objects** may be delayed by up to 5 minutes due to
+eventual consistency of the HubSpot API.
 
 ## Prerequisites
 
 There are two ways to authenticate with HubSpot when capturing data: using OAuth2, or with a private app access token.
 Their prerequisites differ.
 
-OAuth is recommended for simplicity in the Flow web app;
+OAuth is recommended for simplicity in the Flow web app.
 
 ### Using OAuth2 to authenticate with HubSpot in the Flow web app
 
@@ -80,14 +63,13 @@ The following properties reflect the access token authentication method.
 | **`/credentials`** | Private Application | Authenticate with a private app access token | object | Required |
 | **`/credentials/access_token`** | Access Token | HubSpot Access token. | string | Required |
 | **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
-| **`/start_date`** | Start Date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
-| **`/interval`** | Interval | Interval between data syncs | string | Required |
+| `/interval` | Interval | Interval between data syncs | string |          |
 
 ### Sample
 
@@ -103,6 +85,5 @@ captures:
     bindings:
       - resource:
           name: companies
-          interval: PT420S
         target: ${PREFIX}/${COLLECTION_NAME}
 ```
