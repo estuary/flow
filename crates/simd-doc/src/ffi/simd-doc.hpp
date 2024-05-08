@@ -474,11 +474,12 @@ inline void Parser::parse(const rust::Slice<const uint8_t> input, int64_t offset
 {
     dom::document_stream stream = parser.parse_many(input.data(), input.size(), input.size());
 
-    for (dom::document_stream::iterator it = stream.begin(); it != stream.end(); ++it)
+    for (dom::document_stream::iterator it = stream.begin(); it != stream.end();)
     {
         dom::element elem = *it;
         parse_node(alloc, elem.type(), elem, node);
-        complete(output, offset + it.current_index(), node);
+        ++it; // Step to next document.
+        complete(output, node, offset + static_cast<int64_t>(it.current_index()));
     }
 
     if (stream.truncated_bytes() != 0 && input.size() != 0)
@@ -500,18 +501,20 @@ inline void Parser::transcode(const rust::Slice<const uint8_t> input, Transcoded
     };
     this->pool.swap(buf.pool);
 
-    for (dom::document_stream::iterator it = stream.begin(); it != stream.end(); ++it)
+    for (dom::document_stream::iterator it = stream.begin(); it != stream.end();)
     {
-        // Write the document header (offset and length placeholder).
-        pword header = {.u32 = {.l = static_cast<uint32_t>(it.current_index()), .h = 0}};
+        // Write the document header placeholder.
+        pword header = {.u32 = {.l = 0, .h = 0}};
         buf.extend(&header, 1);
         uint64_t start_len = buf.len;
 
         dom::element elem = *it;
         pnode root = transcode_node(buf, elem.type(), elem);
         place_array(buf, &root, 1);
+        ++it; // Step to next document.
 
-        // Update and re-write header now that we know the length.
+        // Update and re-write header now that we know the next offset and length.
+        header.u32.l = static_cast<uint32_t>(it.current_index());
         header.u32.h = buf.len - start_len;
         memcpy(buf.data + start_len - sizeof(pword), &header, sizeof(header));
     }

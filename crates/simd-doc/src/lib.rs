@@ -23,7 +23,7 @@ pub struct Parser {
     buf: Vec<u8>,
     ffi: cxx::UniquePtr<ffi::Parser>,
     offset: i64,
-    parsed: Vec<(i64, doc::HeapNode<'static>)>,
+    parsed: Vec<(doc::HeapNode<'static>, i64)>,
 }
 
 impl Parser {
@@ -86,28 +86,33 @@ impl Parser {
 
         self.buf.clear();
 
-        Ok(self.parsed.pop().unwrap().1)
+        Ok(self.parsed.pop().unwrap().0)
     }
 
     /// Parse newline-delimited JSON documents of `chunk` into equivalent
     /// doc::HeapNode representations. `offset` is the offset of the first
-    /// `chunk` byte within the context of its source stream, and is mapped into
-    /// enumerated offsets of each transcoded output document.
+    /// `chunk` byte within the context of its source stream.
     ///
     /// `chunk` may end with a partial document, in which case the partial
     /// document is held back and is expected to be continued by the `chunk`
-    /// of a following call to `parse_chunk()`.
+    /// of a following call to `parse_chunk`.
+    ///
+    /// `parse_chunk` returns the begin offset of the document sequence,
+    /// and an iterator of a parsed document and the input offset of its
+    /// *following* document. The caller can use the returned begin offset
+    /// and iterator offsets to compute the [begin, end) offset extents
+    /// of each parsed document.
     pub fn parse_chunk<'s, 'a>(
         &'s mut self,
         chunk: &[u8],
         offset: i64,
         alloc: &'a doc::Allocator,
-    ) -> Result<std::vec::Drain<'s, (i64, doc::HeapNode<'a>)>, std::io::Error> {
+    ) -> Result<(i64, std::vec::Drain<'s, (doc::HeapNode<'a>, i64)>), std::io::Error> {
         // Safety: we'll transmute back to lifetime 'a prior to return.
         let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
 
         let Some(last_newline) = self.prepare_chunk(chunk, offset)? else {
-            return Ok(self.parsed.drain(..)); // Nothing to parse yet. drain(..) is empty.
+            return Ok((self.offset, self.parsed.drain(..))); // Nothing to parse yet. drain(..) is empty.
         };
         if let Err(err) = parse_simd(
             &mut self.buf,
@@ -121,11 +126,12 @@ impl Parser {
             () = parse_fallback(&mut self.buf, self.offset, alloc, &mut self.parsed)?;
         }
 
+        let begin = self.offset;
         self.offset += self.buf.len() as i64;
         self.buf.clear();
         self.buf.extend_from_slice(&chunk[last_newline + 1..]);
 
-        Ok(self.parsed.drain(..))
+        Ok((begin, self.parsed.drain(..)))
     }
 
     /// Transcode newline-delimited JSON documents of `chunk` into equivalent
@@ -145,13 +151,15 @@ impl Parser {
         offset: i64,
         pre_allocated: rkyv::AlignedVec,
     ) -> Result<Transcoded, std::io::Error> {
+        let last_newline = self.prepare_chunk(chunk, offset)?;
+
         let mut output = Transcoded {
             v: pre_allocated,
-            offset: self.offset,
+            offset: self.offset, // Note self.offset is updated by prepare_chunk().
         };
         output.v.clear();
 
-        let Some(last_newline) = self.prepare_chunk(chunk, offset)? else {
+        let Some(last_newline) = last_newline else {
             return Ok(output); // Nothing to parse yet. `output` is empty.
         };
         if let Err(err) = transcode_simd(&mut self.buf, &mut output, &mut self.ffi) {
@@ -214,7 +222,7 @@ fn parse_simd<'a>(
     input: &mut Vec<u8>,
     offset: i64,
     alloc: &'a doc::Allocator,
-    output: &mut Vec<(i64, doc::HeapNode<'a>)>,
+    output: &mut Vec<(doc::HeapNode<'a>, i64)>,
     parser: &mut cxx::UniquePtr<ffi::Parser>,
 ) -> Result<(), cxx::Exception> {
     pad(input);
@@ -242,18 +250,22 @@ fn parse_fallback<'a>(
     input: &[u8],
     offset: i64,
     alloc: &'a doc::Allocator,
-    output: &mut Vec<(i64, doc::HeapNode<'a>)>,
+    output: &mut Vec<(doc::HeapNode<'a>, i64)>,
 ) -> Result<(), serde_json::Error> {
     let mut r = input;
 
-    while let Some(skip) = r.iter().position(|c| !c.is_ascii_whitespace()) {
-        r = &r[skip..];
-
-        let offset = offset + input.len() as i64 - r.len() as i64;
+    while !r.is_empty() {
         let mut deser = serde_json::Deserializer::from_reader(&mut r);
         let node = doc::HeapNode::from_serde(&mut deser, &alloc)?;
 
-        output.push((offset, node));
+        if let Some(skip) = r.iter().position(|c| !c.is_ascii_whitespace()) {
+            r = &r[skip..];
+        } else {
+            r = &r[..0]; // Only whitespace remains.
+        }
+        let next_offset = offset + input.len() as i64 - r.len() as i64;
+
+        output.push((node, next_offset));
     }
 
     Ok(())
@@ -266,15 +278,19 @@ fn transcode_fallback(
     let mut alloc = doc::HeapNode::allocator_with_capacity(input.len());
     let mut r = input;
 
-    while let Some(skip) = r.iter().position(|c| !c.is_ascii_whitespace()) {
-        r = &r[skip..];
-
-        let offset = input.len() as u32 - r.len() as u32;
+    while !r.is_empty() {
         let mut deser = serde_json::Deserializer::from_reader(&mut r);
         let node = doc::HeapNode::from_serde(&mut deser, &alloc)?;
 
-        // Write the document header (offset and length placeholder).
-        v.extend_from_slice(&offset.to_le_bytes());
+        if let Some(skip) = r.iter().position(|c| !c.is_ascii_whitespace()) {
+            r = &r[skip..];
+        } else {
+            r = &r[..0]; // Only whitespace remains.
+        }
+        let next_offset = input.len() as u32 - r.len() as u32;
+
+        // Write the document header (next offset and length placeholder).
+        v.extend_from_slice(&next_offset.to_le_bytes());
         v.extend_from_slice(&[0; 4]); // Length placeholder.
         let start_len = v.len();
 

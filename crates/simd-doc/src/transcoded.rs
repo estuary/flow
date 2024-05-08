@@ -1,6 +1,10 @@
+/// Transcoded is a sequence of ArchiveNode documents
+/// transcoded from an input JSON buffer.
 pub struct Transcoded {
+    /// Begin input offset of this Transcoded instance.
+    pub offset: i64,
+
     pub(crate) v: rkyv::AlignedVec,
-    pub(crate) offset: i64,
 }
 
 impl Transcoded {
@@ -32,19 +36,19 @@ pub struct IterOut<'s> {
 }
 
 impl<'s> Iterator for IterOut<'s> {
-    type Item = (i64, &'s [u8]);
+    type Item = (&'s [u8], i64);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.v.is_empty() {
             return None;
         }
 
-        let offset = self.offset + u32::from_le_bytes(self.v[0..4].try_into().unwrap()) as i64;
+        let next_offset = self.offset + u32::from_le_bytes(self.v[0..4].try_into().unwrap()) as i64;
         let len = u32::from_le_bytes(self.v[4..8].try_into().unwrap()) as usize;
         let doc = &self.v[8..len + 8];
 
         self.v = &self.v[8 + len..];
-        Some((offset, doc))
+        Some((doc, next_offset))
     }
 }
 
@@ -63,7 +67,7 @@ impl OwnedIterOut {
 }
 
 impl Iterator for OwnedIterOut {
-    type Item = (i64, doc::OwnedArchivedNode);
+    type Item = (doc::OwnedArchivedNode, i64);
 
     fn next(&mut self) -> Option<Self::Item> {
         use bytes::Buf;
@@ -72,12 +76,12 @@ impl Iterator for OwnedIterOut {
             return None;
         }
 
-        let offset = self.offset + u32::from_le_bytes(self.v[0..4].try_into().unwrap()) as i64;
+        let next_offset = self.offset + u32::from_le_bytes(self.v[0..4].try_into().unwrap()) as i64;
         let len = u32::from_le_bytes(self.v[4..8].try_into().unwrap()) as usize;
 
         self.v.advance(8);
         let doc = self.v.split_to(len);
 
-        Some((offset, unsafe { doc::OwnedArchivedNode::new(doc) }))
+        Some((unsafe { doc::OwnedArchivedNode::new(doc) }, next_offset))
     }
 }

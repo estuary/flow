@@ -67,18 +67,19 @@ fn test_simd_and_fallback_results_are_equal() {
         input.push(b'\t');
     }
     let (transcoded, fallback) = transcoded_and_fallback(&mut input);
+    assert_eq!(transcoded.offset, fallback.offset);
 
     let mut failed = false;
 
-    for ((case, (s_offset, s_doc)), (f_offset, f_doc)) in
+    for ((case, (s_doc, s_next_offset)), (f_doc, f_next_offset)) in
         cases.iter().zip(transcoded.iter()).zip(fallback.iter())
     {
         let (s_doc, f_doc) = (to_hex(s_doc), to_hex(f_doc));
 
-        if s_offset != f_offset || s_doc != f_doc {
+        if s_doc != f_doc || s_next_offset != f_next_offset {
             eprintln!("transcode case:\n{case}");
-            eprintln!("simd     @{s_offset}:\n{s_doc}");
-            eprintln!("fallback @{f_offset}:\n{f_doc}");
+            eprintln!("simd     @{s_next_offset}:\n{s_doc}");
+            eprintln!("fallback @{f_next_offset}:\n{f_doc}");
             failed = true;
         }
     }
@@ -86,13 +87,14 @@ fn test_simd_and_fallback_results_are_equal() {
     let alloc = doc::Allocator::new();
     let (parsed, fallback) = parsed_and_fallback(&mut input, &alloc);
 
-    for ((case, (s_offset, s_doc)), (f_offset, f_doc)) in
+    for ((case, (s_doc, s_next_offset)), (f_doc, f_next_offset)) in
         cases.iter().zip(parsed.iter()).zip(fallback.iter())
     {
-        if s_offset != f_offset || doc::compare(s_doc, f_doc) != std::cmp::Ordering::Equal {
+        if s_next_offset != f_next_offset || doc::compare(s_doc, f_doc) != std::cmp::Ordering::Equal
+        {
             eprintln!("parse case:\n{case}");
-            eprintln!("simd     @{s_offset}:\n{s_doc:?}");
-            eprintln!("fallback @{f_offset}:\n{f_doc:?}");
+            eprintln!("simd     @{s_next_offset}:\n{s_doc:?}");
+            eprintln!("fallback @{f_next_offset}:\n{f_doc:?}");
             failed = true;
         }
     }
@@ -130,32 +132,48 @@ fn test_basic_parser_apis() {
     let mut parser = Parser::new();
 
     let mut snap = Vec::new();
+    snap.push((
+        0,
+        json!(format!(
+            "input: {} chunk_1: {} chunk_2: {}",
+            input.len(),
+            chunk_1.len(),
+            chunk_2.len()
+        )),
+    ));
 
-    snap.push((0, json!("PARSE_CHUNK")));
-    for (offset, doc) in parser.parse_chunk(chunk_1, 123, &alloc).unwrap() {
-        snap.push((offset, doc.to_debug_json_value()));
-    }
-    for (offset, doc) in parser
-        .parse_chunk(chunk_2, 123 + chunk_1.len() as i64, &alloc)
-        .unwrap()
-    {
-        snap.push((offset, doc.to_debug_json_value()));
+    let (begin, chunk) = parser.parse_chunk(chunk_1, 1000, &alloc).unwrap();
+    snap.push((begin, json!("PARSE_CHUNK_1")));
+
+    for (doc, next_offset) in chunk {
+        snap.push((next_offset, doc.to_debug_json_value()));
     }
 
-    snap.push((0, json!("TRANSCODE_CHUNK")));
-    for (offset, doc) in parser
-        .transcode_chunk(chunk_1, 123, Default::default())
-        .unwrap()
-        .into_iter()
-    {
-        snap.push((offset, doc.get().to_debug_json_value()));
+    let (begin, chunk) = parser
+        .parse_chunk(chunk_2, 1000 + chunk_1.len() as i64, &alloc)
+        .unwrap();
+    snap.push((begin, json!("PARSE_CHUNK_2")));
+
+    for (doc, next_offset) in chunk {
+        snap.push((next_offset, doc.to_debug_json_value()));
     }
-    for (offset, doc) in parser
-        .transcode_chunk(chunk_2, 123 + chunk_1.len() as i64, Default::default())
-        .unwrap()
-        .into_iter()
-    {
-        snap.push((offset, doc.get().to_debug_json_value()));
+
+    let transcoded = parser
+        .transcode_chunk(chunk_1, 1000, Default::default())
+        .unwrap();
+    snap.push((transcoded.offset, json!("TRANSCODE_CHUNK_1")));
+
+    for (doc, next_offset) in transcoded.into_iter() {
+        snap.push((next_offset, doc.get().to_debug_json_value()));
+    }
+
+    let transcoded = parser
+        .transcode_chunk(chunk_2, 1000 + chunk_1.len() as i64, Default::default())
+        .unwrap();
+    snap.push((transcoded.offset, json!("TRANSCODE_CHUNK_2")));
+
+    for (doc, next_offset) in transcoded.into_iter() {
+        snap.push((next_offset, doc.get().to_debug_json_value()));
     }
 
     snap.push((0, json!("PARSE_ONE")));
@@ -176,10 +194,14 @@ fn test_basic_parser_apis() {
     [
       [
         0,
-        "PARSE_CHUNK"
+        "input: 271 chunk_1: 135 chunk_2: 136"
       ],
       [
-        123,
+        1000,
+        "PARSE_CHUNK_1"
+      ],
+      [
+        1122,
         {
           "aaaaaaaaa": 1,
           "bbbbbbbbb": 2,
@@ -192,7 +214,11 @@ fn test_basic_parser_apis() {
         }
       ],
       [
-        245,
+        1122,
+        "PARSE_CHUNK_2"
+      ],
+      [
+        1247,
         {
           "a\ta": {
             "b\tb": -9007,
@@ -208,17 +234,17 @@ fn test_basic_parser_apis() {
         }
       ],
       [
-        370,
+        1271,
         {
           "111abc": "ࠀ222"
         }
       ],
       [
-        0,
-        "TRANSCODE_CHUNK"
+        1000,
+        "TRANSCODE_CHUNK_1"
       ],
       [
-        394,
+        1122,
         {
           "aaaaaaaaa": 1,
           "bbbbbbbbb": 2,
@@ -231,7 +257,11 @@ fn test_basic_parser_apis() {
         }
       ],
       [
-        245,
+        1122,
+        "TRANSCODE_CHUNK_2"
+      ],
+      [
+        1247,
         {
           "a\ta": {
             "b\tb": -9007,
@@ -247,7 +277,7 @@ fn test_basic_parser_apis() {
         }
       ],
       [
-        370,
+        1271,
         {
           "111abc": "ࠀ222"
         }
