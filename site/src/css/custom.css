@@ -35,3 +35,28 @@ body.running-in-iframe .navbar,
 body.running-in-iframe .theme-doc-breadcrumbs {
     display: none;
 }
+
+.button-link {
+    display: inline-block;
+    padding: 10px 20px;
+    /* Adjusts the padding around the text */
+    background-color: rgb(233, 238, 237);
+    /* Blue background */
+    color: white;
+    /* White text */
+    text-align: center;
+    border-radius: 30px;
+    /* Rounded corners */
+    text-decoration: none;
+    /* Removes underline */
+    transition: background-color 0.3s;
+    /* Smooth transition for background color */
+
+}
+
+.button-link:hover {
+    background-color: rgb(211, 214, 213);
+    /* Darker blue background on hover */
+    cursor: pointer;
+    /* Changes cursor to pointer to indicate it's clickable */
+}

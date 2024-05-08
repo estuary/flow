@@ -127,6 +127,17 @@ const config = {
             position: 'left',
             label: 'Documentation',
           },
+          {
+            type: 'html',
+            position: 'left',
+            value: '<a href="https://estuary.dev/blog/data-engineering/">Blog</a>',
+          },
+          {
+            type: 'html',
+            position: 'left',
+            className: 'button-link',
+            value: '<a href="https://dashboard.estuary.dev/register">Try Estuary</a>',
+          },
           /*
           {to: '/blog', label: 'Blog', position: 'left'},
           */
