@@ -12,7 +12,7 @@ quickcheck! {
     fn parse_matches_fallback_fuzz(input: Vec<ArbitraryValue>) -> bool {
         let alloc = doc::Allocator::new();
         let (simd, fallback) = super::parsed_and_fallback(&mut build_fixture(input), &alloc);
-        return simd.iter().zip(fallback.iter()).all(|((l_o, l_d), (r_o, r_d))| l_o == r_o && doc::compare(l_d, r_d).is_eq());
+        return simd.iter().zip(fallback.iter()).all(|((l_d, l_o), (r_d, r_o))| l_o == r_o && doc::compare(l_d, r_d).is_eq());
     }
 
     fn incremental_parse_splits_fuzz(input: Vec<ArbitraryValue>, s1: u16, s2: u16) -> bool {
@@ -40,8 +40,8 @@ fn incremental_parse_splits_case(input: Vec<ArbitraryValue>, s1: u16, s2: u16) -
             .transcode_chunk(&input[..s], 0, Default::default())
             .unwrap();
 
-        for (offset, doc) in out.iter() {
-            h.write_i64(offset);
+        for (doc, next_offset) in out.iter() {
+            h.write_i64(next_offset);
             h.update(doc);
         }
 
@@ -49,8 +49,8 @@ fn incremental_parse_splits_case(input: Vec<ArbitraryValue>, s1: u16, s2: u16) -
             .transcode_chunk(&input[s..], s as i64, out.into_inner())
             .unwrap();
 
-        for (offset, doc) in out.iter() {
-            h.write_i64(offset);
+        for (doc, next_offset) in out.iter() {
+            h.write_i64(next_offset);
             h.update(doc);
         }
     }

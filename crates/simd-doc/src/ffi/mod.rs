@@ -75,7 +75,7 @@ mod ffi {
         // Sort already-initialized fields into property order.
         fn sort_heap_fields(fields: &mut [HeapField<'_>]);
 
-        unsafe fn complete<'a>(output: &mut Parsed<'a>, offset: i64, node: &HeapNode<'a>);
+        unsafe fn complete<'a>(output: &mut Parsed<'a>, node: &HeapNode<'a>, next_offset: i64);
     }
 
     unsafe extern "C++" {
@@ -113,7 +113,7 @@ pub(crate) struct HeapNode<'a>(doc::HeapNode<'a>);
 #[repr(transparent)]
 pub(crate) struct HeapField<'a>(doc::HeapField<'a>);
 #[repr(transparent)]
-pub(crate) struct Parsed<'a>(Vec<(i64, doc::HeapNode<'a>)>);
+pub(crate) struct Parsed<'a>(Vec<(doc::HeapNode<'a>, i64)>);
 
 #[inline(always)]
 fn set_array<'a>(
@@ -219,7 +219,7 @@ fn sort_heap_fields(fields: &mut [HeapField<'_>]) {
     fields.sort_by(|l, r| l.0.property.cmp(&r.0.property));
 }
 
-fn complete<'a>(parsed: &mut Parsed<'a>, offset: i64, node: &HeapNode<'a>) {
+fn complete<'a>(parsed: &mut Parsed<'a>, node: &HeapNode<'a>, next_offset: i64) {
     let node = unsafe { std::mem::transmute_copy(&node.0) };
-    parsed.0.push((offset, node));
+    parsed.0.push((node, next_offset));
 }

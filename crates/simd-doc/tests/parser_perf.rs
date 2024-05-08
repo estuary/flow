@@ -89,10 +89,10 @@ pub fn parse_perf() {
 
     for _ in 0..TOTAL_ROUNDS {
         for chunk in &chunks {
-            let output = parser.parse_chunk(chunk, bytes as i64, &alloc).unwrap();
+            let (_begin_offset, parsed) = parser.parse_chunk(chunk, bytes as i64, &alloc).unwrap();
 
             bytes += chunk.len();
-            docs += output.count();
+            docs += parsed.count();
             alloc.reset();
         }
     }
