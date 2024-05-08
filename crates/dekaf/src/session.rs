@@ -1,6 +1,5 @@
-use super::{fetch_all_collection_names, read_record_batch, App, Collection, Read};
+use super::{fetch_all_collection_names, App, Collection, Read};
 use anyhow::Context;
-use futures::FutureExt;
 use kafka_protocol::{
     error::ResponseError,
     indexmap::IndexMap,
@@ -10,10 +9,16 @@ use kafka_protocol::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+struct PendingRead {
+    offset: i64,          // Journal offset to be completed by this PendingRead.
+    last_write_head: i64, // Most-recent observed journal write head.
+    handle: tokio::task::JoinHandle<anyhow::Result<(Read, bytes::Bytes)>>,
+}
+
 pub struct Session {
     app: Arc<App>,
     client: postgrest::Postgrest,
-    reads: HashMap<(TopicName, i32), Read>,
+    reads: HashMap<(TopicName, i32), PendingRead>,
 }
 
 impl Session {
@@ -51,41 +56,27 @@ impl Session {
             .split(|b| *b == 0) // SASL uses NULL to separate components.
             .map(std::str::from_utf8);
 
-        let authzid = it.next().context("expected SASL authzid")??;
+        let _authzid = it.next().context("expected SASL authzid")??;
         let authcid = it.next().context("expected SASL authcid")??;
         let password = it.next().context("expected SASL passwd")??;
 
-        // The "username" will eventually hold session configuration state.
-        // Reserve the ability to do this by ensuring it currently equals '{}'.
-        if authcid != "{}" {
-            tracing::warn!(authcid, "rejected authcid which is not '{{}}'");
+        let response = match self.app.authenticate(authcid, password).await {
+            Ok(client) => {
+                self.client = client;
 
-            let response = messages::SaslAuthenticateResponse::builder()
+                let mut response = messages::SaslAuthenticateResponse::default();
+                response.session_lifetime_ms = i64::MAX; // TODO(johnny): Access token expiry.
+                response
+            }
+            Err(err) => messages::SaslAuthenticateResponse::builder()
                 .error_code(ResponseError::SaslAuthenticationFailed.code())
                 .error_message(Some(StrBytes::from_string(format!(
-                    "SASL authentication error: Authentication failed: {}",
-                    crate::RESERVED_USERNAME_ERR
+                    "SASL authentication error: Authentication failed: {err:#}",
                 ))))
                 .build()
-                .unwrap();
+                .unwrap(),
+        };
 
-            return Ok(response);
-        }
-        let _config: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(authcid).context("failed to parse SASL user as JSON object")?;
-
-        tracing::info!(authzid, authcid, "sasl_authenticate");
-
-        // TODO(johnny): Allow `password` to contain a refresh token _or_ access token.
-        // If it's a refresh token, use it to mint a new access token.
-
-        self.client = self
-            .client
-            .clone()
-            .insert_header("Authorization", format!("Bearer {password}"));
-
-        let mut response = messages::SaslAuthenticateResponse::default();
-        response.session_lifetime_ms = i64::MAX; // TODO(johnny): Access token expiry.
         Ok(response)
     }
 
@@ -280,7 +271,6 @@ impl Session {
         };
 
         // Map topics, partition indices, and fetched offsets into a comprehensive response.
-        // Note that we shift `offset` left to reserve the low bit as a flag.
         let response = collections?
             .into_iter()
             .map(|(topic_name, offsets)| {
@@ -297,7 +287,7 @@ impl Session {
 
                         ListOffsetsPartitionResponse::builder()
                             .partition_index(partition_index)
-                            .offset(offset << 1) // Map into kafka cursor.
+                            .offset(offset)
                             .timestamp(timestamp)
                             .build()
                             .unwrap()
@@ -323,11 +313,10 @@ impl Session {
         &mut self,
         request: messages::FetchRequest,
     ) -> anyhow::Result<messages::FetchResponse> {
-        use messages::fetch_request::{FetchPartition, FetchTopic};
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
 
         let messages::FetchRequest {
-            topics,
+            topics: topic_requests,
             max_bytes: _, // Ignored.
             max_wait_ms,
             min_bytes: _, // Ignored.
@@ -335,145 +324,129 @@ impl Session {
             ..
         } = request;
 
-        let timeout =
-            tokio::time::sleep(std::time::Duration::from_millis(max_wait_ms as u64)).shared();
-        let timeout = timeout.shared();
-        let timeout = &timeout;
-
-        // Resolve already-started reads for each fetched partition.
-        let mut topics: Vec<(TopicName, Vec<(FetchPartition, Option<Read>)>)> = topics
-            .into_iter()
-            .map(
-                |FetchTopic {
-                     topic, partitions, ..
-                 }| {
-                    let partitions: Vec<_> = partitions
-                        .into_iter()
-                        .map(|fetch| {
-                            let read = match self.reads.remove(&(topic.clone(), fetch.partition)) {
-                                Some(read) if read.kafka_cursor == fetch.fetch_offset => Some(read),
-                                Some(read) => {
-                                    tracing::warn!(
-                                        fetch.fetch_offset,
-                                        read.kafka_cursor,
-                                        "discarding active read",
-                                    );
-                                    None
-                                }
-                                _ => None,
-                            };
-                            (fetch, read)
-                        })
-                        .collect();
-
-                    (topic, partitions)
-                },
-            )
-            .collect();
-
         let client = &self.client;
+        let timeout = tokio::time::sleep(std::time::Duration::from_millis(max_wait_ms as u64));
+        let timeout = futures::future::maybe_done(timeout);
+        tokio::pin!(timeout);
 
-        // Start any required partition reads.
-        let _: Vec<()> = futures::future::try_join_all(topics.iter_mut().map(
-            |(topic, partitions)| async move {
-                if partitions.iter().all(|(_, read)| read.is_some()) {
-                    return anyhow::Ok(());
+        // Start reads for all partitions which aren't already pending.
+        for topic_request in &topic_requests {
+            let mut key = (topic_request.topic.clone(), 0);
+
+            for partition_request in &topic_request.partitions {
+                key.1 = partition_request.partition;
+
+                if matches!(self.reads.get(&key), Some(pending) if pending.offset == partition_request.fetch_offset)
+                {
+                    continue; // Common case: fetch is at the pending offset.
                 }
-                // We must resolve the collection and its partitions before we can start reads.
-                let Some(collection) = Collection::new(client, topic.as_str()).await? else {
-                    return Ok(()); // Collection not found and reads are None.
+                let Some(collection) = Collection::new(client, &key.0).await? else {
+                    continue; // Collection doesn't exist.
+                };
+                let Some(partition) = collection
+                    .partitions
+                    .get(partition_request.partition as usize)
+                else {
+                    continue; // Partition doesn't exist.
                 };
                 let (key_schema_id, value_schema_id) =
-                    collection.registered_schema_ids(client).await?;
+                    collection.registered_schema_ids(&client).await?;
 
-                for (fetch, read) in partitions.iter_mut() {
-                    if read.is_some() {
-                        continue;
-                    }
-                    let Some(partition) = collection.partitions.get(fetch.partition as usize)
-                    else {
-                        continue;
-                    };
+                let read = Read::new(
+                    collection.journal_client.clone(),
+                    &collection,
+                    partition,
+                    partition_request.fetch_offset,
+                    key_schema_id,
+                    value_schema_id,
+                );
+                let pending = PendingRead {
+                    offset: partition_request.fetch_offset,
+                    last_write_head: partition_request.fetch_offset,
+                    handle: tokio::spawn(
+                        read.next_batch(partition_request.partition_max_bytes as usize),
+                    ),
+                };
 
-                    *read = Some(Read::new(
-                        collection.journal_client.clone(),
-                        &collection,
-                        partition,
-                        fetch.fetch_offset,
-                        key_schema_id,
-                        value_schema_id,
-                    )?);
+                tracing::info!(
+                    journal = &partition.spec.name,
+                    key_schema_id,
+                    value_schema_id,
+                    partition_request.fetch_offset,
+                    "started read",
+                );
 
-                    tracing::info!(
-                        journal = &partition.spec.name,
-                        key_schema_id,
-                        value_schema_id,
-                        fetch.fetch_offset,
-                        "started read",
+                if let Some(old) = self.reads.insert(key.clone(), pending) {
+                    tracing::warn!(
+                        topic = topic_request.topic.as_str(),
+                        partition = partition_request.partition,
+                        old_offset = old.offset,
+                        new_offset = partition_request.fetch_offset,
+                        "discarding pending read due to offset jump",
                     );
-                }
-
-                return Ok(());
-            },
-        ))
-        .await?;
-
-        // Concurrently read across all requested topics.
-        let responses: Vec<FetchableTopicResponse> = futures::future::try_join_all(
-            topics.iter_mut().map(|(topic, partitions)| async move {
-                // Concurrently read across all requested topic partitions.
-                let partitions: anyhow::Result<Vec<PartitionData>> = futures::future::try_join_all(
-                    partitions.iter_mut().map(|(fetch, maybe_read)| async move {
-                        let Some(read) = maybe_read else {
-                            return Ok(PartitionData::builder()
-                                .partition_index(fetch.partition)
-                                .error_code(ResponseError::UnknownTopicOrPartition.code())
-                                .build()
-                                .unwrap());
-                        };
-
-                        let batch = read_record_batch(
-                            read,
-                            fetch.partition_max_bytes as usize,
-                            timeout.clone(),
-                        )
-                        .await?;
-
-                        // Watermark and LSO offsets are shifted to reserve the low bit as a flag.
-                        Ok(PartitionData::builder()
-                            .partition_index(fetch.partition)
-                            .records(Some(batch))
-                            .high_watermark(read.last_write_head << 1) // Map to kafka cursor.
-                            .last_stable_offset(read.last_write_head << 1)
-                            .build()
-                            .unwrap())
-                    }),
-                )
-                .await;
-
-                anyhow::Ok(
-                    FetchableTopicResponse::builder()
-                        .topic(topic.clone())
-                        .partitions(partitions?)
-                        .build()
-                        .unwrap(),
-                )
-            }),
-        )
-        .await?;
-
-        // Retain all still-active reads.
-        for (topic, partitions) in topics {
-            for (fetch, maybe_read) in partitions {
-                if let Some(read) = maybe_read {
-                    self.reads.insert((topic.clone(), fetch.partition), read);
                 }
             }
         }
 
+        // Poll pending reads across all requested topics.
+        let mut topic_responses = Vec::with_capacity(topic_requests.len());
+
+        for topic_request in &topic_requests {
+            let mut key = (topic_request.topic.clone(), 0);
+            let mut partition_responses = Vec::with_capacity(topic_request.partitions.len());
+
+            for partition_request in &topic_request.partitions {
+                key.1 = partition_request.partition;
+
+                let Some(pending) = self.reads.get_mut(&key) else {
+                    partition_responses.push(
+                        PartitionData::builder()
+                            .partition_index(partition_request.partition)
+                            .error_code(ResponseError::UnknownTopicOrPartition.code())
+                            .build()
+                            .unwrap(),
+                    );
+                    continue;
+                };
+
+                let batch = if let Some((read, batch)) = tokio::select! {
+                    biased; // Prefer to complete a pending read.
+                    read  = &mut pending.handle => Some(read??),
+                    _ = &mut timeout => None,
+                } {
+                    pending.offset = read.offset;
+                    pending.last_write_head = read.last_write_head;
+                    pending.handle = tokio::spawn(
+                        read.next_batch(partition_request.partition_max_bytes as usize),
+                    );
+                    batch
+                } else {
+                    bytes::Bytes::new()
+                };
+
+                partition_responses.push(
+                    PartitionData::builder()
+                        .partition_index(partition_request.partition)
+                        .records(Some(batch))
+                        .high_watermark(pending.last_write_head) // Map to kafka cursor.
+                        .last_stable_offset(pending.last_write_head)
+                        .build()
+                        .unwrap(),
+                );
+            }
+
+            topic_responses.push(
+                FetchableTopicResponse::builder()
+                    .topic(topic_request.topic.clone())
+                    .partitions(partition_responses)
+                    .build()
+                    .unwrap(),
+            );
+        }
+
         Ok(messages::FetchResponse::builder()
             .session_id(session_id)
-            .responses(responses)
+            .responses(topic_responses)
             .build()
             .unwrap())
     }

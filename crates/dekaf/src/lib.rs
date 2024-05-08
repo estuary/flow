@@ -9,7 +9,7 @@ mod topology;
 use topology::{fetch_all_collection_names, Collection, Partition};
 
 mod read;
-use read::{read_record_batch, Read};
+use read::Read;
 
 mod session;
 pub use session::Session;
@@ -25,10 +25,63 @@ pub struct App {
     pub advertise_kafka_port: u16,
 }
 
+impl App {
+    #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
+    async fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> anyhow::Result<postgrest::Postgrest> {
+        // The "username" will eventually hold session configuration state.
+        // Reserve the ability to do this by ensuring it currently equals '{}'.
+        if username != "{}" {
+            anyhow::bail!(RESERVED_USERNAME_ERR);
+        }
+        let _config: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(username).context("failed to parse username as a JSON object")?;
+
+        #[derive(serde::Deserialize)]
+        struct RefreshToken {
+            id: String,
+            secret: String,
+        }
+        let RefreshToken {
+            id: refresh_token_id,
+            secret,
+        } = serde_json::from_slice(&base64::decode(password).context("password is not base64")?)
+            .context("failed to decode refresh token from password")?;
+
+        tracing::info!(refresh_token_id, "authenticating refresh token");
+
+        #[derive(serde::Deserialize)]
+        struct AccessToken {
+            access_token: String,
+        }
+        let AccessToken { access_token } = self
+            .anon_client
+            .rpc(
+                "generate_access_token",
+                serde_json::json!({"refresh_token_id": refresh_token_id, "secret": secret})
+                    .to_string(),
+            )
+            .execute()
+            .await
+            .and_then(|r| r.error_for_status())
+            .context("generating access token")?
+            .json()
+            .await?;
+
+        Ok(self
+            .anon_client
+            .clone()
+            .insert_header("Authorization", format!("Bearer {access_token}")))
+    }
+}
+
 /// Dispatch a read request `frame` of the current session, writing its response into `out`.
 /// `raw_sasl_auth` is the state of SASL "raw" mode authentication,
 /// and conditions the interpretation of request frames.
-#[tracing::instrument(level = "debug", err(level = "warn"), skip_all)]
+#[tracing::instrument(level = "trace", err(level = "warn"), skip_all)]
 pub async fn dispatch_request_frame(
     session: &mut Session,
     raw_sasl_auth: &mut bool,
@@ -176,7 +229,7 @@ fn dec_request<T: kafka_protocol::protocol::Decodable + std::fmt::Debug>(
             std::any::type_name::<T>()
         );
     }
-    tracing::debug!(?request, ?header, "decoded request");
+    tracing::trace!(?request, ?header, "decoded request");
 
     Ok((header, request))
 }
@@ -203,8 +256,6 @@ fn enc_resp<
     // Go back and write the length header.
     let len = (b.len() - offset) as u32;
     b[(offset - 4)..offset].copy_from_slice(&len.to_be_bytes());
-
-    // tracing::debug!(?response, "encoded response");
 }
 
 const RESERVED_USERNAME_ERR : &str = "The configured username must be '{}' because Dekaf may use it for optional configuration in the future.";
