@@ -1,0 +1,7 @@
+this is an example of a CSV file that has  some extra crap at the
+beginning, which will need to be skipped over before parsing can succeed
+------
+a,b,c
+foo,bar,baz
+1,2,3
+larry,curly,moe

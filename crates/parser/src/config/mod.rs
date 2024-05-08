@@ -556,7 +556,7 @@ pub struct ParseConfig {
 
     /// The default timezone to use when parsing timestamps that do not have a timezone. Timezones
     /// must be specified as an +/-HH:MM offset, defaults to +00:00.
-    #[serde(default="default_offset_string")]
+    #[serde(default = "default_offset_string")]
     pub default_offset: String,
 
     /// filename is used for format inference. It will be ignored if `format` is specified.
@@ -783,6 +783,7 @@ mod test {
                 encoding: EncodingRef("windows-1252").into(),
                 headers: Vec::new(),
                 error_threshold: Default::default(),
+                skip_lines: 0,
             })
             .into(),
             compression: Compression::ZipArchive.into(),

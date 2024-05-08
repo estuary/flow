@@ -37,6 +37,14 @@ pub struct AdvancedCsvConfig {
     /// parsing process. When this limit is exceeded, parsing halts.
     #[serde(default)]
     pub error_threshold: ErrorThreshold,
+    /// Skip a number of lines at the beginning of the file before parsing begins.
+    /// This is useful for skipping over metadata that is sometimes added to the top of files.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub skip_lines: usize,
+}
+
+fn is_zero(i: &usize) -> bool {
+    *i == 0
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, EnumIter, IntoStaticStr)]

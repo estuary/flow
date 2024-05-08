@@ -4,7 +4,7 @@ mod encoding;
 use crate::config::{Compression, EncodingRef};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::fs::File;
-use std::io::{self, Read, Seek};
+use std::io::{self, BufRead, Read, Seek};
 use tempfile::tempfile;
 
 pub use self::compression::{detect_compression, CompressionError};
@@ -33,11 +33,15 @@ impl Input {
             }
         }
     }
-    pub fn into_buffered_stream(self, buffer_size: usize) -> Box<dyn io::BufRead> {
+
+    /// Converts the input into an `io::BufReader` with the specified buffer size. Returns a concrete
+    /// type instead of `dyn BufReader` because the concrete type can by used as both a `Read` and
+    /// `BufRead`.
+    pub fn into_buffered_stream(self, buffer_size: usize) -> io::BufReader<Box<dyn io::Read>> {
         match self {
-            Input::File(f) => Box::new(io::BufReader::with_capacity(buffer_size, f)),
+            Input::File(f) => io::BufReader::with_capacity(buffer_size, Box::new(f)),
             //Input::BufferedStream(bs) => bs,
-            Input::Stream(s) => Box::new(io::BufReader::with_capacity(buffer_size, s)),
+            Input::Stream(s) => io::BufReader::with_capacity(buffer_size, s),
         }
     }
 
@@ -77,6 +81,18 @@ impl Input {
                 Ok((result, Input::Stream(Box::new(reader))))
             }
         }
+    }
+
+    pub fn skip_lines(self, lines: usize) -> io::Result<Self> {
+        let mut reader = self.into_buffered_stream(8192);
+        let mut ignore_buf = Vec::new();
+        let mut skipped_bytes = 0;
+        for _ in 0..lines {
+            skipped_bytes += reader.read_until(b'\n', &mut ignore_buf)?;
+            ignore_buf.clear();
+        }
+        tracing::debug!(%skipped_bytes, %lines, "skipped input lines");
+        Ok(Input::Stream(Box::new(reader)))
     }
 
     /// Converts `self` into UTF-8. If the `source_encoding` is specified, then it is assumed to be
