@@ -2,7 +2,7 @@
 import:
   - stock-stats/flow.yaml
   - citi-bike/flow.yaml
-  - ../site/docs/concepts/bank/flow.yaml
+  - ../site/docs/getting-started/tutorials/derivations_acmebank_assets/flow.yaml
   - temp-sensors/flow.yaml
   - derive-patterns/flow.yaml
   - reduction-types/flow.yaml
