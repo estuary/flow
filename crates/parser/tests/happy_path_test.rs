@@ -3,7 +3,7 @@ mod testutil;
 use std::fs;
 use std::path::PathBuf;
 
-use parser::{Format, JsonPointer, ParseConfig};
+use parser::{character_separated::AdvancedCsvConfig, Format, JsonPointer, ParseConfig};
 use serde_json::{json, Value};
 use testutil::{input_for_file, run_test};
 
@@ -35,7 +35,7 @@ fn w3c_extended_log_file_is_parsed() {
     let config = ParseConfig {
         // Explicit format is required, since there's no file extension that's associated with
         // this format.
-        format: Format::W3cExtendedLog.into(),
+        format: Format::W3cExtendedLog,
         ..Default::default()
     };
     let input = input_for_file("tests/examples/w3c-extended-log");
@@ -68,6 +68,23 @@ fn csv_does_not_require_explicit_quote_configuration() {
             other => panic!("unexpected value type: {:?}", other),
         }
     }
+}
+
+#[test]
+fn csv_is_parsed_after_skipping_lines() {
+    let path = "tests/examples/csv-with-extra-steps";
+    let config = ParseConfig {
+        filename: Some(path.to_string()),
+        format: Format::Csv(AdvancedCsvConfig {
+            skip_lines: 3,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let input = input_for_file(path);
+    let result = run_test(&config, input);
+    result.assert_success(3);
 }
 
 #[test]

@@ -37,7 +37,7 @@ impl Parser for AvroParser {
 }
 
 struct AvroIter {
-    reader: Reader<'static, Box<dyn io::BufRead>>,
+    reader: Reader<'static, io::BufReader<Box<dyn io::Read>>>,
 }
 
 impl AvroIter {
