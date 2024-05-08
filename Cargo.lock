@@ -1300,6 +1300,7 @@ dependencies = [
  "anyhow",
  "avro",
  "axum",
+ "base64 0.13.1",
  "bytes",
  "clap 3.2.25",
  "doc",

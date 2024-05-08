@@ -1,22 +1,19 @@
 use super::{Collection, Partition};
 use futures::TryStreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
-use gazette::uuid::{Clock, Producer};
 use gazette::{broker, journal, uuid};
 
 pub struct Read {
-    // Kafka cursor of this Read.
-    // This is the "offset" (from kafka's FetchPartition message) that will next be yielded by this Read.
-    // It's currently encoded as journal_offset << 1, with the LSB flagging whether to skip the first
-    // document at that offset. This works because kafka's FetchPartition offset increments by one
-    // from the last-yielded document.
-    pub(crate) kafka_cursor: i64,
-    // Last reported journal write head.
+    // Journal offset to be served by this Read.
+    // (Actual next offset may be larger if a fragment was removed).
+    pub(crate) offset: i64,
+    // Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
 
     key_ptr: Vec<doc::Pointer>, // Pointers to the document key.
     key_schema: avro::Schema,   // Avro schema when encoding keys.
     key_schema_id: u32,         // Registry ID of the key's schema.
+    meta_op_ptr: doc::Pointer,  // Location of document op (currently always `/_meta/op`).
     not_before: uuid::Clock,    // Not before this clock.
     stream: ReadJsonLines,      // Underlying document stream.
     uuid_ptr: doc::Pointer,     // Location of document UUID.
@@ -29,160 +26,175 @@ impl Read {
         client: journal::Client,
         collection: &Collection,
         partition: &Partition,
-        kafka_cursor: i64,
+        offset: i64,
         key_schema_id: u32,
         value_schema_id: u32,
-    ) -> anyhow::Result<Self> {
+    ) -> Self {
         let (not_before_sec, _) = collection.not_before.to_unix();
 
-        let lines = client.read_json_lines(broker::ReadRequest {
-            offset: kafka_cursor >> 1, // Drop LSB flag to recover its journal offset.
-            block: true,
-            journal: partition.spec.name.clone(),
-            begin_mod_time: not_before_sec as i64,
-            ..Default::default()
-        });
+        let stream = client.read_json_lines(
+            broker::ReadRequest {
+                offset,
+                block: true,
+                journal: partition.spec.name.clone(),
+                begin_mod_time: not_before_sec as i64,
+                ..Default::default()
+            },
+            // Each ReadResponse can be up to 130K. Buffer up to ~4MB so that
+            // `dekaf` can do lots of useful transcoding work while waiting for
+            // network delay of the next fetch request.
+            30,
+        );
 
-        Ok(Self {
-            kafka_cursor,
-            last_write_head: 0,
+        Self {
+            offset,
+            last_write_head: offset,
 
             key_ptr: collection.key_ptr.clone(),
             key_schema: collection.key_schema.clone(),
             key_schema_id,
+            meta_op_ptr: doc::Pointer::from_str("/_meta/op"),
             not_before: collection.not_before,
-            stream: lines,
+            stream,
             uuid_ptr: collection.uuid_ptr.clone(),
             value_schema: collection.value_schema.clone(),
             value_schema_id,
-        })
-    }
-
-    async fn next(&mut self) -> Result<(Producer, Clock, doc::OwnedArchivedNode), gazette::Error> {
-        loop {
-            let read = self
-                .stream
-                .try_next()
-                .await?
-                .expect("blocking gazette client read never returns EOF");
-
-            match read {
-                ReadJsonLine::Meta(response) => {
-                    self.last_write_head = response.write_head;
-                }
-                ReadJsonLine::Doc { offset, root } => {
-                    let Some(uuid) = self.uuid_ptr.query(root.get()).and_then(|node| match node {
-                        doc::ArchivedNode::String(s) => Some(s.as_str()),
-                        _ => None,
-                    }) else {
-                        return Err(gazette::Error::Parsing(
-                            offset,
-                            std::io::Error::other("document does not have a UUID"),
-                        ));
-                    };
-                    let (producer, clock, flags) = gazette::uuid::parse_str(uuid)?;
-
-                    if flags.is_ack() {
-                        continue;
-                    } else if clock < self.not_before {
-                        continue;
-                    } else if self.kafka_cursor == offset << 1 | 1 {
-                        continue; // LSB flag tells us to skip the document at this offset.
-                    }
-
-                    // We expect that a next fetch is for the document _after_ `offset`.
-                    self.kafka_cursor = offset << 1 | 1;
-                    return Ok((producer, clock, root));
-                }
-            };
         }
     }
-}
 
-pub async fn read_record_batch(
-    read: &mut Read,
-    target_bytes: usize,
-    timeout: impl std::future::Future<Output = ()>,
-) -> anyhow::Result<bytes::Bytes> {
-    use kafka_protocol::records::{
-        Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
-    };
-
-    tokio::pin!(timeout);
-
-    let mut records: Vec<Record> = Vec::new();
-    let mut records_bytes: usize = 0;
-
-    // We Avro encode into Vec instead of BytesMut because Vec is
-    // better optimized for pushing a single byte at a time.
-    let mut tmp = Vec::new();
-    let mut buf = bytes::BytesMut::new();
-
-    while target_bytes > records_bytes {
-        let (producer, clock, root) = tokio::select! {
-            r = read.next() => r?,
-            _ = &mut timeout => break,
+    pub async fn next_batch(mut self, target_bytes: usize) -> anyhow::Result<(Self, bytes::Bytes)> {
+        use kafka_protocol::records::{
+            Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
         };
-        tmp.reserve(root.bytes().len()); // Avoid small allocations.
-        let (unix_seconds, unix_nanos) = clock.to_unix();
 
-        // Encode the record key.
-        tmp.push(0);
-        tmp.extend(read.key_schema_id.to_be_bytes());
-        () = avro::encode_key(&mut tmp, &read.key_schema, root.get(), &read.key_ptr)?;
+        let mut records: Vec<Record> = Vec::new();
+        let mut records_bytes: usize = 0;
 
-        records_bytes += tmp.len();
-        buf.extend_from_slice(&tmp);
-        tmp.clear();
-        let key = Some(buf.split().freeze());
+        // We Avro encode into Vec instead of BytesMut because Vec is
+        // better optimized for pushing a single byte at a time.
+        let mut tmp = Vec::new();
+        let mut buf = bytes::BytesMut::new();
 
-        // Encode the record value.
-        tmp.push(0);
-        tmp.extend(read.value_schema_id.to_be_bytes());
-        () = avro::encode(&mut tmp, &read.value_schema, root.get())?;
+        while records_bytes < target_bytes {
+            let read = tokio::select! {
+                biased; // Attempt to read before yielding.
 
-        records_bytes += tmp.len();
-        buf.extend_from_slice(&tmp);
-        tmp.clear();
-        let value = Some(buf.split().freeze());
+                read = self.stream.try_next() => read?,
 
-        // Note that sequence must increment at the same rate
-        // as offset for efficient batch packing.
-        let offset = read.kafka_cursor & !1;
+                () = std::future::ready(()), if records_bytes != 0 => {
+                    break; // Yield if we have records and the stream isn't ready.
+                }
+            }
+            .expect("blocking gazette client read never returns EOF");
 
-        records.push(Record {
-            control: false,
-            headers: Default::default(),
-            key,
-            offset,
-            partition_leader_epoch: 1,
-            producer_epoch: 1,
-            producer_id: producer.as_i64(),
-            sequence: offset as i32,
-            timestamp: unix_seconds as i64 * 1000 + unix_nanos as i64 / 1_000_000, // Map into millis.
-            timestamp_type: TimestampType::LogAppend,
-            transactional: true,
-            value,
-        });
+            let (root, next_offset) = match read {
+                ReadJsonLine::Meta(response) => {
+                    self.last_write_head = response.write_head;
+                    continue;
+                }
+                ReadJsonLine::Doc { root, next_offset } => (root, next_offset),
+            };
+            let Some(doc::ArchivedNode::String(uuid)) = self.uuid_ptr.query(root.get()) else {
+                anyhow::bail!(gazette::Error::Parsing(
+                    self.offset,
+                    std::io::Error::other("document does not have a valid UUID"),
+                ));
+            };
+            let (producer, clock, flags) = gazette::uuid::parse_str(uuid.as_str())?;
+
+            if clock < self.not_before {
+                continue;
+            }
+
+            // Is this a non-content control document, such as a transaction ACK?
+            let is_control = flags.is_ack();
+            // Is this a deletion?
+            let is_deletion = matches!(
+                self.meta_op_ptr.query(root.get()),
+                Some(doc::ArchivedNode::String(op)) if op.as_str() == "d",
+            );
+
+            tmp.reserve(root.bytes().len()); // Avoid small allocations.
+            let (unix_seconds, unix_nanos) = clock.to_unix();
+
+            // Encode the key.
+            let key = if is_control {
+                None
+            } else {
+                tmp.push(0);
+                tmp.extend(self.key_schema_id.to_be_bytes());
+                () = avro::encode_key(&mut tmp, &self.key_schema, root.get(), &self.key_ptr)?;
+
+                records_bytes += tmp.len();
+                buf.extend_from_slice(&tmp);
+                tmp.clear();
+                Some(buf.split().freeze())
+            };
+
+            // Encode the value.
+            let value = if is_control || is_deletion {
+                None
+            } else {
+                tmp.push(0);
+                tmp.extend(self.value_schema_id.to_be_bytes());
+                () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
+
+                records_bytes += tmp.len();
+                buf.extend_from_slice(&tmp);
+                tmp.clear();
+                Some(buf.split().freeze())
+            };
+
+            self.offset = next_offset;
+
+            // Map documents into a Kafka offset which is their last
+            // inclusive byte index within the document.
+            //
+            // Kafka adds one for its next fetch_offset, and this behavior
+            // means its next fetch will be a valid document begin offset.
+            //
+            // This behavior also lets us subtract one from the journal
+            // write head or a fragment end offset to arrive at a
+            // logically correct Kafka high water mark which a client
+            // can expect to read through.
+            //
+            // Note that sequence must increment at the same rate
+            // as offset for efficient record batch packing.
+            let kafka_offset = next_offset - 1;
+
+            records.push(Record {
+                control: false,
+                headers: Default::default(),
+                key,
+                offset: kafka_offset,
+                partition_leader_epoch: 1,
+                producer_epoch: 1,
+                producer_id: producer.as_i64(),
+                sequence: kafka_offset as i32,
+                timestamp: unix_seconds as i64 * 1000 + unix_nanos as i64 / 1_000_000, // Map into millis.
+                timestamp_type: TimestampType::LogAppend,
+                transactional: false,
+                value,
+            });
+        }
+
+        let opts = RecordEncodeOptions {
+            compression: Compression::Lz4,
+            version: 2,
+        };
+        RecordBatchEncoder::encode(&mut buf, records.iter(), &opts)
+            .expect("record encoding cannot fail");
+
+        tracing::debug!(
+            count = records.len(),
+            first_offset = records.first().map(|r| r.offset).unwrap_or_default(),
+            last_offset = records.last().map(|r| r.offset).unwrap_or_default(),
+            last_write_head = self.last_write_head,
+            ratio = buf.len() as f64 / (records_bytes + 1) as f64,
+            records_bytes,
+            "returning records"
+        );
+
+        Ok((self, buf.freeze()))
     }
-
-    let opts = RecordEncodeOptions {
-        compression: Compression::Lz4,
-        version: 2,
-    };
-    RecordBatchEncoder::encode(&mut buf, records.iter(), &opts)
-        .expect("record encoding cannot fail");
-
-    tracing::debug!(
-        count = records.len(),
-        first_offset = records.first().map(|r| r.offset >> 1).unwrap_or_default(),
-        last_offset = records.last().map(|r| r.offset >> 1).unwrap_or_default(),
-        target_bytes,
-        records_bytes,
-        ratio = buf.len() as f64 / (records_bytes + 1) as f64,
-        write_head = read.last_write_head,
-        "returning records"
-    );
-
-    Ok(buf.freeze())
 }

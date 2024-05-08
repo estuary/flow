@@ -80,7 +80,7 @@ impl Collection {
         };
         let (key_schema, value_schema) = avro::json_schema_to_avro(json_schema, &key_ptr)?;
 
-        tracing::info!(
+        tracing::debug!(
             collection,
             partitions = partitions.len(),
             "built collection"
@@ -210,7 +210,8 @@ impl Collection {
                 spec: Some(spec), ..
             }) => {
                 if timestamp_millis == -1 {
-                    (spec.end, spec.mod_time)
+                    // Subtract one to reflect the largest fetch-able offset of the fragment.
+                    (spec.end - 1, spec.mod_time)
                 } else {
                     (spec.begin, spec.mod_time)
                 }
@@ -218,7 +219,7 @@ impl Collection {
             _ => (0, 0),
         };
 
-        tracing::info!(
+        tracing::debug!(
             collection = self.spec.name,
             mod_time,
             offset,
@@ -256,7 +257,7 @@ impl Collection {
             .json()
             .await?;
 
-        tracing::info!(
+        tracing::debug!(
             collection,
             gateway = auth[0].gateway_url,
             "fetched data-plane token"

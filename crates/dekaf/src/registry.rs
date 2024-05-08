@@ -33,7 +33,7 @@ async fn all_subjects(
     TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Basic>>,
 ) -> Response {
     wrap(async move {
-        let client = apply_auth(&app, auth)?;
+        let client = app.authenticate(auth.username(), auth.password()).await?;
 
         super::fetch_all_collection_names(&client)
             .await
@@ -50,7 +50,7 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let client = apply_auth(&app, auth)?;
+        let client = app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
@@ -96,7 +96,7 @@ async fn get_schema_by_id(
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let client = apply_auth(&app, auth)?;
+        let client = app.authenticate(auth.username(), auth.password()).await?;
 
         #[derive(serde::Deserialize)]
         struct Row {
@@ -129,24 +129,6 @@ async fn get_schema_by_id(
         }))
     })
     .await
-}
-
-fn apply_auth(
-    app: &App,
-    auth: headers::Authorization<headers::authorization::Basic>,
-) -> anyhow::Result<postgrest::Postgrest> {
-    // The "username" will eventually hold session configuration state.
-    // Reserve the ability to do this by ensuring it currently equals '{}'.
-    if auth.username() != "{}" {
-        anyhow::bail!(crate::RESERVED_USERNAME_ERR);
-    }
-
-    let client = app
-        .anon_client
-        .clone()
-        .insert_header("Authorization", format!("Bearer {}", auth.password()));
-
-    Ok(client)
 }
 
 async fn wrap<F, T>(fut: F) -> Response

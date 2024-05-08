@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(level = "info", ret, err(level = "warn"), skip(session, socket, _stop), fields(?addr))]
+#[tracing::instrument(level = "info", ret, err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
 async fn serve(
     mut session: Session,
     mut socket: tokio::net::TcpStream,
