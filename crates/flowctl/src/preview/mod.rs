@@ -66,8 +66,12 @@ pub struct Preview {
     initial_state: String,
 
     /// Output state updates
-    #[clap(long, default_value_t=false)]
+    #[clap(long, action)]
     output_state: bool,
+
+    /// Output apply RPC description
+    #[clap(long, action)]
+    output_apply: bool,
 }
 
 impl Preview {
@@ -82,6 +86,7 @@ impl Preview {
             network,
             initial_state,
             output_state,
+            output_apply,
         } = self;
 
         let source = build::arg_source_to_url(source, false)?;
@@ -169,6 +174,7 @@ impl Preview {
                 state_dir.path(),
                 timeout,
                 *output_state,
+                *output_apply,
             )
             .await;
         }
@@ -231,6 +237,7 @@ impl Preview {
                     state_dir.path(),
                     timeout,
                     *output_state,
+                    *output_apply,
                 )
                 .await;
             } else {
@@ -243,6 +250,7 @@ impl Preview {
                     state_dir.path(),
                     timeout,
                     *output_state,
+                    *output_apply,
                 )
                 .await;
             }
@@ -261,9 +269,10 @@ async fn preview_capture<L: runtime::LogHandler>(
     state_dir: &std::path::Path,
     timeout: std::time::Duration,
     output_state: bool,
+    output_apply: bool,
 ) -> anyhow::Result<()> {
     let responses_rx =
-        runtime::harness::run_capture(delay, runtime, sessions, &spec, state, state_dir, timeout);
+        runtime::harness::run_capture(delay, runtime, sessions, &spec, state, state_dir, timeout, output_apply);
     tokio::pin!(responses_rx);
 
     while let Some(response) = responses_rx.try_next().await? {
@@ -358,9 +367,10 @@ async fn preview_materialization<L: runtime::LogHandler>(
     state_dir: &std::path::Path,
     timeout: std::time::Duration,
     output_state: bool,
+    output_apply: bool,
 ) -> anyhow::Result<()> {
     let responses_rx = runtime::harness::run_materialize(
-        reader, runtime, sessions, &spec, state, state_dir, timeout,
+        reader, runtime, sessions, &spec, state, state_dir, timeout, output_apply,
     );
     tokio::pin!(responses_rx);
 

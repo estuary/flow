@@ -99,7 +99,7 @@ impl Reader {
                     for (binding, ptr) in bindings {
                         // Add a UUID fixture with a synthetic publication time.
                         let seconds = 3600 * txn + offset; // Synthetic timestamp of the document.
-                        let uuid = crate::uuid::build_uuid(
+                        let uuid = crate::uuid::build(
                             producer,
                             crate::uuid::Clock::from_unix(seconds as u64, 0),
                             crate::uuid::Flags(0),
