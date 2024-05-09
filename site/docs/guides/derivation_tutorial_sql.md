@@ -237,7 +237,7 @@ flowctl catalog publish --source flow.yaml
 
 After successfully publishing your derivation, head over to the Collections page on the Web UI and you will be able to see your derivation in action!
 
-![](https://lh7-us.googleusercontent.com/P6ig8uenrvfyiOXh9P2-Rhwmy0pIyRLOP8-25fJNoJZDhbl3CNCJ_Q7EKlK4IjsRP1177E8EWzJq_J-dSIFhxrgFY7k686I2j9a1iFoAr12bdTKL04AV1dJhyP3F4CJiBldnwuGECU4F_UaffA5qmZA)
+![Verifiy derivation on Web UI](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Screenshot_2024_05_09_at_17_04_08_7aa8dc036d/Screenshot_2024_05_09_at_17_04_08_7aa8dc036d.png)
 
 
 ## Wrapping up<a id="wrapping-up"></a>
