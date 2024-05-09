@@ -64,6 +64,10 @@ pub struct Preview {
     /// in crafted state configurations you expect the connector to resume from.
     #[clap(long, default_value = "{}")]
     initial_state: String,
+
+    /// Output state updates
+    #[clap(long, default_value_t=false)]
+    output_state: bool,
 }
 
 impl Preview {
@@ -77,6 +81,7 @@ impl Preview {
             fixture,
             network,
             initial_state,
+            output_state,
         } = self;
 
         let source = build::arg_source_to_url(source, false)?;
@@ -163,6 +168,7 @@ impl Preview {
                 initial_state,
                 state_dir.path(),
                 timeout,
+                *output_state,
             )
             .await;
         }
@@ -189,6 +195,7 @@ impl Preview {
                     initial_state,
                     state_dir.path(),
                     timeout,
+                    *output_state,
                 )
                 .await;
             } else {
@@ -200,6 +207,7 @@ impl Preview {
                     initial_state,
                     state_dir.path(),
                     timeout,
+                    *output_state,
                 )
                 .await;
             }
@@ -222,6 +230,7 @@ impl Preview {
                     initial_state,
                     state_dir.path(),
                     timeout,
+                    *output_state,
                 )
                 .await;
             } else {
@@ -233,6 +242,7 @@ impl Preview {
                     initial_state,
                     state_dir.path(),
                     timeout,
+                    *output_state,
                 )
                 .await;
             }
@@ -250,6 +260,7 @@ async fn preview_capture<L: runtime::LogHandler>(
     state: models::RawValue,
     state_dir: &std::path::Path,
     timeout: std::time::Duration,
+    output_state: bool,
 ) -> anyhow::Result<()> {
     let responses_rx =
         runtime::harness::run_capture(delay, runtime, sessions, &spec, state, state_dir, timeout);
@@ -278,6 +289,13 @@ async fn preview_capture<L: runtime::LogHandler>(
         } else if let Some(capture::response::Checkpoint { state }) = response.checkpoint {
             let proto_flow::runtime::capture_response_ext::Checkpoint { stats, .. } =
                 internal.checkpoint.unwrap_or_default();
+
+            let collection = "connectorState";
+            let state_json = state.as_ref().map(|s| serde_json::to_string(s)).transpose()?.unwrap_or("{}".to_string());
+
+            if output_state {
+                print!("[{collection:?},{state_json}]\n");
+            }
             tracing::debug!(stats=?ops::DebugJson(stats), state=?ops::DebugJson(state), "checkpoint");
         }
     }
@@ -293,6 +311,7 @@ async fn preview_derivation<L: runtime::LogHandler>(
     state: models::RawValue,
     state_dir: &std::path::Path,
     timeout: std::time::Duration,
+    output_state: bool,
 ) -> anyhow::Result<()> {
     let responses_rx =
         runtime::harness::run_derive(reader, runtime, sessions, &spec, state, state_dir, timeout);
@@ -318,6 +337,11 @@ async fn preview_derivation<L: runtime::LogHandler>(
                 internal.flushed.unwrap_or_default();
             tracing::debug!(stats=?ops::DebugJson(stats), "flushed");
         } else if let Some(derive::response::StartedCommit { state }) = response.started_commit {
+            let collection = "connectorState";
+            let state_json = state.as_ref().map(|s| serde_json::to_string(s)).transpose()?.unwrap_or("{}".to_string());
+            if output_state {
+                print!("[{collection:?},{state_json}]\n");
+            }
             tracing::debug!(state=?ops::DebugJson(state), "started commit");
         }
     }
@@ -333,6 +357,7 @@ async fn preview_materialization<L: runtime::LogHandler>(
     state: models::RawValue,
     state_dir: &std::path::Path,
     timeout: std::time::Duration,
+    output_state: bool,
 ) -> anyhow::Result<()> {
     let responses_rx = runtime::harness::run_materialize(
         reader, runtime, sessions, &spec, state, state_dir, timeout,
@@ -350,6 +375,11 @@ async fn preview_materialization<L: runtime::LogHandler>(
             tracing::debug!(stats=?ops::DebugJson(stats), "flushed");
         } else if let Some(materialize::response::StartedCommit { state }) = response.started_commit
         {
+            let collection = "connectorState";
+            let state_json = state.as_ref().map(|s| serde_json::to_string(s)).transpose()?.unwrap_or("{}".to_string());
+            if output_state {
+                print!("[{collection:?},{state_json}]\n");
+            }
             tracing::debug!(state=?ops::DebugJson(state), "started commit");
         }
     }

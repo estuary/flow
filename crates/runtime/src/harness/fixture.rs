@@ -31,7 +31,15 @@ impl super::Reader for Reader {
                     (index, doc::Pointer::from_str(&collection.uuid_ptr)),
                 )
             })
-            .collect();
+            .fold(HashMap::<String, Vec<(usize, doc::Pointer)>>::new(), |mut acc, item| {
+                if let Some(existing) = acc.get_mut(&item.0) {
+                    existing.push(item.1);
+                } else {
+                    acc.insert(item.0, vec![item.1]);
+                }
+
+                acc
+            });
 
         self.start(index, resume)
     }
@@ -52,7 +60,15 @@ impl super::Reader for Reader {
                     (index, doc::Pointer::from_str(&collection.uuid_ptr)),
                 )
             })
-            .collect();
+            .fold(HashMap::<String, Vec<(usize, doc::Pointer)>>::new(), |mut acc, item| {
+                if let Some(existing) = acc.get_mut(&item.0) {
+                    existing.push(item.1);
+                } else {
+                    acc.insert(item.0, vec![item.1]);
+                }
+
+                acc
+            });
 
         self.start(index, resume)
     }
@@ -61,7 +77,7 @@ impl super::Reader for Reader {
 impl Reader {
     fn start(
         self,
-        index: HashMap<String, (usize, doc::Pointer)>,
+        index: HashMap<String, Vec<(usize, doc::Pointer)>>,
         resume: consumer::Checkpoint,
     ) -> BoxStream<'static, anyhow::Result<Read>> {
         let skip = resume
@@ -76,28 +92,30 @@ impl Reader {
         coroutines::coroutine(move |mut co| async move {
             for (txn, docs) in self.0.into_iter().enumerate().skip(skip) {
                 for (offset, (collection, mut doc)) in docs.into_iter().enumerate() {
-                    let Some((binding, ptr)) = index.get(collection.as_str()) else {
+                    let Some(bindings) = index.get(collection.as_str()) else {
                         continue;
                     };
 
-                    // Add a UUID fixture with a synthetic publication time.
-                    let seconds = 3600 * txn + offset; // Synthetic timestamp of the document.
-                    let uuid = crate::uuid::build(
-                        producer,
-                        crate::uuid::Clock::from_unix(seconds as u64, 0),
-                        crate::uuid::Flags(0),
-                    );
+                    for (binding, ptr) in bindings {
+                        // Add a UUID fixture with a synthetic publication time.
+                        let seconds = 3600 * txn + offset; // Synthetic timestamp of the document.
+                        let uuid = crate::uuid::build_uuid(
+                            producer,
+                            crate::uuid::Clock::from_unix(seconds as u64, 0),
+                            crate::uuid::Flags(0),
+                        );
 
-                    *ptr.create_value(&mut doc)
-                        .expect("able to create fixture UUID") =
-                        serde_json::json!(uuid.as_hyphenated());
+                        *ptr.create_value(&mut doc)
+                            .expect("able to create fixture UUID") =
+                            serde_json::json!(uuid.as_hyphenated());
 
-                    () = co
-                        .yield_(Ok(Read::Document {
-                            binding: *binding as u32,
-                            doc: doc.to_string().into(),
-                        }))
-                        .await;
+                        () = co
+                            .yield_(Ok(Read::Document {
+                                binding: *binding as u32,
+                                doc: doc.to_string().into(),
+                            }))
+                            .await;
+                    }
                 }
 
                 // Yield a synthetic Checkpoint which embeds the transaction offset.
