@@ -1,4 +1,4 @@
-# How to transform data using SQL<a id="how-to-transform-data-using-sql"></a>
+# How to transform data using SQL
 
 This guide will teach you how to write and publish a simple SQL derivation that you can use to transform data from one collection to another.
 
@@ -237,7 +237,7 @@ flowctl catalog publish --source flow.yaml
 
 After successfully publishing your derivation, head over to the Collections page on the Web UI and you will be able to see your derivation in action!
 
-![Verifiy derivation on Web UI](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Screenshot_2024_05_09_at_17_04_08_7aa8dc036d/Screenshot_2024_05_09_at_17_04_08_7aa8dc036d.png)
+![Verifying derivation on Web UI](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Screenshot_2024_05_09_at_17_04_08_7aa8dc036d/Screenshot_2024_05_09_at_17_04_08_7aa8dc036d.png)
 
 
 ## Wrapping up<a id="wrapping-up"></a>
