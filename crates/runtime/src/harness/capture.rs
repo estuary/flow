@@ -20,6 +20,7 @@ pub fn run_capture<L: LogHandler>(
     mut state: models::RawValue,
     state_dir: &std::path::Path,
     timeout: std::time::Duration,
+    output_apply: bool,
 ) -> impl ResponseStream {
     let spec = spec.clone();
     let state_dir = state_dir.to_owned();
@@ -49,6 +50,7 @@ pub fn run_capture<L: LogHandler>(
                 &mut state,
                 target_transactions,
                 timeout,
+                output_apply,
             )
             .await?;
         }
@@ -95,6 +97,7 @@ async fn run_session(
     state: &mut models::RawValue,
     target_transactions: usize,
     timeout: std::time::Duration,
+    output_apply: bool,
 ) -> anyhow::Result<()> {
     let labeling = crate::parse_shard_labeling(spec.shard_template.as_ref())?;
 
@@ -119,6 +122,9 @@ async fn run_session(
     // Receive Applied.
     match response_rx.try_next().await? {
         Some(applied) if applied.applied.is_some() => {
+            if output_apply {
+                print!("[\"applied.actionDescription\", {:?}]\n", applied.applied.as_ref().unwrap().action_description);
+            }
             () = co.yield_(applied).await;
         }
         response => return verify("runtime", "Applied").fail(response),
