@@ -80,7 +80,7 @@ async fn validate(
 
     let (sources, mut validations) = build::validate(
         true, // Allow local connectors.
-        "local-build",
+        "localbuild",
         network,
         &Resolver { client },
         false, // Don't generate ops collections.
