@@ -192,6 +192,7 @@ mod test {
         assert_eq!(from("1234"), Unsigned(1234));
         assert_eq!(from("-1234"), Signed(-1234));
         assert_eq!(from("12.34"), Float(12.34));
+        assert_eq!(from("18446744073709551615"), Unsigned(18446744073709551615));
 
         // Signed / unsigned integer conversions always succeed.
         expect_eq(Unsigned(1234), 1234 as u64);
