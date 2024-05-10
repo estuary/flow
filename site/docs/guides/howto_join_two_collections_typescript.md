@@ -162,6 +162,8 @@ There are two `merge` strategies defined here, one for the `customers_with_order
 
 For the nested merge, you have to define a key, which is one or more JSON pointers that are relative to the reduced location. If both sides are arrays and a merge key is present, then a deep sorted merge of the respective items is done, as ordered by the key. In this case, setting it to `order_id` will cause the reduction to collect all orders for a given customer.
 
+The items in the nested array of orders are defined by the schema in a separate file, to which we refer to using `$ref: orders.schema.yaml`.
+
 The derivation details are defined in the next section of the yaml:
 
 ```yaml
@@ -185,6 +187,10 @@ The derivation details are defined in the next section of the yaml:
 ```
 
 This tells flow that the transformation code is defined in a TypeScript file called `full-outer-join.flow.ts` (which doesn’t exist – yet!) and that there are in fact two transformations that it expects, one for each source collection.
+
+Shuffles let Flow identify the shard that should process a particular source document, in order to co-locate that processing with other documents it may need to know about.
+
+Both transformations shuffle data on the same key. An important detail is that if a derivation has more than one transformation, the shuffle keys of all transformations must align with one another in terms of the extracted key types (string vs integer) as well as the number of components in a composite key.
 
 Let’s generate the scaffolding for the derivation using `flowctl`.
 
