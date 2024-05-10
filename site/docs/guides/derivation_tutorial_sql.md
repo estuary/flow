@@ -14,10 +14,13 @@ In order to implement transformations through [derivations](https://docs.estuary
 
 Before continuing, sign in to the Estuary Flow dashboard, make sure you enable access to the Wikipedia demo. Using `flowtcl`, quickly verify you are able to view the demo collections used in this guide.
 
-Execute the below command to display the documents in the `demo/wikipedia/recentchange` collection:
+Execute the below command to display the documents in the `demo/wikipedia/recentchange-sampled` collection:
+
+::note This collection is a 3% sample of the enormous `demo/wikipedia/recentchange` collection which contains millions of documents. Since the purpose of this tutorial is to demonstrate a proof of concept, we avoid publishing a derivation that processes hundreds of gigabytes of data.
+:::
 
 ```shell
-flowctl collections read --collection demo/wikipedia/recentchange --uncommitted
+flowctl collections read --collection demo/wikipedia/recentchange-sampled --uncommitted
 ```
 
 If you see a stream of JSON documents on your terminal, you’re all good - feel free to cancel the process by pressing `C^C`.
@@ -115,7 +118,7 @@ collections:
         sqlite: {}
       transforms:
         - name: edits_by_users
-          source: demo/wikipedia/recentchange
+          source: demo/wikipedia/recentchange-sampled
           shuffle: any
           lambda: |
             select
@@ -183,7 +186,7 @@ derive:
     sqlite: {}
   transforms:
     - name: edits_by_users
-      source: demo/wikipedia/recentchange
+      source: demo/wikipedia/recentchange-sampled
       shuffle: any
       lambda: |
         select
@@ -196,7 +199,7 @@ derive:
 
 Here you define the SQL statement that gets executed on the documents of the source collection.
 
-The `source: demo/wikipedia/recentchange` property lets Flow know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Flow how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any available compute.
+The `source: demo/wikipedia/recentchange-sampled` property lets Flow know that the source collection is the demo collection from mentioned at in the beginning of the tutorial while `shuffle` tells Flow how to colocate documents while processing, which in this case is set to `any`, meaning source documents can be processed by any available compute.
 
 The SQL is straightforward
 
