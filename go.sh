@@ -7,6 +7,7 @@ if [ "$(uname)" == "Darwin" ]; then
   export CGO_CFLAGS="-I $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE}/librocksdb-exp/include -I $(brew --prefix)/include -I $(brew --prefix)/opt/sqlite3/include"
   export CC="$(brew --prefix)/opt/llvm/bin/clang"
   export CXX="$(brew --prefix)/opt/llvm/bin/clang"
+  export CGO_LDFLAGS="${CGO_LDFLAGS} -framework SystemConfiguration"
 else
   export CGO_CFLAGS="-I $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE}/librocksdb-exp/include"
 fi;
