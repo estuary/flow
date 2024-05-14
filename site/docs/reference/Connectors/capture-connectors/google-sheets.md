@@ -38,7 +38,7 @@ spreadsheet:
       1. If a Sheet is empty, the connector will not break and wait for changes
   inside the Sheet. When new data arrives, you will be prompted by flow to allow
   for schema changes.
-4. Sheet does not contain `formulaValue` or `boolValue` inside any cell.
+4. Sheet does not contain `formulaValue` inside any cell.
 
 ### Configuring the connector specification manually
 
