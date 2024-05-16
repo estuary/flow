@@ -1,0 +1,112 @@
+
+test://example/catalog.yaml:
+  collections:
+    the/collection:
+      key: [/f_one]
+      schema:
+        type: object
+        properties:
+            f_one: {type: integer}
+            f_two: {type: string}
+        required: [f_one, f_two]
+      expectPubId: "10:10:10:10:10:10:10:10"
+
+    the/derivation:
+      key: [/d_one]
+      schema:
+        type: object
+        properties:
+            d_one: {type: integer}
+            d_two: {type: string}
+        required: [d_one, d_two]
+      derive:
+        using:
+          sqlite: {}
+        transforms:
+          - name: fromCollection
+            source: { name: the/collection }
+            shuffle: { key: [/f_two] }
+            lambda: |
+              select 123 as d_one, 'hello' as d_two;
+      expectPubId: "10:10:10:10:10:10:10:10"
+
+  captures:
+    the/capture:
+      endpoint:
+        connector:
+          image: an/image
+          config: {a: config}
+      bindings:
+        - target: the/collection
+          resource: { table: foo }
+      expectPubId: "10:10:10:10:10:10:10:10"
+
+  materializations:
+    the/materialization:
+      endpoint:
+        connector:
+          image: other/image
+          config: {a: config}
+      bindings:
+        - source: the/collection
+          resource: { table: bar }
+      expectPubId: "10:10:10:10:10:10:10:10"
+
+  tests:
+    the/test:
+      steps:
+      - ingest:
+          collection: the/collection
+          documents: [{ f_one: 42, f_two: "a string" }]
+      expectPubId: "10:10:10:10:10:10:10:10"
+
+driver:
+  liveCaptures:
+    the/capture:
+      lastPubId: "10:10:10:10:10:10:10:10"
+
+  liveCollections:
+    the/collection:
+      key: [/f_one]
+      lastPubId: "10:10:10:10:10:10:10:10"
+      derivation: false
+    the/derivation:
+      key: [/d_one]
+      lastPubId: "10:10:10:10:10:10:10:10"
+      derivation: true
+
+  liveMaterializations:
+    the/materialization:
+      lastPubId: "10:10:10:10:10:10:10:10"
+
+  liveTests:
+    the/test:
+      lastPubId: "10:10:10:10:10:10:10:10"
+
+  captures:
+    the/capture:
+      connectorType: IMAGE
+      config:
+        image: an/image
+        config: {a: config}
+      bindings: [{resourcePath: [capture, path]}]
+
+  derivations:
+    the/derivation:
+      connectorType: SQLITE
+      config: {}
+      shuffleKeyTypes: [STRING]
+      transforms: [{readOnly: true}]
+
+  materializations:
+    the/materialization:
+      connectorType: IMAGE
+      config:
+        image: other/image
+        config: {a: config}
+      bindings:
+        - constraints:
+            flow_document: { type: 2, reason: "location required" }
+            f_one: { type: 3, reason: "recommended" }
+            f_two: { type: 1, reason: "field required" }
+          resourcePath: [table, path]

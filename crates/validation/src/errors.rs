@@ -38,8 +38,6 @@ pub enum Error {
         suggest_name: String,
         suggest_scope: Url,
     },
-    #[error("at least one storage mapping must be defined")]
-    NoStorageMappings {},
     /// This comes from a validation that ensures users cannot specify the `endpoint` property of a Store that pertains
     /// to the 'default/' prefix. This is because the prefix is used to look up the AWS credentials for each store that
     /// uses a custom endpoint, but the 'default' profile is always used for Flow's own credentials. Therefore, allowing
@@ -191,6 +189,25 @@ pub enum Error {
     SchemaShape(#[from] doc::shape::inspections::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
+
+    #[error("current publication ID {pub_id} has been superseded by a larger publication ID {larger_id}; please retry the operation")]
+    PublicationSuperseded {
+        pub_id: models::Id,
+        larger_id: models::Id,
+    },
+    #[error("expected publication ID {expect_id} was not matched (it's actually {actual_id})")]
+    ExpectPubIdNotMatched {
+        expect_id: models::Id,
+        actual_id: models::Id,
+    },
+    #[error("drafted deletion references a specification that does not exist")]
+    DeletedSpecDoesNotExist,
+    #[error("deleted {ref_entity} {ref_name} is still referenced by {this_entity}")]
+    DeletedSpecStillInUse {
+        this_entity: String,
+        ref_entity: &'static str,
+        ref_name: String,
+    },
 }
 
 impl Error {

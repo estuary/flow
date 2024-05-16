@@ -4,14 +4,6 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/captures#/captures/testing,
-        error: capture testing is a prohibited prefix of capture testing/SoMe-source, defined at test://example/captures#/captures/testing~1SoMe-source,
-    },
-    Error {
-        scope: test://example/captures#/captures/testing~1SoMe-source,
-        error: capture testing/SoMe-source collides with capture testing/some-source, defined at test://example/captures#/captures/testing~1some-source,
-    },
-    Error {
         scope: test://example/captures#/captures/~1bad~1name,
         error: /bad/name cannot be used as name for capture ("/" is invalid),
     },
@@ -32,19 +24,11 @@ expression: errors
         error: bad/name/ cannot be used as name for capture ("/" is invalid),
     },
     Error {
-        scope: test://example/captures#/captures/good,
-        error: driver fixture not found: good,
-    },
-    Error {
         scope: test://example/captures#/captures/testing,
-        error: driver fixture not found: testing,
+        error: capture testing is a prohibited prefix of capture testing/SoMe-source, defined at test://example/captures#/captures/testing~1SoMe-source,
     },
     Error {
         scope: test://example/captures#/captures/testing~1SoMe-source,
-        error: driver fixture not found: testing/SoMe-source,
-    },
-    Error {
-        scope: test://example/captures#/captures/testing~1some-source,
-        error: driver fixture not found: testing/some-source,
+        error: capture testing/SoMe-source collides with capture testing/some-source, defined at test://example/captures#/captures/testing~1some-source,
     },
 ]

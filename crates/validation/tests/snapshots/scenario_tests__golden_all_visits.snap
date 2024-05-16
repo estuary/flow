@@ -1,12 +1,32 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-expression: tables
+expression: outcome
 ---
-All {
+Outcome {
     built_captures: [
         BuiltCapture {
-            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
             capture: testing/db-cdc,
+            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "database",
+                  "config": {"host":"a.host.name","user":"a-user"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"namespace":"and namespace","stream":"other-stream"},
+                  "target": "testing/int-string",
+                  "backfill": 3
+                }
+              ],
+              "shards": {
+                "minTxnDuration": "10s",
+                "hotStandbys": 1
+              }
+            },
             validated: Validated {
                 bindings: [
                     Binding {
@@ -199,7 +219,7 @@ All {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "testing/int-string",
+                                        name: "testing/int-string/2020202020202020",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -214,7 +234,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "a-build-id",
+                                                        value: "01:01:01:01:01:01:01:01",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -255,7 +275,7 @@ All {
                 interval_seconds: 300,
                 shard_template: Some(
                     ShardSpec {
-                        id: "capture/testing/db-cdc",
+                        id: "capture/testing/db-cdc/2020202020202020",
                         sources: [],
                         recovery_log_prefix: "recovery",
                         hint_prefix: "/estuary/flow/hints",
@@ -283,7 +303,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
@@ -327,7 +347,7 @@ All {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "recovery/capture/testing/db-cdc",
+                        name: "recovery/capture/testing/db-cdc/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -342,7 +362,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -390,10 +410,31 @@ All {
                     },
                 ],
             },
+            previous_spec: NULL,
         },
         BuiltCapture {
-            scope: test://example/int-string-captures#/captures/testing~1s3-source,
             capture: testing/s3-source,
+            scope: test://example/int-string-captures#/captures/testing~1s3-source,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {"bucket":"a-bucket","prefix":"and-prefix"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"a-stream"},
+                  "target": "testing/int-string"
+                },
+                {
+                  "resource": {"stream":"v2-stream"},
+                  "target": "testing/int-string.v2"
+                }
+              ],
+              "interval": "10m"
+            },
             validated: Validated {
                 bindings: [
                     Binding {
@@ -591,7 +632,7 @@ All {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "testing/int-string",
+                                        name: "testing/int-string/2020202020202020",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -606,7 +647,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "a-build-id",
+                                                        value: "01:01:01:01:01:01:01:01",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -797,7 +838,7 @@ All {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "testing/int-string.v2",
+                                        name: "testing/int-string.v2/2020202020202020",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -812,7 +853,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "a-build-id",
+                                                        value: "01:01:01:01:01:01:01:01",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -853,7 +894,7 @@ All {
                 interval_seconds: 600,
                 shard_template: Some(
                     ShardSpec {
-                        id: "capture/testing/s3-source",
+                        id: "capture/testing/s3-source/2020202020202020",
                         sources: [],
                         recovery_log_prefix: "recovery",
                         hint_prefix: "/estuary/flow/hints",
@@ -881,7 +922,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
@@ -925,7 +966,7 @@ All {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "recovery/capture/testing/s3-source",
+                        name: "recovery/capture/testing/s3-source/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -940,7 +981,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -988,12 +1029,23 @@ All {
                     },
                 ],
             },
+            previous_spec: NULL,
         },
     ],
     built_collections: [
         BuiltCollection {
-            scope: test://example/array-key#/collections/testing~1array-key,
             collection: testing/array-key,
+            scope: test://example/array-key#/collections/testing~1array-key,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$id":"test://example/array-key.schema","properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
+              "key": [
+                "/arr/0/aKey"
+              ],
+              "projections": {
+                "aKeyOne": "/arr/1/aKey"
+              }
+            },
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/array-key",
@@ -1136,7 +1188,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/array-key",
+                        name: "testing/array-key/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -1151,7 +1203,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -1184,11 +1236,54 @@ All {
                 ),
                 derivation: None,
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/from-array-key#/collections/testing~1from-array-key,
             collection: testing/from-array-key,
+            scope: test://example/from-array-key#/collections/testing~1from-array-key,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$id":"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema","properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
+              "key": [
+                "/someKey"
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {
+                    "migrations": [
+                      "select migration;",
+                      "test://example/mi%C3%9F%C3%9Fing/migration.sql"
+                    ]
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "withBar",
+                    "source": {
+                      "name": "testing/array-key"
+                    },
+                    "shuffle": {
+                      "key": [
+                        "/arr/2/aKey"
+                      ]
+                    },
+                    "lambda": "select aKeyOne as \"an-int\", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source;\n"
+                  },
+                  {
+                    "name": "withFoo",
+                    "source": {
+                      "name": "testing/array-key"
+                    },
+                    "shuffle": {
+                      "key": [
+                        "/arr/3/aKey"
+                      ]
+                    },
+                    "lambda": "select s.aKeyOne, s.arr, s.\"arr/0/aKey\", r.\"an-int\", r.\"nested/timestamp\" from source as s, register as r;\n"
+                  }
+                ]
+              }
+            },
             validated: Validated {
                 transforms: [
                     Transform {
@@ -1303,7 +1398,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/from-array-key",
+                        name: "testing/from-array-key/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -1318,7 +1413,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -1498,7 +1593,7 @@ All {
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                         partition_template: Some(
                                             JournalSpec {
-                                                name: "testing/array-key",
+                                                name: "testing/array-key/2020202020202020",
                                                 replication: 3,
                                                 labels: Some(
                                                     LabelSet {
@@ -1513,7 +1608,7 @@ All {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "a-build-id",
+                                                                value: "01:01:01:01:01:01:01:01",
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
@@ -1723,7 +1818,7 @@ All {
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                         partition_template: Some(
                                             JournalSpec {
-                                                name: "testing/array-key",
+                                                name: "testing/array-key/2020202020202020",
                                                 replication: 3,
                                                 labels: Some(
                                                     LabelSet {
@@ -1738,7 +1833,7 @@ All {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "a-build-id",
+                                                                value: "01:01:01:01:01:01:01:01",
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
@@ -1810,7 +1905,7 @@ All {
                         ],
                         shard_template: Some(
                             ShardSpec {
-                                id: "derivation/testing/from-array-key",
+                                id: "derivation/testing/from-array-key/2020202020202020",
                                 sources: [],
                                 recovery_log_prefix: "recovery",
                                 hint_prefix: "/estuary/flow/hints",
@@ -1838,7 +1933,7 @@ All {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "a-build-id",
+                                                value: "01:01:01:01:01:01:01:01",
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
@@ -1862,7 +1957,7 @@ All {
                         ),
                         recovery_log_template: Some(
                             JournalSpec {
-                                name: "recovery/derivation/testing/from-array-key",
+                                name: "recovery/derivation/testing/from-array-key/2020202020202020",
                                 replication: 3,
                                 labels: Some(
                                     LabelSet {
@@ -1877,7 +1972,7 @@ All {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "a-build-id",
+                                                value: "01:01:01:01:01:01:01:01",
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
@@ -1916,11 +2011,83 @@ All {
                     },
                 ),
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
             collection: testing/int-halve,
+            scope: test://example/int-halve#/collections/testing~1int-halve,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
+              "key": [
+                "/int"
+              ],
+              "projections": {
+                "Extra": "/extra",
+                "Len": {
+                  "location": "/len",
+                  "partition": true
+                },
+                "Root": "",
+                "TheString": {
+                  "location": "/partitionString",
+                  "partition": true
+                }
+              },
+              "journals": {
+                "fragments": {
+                  "length": 11223344,
+                  "flushInterval": "15m"
+                }
+              },
+              "derive": {
+                "using": {
+                  "typescript": {
+                    "module": "another typescript placeholder\n"
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "halveIntString",
+                    "source": {
+                      "name": "testing/int-string-rw",
+                      "partitions": {
+                        "include": {
+                          "bit": [
+                            true
+                          ]
+                        },
+                        "exclude": {
+                          "bit": [
+                            false
+                          ]
+                        }
+                      },
+                      "notAfter": "2019-03-06T09:30:02Z"
+                    },
+                    "shuffle": {
+                      "key": [
+                        "/len",
+                        "/str"
+                      ]
+                    }
+                  },
+                  {
+                    "name": "halveSelf",
+                    "source": {
+                      "name": "testing/int-halve"
+                    },
+                    "shuffle": {
+                      "key": [
+                        "/len",
+                        "/partitionString"
+                      ]
+                    },
+                    "backfill": 4
+                  }
+                ]
+              }
+            },
             validated: Validated {
                 transforms: [
                     Transform {
@@ -2217,7 +2384,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-halve",
+                        name: "testing/int-halve/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -2232,7 +2399,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -2560,7 +2727,7 @@ All {
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                         partition_template: Some(
                                             JournalSpec {
-                                                name: "testing/int-string-rw",
+                                                name: "testing/int-string-rw/2020202020202020",
                                                 replication: 3,
                                                 labels: Some(
                                                     LabelSet {
@@ -2575,7 +2742,7 @@ All {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "a-build-id",
+                                                                value: "01:01:01:01:01:01:01:01",
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
@@ -2944,7 +3111,7 @@ All {
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                         partition_template: Some(
                                             JournalSpec {
-                                                name: "testing/int-halve",
+                                                name: "testing/int-halve/2020202020202020",
                                                 replication: 3,
                                                 labels: Some(
                                                     LabelSet {
@@ -2959,7 +3126,7 @@ All {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "a-build-id",
+                                                                value: "01:01:01:01:01:01:01:01",
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
@@ -3038,7 +3205,7 @@ All {
                         ],
                         shard_template: Some(
                             ShardSpec {
-                                id: "derivation/testing/int-halve",
+                                id: "derivation/testing/int-halve/2020202020202020",
                                 sources: [],
                                 recovery_log_prefix: "recovery",
                                 hint_prefix: "/estuary/flow/hints",
@@ -3055,7 +3222,7 @@ All {
                                         nanos: 0,
                                     },
                                 ),
-                                disable: true,
+                                disable: false,
                                 hot_standbys: 0,
                                 labels: Some(
                                     LabelSet {
@@ -3066,7 +3233,7 @@ All {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "a-build-id",
+                                                value: "01:01:01:01:01:01:01:01",
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
@@ -3090,7 +3257,7 @@ All {
                         ),
                         recovery_log_template: Some(
                             JournalSpec {
-                                name: "recovery/derivation/testing/int-halve",
+                                name: "recovery/derivation/testing/int-halve/2020202020202020",
                                 replication: 3,
                                 labels: Some(
                                     LabelSet {
@@ -3105,7 +3272,7 @@ All {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "a-build-id",
+                                                value: "01:01:01:01:01:01:01:01",
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
@@ -3144,11 +3311,37 @@ All {
                     },
                 ),
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
             collection: testing/int-reverse,
+            scope: test://example/int-reverse#/collections/testing~1int-reverse,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+              "key": [
+                "/int"
+              ],
+              "projections": {
+                "flow_published_custom": "/_meta/uuid/date-time"
+              },
+              "derive": {
+                "using": {
+                  "typescript": {
+                    "module": "typescript module placeholder"
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "reverseIntString",
+                    "source": {
+                      "name": "testing/int-string"
+                    },
+                    "shuffle": "any"
+                  }
+                ]
+              }
+            },
             validated: Validated {
                 transforms: [
                     Transform {
@@ -3305,7 +3498,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-reverse",
+                        name: "testing/int-reverse/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -3320,7 +3513,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -3529,7 +3722,7 @@ All {
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                         partition_template: Some(
                                             JournalSpec {
-                                                name: "testing/int-string",
+                                                name: "testing/int-string/2020202020202020",
                                                 replication: 3,
                                                 labels: Some(
                                                     LabelSet {
@@ -3544,7 +3737,7 @@ All {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "a-build-id",
+                                                                value: "01:01:01:01:01:01:01:01",
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
@@ -3612,7 +3805,7 @@ All {
                         shuffle_key_types: [],
                         shard_template: Some(
                             ShardSpec {
-                                id: "derivation/testing/int-reverse",
+                                id: "derivation/testing/int-reverse/2020202020202020",
                                 sources: [],
                                 recovery_log_prefix: "recovery",
                                 hint_prefix: "/estuary/flow/hints",
@@ -3640,7 +3833,7 @@ All {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "a-build-id",
+                                                value: "01:01:01:01:01:01:01:01",
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
@@ -3664,7 +3857,7 @@ All {
                         ),
                         recovery_log_template: Some(
                             JournalSpec {
-                                name: "recovery/derivation/testing/int-reverse",
+                                name: "recovery/derivation/testing/int-reverse/2020202020202020",
                                 replication: 3,
                                 labels: Some(
                                     LabelSet {
@@ -3679,7 +3872,7 @@ All {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "a-build-id",
+                                                value: "01:01:01:01:01:01:01:01",
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
@@ -3718,11 +3911,25 @@ All {
                     },
                 ),
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/int-string#/collections/testing~1int-string,
             collection: testing/int-string,
+            scope: test://example/int-string#/collections/testing~1int-string,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+              "key": [
+                "/int"
+              ],
+              "projections": {
+                "Int": "/int",
+                "bit": {
+                  "location": "/bit",
+                  "partition": true
+                }
+              }
+            },
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string",
@@ -3894,7 +4101,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-string",
+                        name: "testing/int-string/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -3909,7 +4116,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -3942,11 +4149,19 @@ All {
                 ),
                 derivation: None,
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/int-string#/collections/testing~1int-string-inferred,
             collection: testing/int-string-inferred,
+            scope: test://example/int-string#/collections/testing~1int-string-inferred,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+              "key": [
+                "/int"
+              ]
+            },
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-inferred",
@@ -4116,7 +4331,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-string-inferred",
+                        name: "testing/int-string-inferred/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -4131,7 +4346,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -4164,11 +4379,19 @@ All {
                 ),
                 derivation: None,
             },
-            inferred_schema_md5: mock md5,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
             collection: testing/int-string-inferred-not-found,
+            scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+              "key": [
+                "/int"
+              ]
+            },
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-inferred-not-found",
@@ -4370,7 +4593,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-string-inferred-not-found",
+                        name: "testing/int-string-inferred-not-found/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -4385,7 +4608,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -4418,11 +4641,28 @@ All {
                 ),
                 derivation: None,
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/int-string#/collections/testing~1int-string-rw,
             collection: testing/int-string-rw,
+            scope: test://example/int-string#/collections/testing~1int-string-rw,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
+              "readSchema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
+              "key": [
+                "/int"
+              ],
+              "projections": {
+                "Int": "/int",
+                "Len": "/len",
+                "Str": "/str",
+                "bit": {
+                  "location": "/bit",
+                  "partition": true
+                }
+              }
+            },
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-rw",
@@ -4708,7 +4948,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-string-rw",
+                        name: "testing/int-string-rw/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -4723,7 +4963,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -4756,11 +4996,23 @@ All {
                 ),
                 derivation: None,
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
         BuiltCollection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
             collection: testing/int-string.v2,
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"}},"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
+              "key": [
+                "/int"
+              ],
+              "journals": {
+                "fragments": {
+                  "compressionCodec": "ZSTANDARD"
+                }
+              }
+            },
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string.v2",
@@ -4910,7 +5162,7 @@ All {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-string.v2",
+                        name: "testing/int-string.v2/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -4925,7 +5177,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -4958,13 +5210,35 @@ All {
                 ),
                 derivation: None,
             },
-            inferred_schema_md5: NULL,
+            previous_spec: NULL,
         },
     ],
     built_materializations: [
         BuiltMaterialization {
-            scope: test://example/db-views#/materializations/testing~1db-views,
             materialization: testing/db-views,
+            scope: test://example/db-views#/materializations/testing~1db-views,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "database/image",
+                  "config": {"foo":"bar"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"the_table"},
+                  "source": "testing/int-string",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ],
+              "shards": {
+                "maxTxnDuration": "2m 3s",
+                "logLevel": "warn"
+              }
+            },
             validated: Validated {
                 bindings: [
                     Binding {
@@ -5162,7 +5436,7 @@ All {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "testing/int-string",
+                                        name: "testing/int-string/2020202020202020",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -5177,7 +5451,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "a-build-id",
+                                                        value: "01:01:01:01:01:01:01:01",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -5250,7 +5524,7 @@ All {
                 ],
                 shard_template: Some(
                     ShardSpec {
-                        id: "materialize/testing/db-views",
+                        id: "materialize/testing/db-views/2020202020202020",
                         sources: [],
                         recovery_log_prefix: "recovery",
                         hint_prefix: "/estuary/flow/hints",
@@ -5278,7 +5552,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
@@ -5302,7 +5576,7 @@ All {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "recovery/materialize/testing/db-views",
+                        name: "recovery/materialize/testing/db-views/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -5317,7 +5591,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -5354,10 +5628,58 @@ All {
                 ),
                 network_ports: [],
             },
+            previous_spec: NULL,
         },
         BuiltMaterialization {
-            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
             materialization: testing/webhook/deliveries,
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "webhook/connector",
+                  "config": {"address":"http://example/webhook"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"fixture":"one"},
+                  "source": {
+                    "name": "testing/int-string",
+                    "partitions": {
+                      "include": {
+                        "bit": [
+                          true
+                        ]
+                      },
+                      "exclude": {}
+                    },
+                    "notBefore": "2017-03-03T03:02:01Z"
+                  },
+                  "fields": {
+                    "include": {
+                      "str": {"pass":"through"}
+                    },
+                    "exclude": [
+                      "bit"
+                    ],
+                    "recommended": true
+                  }
+                },
+                {
+                  "resource": {"fixture":"two"},
+                  "source": "testing/int-halve",
+                  "priority": 3,
+                  "fields": {
+                    "include": {
+                      "Len": {}
+                    },
+                    "recommended": false
+                  },
+                  "backfill": 7
+                }
+              ]
+            },
             validated: Validated {
                 bindings: [
                     Binding {
@@ -5598,7 +5920,7 @@ All {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "testing/int-string",
+                                        name: "testing/int-string/2020202020202020",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -5613,7 +5935,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "a-build-id",
+                                                        value: "01:01:01:01:01:01:01:01",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -5990,7 +6312,7 @@ All {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "testing/int-halve",
+                                        name: "testing/int-halve/2020202020202020",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -6005,7 +6327,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "a-build-id",
+                                                        value: "01:01:01:01:01:01:01:01",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -6090,7 +6412,7 @@ All {
                 ],
                 shard_template: Some(
                     ShardSpec {
-                        id: "materialize/testing/webhook/deliveries",
+                        id: "materialize/testing/webhook/deliveries/2020202020202020",
                         sources: [],
                         recovery_log_prefix: "recovery",
                         hint_prefix: "/estuary/flow/hints",
@@ -6118,7 +6440,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
@@ -6162,7 +6484,7 @@ All {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "recovery/materialize/testing/webhook/deliveries",
+                        name: "recovery/materialize/testing/webhook/deliveries/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -6177,7 +6499,7 @@ All {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "a-build-id",
+                                        value: "01:01:01:01:01:01:01:01",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -6225,12 +6547,41 @@ All {
                     },
                 ],
             },
+            previous_spec: NULL,
         },
     ],
     built_tests: [
         BuiltTest {
-            scope: test://example/int-string-tests#/tests/testing~1test,
             test: testing/test,
+            scope: test://example/int-string-tests#/tests/testing~1test,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "steps": [
+                {
+                  "ingest": {
+                    "collection": "testing/int-string",
+                    "documents": [{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}]
+                  }
+                },
+                {
+                  "verify": {
+                    "description": "expect stuff happens",
+                    "collection": {
+                      "name": "testing/int-string",
+                      "partitions": {
+                        "include": {
+                          "bit": [
+                            true
+                          ]
+                        },
+                        "exclude": {}
+                      }
+                    },
+                    "documents": [{"str":"string A"},{"str":"string B"}]
+                  }
+                }
+              ]
+            },
             spec: TestSpec {
                 name: "testing/test",
                 steps: [
@@ -6300,13 +6651,15 @@ All {
                     },
                 ],
             },
+            previous_spec: NULL,
         },
     ],
     captures: [
-        Capture {
-            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+        DraftCapture {
             capture: testing/db-cdc,
-            spec: {
+            scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "database",
@@ -6326,10 +6679,11 @@ All {
               }
             },
         },
-        Capture {
-            scope: test://example/int-string-captures#/captures/testing~1s3-source,
+        DraftCapture {
             capture: testing/s3-source,
-            spec: {
+            scope: test://example/int-string-captures#/captures/testing~1s3-source,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "s3",
@@ -6351,10 +6705,11 @@ All {
         },
     ],
     collections: [
-        Collection {
-            scope: test://example/array-key#/collections/testing~1array-key,
+        DraftCollection {
             collection: testing/array-key,
-            spec: {
+            scope: test://example/array-key#/collections/testing~1array-key,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$id":"test://example/array-key.schema","properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
               "key": [
                 "/arr/0/aKey"
@@ -6364,10 +6719,11 @@ All {
               }
             },
         },
-        Collection {
-            scope: test://example/from-array-key#/collections/testing~1from-array-key,
+        DraftCollection {
             collection: testing/from-array-key,
-            spec: {
+            scope: test://example/from-array-key#/collections/testing~1from-array-key,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$id":"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema","properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
               "key": [
                 "/someKey"
@@ -6410,10 +6766,11 @@ All {
               }
             },
         },
-        Collection {
-            scope: test://example/int-halve#/collections/testing~1int-halve,
+        DraftCollection {
             collection: testing/int-halve,
-            spec: {
+            scope: test://example/int-halve#/collections/testing~1int-halve,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
               "key": [
                 "/int"
@@ -6481,17 +6838,15 @@ All {
                     },
                     "backfill": 4
                   }
-                ],
-                "shards": {
-                  "disable": true
-                }
+                ]
               }
             },
         },
-        Collection {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse,
+        DraftCollection {
             collection: testing/int-reverse,
-            spec: {
+            scope: test://example/int-reverse#/collections/testing~1int-reverse,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
                 "/int"
@@ -6517,10 +6872,11 @@ All {
               }
             },
         },
-        Collection {
-            scope: test://example/int-string#/collections/testing~1int-string,
+        DraftCollection {
             collection: testing/int-string,
-            spec: {
+            scope: test://example/int-string#/collections/testing~1int-string,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
                 "/int"
@@ -6534,10 +6890,11 @@ All {
               }
             },
         },
-        Collection {
-            scope: test://example/int-string#/collections/testing~1int-string-inferred,
+        DraftCollection {
             collection: testing/int-string-inferred,
-            spec: {
+            scope: test://example/int-string#/collections/testing~1int-string-inferred,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
               "key": [
@@ -6545,10 +6902,11 @@ All {
               ]
             },
         },
-        Collection {
-            scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
+        DraftCollection {
             collection: testing/int-string-inferred-not-found,
-            spec: {
+            scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
               "key": [
@@ -6556,10 +6914,11 @@ All {
               ]
             },
         },
-        Collection {
-            scope: test://example/int-string#/collections/testing~1int-string-rw,
+        DraftCollection {
             collection: testing/int-string-rw,
-            spec: {
+            scope: test://example/int-string#/collections/testing~1int-string-rw,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
               "key": [
@@ -6576,10 +6935,11 @@ All {
               }
             },
         },
-        Collection {
-            scope: test://example/int-string#/collections/testing~1int-string.v2,
+        DraftCollection {
             collection: testing/int-string.v2,
-            spec: {
+            scope: test://example/int-string#/collections/testing~1int-string.v2,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"}},"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
               "key": [
                 "/int"
@@ -6592,7 +6952,8 @@ All {
             },
         },
     ],
-    errors: [
+    errors: [],
+    errors_draft: [
         Error {
             scope: test://example/from-array-key#/collections/testing~1from-array-key/derive/using/sqlite/migrations/1,
             error: failed to fetch resource test://example/mi%C3%9F%C3%9Fing/migration.sql: fixture not found,
@@ -6759,10 +7120,11 @@ All {
         },
     ],
     materializations: [
-        Materialization {
-            scope: test://example/db-views#/materializations/testing~1db-views,
+        DraftMaterialization {
             materialization: testing/db-views,
-            spec: {
+            scope: test://example/db-views#/materializations/testing~1db-views,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "database/image",
@@ -6784,10 +7146,11 @@ All {
               }
             },
         },
-        Materialization {
-            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+        DraftMaterialization {
             materialization: testing/webhook/deliveries,
-            spec: {
+            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "webhook/connector",
@@ -6835,7 +7198,6 @@ All {
             },
         },
     ],
-    meta: [],
     resources: [
         Resource {
             resource: test://example/array-key,
@@ -6853,7 +7215,7 @@ All {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-reverse","test://example/int-halve","test://example/int-string-captures","test://example/webhook-deliveries","test://example/db-views","test://example/int-string-tests","test://example/array-key","test://example/from-array-key"],"storageMappings":{"not-matched/":{"stores":[{"account_tenant_id":"mozzarella","container_name":"pepperoni","prefix":"pineapple/","provider":"AZURE","storage_account_name":"pizza"}]},"recovery/testing/":{"stores":[{"bucket":"recovery-bucket","prefix":"some/","provider":"GCS"}]},"testing/":{"stores":[{"bucket":"data-bucket","provider":"S3"}]}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-reverse","test://example/int-halve","test://example/int-string-captures","test://example/webhook-deliveries","test://example/db-views","test://example/int-string-tests","test://example/array-key","test://example/from-array-key"]},
         },
         Resource {
             resource: test://example/cdc-config.yaml,
@@ -6877,7 +7239,7 @@ All {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-halve":{"derive":{"shards":{"disable":true},"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"backfill":4,"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
+            content_dom: {"collections":{"testing/int-halve":{"derive":{"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"backfill":4,"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,
@@ -6942,8 +7304,8 @@ All {
     ],
     storage_mappings: [
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/not-matched~1,
-            prefix: not-matched/,
+            catalog_prefix: not-matched/,
+            scope: flow://control/storage-mapping/not-matched/,
             stores: [
               {
                 "provider": "AZURE",
@@ -6955,8 +7317,8 @@ All {
             ],
         },
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/recovery~1testing~1,
-            prefix: recovery/testing/,
+            catalog_prefix: recovery/testing/,
+            scope: flow://control/storage-mapping/recovery/testing/,
             stores: [
               {
                 "provider": "GCS",
@@ -6966,8 +7328,8 @@ All {
             ],
         },
         StorageMapping {
-            scope: test://example/catalog.yaml#/storageMappings/testing~1,
-            prefix: testing/,
+            catalog_prefix: testing/,
+            scope: flow://control/storage-mapping/testing/,
             stores: [
               {
                 "provider": "S3",
@@ -6979,34 +7341,37 @@ All {
         },
     ],
     tests: [
-        Test {
-            scope: test://example/int-string-tests#/tests/testing~1test,
+        DraftTest {
             test: testing/test,
-            spec: [
-              {
-                "ingest": {
-                  "collection": "testing/int-string",
-                  "documents": [{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}]
+            scope: test://example/int-string-tests#/tests/testing~1test,
+            expect_pub_id: NULL,
+            model: {
+              "steps": [
+                {
+                  "ingest": {
+                    "collection": "testing/int-string",
+                    "documents": [{"bit":true,"int":42,"str":"string A"},{"bit":true,"int":52,"str":"string B"}]
+                  }
+                },
+                {
+                  "verify": {
+                    "description": "expect stuff happens",
+                    "collection": {
+                      "name": "testing/int-string",
+                      "partitions": {
+                        "include": {
+                          "bit": [
+                            true
+                          ]
+                        },
+                        "exclude": {}
+                      }
+                    },
+                    "documents": [{"str":"string A"},{"str":"string B"}]
+                  }
                 }
-              },
-              {
-                "verify": {
-                  "description": "expect stuff happens",
-                  "collection": {
-                    "name": "testing/int-string",
-                    "partitions": {
-                      "include": {
-                        "bit": [
-                          true
-                        ]
-                      },
-                      "exclude": {}
-                    }
-                  },
-                  "documents": [{"str":"string A"},{"str":"string B"}]
-                }
-              }
-            ],
+              ]
+            },
         },
     ],
 }
