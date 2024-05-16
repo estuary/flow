@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms,
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive,
         error: cannot infer shuffle key types because all transforms use a computed `lambda` or `any`.
         Flow must know the key types that your computed shuffle lambda will output.
         Please add an explicit `shuffleKeyTypes` to this derivation.,

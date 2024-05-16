@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1collection,
+        error: expected publication ID 10:10:10:10:10:10:10:10 was not matched (it's actually 00:00:00:00:00:00:00:00),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1derivation,
+        error: expected publication ID 10:10:10:10:10:10:10:10 was not matched (it's actually 00:00:00:00:00:00:00:00),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/tests/the~1test,
+        error: expected publication ID 10:10:10:10:10:10:10:10 was not matched (it's actually 00:00:00:00:00:00:00:00),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/the~1capture,
+        error: expected publication ID 10:10:10:10:10:10:10:10 was not matched (it's actually 00:00:00:00:00:00:00:00),
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization,
+        error: expected publication ID 10:10:10:10:10:10:10:10 was not matched (it's actually 00:00:00:00:00:00:00:00),
+    },
+]

@@ -1,6 +1,6 @@
-use super::{Connectors, ControlPlane, InferredSchema};
-use futures::future::{BoxFuture, FutureExt};
-use proto_flow::{capture, derive, flow, materialize};
+use super::Connectors;
+use futures::future::BoxFuture;
+use proto_flow::{capture, derive, materialize};
 use std::collections::BTreeMap;
 
 /// NoOpConnectors are permissive placeholders for interactions with connectors,
@@ -12,7 +12,13 @@ impl Connectors for NoOpConnectors {
         &'a self,
         request: capture::Request,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        let capture::Request{validate: Some(mut request), ..} = request else { unreachable!() };
+        let capture::Request {
+            validate: Some(mut request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
         use capture::response::{validated::Binding, Validated};
 
         Box::pin(async move {
@@ -34,7 +40,13 @@ impl Connectors for NoOpConnectors {
         &'a self,
         request: derive::Request,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        let derive::Request{validate: Some(mut request), ..} = request else { unreachable!() };
+        let derive::Request {
+            validate: Some(mut request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
         use derive::response::{validated::Transform, Validated};
 
         Box::pin(async move {
@@ -56,7 +68,13 @@ impl Connectors for NoOpConnectors {
         &'a self,
         request: materialize::Request,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        let materialize::Request{validate: Some(mut request), ..} = request else { unreachable!() };
+        let materialize::Request {
+            validate: Some(mut request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
         use materialize::response::{
             validated::{constraint::Type, Binding, Constraint},
             Validated,
@@ -97,23 +115,5 @@ impl Connectors for NoOpConnectors {
                 ..Default::default()
             })
         })
-    }
-}
-
-pub struct NoOpControlPlane;
-
-impl ControlPlane for NoOpControlPlane {
-    fn resolve_collections<'a>(
-        &'a self,
-        _collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<flow::CollectionSpec>>> {
-        async move { Ok(Vec::new()) }.boxed()
-    }
-
-    fn get_inferred_schemas<'a>(
-        &'a self,
-        _collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, InferredSchema>>> {
-        async move { Ok(BTreeMap::new()) }.boxed()
     }
 }

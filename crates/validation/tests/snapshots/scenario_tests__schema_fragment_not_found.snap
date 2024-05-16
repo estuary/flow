@@ -15,4 +15,36 @@ expression: errors
         scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
         error: schema $ref 'test://example/int-string-len.schema#DoesNotExist', referenced by 'test://example/int-string?ptr=/collections/testing~1int-string-rw/readSchema#/properties/missing', was not found,
     },
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/collection,
+        error: collection testing/int-string, referenced by this test step, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test/1/verify/collection,
+        error: collection testing/int-string, referenced by this test step, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1db-cdc/bindings/0,
+        error: collection testing/int-string, referenced by this capture binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
+        error: collection testing/int-string, referenced by this capture binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0,
+        error: collection testing/int-string-rw, referenced by transform halveIntString, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/0,
+        error: collection testing/int-string, referenced by transform reverseIntString, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        error: collection testing/int-string, referenced by this materialization binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
+        error: collection testing/int-string, referenced by this materialization binding, is not defined; did you mean testing/int-string.v2 defined at test://example/int-string#/collections/testing~1int-string.v2 ?,
+    },
 ]

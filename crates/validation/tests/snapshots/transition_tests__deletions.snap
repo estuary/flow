@@ -1,0 +1,276 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: outcome
+---
+Outcome {
+    built_captures: [
+        BuiltCapture {
+            capture: the/capture,
+            scope: test://example/catalog.yaml#/captures/the~1capture,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+            validated: NULL,
+            spec: NULL,
+            previous_spec: CaptureSpec {
+                name: "the/capture",
+                connector_type: Image,
+                config_json: "",
+                bindings: [],
+                interval_seconds: 100,
+                shard_template: Some(
+                    ShardSpec {
+                        id: "the/capture/pass-through/shard_id_prefix",
+                        sources: [],
+                        recovery_log_prefix: "",
+                        hint_prefix: "",
+                        hint_backups: 0,
+                        max_txn_duration: None,
+                        min_txn_duration: None,
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: None,
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 0,
+                        read_channel_size: 0,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "the/capture/pass-through/recovery_name_prefix",
+                        replication: 0,
+                        labels: None,
+                        fragment: None,
+                        flags: 0,
+                        max_append_rate: 0,
+                    },
+                ),
+                network_ports: [],
+            },
+        },
+    ],
+    built_collections: [
+        BuiltCollection {
+            collection: the/collection,
+            scope: test://example/catalog.yaml#/collections/the~1collection,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+            validated: NULL,
+            spec: NULL,
+            previous_spec: CollectionSpec {
+                name: "the/collection",
+                write_schema_json: "{\"x-live\":\"schema\"}",
+                read_schema_json: "",
+                key: [
+                    "/f_one",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [],
+                ack_template_json: "",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "the/collection/pass-through/partition_name_prefix",
+                        replication: 0,
+                        labels: None,
+                        fragment: None,
+                        flags: 0,
+                        max_append_rate: 0,
+                    },
+                ),
+                derivation: None,
+            },
+        },
+        BuiltCollection {
+            collection: the/derivation,
+            scope: test://example/catalog.yaml#/collections/the~1derivation,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+            validated: NULL,
+            spec: NULL,
+            previous_spec: CollectionSpec {
+                name: "the/derivation",
+                write_schema_json: "{\"x-live\":\"schema\"}",
+                read_schema_json: "",
+                key: [
+                    "/d_one",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [],
+                ack_template_json: "",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "the/derivation/pass-through/partition_name_prefix",
+                        replication: 0,
+                        labels: None,
+                        fragment: None,
+                        flags: 0,
+                        max_append_rate: 0,
+                    },
+                ),
+                derivation: Some(
+                    Derivation {
+                        connector_type: Sqlite,
+                        config_json: "",
+                        transforms: [],
+                        shuffle_key_types: [],
+                        shard_template: Some(
+                            ShardSpec {
+                                id: "the/derivation/pass-through/shard_id_prefix",
+                                sources: [],
+                                recovery_log_prefix: "",
+                                hint_prefix: "",
+                                hint_backups: 0,
+                                max_txn_duration: None,
+                                min_txn_duration: None,
+                                disable: false,
+                                hot_standbys: 0,
+                                labels: None,
+                                disable_wait_for_ack: false,
+                                ring_buffer_size: 0,
+                                read_channel_size: 0,
+                            },
+                        ),
+                        recovery_log_template: Some(
+                            JournalSpec {
+                                name: "the/derivation/pass-through/recovery_name_prefix",
+                                replication: 0,
+                                labels: None,
+                                fragment: None,
+                                flags: 0,
+                                max_append_rate: 0,
+                            },
+                        ),
+                        network_ports: [],
+                    },
+                ),
+            },
+        },
+    ],
+    built_materializations: [
+        BuiltMaterialization {
+            materialization: the/materialization,
+            scope: test://example/catalog.yaml#/materializations/the~1materialization,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+            validated: NULL,
+            spec: NULL,
+            previous_spec: MaterializationSpec {
+                name: "the/materialization",
+                connector_type: Image,
+                config_json: "",
+                bindings: [],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "the/materialization/pass-through/shard_id_prefix",
+                        sources: [],
+                        recovery_log_prefix: "",
+                        hint_prefix: "",
+                        hint_backups: 0,
+                        max_txn_duration: None,
+                        min_txn_duration: None,
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: None,
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 0,
+                        read_channel_size: 0,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "the/materialization/pass-through/recovery_name_prefix",
+                        replication: 0,
+                        labels: None,
+                        fragment: None,
+                        flags: 0,
+                        max_append_rate: 0,
+                    },
+                ),
+                network_ports: [],
+            },
+        },
+    ],
+    built_tests: [
+        BuiltTest {
+            test: the/test,
+            scope: test://example/catalog.yaml#/tests/the~1test,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+            spec: NULL,
+            previous_spec: TestSpec {
+                name: "the/test",
+                steps: [],
+            },
+        },
+    ],
+    captures: [
+        DraftCapture {
+            capture: the/capture,
+            scope: test://example/catalog.yaml#/captures/the~1capture,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: the/collection,
+            scope: test://example/catalog.yaml#/collections/the~1collection,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+        },
+        DraftCollection {
+            collection: the/derivation,
+            scope: test://example/catalog.yaml#/collections/the~1derivation,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+        },
+    ],
+    errors: [],
+    errors_draft: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [
+        DraftMaterialization {
+            materialization: the/materialization,
+            scope: test://example/catalog.yaml#/materializations/the~1materialization,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"table":"foo"},"target":"the/collection"}],"delete":true,"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"delete":true,"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"resource":{"table":"bar"},"source":"the/collection"}],"delete":true,"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"tests":{"the/test":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            catalog_prefix: ,
+            scope: flow://control/storage-mapping/default,
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "a-bucket",
+                "prefix": null,
+                "region": null
+              }
+            ],
+        },
+    ],
+    tests: [
+        DraftTest {
+            test: the/test,
+            scope: test://example/catalog.yaml#/tests/the~1test,
+            expect_pub_id: "10:10:10:10:10:10:10:10",
+            model: NULL,
+        },
+    ],
+}

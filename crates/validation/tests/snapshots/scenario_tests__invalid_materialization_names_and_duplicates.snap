@@ -4,14 +4,6 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/materializations#/materializations/testing,
-        error: materialization testing is a prohibited prefix of materialization testing/SoMe-target, defined at test://example/materializations#/materializations/testing~1SoMe-target,
-    },
-    Error {
-        scope: test://example/materializations#/materializations/testing~1SoMe-target,
-        error: materialization testing/SoMe-target collides with materialization testing/some-target, defined at test://example/materializations#/materializations/testing~1some-target,
-    },
-    Error {
         scope: test://example/materializations#/materializations/~1bad~1name,
         error: /bad/name cannot be used as name for materialization ("/" is invalid),
     },
@@ -32,19 +24,11 @@ expression: errors
         error: bad/name/ cannot be used as name for materialization ("/" is invalid),
     },
     Error {
-        scope: test://example/materializations#/materializations/good,
-        error: driver fixture not found: good,
-    },
-    Error {
         scope: test://example/materializations#/materializations/testing,
-        error: driver fixture not found: testing,
+        error: materialization testing is a prohibited prefix of materialization testing/SoMe-target, defined at test://example/materializations#/materializations/testing~1SoMe-target,
     },
     Error {
         scope: test://example/materializations#/materializations/testing~1SoMe-target,
-        error: driver fixture not found: testing/SoMe-target,
-    },
-    Error {
-        scope: test://example/materializations#/materializations/testing~1some-target,
-        error: driver fixture not found: testing/some-target,
+        error: materialization testing/SoMe-target collides with materialization testing/some-target, defined at test://example/materializations#/materializations/testing~1some-target,
     },
 ]

@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1collection,
+        error: drafted deletion references a specification that does not exist,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1derivation,
+        error: drafted deletion references a specification that does not exist,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/tests/the~1test,
+        error: drafted deletion references a specification that does not exist,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/the~1capture,
+        error: drafted deletion references a specification that does not exist,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization,
+        error: drafted deletion references a specification that does not exist,
+    },
+]

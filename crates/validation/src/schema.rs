@@ -5,7 +5,7 @@ use doc::{
     validation, Shape,
 };
 use json::schema::types;
-use proto_flow::flow::collection_spec::derivation::ShuffleType;
+use proto_flow::flow::collection_spec::derivation::ShuffleType as ProtoShuffleType;
 
 pub struct Schema {
     // Canonical schema URI, which may include a fragment pointer if the schema
@@ -97,7 +97,7 @@ impl Schema {
 
     // Gather all key-able types for the given `key`.
     // If a location is not a key-able type, None is returned.
-    pub fn shuffle_key_types<I, S>(&self, key: I) -> Vec<ShuffleType>
+    pub fn shuffle_key_types<I, S>(&self, key: I) -> Vec<ProtoShuffleType>
     where
         S: AsRef<str>,
         I: Iterator<Item = S>,
@@ -106,10 +106,10 @@ impl Schema {
             let (shape, _exists) = self.shape.locate(&doc::Pointer::from_str(ptr.as_ref()));
 
             match shape.type_ - types::NULL {
-                types::BOOLEAN => ShuffleType::Boolean,
-                types::INTEGER => ShuffleType::Integer,
-                types::STRING => ShuffleType::String,
-                _ => ShuffleType::InvalidShuffleType,
+                types::BOOLEAN => ProtoShuffleType::Boolean,
+                types::INTEGER => ProtoShuffleType::Integer,
+                types::STRING => ProtoShuffleType::String,
+                _ => ProtoShuffleType::InvalidShuffleType,
             }
         })
         .collect()

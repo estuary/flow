@@ -35,36 +35,4 @@ expression: errors
         scope: test://example/catalog.yaml#/tests/testing~1b~15,
         error: test testing/b/5 is a prohibited prefix of capture testing/b/5/suffix, defined at test://example/catalog.yaml#/captures/testing~1b~15~1suffix,
     },
-    Error {
-        scope: test://example/catalog.yaml#/captures/testing~1b~11,
-        error: driver fixture not found: testing/b/1,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/captures/testing~1b~12~1suffix,
-        error: driver fixture not found: testing/b/2/suffix,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/captures/testing~1b~13,
-        error: driver fixture not found: testing/b/3,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/captures/testing~1b~15~1suffix,
-        error: driver fixture not found: testing/b/5/suffix,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1b~11~1suffix,
-        error: driver fixture not found: testing/b/1/suffix,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1b~12,
-        error: driver fixture not found: testing/b/2,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1b~13,
-        error: driver fixture not found: testing/b/3,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/materializations/testing~1b~14,
-        error: driver fixture not found: testing/b/4,
-    },
 ]
