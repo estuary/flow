@@ -92,8 +92,9 @@ pub fn inference_truncation_indicator() -> flow::Inference {
 // partition_template returns a template JournalSpec for creating
 // or updating data partitions of the collection.
 pub fn partition_template(
-    build_id: &str,
-    collection: &models::Collection,
+    build_id: models::Id,
+    catalog_name: &models::Collection,
+    journal_name_prefix: &str,
     journals: &models::JournalTemplate,
     stores: &[models::Store],
 ) -> broker::JournalSpec {
@@ -131,7 +132,6 @@ pub fn partition_template(
     let retention = retention.map(Into::into);
 
     // Partition journals are readable and writable.
-    // We could get fancier here by disabling writes to a journal which has no captures.
     let flags = broker::journal_spec::Flag::ORdwr as u32;
 
     // We hard-code max_append_rate to 4MB/s, which back-pressures captures
@@ -155,12 +155,12 @@ pub fn partition_template(
         },
         broker::Label {
             name: labels::COLLECTION.to_string(),
-            value: collection.to_string(),
+            value: catalog_name.to_string(),
         },
     ];
 
     broker::JournalSpec {
-        name: collection.to_string(),
+        name: journal_name_prefix.to_string(),
         replication,
         fragment: Some(broker::journal_spec::Fragment {
             compression_codec: compression_codec as i32,
@@ -171,7 +171,7 @@ pub fn partition_template(
             retention,
             stores: stores
                 .iter()
-                .map(|s| s.to_url(&collection).into())
+                .map(|s| s.to_url(&catalog_name).into())
                 .collect(),
         }),
         flags,
@@ -183,9 +183,10 @@ pub fn partition_template(
 // recovery_log_template returns a template JournalSpec for creating
 // or updating recovery logs of task shards.
 pub fn recovery_log_template(
-    build_id: &str,
+    build_id: models::Id,
     task_name: &str,
     task_type: &str,
+    shard_id_prefix: &str,
     stores: &[models::Store],
 ) -> broker::JournalSpec {
     // Until there's a good reason otherwise, we hard-code that recovery logs are replicated 3x.
@@ -247,7 +248,7 @@ pub fn recovery_log_template(
     ];
 
     broker::JournalSpec {
-        name: format!("recovery/{}", shard_id_base(task_name, task_type)),
+        name: format!("recovery/{shard_id_prefix}"),
         replication,
         fragment: Some(broker::journal_spec::Fragment {
             compression_codec: compression_codec as i32,
@@ -269,24 +270,27 @@ pub fn recovery_log_template(
 // "{KeyBegin}-{RClockBegin}" suffix of the specific splits of the task,
 // to form complete shard IDs.
 // See also ShardSuffix in go/labels/partitions.go
-pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
+pub fn shard_id_prefix(pub_id: models::Id, task_name: &str, task_type: &str) -> String {
     let task_type = match task_type {
         labels::TASK_TYPE_CAPTURE => "capture",
         labels::TASK_TYPE_DERIVATION => "derivation",
         labels::TASK_TYPE_MATERIALIZATION => "materialize",
         _ => panic!("invalid task type {}", task_type),
     };
+    // Semi-colons are disallowed in Gazette journal names and shard IDs.
+    let pub_id = pub_id.to_string().replace(":", "");
 
-    format!("{}/{}", task_type, task_name)
+    format!("{task_type}/{task_name}/{pub_id}")
 }
 
 // shard_template returns a template ShardSpec for creating or updating
 // shards of the task.
 pub fn shard_template(
-    build_id: &str,
+    build_id: models::Id,
     task_name: &str,
     task_type: &str,
     shard: &models::ShardTemplate,
+    shard_id_prefix: &str,
     disable_wait_for_ack: bool,
     ports: &[flow::NetworkPort],
 ) -> consumer::ShardSpec {
@@ -391,7 +395,7 @@ pub fn shard_template(
     labels.sort_by(|l, r| l.name.cmp(&r.name));
 
     consumer::ShardSpec {
-        id: shard_id_base(task_name, task_type),
+        id: shard_id_prefix.to_string(),
         disable: *disable,
         disable_wait_for_ack,
         hint_backups,
@@ -416,69 +420,6 @@ pub fn shard_template(
 fn shard_hostname_label(task_name: &str) -> String {
     let hash = fxhash::hash64(task_name);
     format!("{:x}", hash)
-}
-
-pub fn collection_spec(
-    build_id: &str,
-    collection: &tables::Collection,
-    projections: Vec<flow::Projection>,
-    read_bundle: Option<models::Schema>,
-    stores: &[models::Store],
-    uuid_ptr: &str,
-    write_bundle: models::Schema,
-) -> flow::CollectionSpec {
-    let tables::Collection {
-        scope: _,
-        collection: name,
-        spec:
-            models::CollectionDef {
-                schema: _,
-                read_schema: _,
-                write_schema: _,
-                key,
-                projections: _,
-                journals,
-                derive: _,
-            },
-    } = collection;
-
-    // Projections must be ascending and unique on field.
-    // We expect they already are.
-    assert!(projections.windows(2).all(|p| p[0].field < p[1].field));
-
-    let partition_fields = projections
-        .iter()
-        .filter_map(|p| {
-            if p.is_partition_key {
-                Some(p.field.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let bundle_to_string = |b: models::Schema| -> String {
-        let b: Box<serde_json::value::RawValue> = b.into_inner().into();
-        let b: Box<str> = b.into();
-        b.into()
-    };
-
-    flow::CollectionSpec {
-        name: name.to_string(),
-        write_schema_json: bundle_to_string(write_bundle),
-        read_schema_json: read_bundle.map(bundle_to_string).unwrap_or_default(),
-        key: key.iter().map(|p| p.to_string()).collect(),
-        projections,
-        partition_fields,
-        uuid_ptr: uuid_ptr.to_string(),
-        ack_template_json: serde_json::json!({
-                "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
-                "ack": true,
-            } })
-        .to_string(),
-        partition_template: Some(partition_template(build_id, name, journals, stores)),
-        derivation: None,
-    }
 }
 
 pub fn journal_selector(
