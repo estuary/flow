@@ -1,0 +1,2166 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: outcome
+---
+Outcome {
+    built_captures: [
+        BuiltCapture {
+            capture: testing/fully-disabled-capture,
+            scope: test://example/catalog.yaml#/captures/testing~1fully-disabled-capture,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "disable": true,
+                  "target": "disabled/test/two"
+                },
+                {
+                  "resource": {"stream":"another-disabled-stream"},
+                  "disable": true,
+                  "target": "disabled/test/three"
+                }
+              ]
+            },
+            validated: Validated {
+                bindings: [],
+            },
+            spec: CaptureSpec {
+                name: "testing/fully-disabled-capture",
+                connector_type: Image,
+                config_json: "{\"image\":\"s3\",\"config\":{}}",
+                bindings: [],
+                interval_seconds: 300,
+                shard_template: Some(
+                    ShardSpec {
+                        id: "capture/testing/fully-disabled-capture/2020202020202020",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/fully-disabled-capture",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 4096,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/capture/testing/fully-disabled-capture/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/fully-disabled-capture",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+                network_ports: [],
+            },
+            previous_spec: NULL,
+        },
+        BuiltCapture {
+            capture: testing/partially-disabled-capture,
+            scope: test://example/catalog.yaml#/captures/testing~1partially-disabled-capture,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "disable": true,
+                  "target": "disabled/test/one"
+                },
+                {
+                  "resource": {"stream":"enabled-stream"},
+                  "target": "testing/collection"
+                }
+              ]
+            },
+            validated: Validated {
+                bindings: [
+                    Binding {
+                        resource_path: [
+                            "enabled-stream",
+                        ],
+                    },
+                ],
+            },
+            spec: CaptureSpec {
+                name: "testing/partially-disabled-capture",
+                connector_type: Image,
+                config_json: "{\"image\":\"s3\",\"config\":{}}",
+                bindings: [
+                    Binding {
+                        resource_config_json: "{\"stream\":\"enabled-stream\"}",
+                        resource_path: [
+                            "enabled-stream",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "testing/collection",
+                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                                read_schema_json: "",
+                                key: [
+                                    "/id",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [],
+                                projections: [
+                                    Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "_meta/flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/id",
+                                        field: "id",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/collection/2020202020202020",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "01:01:01:01:01:01:01:01",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/collection",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://a-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        backfill: 0,
+                        state_key: "enabled-stream",
+                    },
+                ],
+                interval_seconds: 300,
+                shard_template: Some(
+                    ShardSpec {
+                        id: "capture/testing/partially-disabled-capture/2020202020202020",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 1,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/partially-disabled-capture",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 4096,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/capture/testing/partially-disabled-capture/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/partially-disabled-capture",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "capture",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+                network_ports: [],
+            },
+            previous_spec: NULL,
+        },
+    ],
+    built_collections: [
+        BuiltCollection {
+            collection: testing/collection,
+            scope: test://example/catalog.yaml#/collections/testing~1collection,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/collection",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/collection/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/collection",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+        },
+        BuiltCollection {
+            collection: testing/fully-disabled-derivation,
+            scope: test://example/catalog.yaml#/collections/testing~1fully-disabled-derivation,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1fully-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {}
+                },
+                "transforms": [
+                  {
+                    "name": "disabledTransformA",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "unset",
+                    "lambda": "select $id, 1 as count;",
+                    "disable": true
+                  },
+                  {
+                    "name": "disabledTransformB",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "unset",
+                    "lambda": "select $id, 2 as count;",
+                    "disable": true
+                  }
+                ]
+              }
+            },
+            validated: Validated {
+                transforms: [],
+                generated_files: {},
+            },
+            spec: CollectionSpec {
+                name: "testing/fully-disabled-derivation",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1fully-disabled-derivation/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/fully-disabled-derivation/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/fully-disabled-derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+                derivation: Some(
+                    Derivation {
+                        connector_type: Sqlite,
+                        config_json: "{}",
+                        transforms: [],
+                        shuffle_key_types: [],
+                        shard_template: Some(
+                            ShardSpec {
+                                id: "derivation/testing/fully-disabled-derivation/2020202020202020",
+                                sources: [],
+                                recovery_log_prefix: "recovery",
+                                hint_prefix: "/estuary/flow/hints",
+                                hint_backups: 2,
+                                max_txn_duration: Some(
+                                    Duration {
+                                        seconds: 1,
+                                        nanos: 0,
+                                    },
+                                ),
+                                min_txn_duration: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                disable: false,
+                                hot_standbys: 0,
+                                labels: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "app.gazette.dev/managed-by",
+                                                value: "estuary.dev/flow",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/build",
+                                                value: "01:01:01:01:01:01:01:01",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/log-level",
+                                                value: "info",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-name",
+                                                value: "testing/fully-disabled-derivation",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-type",
+                                                value: "derivation",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                disable_wait_for_ack: false,
+                                ring_buffer_size: 65536,
+                                read_channel_size: 4096,
+                            },
+                        ),
+                        recovery_log_template: Some(
+                            JournalSpec {
+                                name: "recovery/derivation/testing/fully-disabled-derivation/2020202020202020",
+                                replication: 3,
+                                labels: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "app.gazette.dev/managed-by",
+                                                value: "estuary.dev/flow",
+                                            },
+                                            Label {
+                                                name: "content-type",
+                                                value: "application/x-gazette-recoverylog",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/build",
+                                                value: "01:01:01:01:01:01:01:01",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-name",
+                                                value: "testing/fully-disabled-derivation",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-type",
+                                                value: "derivation",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                fragment: Some(
+                                    Fragment {
+                                        length: 268435456,
+                                        compression_codec: Snappy,
+                                        stores: [
+                                            "s3://a-bucket/",
+                                        ],
+                                        refresh_interval: Some(
+                                            Duration {
+                                                seconds: 300,
+                                                nanos: 0,
+                                            },
+                                        ),
+                                        retention: None,
+                                        flush_interval: None,
+                                        path_postfix_template: "",
+                                    },
+                                ),
+                                flags: 4,
+                                max_append_rate: 4194304,
+                            },
+                        ),
+                        network_ports: [],
+                    },
+                ),
+            },
+            previous_spec: NULL,
+        },
+        BuiltCollection {
+            collection: testing/partly-disabled-derivation,
+            scope: test://example/catalog.yaml#/collections/testing~1partly-disabled-derivation,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1partly-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {}
+                },
+                "transforms": [
+                  {
+                    "name": "enabledTransform",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "any",
+                    "lambda": "select $id, 1 as count;"
+                  },
+                  {
+                    "name": "disabledTransform",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "any",
+                    "lambda": "select $id, 2 as count;",
+                    "disable": true
+                  }
+                ]
+              }
+            },
+            validated: Validated {
+                transforms: [
+                    Transform {
+                        read_only: true,
+                    },
+                ],
+                generated_files: {},
+            },
+            spec: CollectionSpec {
+                name: "testing/partly-disabled-derivation",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1partly-disabled-derivation/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/partly-disabled-derivation/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/partly-disabled-derivation",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+                derivation: Some(
+                    Derivation {
+                        connector_type: Sqlite,
+                        config_json: "{}",
+                        transforms: [
+                            Transform {
+                                name: "enabledTransform",
+                                collection: Some(
+                                    CollectionSpec {
+                                        name: "testing/collection",
+                                        write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                                        read_schema_json: "",
+                                        key: [
+                                            "/id",
+                                        ],
+                                        uuid_ptr: "/_meta/uuid",
+                                        partition_fields: [],
+                                        projections: [
+                                            Projection {
+                                                ptr: "/_meta/flow_truncated",
+                                                field: "_meta/flow_truncated",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "boolean",
+                                                        ],
+                                                        string: None,
+                                                        title: "Flow truncation indicator",
+                                                        description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "",
+                                                field: "flow_document",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "object",
+                                                        ],
+                                                        string: None,
+                                                        title: "",
+                                                        description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid",
+                                                field: "flow_published_at",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "uuid",
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Flow Publication Time",
+                                                        description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/id",
+                                                field: "id",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: true,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "",
+                                                                content_encoding: "",
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "",
+                                                        description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                        ],
+                                        ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                        partition_template: Some(
+                                            JournalSpec {
+                                                name: "testing/collection/2020202020202020",
+                                                replication: 3,
+                                                labels: Some(
+                                                    LabelSet {
+                                                        labels: [
+                                                            Label {
+                                                                name: "app.gazette.dev/managed-by",
+                                                                value: "estuary.dev/flow",
+                                                            },
+                                                            Label {
+                                                                name: "content-type",
+                                                                value: "application/x-ndjson",
+                                                            },
+                                                            Label {
+                                                                name: "estuary.dev/build",
+                                                                value: "01:01:01:01:01:01:01:01",
+                                                            },
+                                                            Label {
+                                                                name: "estuary.dev/collection",
+                                                                value: "testing/collection",
+                                                            },
+                                                        ],
+                                                    },
+                                                ),
+                                                fragment: Some(
+                                                    Fragment {
+                                                        length: 536870912,
+                                                        compression_codec: Gzip,
+                                                        stores: [
+                                                            "s3://a-bucket/",
+                                                        ],
+                                                        refresh_interval: Some(
+                                                            Duration {
+                                                                seconds: 300,
+                                                                nanos: 0,
+                                                            },
+                                                        ),
+                                                        retention: None,
+                                                        flush_interval: None,
+                                                        path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                                    },
+                                                ),
+                                                flags: 4,
+                                                max_append_rate: 4194304,
+                                            },
+                                        ),
+                                        derivation: None,
+                                    },
+                                ),
+                                partition_selector: Some(
+                                    LabelSelector {
+                                        include: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/collection",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        exclude: Some(
+                                            LabelSet {
+                                                labels: [],
+                                            },
+                                        ),
+                                    },
+                                ),
+                                priority: 0,
+                                read_delay_seconds: 0,
+                                shuffle_key: [],
+                                shuffle_lambda_config_json: "",
+                                lambda_config_json: "\"select $id, 1 as count;\"",
+                                read_only: true,
+                                journal_read_suffix: "derive/testing/partly-disabled-derivation/enabledTransform",
+                                not_before: None,
+                                not_after: None,
+                                backfill: 0,
+                            },
+                        ],
+                        shuffle_key_types: [],
+                        shard_template: Some(
+                            ShardSpec {
+                                id: "derivation/testing/partly-disabled-derivation/2020202020202020",
+                                sources: [],
+                                recovery_log_prefix: "recovery",
+                                hint_prefix: "/estuary/flow/hints",
+                                hint_backups: 2,
+                                max_txn_duration: Some(
+                                    Duration {
+                                        seconds: 1,
+                                        nanos: 0,
+                                    },
+                                ),
+                                min_txn_duration: Some(
+                                    Duration {
+                                        seconds: 0,
+                                        nanos: 0,
+                                    },
+                                ),
+                                disable: false,
+                                hot_standbys: 0,
+                                labels: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "app.gazette.dev/managed-by",
+                                                value: "estuary.dev/flow",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/build",
+                                                value: "01:01:01:01:01:01:01:01",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/log-level",
+                                                value: "info",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-name",
+                                                value: "testing/partly-disabled-derivation",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-type",
+                                                value: "derivation",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                disable_wait_for_ack: false,
+                                ring_buffer_size: 65536,
+                                read_channel_size: 4096,
+                            },
+                        ),
+                        recovery_log_template: Some(
+                            JournalSpec {
+                                name: "recovery/derivation/testing/partly-disabled-derivation/2020202020202020",
+                                replication: 3,
+                                labels: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "app.gazette.dev/managed-by",
+                                                value: "estuary.dev/flow",
+                                            },
+                                            Label {
+                                                name: "content-type",
+                                                value: "application/x-gazette-recoverylog",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/build",
+                                                value: "01:01:01:01:01:01:01:01",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-name",
+                                                value: "testing/partly-disabled-derivation",
+                                            },
+                                            Label {
+                                                name: "estuary.dev/task-type",
+                                                value: "derivation",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                fragment: Some(
+                                    Fragment {
+                                        length: 268435456,
+                                        compression_codec: Snappy,
+                                        stores: [
+                                            "s3://a-bucket/",
+                                        ],
+                                        refresh_interval: Some(
+                                            Duration {
+                                                seconds: 300,
+                                                nanos: 0,
+                                            },
+                                        ),
+                                        retention: None,
+                                        flush_interval: None,
+                                        path_postfix_template: "",
+                                    },
+                                ),
+                                flags: 4,
+                                max_append_rate: 4194304,
+                            },
+                        ),
+                        network_ports: [],
+                    },
+                ),
+            },
+            previous_spec: NULL,
+        },
+    ],
+    built_materializations: [
+        BuiltMaterialization {
+            materialization: testing/fully-disabled-materialization,
+            scope: test://example/catalog.yaml#/materializations/testing~1fully-disabled-materialization,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "source": "testing/collection",
+                  "disable": true,
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            validated: Validated {
+                bindings: [],
+            },
+            spec: MaterializationSpec {
+                name: "testing/fully-disabled-materialization",
+                connector_type: Image,
+                config_json: "{\"image\":\"s3\",\"config\":{}}",
+                bindings: [],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "materialize/testing/fully-disabled-materialization/2020202020202020",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 300,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/fully-disabled-materialization",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 4096,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/materialize/testing/fully-disabled-materialization/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/fully-disabled-materialization",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+                network_ports: [],
+            },
+            previous_spec: NULL,
+        },
+        BuiltMaterialization {
+            materialization: testing/partially-disabled-materialization,
+            scope: test://example/catalog.yaml#/materializations/testing~1partially-disabled-materialization,
+            expect_pub_id: "00:00:00:00:00:00:00:00",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "source": "testing/collection",
+                  "disable": true,
+                  "fields": {
+                    "recommended": true
+                  }
+                },
+                {
+                  "resource": {"stream":"enabled-stream"},
+                  "source": "testing/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            validated: Validated {
+                bindings: [
+                    Binding {
+                        constraints: {
+                            "flow_document": Constraint {
+                                r#type: LocationRequired,
+                                reason: "location required",
+                            },
+                        },
+                        resource_path: [
+                            "enabled-stream",
+                        ],
+                        delta_updates: false,
+                    },
+                ],
+            },
+            spec: MaterializationSpec {
+                name: "testing/partially-disabled-materialization",
+                connector_type: Image,
+                config_json: "{\"image\":\"s3\",\"config\":{}}",
+                bindings: [
+                    Binding {
+                        resource_config_json: "{\"stream\":\"enabled-stream\"}",
+                        resource_path: [
+                            "enabled-stream",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "testing/collection",
+                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                                read_schema_json: "",
+                                key: [
+                                    "/id",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [],
+                                projections: [
+                                    Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "_meta/flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/id",
+                                        field: "id",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/collection/2020202020202020",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "01:01:01:01:01:01:01:01",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/collection",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://a-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/collection",
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                        priority: 0,
+                        field_selection: Some(
+                            FieldSelection {
+                                keys: [],
+                                values: [],
+                                document: "flow_document",
+                                field_config_json_map: {},
+                            },
+                        ),
+                        delta_updates: false,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "materialize/testing/partially-disabled-materialization/enabled-stream",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 0,
+                        state_key: "enabled-stream",
+                    },
+                ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "materialize/testing/partially-disabled-materialization/2020202020202020",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 300,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/partially-disabled-materialization",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 4096,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/materialize/testing/partially-disabled-materialization/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "01:01:01:01:01:01:01:01",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/partially-disabled-materialization",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+                network_ports: [],
+            },
+            previous_spec: NULL,
+        },
+    ],
+    built_tests: [],
+    captures: [
+        DraftCapture {
+            capture: testing/fully-disabled-capture,
+            scope: test://example/catalog.yaml#/captures/testing~1fully-disabled-capture,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "disable": true,
+                  "target": "disabled/test/two"
+                },
+                {
+                  "resource": {"stream":"another-disabled-stream"},
+                  "disable": true,
+                  "target": "disabled/test/three"
+                }
+              ]
+            },
+        },
+        DraftCapture {
+            capture: testing/partially-disabled-capture,
+            scope: test://example/catalog.yaml#/captures/testing~1partially-disabled-capture,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "disable": true,
+                  "target": "disabled/test/one"
+                },
+                {
+                  "resource": {"stream":"enabled-stream"},
+                  "target": "testing/collection"
+                }
+              ]
+            },
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: testing/collection,
+            scope: test://example/catalog.yaml#/collections/testing~1collection,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+        },
+        DraftCollection {
+            collection: testing/fully-disabled-derivation,
+            scope: test://example/catalog.yaml#/collections/testing~1fully-disabled-derivation,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1fully-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {}
+                },
+                "transforms": [
+                  {
+                    "name": "disabledTransformA",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "unset",
+                    "lambda": "select $id, 1 as count;",
+                    "disable": true
+                  },
+                  {
+                    "name": "disabledTransformB",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "unset",
+                    "lambda": "select $id, 2 as count;",
+                    "disable": true
+                  }
+                ]
+              }
+            },
+        },
+        DraftCollection {
+            collection: testing/partly-disabled-derivation,
+            scope: test://example/catalog.yaml#/collections/testing~1partly-disabled-derivation,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1partly-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {}
+                },
+                "transforms": [
+                  {
+                    "name": "enabledTransform",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "any",
+                    "lambda": "select $id, 1 as count;"
+                  },
+                  {
+                    "name": "disabledTransform",
+                    "source": {
+                      "name": "testing/collection"
+                    },
+                    "shuffle": "any",
+                    "lambda": "select $id, 2 as count;",
+                    "disable": true
+                  }
+                ]
+              }
+            },
+        },
+    ],
+    errors: [],
+    errors_draft: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [
+        DraftMaterialization {
+            materialization: testing/fully-disabled-materialization,
+            scope: test://example/catalog.yaml#/materializations/testing~1fully-disabled-materialization,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "source": "testing/collection",
+                  "disable": true,
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+        },
+        DraftMaterialization {
+            materialization: testing/partially-disabled-materialization,
+            scope: test://example/catalog.yaml#/materializations/testing~1partially-disabled-materialization,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "s3",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"disabled-stream"},
+                  "source": "testing/collection",
+                  "disable": true,
+                  "fields": {
+                    "recommended": true
+                  }
+                },
+                {
+                  "resource": {"stream":"enabled-stream"},
+                  "source": "testing/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"captures":{"testing/fully-disabled-capture":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"target":"disabled/test/two"},{"disable":true,"resource":{"stream":"another-disabled-stream"},"target":"disabled/test/three"}],"endpoint":{"connector":{"config":{},"image":"s3"}}},"testing/partially-disabled-capture":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"target":"disabled/test/one"},{"resource":{"stream":"enabled-stream"},"target":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}}},"collections":{"testing/collection":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/fully-disabled-derivation":{"derive":{"transforms":[{"disable":true,"lambda":"select $id, 1 as count;","name":"disabledTransformA","source":{"name":"testing/collection"}},{"disable":true,"lambda":"select $id, 2 as count;","name":"disabledTransformB","source":{"name":"testing/collection"}}],"using":{"sqlite":{}}},"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/partly-disabled-derivation":{"derive":{"transforms":[{"lambda":"select $id, 1 as count;","name":"enabledTransform","shuffle":"any","source":{"name":"testing/collection"}},{"disable":true,"lambda":"select $id, 2 as count;","name":"disabledTransform","shuffle":"any","source":{"name":"testing/collection"}}],"using":{"sqlite":{}}},"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/fully-disabled-materialization":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"source":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}},"testing/partially-disabled-materialization":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"source":"testing/collection"},{"resource":{"stream":"enabled-stream"},"source":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}}}},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            catalog_prefix: ,
+            scope: flow://control/storage-mapping/default,
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "a-bucket",
+                "prefix": null,
+                "region": null
+              }
+            ],
+        },
+    ],
+    tests: [],
+}

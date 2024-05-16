@@ -10,23 +10,6 @@ test://example/catalog.yaml:
     - test://example/array-key
     - test://example/from-array-key
 
-  storageMappings:
-    testing/:
-      stores: [{ provider: S3, bucket: data-bucket }]
-    recovery/testing/:
-      stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
-    not-matched/:
-      stores:
-        [
-          {
-            provider: AZURE,
-            storage_account_name: pizza,
-            container_name: pepperoni,
-            prefix: pineapple/,
-            account_tenant_id: mozzarella,
-          },
-        ]
-
 test://example/int-string:
   import:
     # Backward import.
@@ -263,8 +246,6 @@ test://example/int-halve:
               # Shuffle key is fully covered by logical partition fields.
               key: [/len, /partitionString]
             backfill: 4
-        shards:
-          disable: true
 
 test://example/int-halve.ts: |
   another typescript placeholder
@@ -419,6 +400,23 @@ driver:
         # Property is merged with projection from the write-schema.
         str:
           maxLength: 8675309
+
+  storageMappings:
+    testing/:
+      stores: [{ provider: S3, bucket: data-bucket }]
+    recovery/testing/:
+      stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+    not-matched/:
+      stores:
+        [
+          {
+            provider: AZURE,
+            storage_account_name: pizza,
+            container_name: pepperoni,
+            prefix: pineapple/,
+            account_tenant_id: mozzarella,
+          },
+        ]
 
 test://example/array-key.schema:
   # This schema models array additionalItems which provably exist,

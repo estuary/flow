@@ -1,7 +1,6 @@
 use futures::future::BoxFuture;
-use itertools::{EitherOrBoth, Itertools};
 use sources::Scope;
-use std::collections::BTreeMap;
+use tables::EitherOrBoth as EOB;
 
 mod capture;
 mod collection;
@@ -16,7 +15,7 @@ mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
-pub use noop::{NoOpConnectors, NoOpControlPlane};
+pub use noop::NoOpConnectors;
 
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always
@@ -38,123 +37,33 @@ pub trait Connectors: Send + Sync {
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::materialize::Response>>;
 }
 
-pub struct InferredSchema {
-    /// The md5 sum of the inferred schema that was calculated by the control
-    /// plane database. We always use the value that was calculated by the
-    /// database in order to avoid spurious hash changes due to inconsequential
-    /// differences in JSON encoding.
-    pub md5: String,
-    pub schema: models::Schema,
-}
-
-pub trait ControlPlane: Send + Sync {
-    // Resolve a set of collection names into pre-built CollectionSpecs from
-    // the control plane. Resolution may be fuzzy: if there is a spec that's
-    // *close* to a provided name, it will be returned so that a suitable spelling
-    // hint can be surfaced to the user. This implies we must account for possible
-    // overlap with locally-built collections even if none were asked for.
-    fn resolve_collections<'a>(
-        &'a self,
-        collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>>;
-
-    /// Retrieve the inferred schema of each of the given `collections`.
-    /// Collections for which a schema is not found should be omitted from the response.
-    fn get_inferred_schemas<'a>(
-        &'a self,
-        collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, InferredSchema>>>;
-}
-
 pub async fn validate(
-    build_id: &str,
+    pub_id: models::Id,
+    build_id: models::Id,
     project_root: &url::Url,
     connectors: &dyn Connectors,
-    control_plane: &dyn ControlPlane,
-    captures: &[tables::Capture],
-    collections: &[tables::Collection],
-    fetches: &[tables::Fetch],
-    imports: &[tables::Import],
-    materializations: &[tables::Materialization],
-    storage_mappings: &[tables::StorageMapping],
-    tests: &[tables::Test],
+    draft: &tables::DraftCatalog,
+    live: &tables::LiveCatalog,
+    fail_fast: bool,
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
-    // Fetches order on fetch depth, so the first element is the root source.
-    let root_scope = Scope::new(&fetches[0].resource);
-
-    // At least one storage mapping is required iff this isn't a
-    // build of a JSON schema.
-    if storage_mappings.is_empty() && !collections.is_empty() {
-        Error::NoStorageMappings {}.push(root_scope, &mut errors);
-    }
-    storage_mapping::walk_all_storage_mappings(storage_mappings, &mut errors);
-
-    // Names of collection which use inferred schemas.
-    let inferred_collections = reference::gather_inferred_collections(collections);
-    // Names of collections which are referenced, but are not being validated themselves.
-    let remote_collections =
-        reference::gather_referenced_collections(captures, collections, materializations, tests);
-
-    // Concurrently fetch referenced collections and inferred schemas from the control-plane.
-    let (inferred_schemas, remote_collections) = match futures::try_join!(
-        control_plane.get_inferred_schemas(inferred_collections),
-        control_plane.resolve_collections(remote_collections),
-        // TODO(johnny): Also fetch storage mappings here.
-    ) {
-        Ok(ok) => ok,
-        Err(err) => {
-            // If we failed to fetch from the control-plane then further validation
-            // will generate lots of misleading errors, so fail now.
-            Error::ControlPlane { detail: err }.push(root_scope, &mut errors);
-            return tables::Validations {
-                built_captures: tables::BuiltCaptures::new(),
-                built_collections: tables::BuiltCollections::new(),
-                built_materializations: tables::BuiltMaterializations::new(),
-                built_tests: tables::BuiltTests::new(),
-                errors,
-            };
-        }
-    };
-
-    let remote_collections = remote_collections
-        .into_iter()
-        .map(|mut spec| {
-            tracing::debug!(collection=%spec.name, "resolved referenced remote collection");
-
-            // Clear a derivation (if there is one), as we do not need it
-            // when embedding a referenced collection.
-            spec.derivation = None;
-
-            tables::BuiltCollection {
-                collection: models::Collection::new(&spec.name),
-                scope: url::Url::parse("flow://control-plane").unwrap(),
-                spec,
-                validated: None,
-                // Note that we don't currently fetch the infered schema md5 for remote collections,
-                // so they won't appear in the build ouptut for these collections.
-                inferred_schema_md5: None,
-            }
-        })
-        .collect::<tables::BuiltCollections>();
-
-    if remote_collections.is_empty() {
-        tracing::debug!("there were no remote collections to resolve");
-    }
+    storage_mapping::walk_all_storage_mappings(&live.storage_mappings, &mut errors);
 
     // Build all local collections.
-    let built_collections = collection::walk_all_collections(
+    let mut built_collections = collection::walk_all_collections(
+        pub_id,
         build_id,
-        collections,
-        &inferred_schemas,
-        storage_mappings,
+        &draft.collections,
+        &live.collections,
+        &live.inferred_schemas,
+        &live.storage_mappings,
         &mut errors,
     );
 
     // If we failed to build one or more collections then further validation
     // will generate lots of misleading "not found" errors.
-    if built_collections.len() != collections.len() {
+    if fail_fast && !errors.is_empty() {
         return tables::Validations {
             built_captures: tables::BuiltCaptures::new(),
             built_collections,
@@ -164,38 +73,97 @@ pub async fn validate(
         };
     }
 
-    // Merge local and remote BuiltCollections. On conflict, keep the local one.
-    let mut built_collections = built_collections
-        .into_iter()
-        .merge_join_by(remote_collections.into_iter(), |b, r| {
-            b.collection.cmp(&r.collection)
-        })
-        .map(|eob| match eob {
-            EitherOrBoth::Left(local) | EitherOrBoth::Both(local, _) => local,
-            EitherOrBoth::Right(remote) => remote,
-        })
-        .collect::<tables::BuiltCollections>();
+    let built_tests = test_step::walk_all_tests(
+        pub_id,
+        build_id,
+        &draft.tests,
+        &live.tests,
+        &built_collections,
+        &mut errors,
+    );
 
-    let built_tests = test_step::walk_all_tests(&built_collections, tests, &mut errors);
+    // Validating tests is fast, and encountered errors are likely to impact
+    // task validations (which are slower).
+    if fail_fast && !errors.is_empty() {
+        return tables::Validations {
+            built_captures: tables::BuiltCaptures::new(),
+            built_collections,
+            built_materializations: tables::BuiltMaterializations::new(),
+            built_tests,
+            errors,
+        };
+    }
+
+    // Task validations can run concurrently but require connector call-outs.
+
+    let mut capture_errors = tables::Errors::new();
+    let built_captures = capture::walk_all_captures(
+        pub_id,
+        build_id,
+        &draft.captures,
+        &live.captures,
+        &built_collections,
+        connectors,
+        &live.storage_mappings,
+        &mut capture_errors,
+    );
+
+    let mut derive_errors = tables::Errors::new();
+    let built_derivations = derivation::walk_all_derivations(
+        pub_id,
+        build_id,
+        &draft.collections,
+        &live.collections,
+        &built_collections,
+        connectors,
+        &draft.imports,
+        project_root,
+        &live.storage_mappings,
+        &mut derive_errors,
+    );
+
+    let mut materialize_errors = tables::Errors::new();
+    let built_materializations = materialization::walk_all_materializations(
+        pub_id,
+        build_id,
+        &draft.materializations,
+        &live.materializations,
+        &built_collections,
+        connectors,
+        &live.storage_mappings,
+        &mut materialize_errors,
+    );
+
+    // Concurrently validate all tasks.
+    let (built_captures, built_derivations, built_materializations) =
+        futures::join!(built_captures, built_derivations, built_materializations);
+
+    errors.extend(capture_errors.into_iter());
+    errors.extend(derive_errors.into_iter());
+    errors.extend(materialize_errors.into_iter());
+
+    // Attach all built derivations to the corresponding collections.
+    for (built_index, validated, derivation) in built_derivations {
+        let row = &mut built_collections[built_index];
+        row.validated = Some(validated);
+        row.spec.as_mut().unwrap().derivation = Some(derivation);
+    }
 
     // Look for name collisions among all top-level catalog entities.
-    // This is deliberately but arbitrarily ordered after granular
-    // validations of collections, but before captures and materializations,
-    // as a heuristic to report more useful errors before less useful errors.
     let collections_it = built_collections
         .iter()
         .map(|c| ("collection", c.collection.as_str(), Scope::new(&c.scope)));
-    let captures_it = captures
+    let captures_it = built_captures
         .iter()
         .map(|c| ("capture", c.capture.as_str(), Scope::new(&c.scope)));
-    let materializations_it = materializations.iter().map(|m| {
+    let materializations_it = built_materializations.iter().map(|m| {
         (
             "materialization",
             m.materialization.as_str(),
             Scope::new(&m.scope),
         )
     });
-    let tests_it = tests
+    let tests_it = built_tests
         .iter()
         .map(|t| ("test", t.test.as_str(), Scope::new(&t.scope)));
 
@@ -207,54 +175,125 @@ pub async fn validate(
         &mut errors,
     );
 
-    let built_captures = capture::walk_all_captures(
-        build_id,
-        &built_collections,
-        captures,
-        connectors,
-        storage_mappings,
-        &mut errors,
-    );
-
-    let mut derive_errors = tables::Errors::new();
-    let built_derivations = derivation::walk_all_derivations(
-        build_id,
-        &built_collections,
-        collections,
-        connectors,
-        imports,
-        project_root,
-        storage_mappings,
-        &mut derive_errors,
-    );
-
-    let mut materialize_errors = tables::Errors::new();
-    let built_materializations = materialization::walk_all_materializations(
-        build_id,
-        &built_collections,
-        connectors,
-        materializations,
-        storage_mappings,
-        &mut materialize_errors,
-    );
-
-    // Concurrently validate captures and materializations.
-    let (built_captures, built_materializations, built_derivations) =
-        futures::join!(built_captures, built_materializations, built_derivations);
-    errors.extend(derive_errors.into_iter());
-    errors.extend(materialize_errors.into_iter());
-
-    for (built_index, validated, derivation) in built_derivations {
-        let row = &mut built_collections[built_index];
-        row.validated = Some(validated);
-        row.spec.derivation = Some(derivation);
-    }
-
     tables::Validations {
         built_captures,
         built_collections,
         built_materializations,
         built_tests,
         errors,
+    }
+}
+
+fn walk_transition<'a, D, L, B>(
+    pub_id: models::Id,
+    eob: EOB<&'a L, &'a D>,
+    errors: &mut tables::Errors,
+) -> Result<
+    // Result::Ok continues validation of this specification.
+    (
+        &'a D::Key,               // Catalog name.
+        &'a url::Url,             // Scope.
+        &'a D::ModelDef,          // Model to validate.
+        models::Id,               // Live revision.
+        Option<&'a L::BuiltSpec>, // Live spec.
+    ),
+    // Result::Err is a completed BuiltRow for this specification.
+    B,
+>
+where
+    D: tables::DraftRow,
+    L: tables::LiveRow<Key = D::Key, ModelDef = D::ModelDef>,
+    B: tables::BuiltRow<Key = D::Key, ModelDef = D::ModelDef, BuiltSpec = L::BuiltSpec>,
+{
+    match eob {
+        EOB::Left(live) => {
+            if live.last_pub_id() > pub_id {
+                Error::PublicationSuperseded {
+                    pub_id,
+                    larger_id: live.last_pub_id(),
+                }
+                .push(Scope::new(live.scope()), errors);
+            }
+
+            Err(B::new(
+                live.catalog_name().clone(),
+                live.scope().clone(),
+                live.last_pub_id(),
+                Some(live.model().clone()),
+                None,
+                Some(live.spec().clone()),
+                None,
+            ))
+        }
+        EOB::Right(draft) => {
+            let actual = models::Id::zero();
+
+            if let Some(expect) = draft.expect_pub_id() {
+                if expect != actual {
+                    Error::ExpectPubIdNotMatched {
+                        expect_id: expect,
+                        actual_id: actual,
+                    }
+                    .push(Scope::new(draft.scope()), errors);
+                }
+            }
+
+            match draft.model() {
+                Some(model) => Ok((draft.catalog_name(), draft.scope(), model, actual, None)),
+                None => {
+                    Error::DeletedSpecDoesNotExist.push(Scope::new(draft.scope()), errors);
+
+                    // Return a placeholder deletion of this specification.
+                    Err(B::new(
+                        draft.catalog_name().clone(),
+                        draft.scope().clone(),
+                        actual,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ))
+                }
+            }
+        }
+        EOB::Both(live, draft) => {
+            if live.last_pub_id() > pub_id {
+                Error::PublicationSuperseded {
+                    pub_id,
+                    larger_id: live.last_pub_id(),
+                }
+                .push(Scope::new(live.scope()), errors);
+            }
+            match draft.expect_pub_id() {
+                Some(expect) if expect != live.last_pub_id() => {
+                    Error::ExpectPubIdNotMatched {
+                        expect_id: expect,
+                        actual_id: live.last_pub_id(),
+                    }
+                    .push(Scope::new(draft.scope()), errors);
+                }
+                _ => (),
+            }
+
+            match draft.model() {
+                Some(model) => Ok((
+                    draft.catalog_name(),
+                    draft.scope(),
+                    model,
+                    live.last_pub_id(),
+                    Some(live.spec()),
+                )),
+                // Return a deletion of this specification.
+                None => Err(B::new(
+                    draft.catalog_name().clone(),
+                    draft.scope().clone(),
+                    live.last_pub_id(),
+                    None,
+                    None,
+                    None,
+                    Some(live.spec().clone()),
+                )),
+            }
+        }
     }
 }

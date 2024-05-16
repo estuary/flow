@@ -37,11 +37,6 @@ test://example/catalog.yaml:
               # Explicit, included fields must work with no-op constraint validation.
               val: {}
             recommended: true
-  storageMappings:
-    acmeCo/:
-      stores: [{ provider: S3, bucket: data-bucket }]
-    recovery/acmeCo/:
-      stores: [{ provider: S3, bucket: data-bucket }]
 
 # Expect that no actual driver calls are made.
 driver: {}
