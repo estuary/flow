@@ -4,7 +4,7 @@ use serde::Serialize;
 
 // This `NameSelector` is essentially a copy of `catalog::NameSelector`, except that this
 // definition requires that either --name or --prefix are provided. Other commands will allow neither
-// arg to be provided, and will treat that as an implicit selectio of _everything_ the user has access to.
+// arg to be provided, and will treat that as an implicit selection of _everything_ the user has access to.
 // That's obviously a big foot-gun in the context of the delete subcommand, so we require that at least one
 // name selector is provided.
 /// Common selection criteria based on the spec name.
@@ -48,9 +48,9 @@ pub struct Delete {
 
 #[derive(Serialize, Debug)]
 struct DraftSpec {
-    draft_id: String,
+    draft_id: models::Id,
     catalog_name: String,
-    expect_pub_id: String,
+    expect_pub_id: models::Id,
     spec_type: serde_json::Value, // always null, since we're deleting
     spec: serde_json::Value,      // always null, since we're deleting
 }
@@ -67,7 +67,6 @@ pub async fn do_delete(
         flows: false,
         name_selector: name_selector.clone().into(),
         type_selector: type_selector.clone(),
-        deleted: false,
     };
 
     let client = ctx.controlplane_client().await?;
@@ -117,10 +116,7 @@ pub async fn do_delete(
             catalog_name: spec.catalog_name.clone(),
             spec_type: serde_json::Value::Null,
             spec: serde_json::Value::Null,
-            expect_pub_id: spec
-                .last_pub_id
-                .clone()
-                .expect("spec is missing last_pub_id"),
+            expect_pub_id: spec.last_pub_id,
         })
         .collect::<Vec<DraftSpec>>();
 
@@ -135,7 +131,7 @@ pub async fn do_delete(
     .await?;
     tracing::debug!("added deletions to draft");
 
-    draft::publish(client.clone(), false, &draft.id).await?;
+    draft::publish(client.clone(), false, draft.id).await?;
 
     // extra newline before, since `publish` will output a bunch of logs
     println!("\nsuccessfully deleted {} spec(s)", draft_specs.len());

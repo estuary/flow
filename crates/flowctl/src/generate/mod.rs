@@ -17,19 +17,19 @@ impl Generate {
         let source = build::arg_source_to_url(&self.source, false)?;
         let project_root = build::project_root(&source);
 
-        let mut sources = local_specs::load(&source).await;
-        sources::inline_sources(&mut sources);
+        let mut draft = local_specs::load(&source).await;
+        sources::inline_draft_catalog(&mut draft);
 
         // Find config URLs we were unable to load and generate stubs for each.
         let (stubs, errors): (
             Vec<(url::Url, models::RawValue, doc::Shape)>,
             Vec<(url::Url, anyhow::Error)>,
-        ) = generate_missing_configs(&mut sources)
+        ) = generate_missing_configs(&mut draft)
             .await
             .partition_result();
 
         for (scope, error) in errors {
-            sources.errors.insert_row(scope, error);
+            draft.errors.insert_row(scope, error);
         }
 
         // TODO(johnny): We could render a nice table view of the _shape,
@@ -45,7 +45,7 @@ impl Generate {
         build::write_files(&project_root, files)?;
 
         let client = ctx.controlplane_client().await?;
-        let () = local_specs::generate_files(client, sources).await?;
+        let () = local_specs::generate_files(client, draft).await?;
         Ok(())
     }
 }
@@ -57,15 +57,15 @@ impl Generate {
 // * It's schema Shape.
 // Or, if generation fails, then return the error and its scope.
 async fn generate_missing_configs(
-    sources: &tables::Sources,
+    draft: &tables::DraftCatalog,
 ) -> impl Iterator<Item = Result<(url::Url, models::RawValue, doc::Shape), (url::Url, anyhow::Error)>>
 {
-    let tables::Sources {
+    let tables::DraftCatalog {
         captures,
         collections,
         materializations,
         ..
-    } = sources;
+    } = draft;
 
     let captures = captures.iter().map(|capture| {
         async move {
@@ -106,15 +106,18 @@ async fn generate_missing_configs(
 }
 
 async fn generate_missing_capture_configs(
-    capture: &tables::Capture,
+    capture: &tables::DraftCapture,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
-    let tables::Capture {
-        scope: _,
+    let tables::DraftCapture {
         capture,
-        spec: models::CaptureDef {
+        model: Some(models::CaptureDef {
             endpoint, bindings, ..
-        },
-    } = capture;
+        }),
+        ..
+    } = capture
+    else {
+        return Ok(Vec::new());
+    };
 
     let (spec, missing_config_url) = match endpoint {
         models::CaptureEndpoint::Connector(config) => (
@@ -180,13 +183,16 @@ async fn generate_missing_capture_configs(
 }
 
 async fn generate_missing_collection_configs(
-    collection: &tables::Collection,
+    collection: &tables::DraftCollection,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
-    let tables::Collection {
-        scope: _,
+    let tables::DraftCollection {
         collection,
-        spec: models::CollectionDef { derive, .. },
-    } = collection;
+        model: Some(models::CollectionDef { derive, .. }),
+        ..
+    } = collection
+    else {
+        return Ok(Vec::new());
+    };
 
     let Some(models::Derivation {
         using, transforms, ..
@@ -260,15 +266,18 @@ async fn generate_missing_collection_configs(
 }
 
 async fn generate_missing_materialization_configs(
-    materialization: &tables::Materialization,
+    materialization: &tables::DraftMaterialization,
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
-    let tables::Materialization {
-        scope: _,
+    let tables::DraftMaterialization {
         materialization,
-        spec: models::MaterializationDef {
+        model: Some(models::MaterializationDef {
             endpoint, bindings, ..
-        },
-    } = materialization;
+        }),
+        ..
+    } = materialization
+    else {
+        return Ok(Vec::new());
+    };
 
     let (spec, missing_config_url) = match endpoint {
         models::MaterializationEndpoint::Connector(config) => (

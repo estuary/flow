@@ -11,7 +11,7 @@ pub struct Config {
     /// URL of the Flow UI, which will be used as a base when flowctl generates links to it.
     pub dashboard_url: Option<url::Url>,
     /// ID of the current draft, or None if no draft is configured.
-    pub draft: Option<String>,
+    pub draft: Option<models::Id>,
     // Current access token, or None if no token is set.
     pub api: Option<API>,
 }
@@ -84,9 +84,9 @@ impl Config {
         Ok(path)
     }
 
-    pub fn cur_draft(&self) -> anyhow::Result<String> {
-        match &self.draft {
-            Some(draft) => Ok(draft.clone()),
+    pub fn cur_draft(&self) -> anyhow::Result<models::Id> {
+        match self.draft {
+            Some(draft) => Ok(draft),
             None => {
                 anyhow::bail!("You must create or select a draft");
             }

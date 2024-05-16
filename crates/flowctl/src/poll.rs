@@ -5,7 +5,7 @@ use serde::Deserialize;
 pub async fn poll_while_queued(
     client: &postgrest::Postgrest,
     table: &str,
-    id: &str,
+    id: models::Id,
     logs_token: &str,
 ) -> anyhow::Result<String> {
     tracing::info!(%id, %logs_token, "Waiting for {table} job");
@@ -16,7 +16,7 @@ pub async fn poll_while_queued(
         let resp = client
             .from(table)
             .select("job_status->>type")
-            .eq("id", id)
+            .eq("id", id.to_string())
             .single()
             .execute()
             .await?
@@ -27,7 +27,7 @@ pub async fn poll_while_queued(
             r#type: String,
         }
         let PollResponse { r#type: job_status } = resp.json().await?;
-        tracing::trace!(%job_status, %id, %table, "polled job");
+        tracing::trace!(%job_status, %id, %table, offset, "polled job");
 
         if job_status != "queued" {
             break job_status;
@@ -43,7 +43,10 @@ pub async fn poll_while_queued(
                 })
                 .to_string(),
             )
-            .range(offset, 1 << 24) // Fixed upper bound of 16M log lines.
+            // TODO(johnny): This is how we'd like to do it, but the header is
+            // straight-up ignored. I'm unsure why -- possibly related to being
+            // categorized as a mutable RPC.
+            // .range(offset, 1 << 24) // Fixed upper bound of 16M log lines.
             .execute()
             .await?
             .error_for_status()?;
@@ -54,7 +57,9 @@ pub async fn poll_while_queued(
             logged_at: crate::Timestamp,
             stream: String,
         }
-        let logs: Vec<Log> = resp.json().await?;
+        let mut logs: Vec<Log> = resp.json().await?;
+
+        logs.drain(..offset);
         offset += logs.len();
 
         for Log {

@@ -80,7 +80,7 @@ pub enum Command {
 #[clap(rename_all = "kebab-case")]
 pub struct Select {
     #[clap(long)]
-    id: String,
+    id: models::Id,
 }
 
 impl Draft {
@@ -101,7 +101,7 @@ impl Draft {
 
 #[derive(Deserialize, Serialize)]
 pub struct DraftRow {
-    pub id: String,
+    pub id: models::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<crate::Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,13 +133,13 @@ pub async fn create_draft(client: Client) -> Result<DraftRow, anyhow::Error> {
     Ok(row)
 }
 
-pub async fn delete_draft(client: Client, draft_id: &str) -> Result<DraftRow, anyhow::Error> {
+pub async fn delete_draft(client: Client, draft_id: models::Id) -> Result<DraftRow, anyhow::Error> {
     let row: DraftRow = api_exec(
         client
             .from("drafts")
             .select("id,created_at")
             .delete()
-            .eq("id", draft_id)
+            .eq("id", draft_id.to_string())
             .single(),
     )
     .await?;
@@ -158,7 +158,7 @@ async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     #[derive(Deserialize, Serialize)]
     struct Row {
-        id: String,
+        id: models::Id,
         updated_at: crate::Timestamp,
     }
     impl CliOutput for Row {
@@ -175,7 +175,7 @@ async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     }
     let client = ctx.controlplane_client().await?;
     let draft_id = ctx.config().cur_draft()?;
-    let row = delete_draft(client, &draft_id).await?;
+    let row = delete_draft(client, draft_id).await?;
 
     ctx.config_mut().draft.take();
     ctx.write_all(Some(row), ())
@@ -229,7 +229,7 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
                 ]
                 .join(","),
             )
-            .eq("draft_id", ctx.config().cur_draft()?),
+            .eq("draft_id", ctx.config().cur_draft()?.to_string()),
     )
     .await?;
 
@@ -269,7 +269,12 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     .await?;
 
     // Decorate the id to mark the selected draft, but only if we're outputting a table
-    let cur_draft = ctx.config().draft.clone().unwrap_or_default();
+    let cur_draft = ctx
+        .config()
+        .draft
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+
     let output_type = ctx.get_output_type();
     let rows = rows.into_iter().map(move |mut row| {
         if output_type == crate::output::OutputType::Table && row.id == cur_draft {
@@ -284,7 +289,10 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 /// Invokes the `prune_unchanged_draft_specs` RPC (SQL function), which removes any draft specs
 /// that are identical to their live specs, accounting for changes to inferred schemas.
 /// Returns the set of specs that were removed from the draft (as a `BTreeSet` so they're ordered).
-pub async fn remove_unchanged(client: &Client, draft_id: &str) -> anyhow::Result<BTreeSet<String>> {
+pub async fn remove_unchanged(
+    client: &Client,
+    draft_id: models::Id,
+) -> anyhow::Result<BTreeSet<String>> {
     #[derive(Deserialize)]
     struct PrunedDraftSpec {
         catalog_name: String,
@@ -308,7 +316,7 @@ async fn do_select(
         ctx.controlplane_client()
             .await?
             .from("drafts")
-            .eq("id", select_id)
+            .eq("id", select_id.to_string())
             .select("id"),
     )
     .await?;
@@ -325,7 +333,7 @@ async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Resul
     let draft_id = ctx.config().cur_draft()?;
     let client = ctx.controlplane_client().await?;
 
-    publish(client, dry_run, &draft_id).await?;
+    publish(client, dry_run, draft_id).await?;
 
     if !dry_run {
         ctx.config_mut().draft.take();
@@ -333,10 +341,14 @@ async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Resul
     Ok(())
 }
 
-pub async fn publish(client: Client, dry_run: bool, draft_id: &str) -> Result<(), anyhow::Error> {
+pub async fn publish(
+    client: Client,
+    dry_run: bool,
+    draft_id: models::Id,
+) -> Result<(), anyhow::Error> {
     #[derive(Deserialize)]
     struct Row {
-        id: String,
+        id: models::Id,
         logs_token: String,
     }
     let Row { id, logs_token } = api_exec(
@@ -355,7 +367,7 @@ pub async fn publish(client: Client, dry_run: bool, draft_id: &str) -> Result<()
     )
     .await?;
     tracing::info!(%id, %logs_token, %dry_run, "created publication");
-    let outcome = crate::poll_while_queued(&client, "publications", &id, &logs_token).await?;
+    let outcome = crate::poll_while_queued(&client, "publications", id, &logs_token).await?;
 
     #[derive(Deserialize, Debug)]
     struct DraftError {
@@ -366,7 +378,7 @@ pub async fn publish(client: Client, dry_run: bool, draft_id: &str) -> Result<()
         client
             .from("draft_errors")
             .select("scope,detail")
-            .eq("draft_id", draft_id),
+            .eq("draft_id", draft_id.to_string()),
     )
     .await?;
     for DraftError { scope, detail } in errors {
