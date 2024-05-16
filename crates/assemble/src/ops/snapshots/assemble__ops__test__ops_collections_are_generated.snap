@@ -2,12 +2,13 @@
 source: crates/assemble/src/ops/mod.rs
 expression: "&tables"
 ---
-Sources {
+DraftCatalog {
     captures: [
-        Capture {
-            scope: builtin://flow/test-cap.flow.yaml#/collections/acmeCo~1foo,
+        DraftCapture {
             capture: acmeCo/foo,
-            spec: {
+            scope: builtin://flow/test-cap.flow.yaml#/collections/acmeCo~1foo,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "foo/bar",
@@ -19,20 +20,22 @@ Sources {
         },
     ],
     collections: [
-        Collection {
-            scope: test://foo.bar/collection,
+        DraftCollection {
             collection: ops.test-dataplane/logs,
-            spec: {
+            scope: test://foo.bar/collection,
+            expect_pub_id: NULL,
+            model: {
               "schema": "test://foo.bar/schema",
               "key": [
                 "/not/a/real/key"
               ]
             },
         },
-        Collection {
-            scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/logs,
+        DraftCollection {
             collection: ops.us-central1.v1/logs,
-            spec: {
+            scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/logs,
+            expect_pub_id: NULL,
+            model: {
               "schema": "builtin://flow/ops-catalog/ops-log-schema.json",
               "key": [
                 "/shard/name",
@@ -52,10 +55,11 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/stats,
+        DraftCollection {
             collection: ops.us-central1.v1/stats,
-            spec: {
+            scope: builtin://flow/ops.yaml#/collections/ops.us-central1.v1/stats,
+            expect_pub_id: NULL,
+            model: {
               "schema": "builtin://flow/ops-catalog/ops-stats-schema.json",
               "key": [
                 "/shard/name",
@@ -393,6 +397,5 @@ Sources {
             },
         },
     ],
-    storage_mappings: [],
     tests: [],
 }

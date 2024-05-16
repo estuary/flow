@@ -21,7 +21,7 @@ macro_rules! gen_schema {
 
 /// Adds ops collections to the given partial built catalog. The tables will be modified in place
 /// to add the resources required for the ops (logs and stats) collections.
-pub fn generate_ops_collections(tables: &mut tables::Sources) {
+pub fn generate_ops_collections(tables: &mut tables::DraftCatalog) {
     let shard_schema = gen_schema!("../../../../ops-catalog/ops-shard-schema.json");
     let stats_schema = gen_schema!("../../../../ops-catalog/ops-stats-schema.json");
     let log_schema = gen_schema!("../../../../ops-catalog/ops-log-schema.json");
@@ -60,14 +60,14 @@ pub fn generate_ops_collections(tables: &mut tables::Sources) {
     }
 }
 
-fn has_collection(tables: &tables::Sources, name: &str) -> bool {
+fn has_collection(tables: &tables::DraftCatalog, name: &str) -> bool {
     tables
         .collections
         .iter()
         .any(|c| c.collection.as_str() == name)
 }
 
-fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Sources) {
+fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::DraftCatalog) {
     let mut scope = builtin_url("ops.yaml");
     scope.set_fragment(Some(&format!("/collections/{name}")));
 
@@ -83,23 +83,26 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
     ];
 
     tables.collections.insert_row(
-        scope.clone(),
         name.clone(),
-        serde_json::from_value::<models::CollectionDef>(serde_json::json!({
-            "key": key,
-            "schema": schema_url.to_string(),
-            "projections": {
-                "kind": {
-                    "location": "/shard/kind",
-                    "partition": true,
+        scope.clone(),
+        None,
+        Some(
+            serde_json::from_value::<models::CollectionDef>(serde_json::json!({
+                "key": key,
+                "schema": schema_url.to_string(),
+                "projections": {
+                    "kind": {
+                        "location": "/shard/kind",
+                        "partition": true,
+                    },
+                    "name": {
+                        "location": "/shard/name",
+                        "partition": true,
+                    }
                 },
-                "name": {
-                    "location": "/shard/name",
-                    "partition": true,
-                }
-            },
-        }))
-        .unwrap(),
+            }))
+            .unwrap(),
+        ),
     );
     tables.imports.insert_row(schema_scope, schema_url);
 }
@@ -115,14 +118,16 @@ mod test {
 
     #[test]
     fn ops_collections_are_generated() {
-        let mut tables = tables::Sources::default();
+        let mut tables = tables::DraftCatalog::default();
         tables.captures.insert_row(
-            builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
             models::Capture::new("acmeCo/foo"),
+            builtin_url("test-cap.flow.yaml#/collections/acmeCo~1foo"),
+            None,
+            Some(
             from_value::<models::CaptureDef>(
                 json!({"endpoint":{"connector": {"image": "foo/bar", "config": {}}}, "bindings":[]}),
             )
-            .unwrap(),
+            .unwrap()),
         );
 
         // Add an ops collection to the tables so that we can assert that a duplicate ops
@@ -136,9 +141,10 @@ mod test {
         .unwrap();
 
         tables.collections.insert_row(
-            Url::parse("test://foo.bar/collection").unwrap(),
             models::Collection::new("ops.test-dataplane/logs"),
-            spec,
+            Url::parse("test://foo.bar/collection").unwrap(),
+            None,
+            Some(spec),
         );
 
         generate_ops_collections(&mut tables);
