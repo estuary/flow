@@ -89,7 +89,7 @@ pub fn get_incompatible_collections(output: &Output) -> Vec<IncompatibleCollecti
                     .entry(collection_name.to_owned())
                     .or_insert_with(|| Vec::new());
                 affected_consumers.push(AffectedConsumer {
-                    name: mat.materialization.clone(),
+                    name: mat.catalog_name.clone(),
                     fields: naughty_fields,
                 });
             }
@@ -119,6 +119,13 @@ pub async fn build_catalog(
     pub_id: Id,
     tmpdir: &path::Path,
 ) -> anyhow::Result<Output> {
+    // TODO(johnny): It's silly, at this point, to be writing `catalog` out to a file only
+    // to then read it back in again. Rather than building a models::Catalog at all,
+    // we should directly build tables::Draft* rows for each drafted specification,
+    // and require that all drafted specs are already fully resolved and inlined
+    // (we should no longer uses `sources` from the control plane, only flowctl).
+    // This function should probably go away altogether!
+
     // We perform the build under a ./builds/ subdirectory, which is a
     // specific sub-path expected by temp-data-plane underneath its
     // working temporary directory. This lets temp-data-plane use the
