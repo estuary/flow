@@ -6,7 +6,7 @@ use models::{
 use superslice::Ext;
 
 pub fn walk_all_storage_mappings(
-    storage_mappings: &[tables::StorageMapping],
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) {
     for m in storage_mappings {
@@ -29,21 +29,21 @@ pub fn walk_all_storage_mappings(
                 );
 
                 let scope = scope.push_prop("prefix");
-                if m.prefix.is_empty() {
+                if m.catalog_prefix.is_empty() {
                     Error::InvalidCustomStoragePrefix {
-                        prefix: m.prefix.to_string(),
+                        prefix: m.catalog_prefix.to_string(),
                         disallowed: "empty",
                     }
                     .push(scope, errors);
-                } else if m.prefix.starts_with("default/") {
+                } else if m.catalog_prefix.starts_with("default/") {
                     Error::InvalidCustomStoragePrefix {
-                        prefix: m.prefix.to_string(),
+                        prefix: m.catalog_prefix.to_string(),
                         disallowed: "'default/'",
                     }
                     .push(scope, errors);
-                } else if m.prefix.starts_with("recovery/default/") {
+                } else if m.catalog_prefix.starts_with("recovery/default/") {
                     Error::InvalidCustomStoragePrefix {
-                        prefix: m.prefix.to_string(),
+                        prefix: m.catalog_prefix.to_string(),
                         disallowed: "'recovery/default/'",
                     }
                     .push(scope, errors);
@@ -142,7 +142,7 @@ pub fn walk_all_storage_mappings(
             }
         }
 
-        if m.prefix.is_empty() {
+        if m.catalog_prefix.is_empty() {
             // Prefix is allowed to be empty. Continue because
             // walk_name will otherwise produce an error.
             continue;
@@ -150,7 +150,7 @@ pub fn walk_all_storage_mappings(
         indexed::walk_name(
             scope,
             "storageMappings",
-            m.prefix.as_ref(),
+            m.catalog_prefix.as_ref(),
             models::Prefix::regex(),
             errors,
         );
@@ -162,10 +162,10 @@ pub fn walk_all_storage_mappings(
                 "storageMapping",
                 // Prefixes explicitly end in a '/'. Strip it for the sake of
                 // walking duplicates, which (currently) expects non-prefix names.
-                m.prefix
+                m.catalog_prefix
                     .as_str()
                     .strip_suffix("/")
-                    .unwrap_or(m.prefix.as_str()),
+                    .unwrap_or(m.catalog_prefix.as_str()),
                 Scope::new(&m.scope),
             )
         }),
@@ -192,7 +192,13 @@ pub fn mapped_stores<'a>(
         None => {
             let (_, suggest_name, suggest_scope) = storage_mappings
                 .iter()
-                .map(|m| (strsim::osa_distance(&name, &m.prefix), &m.prefix, &m.scope))
+                .map(|m| {
+                    (
+                        strsim::osa_distance(&name, &m.catalog_prefix),
+                        &m.catalog_prefix,
+                        &m.scope,
+                    )
+                })
                 .min()
                 .unwrap();
 
@@ -215,7 +221,7 @@ fn lookup_mapping<'a>(
     storage_mappings: &'a [tables::StorageMapping],
     name: &str,
 ) -> Option<&'a tables::StorageMapping> {
-    let index = storage_mappings.upper_bound_by_key(&name, |m| &m.prefix);
+    let index = storage_mappings.upper_bound_by_key(&name, |m| &m.catalog_prefix);
 
     index
         // We've located the first entry *greater* than name.
@@ -223,7 +229,7 @@ fn lookup_mapping<'a>(
         .checked_sub(1)
         .and_then(|i| storage_mappings.get(i))
         // Then test if it's indeed a prefix of |name|. It may not be.
-        .filter(|m| name.starts_with(m.prefix.as_str()))
+        .filter(|m| name.starts_with(m.catalog_prefix.as_str()))
 }
 
 #[cfg(test)]
@@ -236,9 +242,9 @@ mod test {
         let mut mappings = tables::StorageMappings::new();
         let scope = url::Url::parse("http://scope").unwrap();
 
-        mappings.insert_row(&scope, Prefix::new("foo/"), Vec::new());
-        mappings.insert_row(&scope, Prefix::new("bar/one/"), Vec::new());
-        mappings.insert_row(&scope, Prefix::new("bar/two/"), Vec::new());
+        mappings.insert_row(Prefix::new("foo/"), &scope, Vec::new());
+        mappings.insert_row(Prefix::new("bar/one/"), &scope, Vec::new());
+        mappings.insert_row(Prefix::new("bar/two/"), &scope, Vec::new());
 
         assert!(lookup_mapping(&mappings, "foo/foo").is_some());
         assert!(lookup_mapping(&mappings, "fooo/foo").is_none());

@@ -6,19 +6,19 @@ Outcome {
     built_captures: [],
     built_collections: [
         BuiltCollection {
-            collection: testing/schema_with_empty_properties,
-            scope: test://example/catalog.yaml#/collections/testing~1schema_with_empty_properties,
+            collection: testing/collection-with-flow-document,
+            scope: test://example/catalog.yaml#/collections/testing~1collection-with-flow-document,
             expect_pub_id: "00:00:00:00:00:00:00:00",
             model: {
-              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_empty_properties/schema","properties":{"":{"type":"string"},"a":{"properties":{"":{"type":"string"}},"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection-with-flow-document/schema","properties":{"flow_document":{"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
                 "/id"
               ]
             },
             validated: NULL,
             spec: CollectionSpec {
-                name: "testing/schema_with_empty_properties",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_empty_properties/schema\",\"properties\":{\"\":{\"type\":\"string\"},\"a\":{\"properties\":{\"\":{\"type\":\"string\"}},\"type\":\"object\"},\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                name: "testing/collection-with-flow-document",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1collection-with-flow-document/schema\",\"properties\":{\"flow_document\":{\"type\":\"object\"},\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
                 read_schema_json: "",
                 key: [
                     "/id",
@@ -43,26 +43,6 @@ Outcome {
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/a",
-                        field: "a",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "object",
-                                ],
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: May,
                             },
                         ),
                     },
@@ -144,7 +124,7 @@ Outcome {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/schema_with_empty_properties/2020202020202020",
+                        name: "testing/collection-with-flow-document/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -163,7 +143,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
-                                        value: "testing/schema_with_empty_properties",
+                                        value: "testing/collection-with-flow-document",
                                     },
                                 ],
                             },
@@ -200,11 +180,11 @@ Outcome {
     captures: [],
     collections: [
         DraftCollection {
-            collection: testing/schema_with_empty_properties,
-            scope: test://example/catalog.yaml#/collections/testing~1schema_with_empty_properties,
+            collection: testing/collection-with-flow-document,
+            scope: test://example/catalog.yaml#/collections/testing~1collection-with-flow-document,
             expect_pub_id: NULL,
             model: {
-              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_empty_properties/schema","properties":{"":{"type":"string"},"a":{"properties":{"":{"type":"string"}},"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection-with-flow-document/schema","properties":{"flow_document":{"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
                 "/id"
               ]
@@ -226,7 +206,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/schema_with_empty_properties":{"key":["/id"],"schema":{"properties":{"":{"type":"string"},"a":{"properties":{"":{"type":"string"}},"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"}}}},
+            content_dom: {"collections":{"testing/collection-with-flow-document":{"key":["/id"],"schema":{"properties":{"flow_document":{"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"}}}},
         },
     ],
     storage_mappings: [

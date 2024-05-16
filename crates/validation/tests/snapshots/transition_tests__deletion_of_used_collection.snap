@@ -1,0 +1,22 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/tests/the~1test/0/ingest/collection,
+        error: deleted collection the/collection is still referenced by this test step,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/the~1capture/bindings/0,
+        error: deleted collection the/collection is still referenced by this capture binding,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1derivation/derive/transforms/0,
+        error: deleted collection the/collection is still referenced by transform fromCollection,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
+        error: deleted collection the/collection is still referenced by this materialization binding,
+    },
+]

@@ -1,63 +1,80 @@
-use super::{collection, errors::Error, indexed, reference, schema, Scope};
+use super::{collection, errors::Error, indexed, reference, schema, walk_transition, Scope};
 use flow::test_spec::step::Type as StepType;
 use proto_flow::flow;
+use tables::EitherOrBoth as EOB;
 
 pub fn walk_all_tests(
-    built_collections: &[tables::BuiltCollection],
-    tests: &[tables::Test],
+    pub_id: models::Id,
+    build_id: models::Id,
+    draft_tests: &tables::DraftTests,
+    live_tests: &tables::LiveTests,
+    built_collections: &tables::BuiltCollections,
     errors: &mut tables::Errors,
 ) -> tables::BuiltTests {
-    let mut built_tests = tables::BuiltTests::new();
+    // Outer join of live and draft tests.
+    let it = live_tests.outer_join(draft_tests.iter().map(|r| (&r.test, r)), |eob| match eob {
+        EOB::Left(live) => Some(EOB::Left(live)),
+        EOB::Right((_test, draft)) => Some(EOB::Right(draft)),
+        EOB::Both(live, (_test, draft)) => Some(EOB::Both(live, draft)),
+    });
 
-    for tables::Test {
-        scope,
-        test,
-        spec: steps,
-    } in tests
-    {
-        let scope = Scope::new(scope);
-
-        indexed::walk_name(scope, "test", test, models::Test::regex(), errors);
-
-        let steps = steps
-            .iter()
-            .enumerate()
-            .filter_map(|(step_index, test_step)| {
-                walk_test_step(
-                    scope.push_item(step_index),
-                    built_collections,
-                    step_index,
-                    test_step,
-                    errors,
-                )
-            })
-            .collect();
-
-        built_tests.insert_row(
-            scope.flatten(),
-            test,
-            flow::TestSpec {
-                name: test.to_string(),
-                steps,
-            },
-        );
-    }
-
-    indexed::walk_duplicates(
-        tests
-            .iter()
-            .map(|s| ("test", s.test.as_str(), Scope::new(&s.scope))),
-        errors,
-    );
-
-    built_tests
+    it.filter_map(|eob| walk_test(pub_id, build_id, eob, built_collections, errors))
+        .collect()
 }
 
-pub fn walk_test_step(
-    scope: Scope,
-    built_collections: &[tables::BuiltCollection],
+fn walk_test(
+    pub_id: models::Id,
+    _build_id: models::Id,
+    eob: EOB<&tables::LiveTest, &tables::DraftTest>,
+    built_collections: &tables::BuiltCollections,
+    errors: &mut tables::Errors,
+) -> Option<tables::BuiltTest> {
+    let (test, scope, model, expect_pub_id, live_spec) = match walk_transition(pub_id, eob, errors)
+    {
+        Ok(ok) => ok,
+        Err(built) => return Some(built),
+    };
+    let scope = Scope::new(scope);
+
+    let models::TestDef { steps, .. } = model;
+
+    indexed::walk_name(scope, "test", test, models::Test::regex(), errors);
+
+    // Map steps into built steps.
+    let built_steps: Vec<_> = steps
+        .iter()
+        .enumerate()
+        .filter_map(|(step_index, test_step)| {
+            walk_test_step(
+                scope.push_item(step_index),
+                built_collections,
+                step_index,
+                test_step,
+                errors,
+            )
+        })
+        .collect();
+
+    let built_spec = flow::TestSpec {
+        name: test.to_string(),
+        steps: built_steps,
+    };
+
+    Some(tables::BuiltTest {
+        test: test.clone(),
+        scope: scope.flatten(),
+        expect_pub_id,
+        model: Some(model.clone()),
+        spec: Some(built_spec),
+        previous_spec: live_spec.cloned(),
+    })
+}
+
+pub fn walk_test_step<'a>(
+    scope: Scope<'a>,
+    built_collections: &'a tables::BuiltCollections,
     step_index: usize,
-    test_step: &models::TestStep,
+    test_step: &'a models::TestStep,
     errors: &mut tables::Errors,
 ) -> Option<flow::test_spec::Step> {
     // Decompose the test step into its parts.
@@ -106,13 +123,11 @@ pub fn walk_test_step(
         StepType::Verify => scope.push_prop("verify"),
     };
 
-    let collection = reference::walk_reference(
+    let (spec, _) = reference::walk_reference(
         scope.push_prop("collection"),
         "this test step",
-        "collection",
-        collection.as_str(),
+        collection,
         built_collections,
-        |c| (&c.collection, Scope::new(&c.scope)),
         errors,
     )?;
     let documents = serde_json::from_str::<Vec<serde_json::Value>>(documents.get())
@@ -120,8 +135,8 @@ pub fn walk_test_step(
 
     if let StepType::Ingest = step_type {
         // Require that all documents validate for both writes and reads.
-        let mut write_schema = schema::Schema::new(&collection.spec.write_schema_json).ok();
-        let mut read_schema = Some(&collection.spec.read_schema_json)
+        let mut write_schema = schema::Schema::new(&spec.write_schema_json).ok();
+        let mut read_schema = Some(&spec.read_schema_json)
             .filter(|s| !s.is_empty())
             .and_then(|schema| schema::Schema::new(schema).ok());
 
@@ -136,11 +151,9 @@ pub fn walk_test_step(
                 }
             }
         }
-    } else if let Ok(key) = extractors::for_key(
-        &collection.spec.key,
-        &collection.spec.projections,
-        &doc::SerPolicy::noop(),
-    ) {
+    } else if let Ok(key) =
+        extractors::for_key(&spec.key, &spec.projections, &doc::SerPolicy::noop())
+    {
         // Verify that any verified documents are ordered correctly w.r.t.
         // the collection's key.
         for (doc_index, (lhs, rhs)) in documents.windows(2).map(|p| (&p[0], &p[1])).enumerate() {
@@ -155,7 +168,7 @@ pub fn walk_test_step(
     if let Some(selector) = selector {
         collection::walk_selector(
             scope.push_prop("collection").push_prop("partitions"),
-            &collection.spec,
+            &spec,
             &selector,
             errors,
         );
@@ -164,10 +177,10 @@ pub fn walk_test_step(
     Some(flow::test_spec::Step {
         step_type: step_type as i32,
         step_index: step_index as u32,
-        step_scope: scope.flatten().into(),
-        collection: collection.collection.to_string(),
+        step_scope: scope.flatten().to_string(),
+        collection: collection.to_string(),
         docs_json_vec: documents.into_iter().map(|d| d.to_string()).collect(),
-        partitions: Some(assemble::journal_selector(&collection.collection, selector)),
+        partitions: Some(assemble::journal_selector(collection, selector)),
         description: description.clone(),
     })
 }

@@ -8,20 +8,8 @@ expression: errors
         error: collection name cannot be empty,
     },
     Error {
-        scope: test://example/catalog.yaml#/collections/,
-        error: could not map collection  into a storage mapping; did you mean testing/ defined at test://example/catalog.yaml#/storageMappings/testing~1?,
-    },
-    Error {
         scope: test://example/catalog.yaml#/collections/~1testing~1bad~1name,
         error: /testing/bad/name cannot be used as name for collection ("/" is invalid),
-    },
-    Error {
-        scope: test://example/catalog.yaml#/collections/~1testing~1bad~1name,
-        error: could not map collection /testing/bad/name into a storage mapping; did you mean testing/ defined at test://example/catalog.yaml#/storageMappings/testing~1?,
-    },
-    Error {
-        scope: test://example/catalog.yaml#/collections/testing,
-        error: could not map collection testing into a storage mapping; did you mean testing/ defined at test://example/catalog.yaml#/storageMappings/testing~1?,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1bad%20name,

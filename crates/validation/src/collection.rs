@@ -1,80 +1,88 @@
-use super::{indexed, schema, storage_mapping, Error, InferredSchema, Scope};
+use super::{indexed, schema, storage_mapping, walk_transition, Error, Scope};
 use json::schema::types;
 use proto_flow::flow;
 use std::collections::BTreeMap;
+use tables::EitherOrBoth as EOB;
 
 pub fn walk_all_collections(
-    build_id: &str,
-    collections: &[tables::Collection],
-    inferred_schemas: &BTreeMap<models::Collection, InferredSchema>,
-    storage_mappings: &[tables::StorageMapping],
+    pub_id: models::Id,
+    build_id: models::Id,
+    draft_collections: &tables::DraftCollections,
+    live_collections: &tables::LiveCollections,
+    inferred_schemas: &tables::InferredSchemas,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltCollections {
-    let mut built_collections = tables::BuiltCollections::new();
+    // Outer join of live and draft collections.
+    let it = live_collections.outer_join(
+        draft_collections.iter().map(|r| (&r.collection, r)),
+        |eob| match eob {
+            EOB::Left(live) => Some((&live.collection, EOB::Left(live))),
+            EOB::Right((collection, draft)) => Some((collection, EOB::Right(draft))),
+            EOB::Both(live, (collection, draft)) => Some((collection, EOB::Both(live, draft))),
+        },
+    );
+    // Left join from a draft and/or live collection to a matched inferred schema, if present.
+    let it = inferred_schemas.outer_join(it, |eob| match eob {
+        EOB::Left(_inferred) => None,
+        EOB::Right((_collection, eob)) => Some((eob, None)),
+        EOB::Both(inferred, (_collection, eob)) => Some((eob, Some(&inferred.schema))),
+    });
 
-    for collection in collections {
-        if let Some(spec) = walk_collection(
+    it.filter_map(|(eob, inferred_bundle)| {
+        walk_collection(
+            pub_id,
             build_id,
-            collection,
-            inferred_schemas,
+            eob,
+            inferred_bundle,
             storage_mappings,
             errors,
-        ) {
-            let inferred_schema_md5 = inferred_schemas
-                .get(&collection.collection)
-                .map(|s| s.md5.clone());
-            built_collections.insert_row(
-                &collection.scope,
-                &collection.collection,
-                None,
-                spec,
-                inferred_schema_md5,
-            );
-        }
-    }
-    built_collections
+        )
+    })
+    .collect()
 }
 
 fn walk_collection(
-    build_id: &str,
-    collection: &tables::Collection,
-    inferred_schemas: &BTreeMap<models::Collection, InferredSchema>,
-    storage_mappings: &[tables::StorageMapping],
+    pub_id: models::Id,
+    build_id: models::Id,
+    eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
+    inferred_bundle: Option<&models::Schema>,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
-) -> Option<flow::CollectionSpec> {
-    let tables::Collection {
-        scope,
-        collection: name,
-        spec:
-            models::CollectionDef {
-                schema,
-                write_schema,
-                read_schema,
-                key,
-                projections,
-                journals: _,
-                derive: _,
-            },
-    } = collection;
+) -> Option<tables::BuiltCollection> {
+    let (collection, scope, model, expect_pub_id, live_spec) =
+        match walk_transition(pub_id, eob, errors) {
+            Ok(ok) => ok,
+            Err(built) => return Some(built),
+        };
     let scope = Scope::new(scope);
+
+    let models::CollectionDef {
+        schema,
+        write_schema,
+        read_schema,
+        key,
+        projections,
+        journals,
+        derive: _,
+        expect_pub_id: _,
+        delete: _,
+    } = model;
 
     indexed::walk_name(
         scope,
         "collection",
-        name.as_ref(),
+        collection,
         models::Collection::regex(),
         errors,
     );
 
     if key.is_empty() {
         Error::CollectionKeyEmpty {
-            collection: name.to_string(),
+            collection: collection.to_string(),
         }
         .push(scope.push_prop("key"), errors);
     }
-
-    let inferred_schema = inferred_schemas.get(&collection.collection);
-    tracing::debug!(collection = %collection.collection, inferred_schema_md5 = ?inferred_schema.map(|s| s.md5.as_str()), "does collection have an inferred schema");
 
     let (write_schema, write_bundle, read_schema_bundle) = match (schema, write_schema, read_schema)
     {
@@ -91,11 +99,8 @@ fn walk_collection(
 
             // Potentially extend the user's read schema with definitions
             // for the collection's current write and inferred schemas.
-            let read_bundle = models::Schema::extend_read_bundle(
-                read_bundle,
-                write_bundle,
-                inferred_schema.map(|v| &v.schema),
-            );
+            let read_bundle =
+                models::Schema::extend_read_bundle(read_bundle, write_bundle, inferred_bundle);
 
             let read_schema =
                 walk_collection_schema(scope.push_prop("readSchema"), &read_bundle, errors);
@@ -107,7 +112,7 @@ fn walk_collection(
         }
         _ => {
             Error::InvalidSchemaCombination {
-                collection: name.to_string(),
+                collection: collection.to_string(),
             }
             .push(scope, errors);
             return None;
@@ -138,24 +143,75 @@ fn walk_collection(
         projections,
         errors,
     );
+    // Projections should be ascending and unique on field.
+    assert!(projections.windows(2).all(|p| p[0].field < p[1].field));
 
-    let partition_stores = storage_mapping::mapped_stores(
-        scope,
-        "collection",
-        name.as_str(),
-        storage_mappings,
-        errors,
-    );
+    let partition_fields = projections
+        .iter()
+        .filter_map(|p| {
+            if p.is_partition_key {
+                Some(p.field.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
 
-    Some(assemble::collection_spec(
+    let partition_stores =
+        storage_mapping::mapped_stores(scope, "collection", collection, storage_mappings, errors);
+
+    // Pass-through the existing journal prefix, or create a unique new one.
+    let journal_name_prefix = if let Some(flow::CollectionSpec {
+        partition_template: Some(template),
+        ..
+    }) = live_spec
+    {
+        template.name.clone()
+    } else {
+        // Semi-colons are disallowed in Gazette journal names.
+        let pub_id = pub_id.to_string().replace(":", "");
+        format!("{collection}/{pub_id}")
+    };
+
+    let partition_template = assemble::partition_template(
         build_id,
         collection,
-        projections,
-        read_schema_bundle.map(|(_schema, bundle)| bundle),
+        &journal_name_prefix,
+        journals,
         partition_stores,
-        UUID_PTR,
-        write_bundle,
-    ))
+    );
+    let bundle_to_string = |b: Option<models::Schema>| -> String {
+        let b: Option<Box<serde_json::value::RawValue>> = b.map(|b| b.into_inner().into());
+        let b: Option<Box<str>> = b.map(Into::into);
+        let b: Option<String> = b.map(Into::into);
+        b.unwrap_or_default()
+    };
+    let built_spec = flow::CollectionSpec {
+        name: collection.to_string(),
+        write_schema_json: bundle_to_string(Some(write_bundle)),
+        read_schema_json: bundle_to_string(read_schema_bundle.map(|(_schema, bundle)| bundle)),
+        key: key.iter().map(|p| p.to_string()).collect(),
+        projections,
+        partition_fields,
+        uuid_ptr: UUID_PTR.to_string(),
+        ack_template_json: serde_json::json!({
+                "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
+                "ack": true,
+            } })
+        .to_string(),
+        partition_template: Some(partition_template),
+        derivation: None,
+    };
+
+    Some(tables::BuiltCollection {
+        collection: collection.clone(),
+        scope: scope.flatten(),
+        expect_pub_id,
+        model: Some(model.clone()),
+        spec: Some(built_spec),
+        validated: None,
+        previous_spec: live_spec.cloned(),
+    })
 }
 
 fn walk_collection_schema(

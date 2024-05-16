@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve,
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive,
         error: A driver error!,
     },
 ]

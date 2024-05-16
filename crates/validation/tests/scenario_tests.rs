@@ -1,84 +1,16 @@
-use futures::{future::BoxFuture, FutureExt};
-use lazy_static::lazy_static;
-use proto_flow::{capture, derive, flow, materialize, runtime::Container};
-use serde_json::Value;
-use std::collections::BTreeMap;
+mod common;
 
-lazy_static! {
-    static ref GOLDEN: Value = serde_yaml::from_slice(include_bytes!("model.yaml")).unwrap();
-}
+const MODEL_YAML: &str = include_str!("model.yaml");
 
 #[test]
 fn test_golden_all_visits() {
-    let (
-        (
-            tables::Sources {
-                captures,
-                collections,
-                errors: _,
-                fetches,
-                imports,
-                materializations,
-                resources,
-                storage_mappings,
-                tests,
-            },
-            tables::Validations {
-                built_captures,
-                built_collections,
-                built_materializations,
-                built_tests,
-                errors: _,
-            },
-        ),
-        errors,
-    ) = run_test(GOLDEN.clone(), "a-build-id");
-
-    // NOTE(johnny): There used to be a tables::All which was removed.
-    // We re-constitute it here only to avoid churning this existing snapshot.
-    // We can remove this and separately update the snapshot of `sources` & `validations`.
-    #[derive(Debug)]
-    #[allow(dead_code)]
-    struct All {
-        built_captures: tables::BuiltCaptures,
-        built_collections: tables::BuiltCollections,
-        built_materializations: tables::BuiltMaterializations,
-        built_tests: tables::BuiltTests,
-        captures: tables::Captures,
-        collections: tables::Collections,
-        errors: tables::Errors,
-        fetches: tables::Fetches,
-        imports: tables::Imports,
-        materializations: tables::Materializations,
-        meta: tables::Meta,
-        resources: tables::Resources,
-        storage_mappings: tables::StorageMappings,
-        tests: tables::Tests,
-    }
-    let tables = All {
-        built_captures,
-        built_collections,
-        built_materializations,
-        built_tests,
-        captures,
-        collections,
-        errors,
-        fetches,
-        imports,
-        materializations,
-        meta: tables::Meta::default(),
-        resources,
-        storage_mappings,
-        tests,
-    };
-
-    insta::assert_debug_snapshot!(tables);
+    let outcome = common::run(MODEL_YAML, "{}");
+    insta::assert_debug_snapshot!(outcome);
 }
 
 #[test]
 fn test_projection_not_created_for_empty_properties() {
-    let fixture = serde_yaml::from_str(
-        r##"
+    let fixture = r##"
 test://example/catalog.yaml:
   collections:
     testing/schema_with_empty_properties:
@@ -93,64 +25,23 @@ test://example/catalog.yaml:
               "": { type: string }
         required: [id]
       key: [/id]
-  storageMappings:
-    testing/:
-      stores: [{provider: S3, bucket: a-bucket}]
-    recovery/:
-      stores: [{provider: S3, bucket: a-bucket}]
-driver:
-  captures: {}
-  derivations: {}
-  materializations: {}
-    "##,
-    )
-    .unwrap();
+"##;
 
-    let ((_, validations), errors) = run_test(fixture, "remapping_flow_truncated");
-
-    assert!(errors.is_empty(), "got errors: {errors:?}");
-    assert_eq!(1, validations.built_collections.len());
+    let outcome = common::run(fixture, "{}");
     // Expect not to see any projections for the empty properties
-    insta::assert_debug_snapshot!(validations.built_collections[0].spec.projections);
+    insta::assert_debug_snapshot!(outcome);
 }
 
 #[test]
 fn connector_validation_is_skipped_when_shards_are_disabled() {
-    let fixture =
-        serde_yaml::from_slice(include_bytes!("validation_skipped_when_disabled.yaml")).unwrap();
-    let ((_, validations), errors) = run_test(fixture, "validation-skipped-build-id");
-    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
-
-    let tables::Validations {
-        built_captures,
-        built_materializations,
-        ..
-    } = validations;
-
-    assert_eq!(built_captures.len(), 1);
-    assert!(
-        built_captures[0]
-            .spec
-            .shard_template
-            .as_ref()
-            .unwrap()
-            .disable,
-    );
-    assert_eq!(built_materializations.len(), 1);
-    assert!(
-        built_materializations[0]
-            .spec
-            .shard_template
-            .as_ref()
-            .unwrap()
-            .disable,
-    );
+    let outcome = common::run(include_str!("validation_skipped_when_disabled.yaml"), "{}");
+    // Expect placeholder validation occurred and built task shards are disabled.
+    insta::assert_debug_snapshot!(outcome);
 }
 
 #[test]
 fn test_collection_schema_contains_flow_document() {
-    let fixture = serde_yaml::from_str(
-        r##"
+    let fixture = r##"
 test://example/catalog.yaml:
   collections:
     testing/collection-with-flow-document:
@@ -161,43 +52,17 @@ test://example/catalog.yaml:
           id: {type: string}
           flow_document: {type: object}
         required: [id]
+"##;
 
-  storageMappings:
-    testing/:
-      stores: [{provider: S3, bucket: a-bucket}]
-    recovery/:
-      stores: [{provider: S3, bucket: a-bucket}]
-driver: {}
-"##,
-    )
-    .unwrap();
-    let ((_, validations), errors) =
-        run_test(fixture, "collection-contains-flow-document-build-id");
-    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
-
-    let tables::Validations {
-        built_collections, ..
-    } = validations;
-
-    let collection = &built_collections[0];
-    assert!(!collection
-        .spec
-        .projections
-        .iter()
-        .any(|p| p.ptr == "/flow_document"));
-
-    let root_projection = collection
-        .spec
-        .projections
-        .iter()
-        .find(|p| p.field == "flow_document")
-        .expect("missing flow_document projection");
-    assert!(root_projection.ptr.is_empty());
+    // Expect an implicit projection isn't created for `/flow_document`,
+    // while its default projection to the document root is present.
+    let outcome = common::run(fixture, "{}");
+    insta::assert_debug_snapshot!(outcome);
 }
 
 #[test]
 fn disabled_bindings_are_ignored() {
-    let models = r##"
+    let fixture = r##"
 test://example/catalog.yaml:
   collections:
     testing/collection:
@@ -283,12 +148,6 @@ test://example/catalog.yaml:
           disable: true
           resource: { stream: disabled-stream }
 
-  storageMappings:
-    testing/:
-      stores: [{provider: S3, bucket: a-bucket}]
-    recovery/:
-      stores: [{provider: S3, bucket: a-bucket}]
-
 driver:
   derivations:
     testing/partly-disabled-derivation:
@@ -340,61 +199,30 @@ driver:
         config: {}
       bindings: []
 
-  "##;
+"##;
 
-    let ((_, validations), errors) =
-        run_test(serde_yaml::from_str(models).unwrap(), "disabled-bindings");
-    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
-
-    let tables::Validations {
-        built_captures,
-        built_materializations,
-        ..
-    } = validations;
-
-    assert_eq!(built_captures.len(), 2);
-    let partly_disabled_cap = built_captures
-        .iter()
-        .find(|c| c.capture == "testing/partially-disabled-capture")
-        .unwrap();
-    assert_eq!(1, partly_disabled_cap.spec.bindings.len());
-
-    let fully_disabled_cap = built_captures
-        .iter()
-        .find(|c| c.capture == "testing/fully-disabled-capture")
-        .unwrap();
-    assert_eq!(0, fully_disabled_cap.spec.bindings.len());
-
-    let partly_disabled_mat = built_materializations
-        .iter()
-        .find(|m| m.materialization == "testing/partially-disabled-materialization")
-        .unwrap();
-    assert_eq!(1, partly_disabled_mat.spec.bindings.len());
-    let fully_disabled_mat = built_materializations
-        .iter()
-        .find(|m| m.materialization == "testing/fully-disabled-materialization")
-        .unwrap();
-    assert_eq!(0, fully_disabled_mat.spec.bindings.len());
+    let outcome = common::run(fixture, "{}");
+    insta::assert_debug_snapshot!(outcome);
 }
 
 #[test]
 fn test_database_round_trip() {
-    let ((sources, validations), _) = run_test(GOLDEN.clone(), "a-build-id");
+    let mut outcome = common::run(MODEL_YAML, "{}");
+
+    // Collapse `errors_draft` into `errors`, as they use the same DB table.
+    outcome.errors.extend(outcome.errors_draft.drain(..));
 
     // Round-trip source and built tables through the database, verifying equality.
     let db = rusqlite::Connection::open(":memory:").unwrap();
+    tables::persist_tables(&db, &outcome.as_tables()).unwrap();
 
-    tables::persist_tables(&db, &sources.as_tables()).unwrap();
-    tables::persist_tables(&db, &validations.as_tables()).unwrap();
+    let mut reloaded = common::Outcome::default();
+    tables::load_tables(&db, reloaded.as_tables_mut().as_mut_slice()).unwrap();
 
-    let mut reload_sources = tables::Sources::default();
-    let mut reload_validations = tables::Validations::default();
+    reloaded.errors_draft.clear(); // Loaded twice.
 
-    tables::load_tables(&db, reload_sources.as_tables_mut().as_mut_slice()).unwrap();
-    tables::load_tables(&db, reload_validations.as_tables_mut().as_mut_slice()).unwrap();
-
-    let original = format!("{sources:#?} {validations:#?}");
-    let recovered = format!("{reload_sources:#?} {reload_validations:#?}");
+    let original = format!("{outcome:#?}");
+    let recovered = format!("{reloaded:#?}");
 
     if original != recovered {
         std::fs::write("ORIGINAL", original).unwrap();
@@ -404,15 +232,9 @@ fn test_database_round_trip() {
 }
 
 #[test]
-fn test_golden_error() {
-    let errors = run_test_errors(&GOLDEN, "{}");
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_invalid_collection_names_prefixes_and_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/catalog.yaml:
   collections:
@@ -435,6 +257,9 @@ test://example/catalog.yaml:
     # Illegal duplicates under naming collation.
     testing/int-sTRinG: *spec
     testing/Int-Halve: *spec
+
+driver:
+  storageMappings: null
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -442,8 +267,8 @@ test://example/catalog.yaml:
 
 #[test]
 fn test_invalid_partition_names_and_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/int-string:
   collections:
@@ -471,8 +296,8 @@ test://example/int-string:
 
 #[test]
 fn test_invalid_transform_names_and_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/int-reverse:
   collections:
@@ -506,8 +331,8 @@ test://example/int-reverse:
 
 #[test]
 fn test_invalid_capture_names_and_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/catalog.yaml:
   import:
@@ -516,11 +341,10 @@ test://example/captures:
   captures:
     good: &spec
       endpoint:
-        connector:
+        connector: &config
           image: an/image
           config:
-            bucket: a-bucket
-            prefix: and-prefix
+            some: thing
       bindings: []
 
     #"": *spec
@@ -538,7 +362,17 @@ test://example/captures:
     # Illegal duplicates under naming collation.
     testing/some-source: *spec
     testing/SoMe-source: *spec
-driver: {}
+
+driver:
+  storageMappings: null
+  captures:
+    good: &connector
+      connectorType: IMAGE
+      config: *config
+      bindings: []
+    testing: *connector
+    testing/SoMe-source: *connector
+    testing/some-source: *connector
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -546,8 +380,8 @@ driver: {}
 
 #[test]
 fn test_invalid_materialization_names_and_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/catalog.yaml:
   import:
@@ -556,11 +390,10 @@ test://example/materializations:
   materializations:
     good: &spec
       endpoint:
-        connector:
+        connector: &config
           image: an/image
           config:
-            bucket: a-bucket
-            prefix: and-prefix
+            some: thing
       bindings: []
 
     #"": *spec
@@ -578,7 +411,16 @@ test://example/materializations:
     # Illegal duplicates under naming collation.
     testing/some-target: *spec
     testing/SoMe-target: *spec
-driver: {}
+driver:
+  storageMappings: null
+  materializations:
+    good: &connector
+      connectorType: IMAGE
+      config: *config
+      bindings: []
+    testing: *connector
+    testing/SoMe-target: *connector
+    testing/some-target: *connector
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -586,8 +428,8 @@ driver: {}
 
 #[test]
 fn test_invalid_test_names_and_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/catalog.yaml:
   tests:
@@ -617,8 +459,8 @@ test://example/catalog.yaml:
 
 #[test]
 fn test_cross_entity_name_prefixes_and_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/catalog.yaml:
 
@@ -647,7 +489,7 @@ test://example/catalog.yaml:
       endpoint:
         connector:
           image: an/image
-          config: { a: value }
+          config: { a: config }
       bindings: []
 
     testing/b/1: *capture_spec
@@ -661,7 +503,27 @@ test://example/catalog.yaml:
           documents: []
 
     testing/b/4/suffix: *test_spec
-driver: {}
+
+driver:
+  storageMappings: null
+
+  captures:
+    testing/b/1: &connector
+      connectorType: IMAGE
+      config:
+        image: an/image
+        config: { a: config }
+      bindings: []
+    testing/b/2/suffix: *connector
+    testing/b/3: *connector
+    testing/b/5/suffix: *connector
+
+  materializations:
+    testing/b/1/suffix: *connector
+    testing/b/2: *connector
+    testing/b/3: *connector
+    testing/b/4: *connector
+
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -669,8 +531,8 @@ driver: {}
 
 #[test]
 fn test_transform_source_not_found() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -691,8 +553,8 @@ test://example/int-halve:
 
 #[test]
 fn test_capture_target_not_found() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/int-string-captures:
   captures:
@@ -709,8 +571,8 @@ test://example/int-string-captures:
 
 #[test]
 fn test_capture_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/int-string-captures:
   captures:
@@ -741,8 +603,8 @@ driver:
 
 #[test]
 fn test_materialization_duplicates() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        MODEL_YAML,
         r#"
 test://example/db-views:
   materializations:
@@ -776,9 +638,8 @@ driver:
 
 #[test]
 fn test_materialization_constraints_on_excluded_fields() {
-    let ((_, validations), errors) = run_test(
-        serde_yaml::from_str(
-            r#"
+    let outcome = common::run(
+        r#"
 test://example/catalog.yaml:
   collections:
     testing/constraints:
@@ -804,11 +665,7 @@ test://example/catalog.yaml:
             exclude:
               - naughty_u
               - naughty_f
-  storageMappings:
-    testing/:
-        stores: [{ provider: S3, bucket: data-bucket }]
-    recovery/testing/:
-        stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
+
 driver:
   materializations:
     testing/db-views:
@@ -824,23 +681,17 @@ driver:
             naughty_f: { type: 5, reason: "field forbidden" }
           resourcePath: [anything]
 "#,
-        )
-        .unwrap(),
-        "constraints-excluded-fields",
+        "{}",
     );
-    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
 
-    let fields = validations.built_materializations[0].spec.bindings[0]
-        .field_selection
-        .as_ref()
-        .unwrap();
-    assert!(!fields.values.iter().any(|f| f.starts_with("naughty_")));
+    // Expect no "naughty_" fields were selected.
+    insta::assert_debug_snapshot!(outcome);
 }
 
 #[test]
 fn test_schema_fragment_not_found() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string:
   collections:
@@ -861,8 +712,8 @@ test://example/int-string:
 
 #[test]
 fn test_keyed_location_pointer_is_malformed() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string:
   collections:
@@ -879,8 +730,8 @@ test://example/int-string:
 
 #[test]
 fn test_keyed_location_wrong_type() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string.schema:
   properties:
@@ -892,8 +743,8 @@ test://example/int-string.schema:
 
 #[test]
 fn test_unknown_locations() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string:
   collections:
@@ -918,8 +769,8 @@ test://example/int-halve:
 
 #[test]
 fn test_shuffle_key_length_mismatch() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -941,8 +792,8 @@ test://example/int-halve:
 
 #[test]
 fn test_shuffle_key_types_mismatch() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -965,8 +816,8 @@ test://example/int-halve:
 
 #[test]
 fn test_shuffle_needs_explicit_types() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -984,8 +835,8 @@ test://example/int-halve:
 
 #[test]
 fn test_shuffle_is_missing() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -1001,8 +852,8 @@ test://example/int-halve:
 
 #[test]
 fn test_collection_key_empty() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string:
   collections:
@@ -1015,8 +866,8 @@ test://example/int-string:
 
 #[test]
 fn test_shuffle_key_empty() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-reverse:
   collections:
@@ -1033,8 +884,8 @@ test://example/int-reverse:
 
 #[test]
 fn test_partition_selections() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -1062,8 +913,8 @@ test://example/int-halve:
 
 #[test]
 fn test_partition_not_defined_in_write_schema() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string:
   collections:
@@ -1079,8 +930,8 @@ test://example/int-string:
 
 #[test]
 fn test_key_not_defined_in_write_schema() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string:
   collections:
@@ -1094,8 +945,8 @@ test://example/int-string:
 
 #[test]
 fn test_shape_inspections() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string-len.schema:
   properties:
@@ -1110,8 +961,8 @@ test://example/int-string-len.schema:
 
 #[test]
 fn test_schema_reference_verification() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string-len.schema:
   $ref: test://example/int-string.schema#/whoops
@@ -1122,8 +973,8 @@ test://example/int-string-len.schema:
 
 #[test]
 fn test_materialization_source_not_found() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/db-views:
   materializations:
@@ -1140,8 +991,8 @@ test://example/db-views:
 
 #[test]
 fn test_materialization_field_errors() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/webhook-deliveries:
   materializations:
@@ -1170,8 +1021,8 @@ test://example/webhook-deliveries:
 
 #[test]
 fn test_capture_driver_returns_error() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 driver:
   captures:
@@ -1184,8 +1035,8 @@ driver:
 
 #[test]
 fn test_derive_driver_returns_error() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 driver:
   derivations:
@@ -1198,8 +1049,8 @@ driver:
 
 #[test]
 fn test_materialization_driver_returns_error() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 driver:
   materializations:
@@ -1213,8 +1064,8 @@ driver:
 
 #[test]
 fn test_materialization_driver_unknown_constraint() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 driver:
   materializations:
@@ -1237,8 +1088,8 @@ driver:
 
 #[test]
 fn test_materialization_driver_conflicts() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 
 test://example/db-views:
@@ -1274,8 +1125,8 @@ driver:
 
 #[test]
 fn test_test_step_unknown_collection() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string-tests:
   tests:
@@ -1293,8 +1144,8 @@ test://example/int-string-tests:
 
 #[test]
 fn test_test_step_ingest_schema_error() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string-tests:
   tests:
@@ -1311,8 +1162,8 @@ test://example/int-string-tests:
 
 #[test]
 fn test_test_step_verify_key_order() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string-tests:
   tests:
@@ -1327,8 +1178,8 @@ test://example/int-string-tests:
 
 #[test]
 fn test_test_step_verify_selector() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string-tests:
   tests:
@@ -1353,8 +1204,8 @@ test://example/int-string-tests:
 
 #[test]
 fn test_materialization_selector() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/db-views:
   materializations:
@@ -1379,10 +1230,10 @@ test://example/db-views:
 
 #[test]
 fn test_invalid_and_duplicate_storage_mappings() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
-test://example/int-string:
+driver:
   storageMappings:
     testing/:
       # Exact match of a mapping.
@@ -1407,16 +1258,13 @@ test://example/int-string:
 
 #[test]
 fn test_storage_mappings_not_found() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
-test://example/catalog.yaml:
-  # Clear existing mappings.
-  storageMappings: null
-
-test://example/int-string:
-  # Define new mappings in a different catalog source.
+driver:
   storageMappings:
+    testing/: null
+    recovery/testing/: null
     TestinG/:
       stores: [{provider: S3, bucket: data-bucket}]
     RecoverY/TestinG/:
@@ -1427,23 +1275,11 @@ test://example/int-string:
 }
 
 #[test]
-fn test_no_storage_mappings_defined() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/catalog.yaml:
-  storageMappings: null
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_storage_mappings_without_prefix() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
-test://example/catalog.yaml:
+driver:
   storageMappings:
     "":
       # This is allowed, and matches for all journals and tasks.
@@ -1455,8 +1291,8 @@ test://example/catalog.yaml:
 
 #[test]
 fn test_collection_schema_string() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/catalog.yaml:
   import:
@@ -1474,8 +1310,8 @@ test://example/string-schema:
 
 #[test]
 fn test_non_canonical_schema_ref() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -1493,8 +1329,8 @@ test://example/int-halve:
 
 #[test]
 fn test_derivation_not_before_after_ordering() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-halve:
   collections:
@@ -1514,8 +1350,8 @@ test://example/int-halve:
 
 #[test]
 fn test_materialization_not_before_after_ordering() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/webhook-deliveries:
   materializations:
@@ -1533,8 +1369,8 @@ test://example/webhook-deliveries:
 
 #[test]
 fn test_test_not_before_after() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 test://example/int-string-tests:
   tests:
@@ -1552,8 +1388,8 @@ test://example/int-string-tests:
 
 #[test]
 fn test_invalid_generated_file_url() {
-    let errors = run_test_errors(
-        &GOLDEN,
+    let errors = common::run_errors(
+        &MODEL_YAML,
         r#"
 driver:
   derivations:
@@ -1563,404 +1399,4 @@ driver:
 "#,
     );
     insta::assert_debug_snapshot!(errors);
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct MockDriverCalls {
-    #[serde(default)]
-    captures: BTreeMap<String, MockCaptureValidateCall>,
-    #[serde(default)]
-    derivations: BTreeMap<String, MockDeriveValidateCall>,
-    #[serde(default)]
-    inferred_schemas: BTreeMap<models::Collection, models::Schema>,
-    #[serde(default)]
-    materializations: BTreeMap<String, MockMaterializationValidateCall>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct MockCaptureValidateCall {
-    connector_type: flow::capture_spec::ConnectorType,
-    config: serde_json::Value,
-    bindings: Vec<MockDriverBinding>,
-    #[serde(default)]
-    network_ports: Vec<flow::NetworkPort>,
-    #[serde(default)]
-    error: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct MockDeriveValidateCall {
-    connector_type: flow::collection_spec::derivation::ConnectorType,
-    config: serde_json::Value,
-    shuffle_key_types: Vec<flow::collection_spec::derivation::ShuffleType>,
-    transforms: Vec<MockDeriveTransform>,
-    generated_files: BTreeMap<String, String>,
-    #[serde(default)]
-    network_ports: Vec<flow::NetworkPort>,
-    #[serde(default)]
-    error: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct MockDeriveTransform {
-    read_only: bool,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct MockMaterializationValidateCall {
-    connector_type: flow::materialization_spec::ConnectorType,
-    config: serde_json::Value,
-    bindings: Vec<MockDriverBinding>,
-    #[serde(default)]
-    delta_updates: bool,
-    #[serde(default)]
-    network_ports: Vec<flow::NetworkPort>,
-    #[serde(default)]
-    error: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct MockDriverBinding {
-    resource_path: Vec<String>,
-    #[serde(default)]
-    constraints: BTreeMap<String, materialize::response::validated::Constraint>,
-    // type_override overrides the parsed constraints[].type for
-    // each constraint. It supports test cases which want to deliberately
-    // use type values which are invalid, and can't be parsed as YAML
-    // (because of serde deserialization checks by the pbjson crate).
-    #[serde(default)]
-    type_override: i32,
-}
-
-impl validation::Connectors for MockDriverCalls {
-    fn validate_capture<'a>(
-        &'a self,
-        request: capture::Request,
-    ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        let capture::Request {
-            validate: Some(request),
-            ..
-        } = request
-        else {
-            unreachable!()
-        };
-
-        async move {
-            let call = match self.captures.get(&request.name) {
-                Some(call) => call,
-                None => {
-                    return Err(anyhow::anyhow!(
-                        "driver fixture not found: {}",
-                        request.name
-                    ));
-                }
-            };
-
-            let config: serde_json::Value = serde_json::from_str(&request.config_json)?;
-
-            if call.connector_type as i32 != request.connector_type {
-                return Err(anyhow::anyhow!(
-                    "connector type mismatch: {} vs {}",
-                    call.connector_type as i32,
-                    request.connector_type
-                ));
-            }
-            if &call.config != &config {
-                return Err(anyhow::anyhow!(
-                    "connector config mismatch: {} vs {}",
-                    call.config.to_string(),
-                    &request.config_json,
-                ));
-            }
-            if let Some(err) = &call.error {
-                return Err(anyhow::anyhow!("{}", err));
-            }
-
-            let bindings = call
-                .bindings
-                .iter()
-                .map(|b| capture::response::validated::Binding {
-                    resource_path: b.resource_path.clone(),
-                })
-                .collect();
-
-            Ok(capture::Response {
-                validated: Some(capture::response::Validated { bindings }),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                internal.container = Some(Container {
-                    ip_addr: "1.2.3.4".to_string(),
-                    network_ports: call.network_ports.clone(),
-                    mapped_host_ports: Default::default(),
-                    usage_rate: 1.0,
-                });
-            }))
-        }
-        .boxed()
-    }
-
-    fn validate_derivation<'a>(
-        &'a self,
-        request: derive::Request,
-    ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        let derive::Request {
-            validate: Some(request),
-            ..
-        } = request
-        else {
-            unreachable!()
-        };
-
-        async move {
-            let name = &request.collection.as_ref().unwrap().name;
-
-            let call = match self.derivations.get(name) {
-                Some(call) => call,
-                None => {
-                    return Err(anyhow::anyhow!("driver fixture not found: {}", name));
-                }
-            };
-
-            let config: serde_json::Value = serde_json::from_str(&request.config_json)?;
-
-            if call.connector_type as i32 != request.connector_type {
-                return Err(anyhow::anyhow!(
-                    "connector type mismatch: {} vs {}",
-                    call.connector_type as i32,
-                    request.connector_type
-                ));
-            }
-            if &call.config != &config {
-                return Err(anyhow::anyhow!(
-                    "connector config mismatch: {} vs {}",
-                    call.config.to_string(),
-                    &request.config_json,
-                ));
-            }
-            if call
-                .shuffle_key_types
-                .iter()
-                .map(|t| *t as i32)
-                .collect::<Vec<_>>()
-                != request.shuffle_key_types
-            {
-                return Err(anyhow::anyhow!(
-                    "shuffle types mismatch: {:?} vs {:?}",
-                    call.shuffle_key_types,
-                    request.shuffle_key_types,
-                ));
-            }
-
-            if let Some(err) = &call.error {
-                return Err(anyhow::anyhow!("{}", err));
-            }
-
-            let transforms = call
-                .transforms
-                .iter()
-                .map(|b| derive::response::validated::Transform {
-                    read_only: b.read_only,
-                })
-                .collect();
-
-            Ok(derive::Response {
-                validated: Some(derive::response::Validated {
-                    transforms,
-                    generated_files: call.generated_files.clone(),
-                }),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                internal.container = Some(Container {
-                    ip_addr: "1.2.3.4".to_string(),
-                    network_ports: call.network_ports.clone(),
-                    mapped_host_ports: Default::default(),
-                    usage_rate: 0.0,
-                });
-            }))
-        }
-        .boxed()
-    }
-
-    fn validate_materialization<'a>(
-        &'a self,
-        request: materialize::Request,
-    ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        let materialize::Request {
-            validate: Some(request),
-            ..
-        } = request
-        else {
-            unreachable!()
-        };
-
-        async move {
-            let call = match self.materializations.get(&request.name) {
-                Some(call) => call,
-                None => {
-                    return Err(anyhow::anyhow!(
-                        "driver fixture not found: {}",
-                        request.name
-                    ));
-                }
-            };
-
-            let config: serde_json::Value = serde_json::from_str(&request.config_json)?;
-
-            if call.connector_type as i32 != request.connector_type {
-                return Err(anyhow::anyhow!(
-                    "connector type mismatch: {} vs {}",
-                    call.connector_type as i32,
-                    request.connector_type
-                ));
-            }
-            if &call.config != &config {
-                return Err(anyhow::anyhow!(
-                    "connector config mismatch: {} vs {}",
-                    call.config.to_string(),
-                    &request.config_json,
-                ));
-            }
-            if let Some(err) = &call.error {
-                return Err(anyhow::anyhow!("{}", err));
-            }
-
-            let bindings = call
-                .bindings
-                .iter()
-                .map(|b| {
-                    let mut out = materialize::response::validated::Binding {
-                        constraints: b.constraints.clone(),
-                        delta_updates: call.delta_updates,
-                        resource_path: b.resource_path.clone(),
-                    };
-
-                    // NOTE(johnny): clunky support for test_materialization_driver_unknown_constraints,
-                    // to work around serde deser not allowing parsing of invalid enum values.
-                    for c in out.constraints.iter_mut() {
-                        if c.1.r#type == 0 && b.type_override != 0 {
-                            c.1.r#type = b.type_override;
-                        }
-                    }
-
-                    out
-                })
-                .collect();
-
-            Ok(materialize::Response {
-                validated: Some(materialize::response::Validated { bindings }),
-                ..Default::default()
-            }
-            .with_internal(|internal| {
-                internal.container = Some(Container {
-                    ip_addr: "1.2.3.4".to_string(),
-                    network_ports: call.network_ports.clone(),
-                    mapped_host_ports: Default::default(),
-                    usage_rate: 1.25,
-                });
-            }))
-        }
-        .boxed()
-    }
-}
-
-impl validation::ControlPlane for MockDriverCalls {
-    fn resolve_collections<'a>(
-        &'a self,
-        _collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>> {
-        async move { Ok(Vec::new()) }.boxed()
-    }
-
-    fn get_inferred_schemas<'a>(
-        &'a self,
-        collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, validation::InferredSchema>>>
-    {
-        let out = collections
-            .iter()
-            .filter_map(|collection| {
-                self.inferred_schemas.get(collection).map(|schema| {
-                    (
-                        collection.clone(),
-                        validation::InferredSchema {
-                            schema: schema.clone(),
-                            md5: String::from("mock md5"),
-                        },
-                    )
-                })
-            })
-            .collect();
-
-        async move { Ok(out) }.boxed()
-    }
-}
-
-fn run_test(
-    mut fixture: Value,
-    build_id: &str,
-) -> ((tables::Sources, tables::Validations), tables::Errors) {
-    // Extract out driver mock call fixtures.
-    let mock_calls = fixture
-        .get_mut("driver")
-        .map(|d| d.take())
-        .unwrap_or_default();
-    let mock_calls: MockDriverCalls = serde_json::from_value(mock_calls).unwrap();
-
-    let mut sources = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
-    sources::inline_sources(&mut sources);
-
-    let tables::Sources {
-        captures,
-        collections,
-        errors: _,
-        fetches,
-        imports,
-        materializations,
-        resources: _,
-        storage_mappings,
-        tests,
-    } = &sources;
-
-    let mut validations = futures::executor::block_on(validation::validate(
-        build_id,
-        &url::Url::parse("file:///project/root").unwrap(),
-        &mock_calls,
-        &mock_calls,
-        captures,
-        collections,
-        fetches,
-        imports,
-        materializations,
-        storage_mappings,
-        tests,
-    ));
-
-    let mut errors = std::mem::take(&mut sources.errors);
-    errors.extend(std::mem::take(&mut validations.errors).into_iter());
-
-    ((sources, validations), errors)
-}
-
-#[must_use]
-fn run_test_errors(fixture: &Value, patch: &str) -> tables::Errors {
-    let mut fixture = fixture.clone();
-    let patch: Value = serde_yaml::from_str(patch).unwrap();
-    json_patch::merge(&mut fixture, &patch);
-
-    let (_, mut errors) = run_test(fixture, "a-build-id");
-
-    // Squelch expected fixture error.
-    if matches!(errors.first(), Some(err) if err.scope.as_str() == "test://example/from-array-key#/collections/testing~1from-array-key/derive/using/sqlite/migrations/1")
-    {
-        errors = errors.into_iter().skip(1).collect();
-    }
-    errors
 }
