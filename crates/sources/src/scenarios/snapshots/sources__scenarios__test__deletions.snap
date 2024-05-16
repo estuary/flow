@@ -1,0 +1,54 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+DraftCatalog {
+    captures: [
+        DraftCapture {
+            capture: deleted/capture,
+            scope: test://example/catalog.yaml#/captures/deleted~1capture,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: deleted/collection,
+            scope: test://example/catalog.yaml#/collections/deleted~1collection,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+    errors: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [
+        DraftMaterialization {
+            materialization: deleted/materialization,
+            scope: test://example/catalog.yaml#/materializations/deleted~1materialization,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"captures":{"deleted/capture":{"bindings":[],"delete":true,"endpoint":{"connector":{"config":{},"image":"an/image"}},"expectPubId":"00:11:22:33:44:55:66:77"}},"collections":{"deleted/collection":{"delete":true,"expectPubId":"00:11:22:33:44:55:66:77","key":["/key"],"schema":true}},"materializations":{"deleted/materialization":{"bindings":[],"delete":true,"endpoint":{"connector":{"config":{},"image":"materialization/image"}},"expectPubId":"00:11:22:33:44:55:66:77"}},"tests":{"deleted/test":{"delete":true,"expectPubId":"00:11:22:33:44:55:66:77","steps":[]}}},
+        },
+    ],
+    tests: [
+        DraftTest {
+            test: deleted/test,
+            scope: test://example/catalog.yaml#/tests/deleted~1test,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+}

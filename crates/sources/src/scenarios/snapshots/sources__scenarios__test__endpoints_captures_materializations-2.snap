@@ -2,12 +2,13 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [
-        Capture {
-            scope: test://example/catalog.yaml#/captures/capture~1config-missing,
+        DraftCapture {
             capture: capture/config-missing,
-            spec: {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "another/image",
@@ -23,10 +24,11 @@ Sources {
               ]
             },
         },
-        Capture {
-            scope: test://example/catalog.yaml#/captures/capture~1config-raw,
+        DraftCapture {
             capture: capture/config-raw,
-            spec: {
+            scope: test://example/catalog.yaml#/captures/capture~1config-raw,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "another/image",
@@ -36,10 +38,11 @@ Sources {
               "bindings": []
             },
         },
-        Capture {
-            scope: test://example/catalog.yaml#/captures/capture~1local,
+        DraftCapture {
             capture: capture/local,
-            spec: {
+            scope: test://example/catalog.yaml#/captures/capture~1local,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "local": {
                   "command": [
@@ -54,10 +57,11 @@ Sources {
               "bindings": []
             },
         },
-        Capture {
-            scope: test://example/catalog.yaml#/captures/capture~1second,
+        DraftCapture {
             capture: capture/second,
-            spec: {
+            scope: test://example/catalog.yaml#/captures/capture~1second,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "another/image",
@@ -77,10 +81,11 @@ Sources {
               }
             },
         },
-        Capture {
-            scope: test://example/catalog.yaml#/captures/first~1capture,
+        DraftCapture {
             capture: first/capture,
-            spec: {
+            scope: test://example/catalog.yaml#/captures/first~1capture,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "an/image",
@@ -127,10 +132,11 @@ Sources {
         },
     ],
     materializations: [
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/a~1materialization,
+        DraftMaterialization {
             materialization: a/materialization,
-            spec: {
+            scope: test://example/catalog.yaml#/materializations/a~1materialization,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: {
               "sourceCapture": "a/capture",
               "endpoint": {
                 "connector": {
@@ -176,10 +182,11 @@ Sources {
               ]
             },
         },
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/materialization~1local,
+        DraftMaterialization {
             materialization: materialization/local,
-            spec: {
+            scope: test://example/catalog.yaml#/materializations/materialization~1local,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "local": {
                   "command": [
@@ -205,10 +212,11 @@ Sources {
               }
             },
         },
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
+        DraftMaterialization {
             materialization: materialization/missing-config,
-            spec: {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "materialization/image",
@@ -226,10 +234,11 @@ Sources {
               ]
             },
         },
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
+        DraftMaterialization {
             materialization: materialization/with-config,
-            spec: {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "materialization/another:image",
@@ -248,10 +257,11 @@ Sources {
               ]
             },
         },
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
+        DraftMaterialization {
             materialization: materialization/with-config-fragment,
-            spec: {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "materialization/another:image",
@@ -263,6 +273,5 @@ Sources {
         },
     ],
     resources: [],
-    storage_mappings: [],
     tests: [],
 }

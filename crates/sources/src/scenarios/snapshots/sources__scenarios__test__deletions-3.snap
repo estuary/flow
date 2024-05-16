@@ -1,0 +1,42 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+DraftCatalog {
+    captures: [
+        DraftCapture {
+            capture: deleted/capture,
+            scope: test://example/catalog.yaml#/captures/deleted~1capture,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: deleted/collection,
+            scope: test://example/catalog.yaml#/collections/deleted~1collection,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+    errors: [],
+    fetches: [],
+    imports: [],
+    materializations: [
+        DraftMaterialization {
+            materialization: deleted/materialization,
+            scope: test://example/catalog.yaml#/materializations/deleted~1materialization,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+    resources: [],
+    tests: [
+        DraftTest {
+            test: deleted/test,
+            scope: test://example/catalog.yaml#/tests/deleted~1test,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: NULL,
+        },
+    ],
+}

@@ -2,13 +2,14 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d1~1collection,
+        DraftCollection {
             collection: d1/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d1~1collection,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
               "key": [
                 "/d1-key"
@@ -53,10 +54,11 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d2~1collection,
+        DraftCollection {
             collection: d2/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d2~1collection,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: {
               "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
               "key": [
                 "/d2-key"
@@ -94,10 +96,11 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d3~1collection,
+        DraftCollection {
             collection: d3/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d3~1collection,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": {"$id":"test://example/a-schema.json","allOf":[true]},
               "readSchema": {"$anchor":"foobar","$id":"test://example/other-schema.json","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
               "key": [
@@ -129,10 +132,11 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d4~1local,
+        DraftCollection {
             collection: d4/local,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d4~1local,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
               "key": [
                 "/key"
@@ -157,6 +161,5 @@ Sources {
     imports: [],
     materializations: [],
     resources: [],
-    storage_mappings: [],
     tests: [],
 }

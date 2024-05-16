@@ -55,21 +55,21 @@ pub struct Loader<F: Fetcher> {
     // `tables` is never held across await points or accessed across threads, and the
     // tables_mut() accessor asserts that no other lock is held and does not block.
     // Wrapping in a Mutex makes it easy to pass around futures holding a Loader.
-    tables: Mutex<tables::Sources>,
+    tables: Mutex<tables::DraftCatalog>,
     // Fetcher for retrieving discovered, unvisited resources.
     fetcher: F,
 }
 
 impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
-    pub fn new(tables: tables::Sources, fetcher: F) -> Loader<F> {
+    pub fn new(tables: tables::DraftCatalog, fetcher: F) -> Loader<F> {
         Loader {
             tables: Mutex::new(tables),
             fetcher,
         }
     }
 
-    pub fn into_tables(self) -> tables::Sources {
+    pub fn into_tables(self) -> tables::DraftCatalog {
         std::mem::take(&mut *self.tables_mut())
     }
 
@@ -353,9 +353,9 @@ impl<F: Fetcher> Loader<F> {
             collections,
             materializations,
             tests,
-            storage_mappings,
-        }) = self.fallible(scope, serde_json::from_str(content_dom.get())) else {
-            return
+        }) = self.fallible(scope, serde_json::from_str(content_dom.get()))
+        else {
+            return;
         };
 
         // Load all imports.
@@ -426,28 +426,14 @@ impl<F: Fetcher> Loader<F> {
             );
         }
 
-        // Gather storage mappings.
-        for (prefix, storage) in storage_mappings.into_iter() {
-            let models::StorageDef { stores } = storage;
-
-            self.tables_mut().storage_mappings.insert_row(
-                scope
-                    .push_prop("storageMappings")
-                    .push_prop(prefix.as_str())
-                    .flatten(),
-                prefix,
-                stores,
-            )
-        }
-
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
     }
 
     async fn load_collection<'s>(
         &'s self,
         scope: Scope<'s>,
-        collection_name: &'s models::Collection,
-        spec: models::CollectionDef,
+        catalog_name: &'s models::Collection,
+        mut spec: models::CollectionDef,
     ) {
         let mut tasks = Vec::new();
 
@@ -478,9 +464,12 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables_mut()
-            .collections
-            .insert_row(scope.flatten(), collection_name, spec)
+        self.tables_mut().collections.insert_row(
+            catalog_name,
+            scope.flatten(),
+            spec.expect_pub_id.take(),
+            (!spec.delete).then_some(spec),
+        )
     }
 
     async fn load_derivation<'s>(&'s self, scope: Scope<'s>, spec: &models::Derivation) {
@@ -591,8 +580,8 @@ impl<F: Fetcher> Loader<F> {
     async fn load_capture<'s>(
         &'s self,
         scope: Scope<'s>,
-        capture_name: &'s models::Capture,
-        spec: models::CaptureDef,
+        catalog_name: &'s models::Capture,
+        mut spec: models::CaptureDef,
     ) {
         let mut tasks = Vec::new();
 
@@ -647,16 +636,19 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables_mut()
-            .captures
-            .insert_row(scope.flatten(), capture_name, spec);
+        self.tables_mut().captures.insert_row(
+            catalog_name,
+            scope.flatten(),
+            spec.expect_pub_id.take(),
+            (!spec.delete).then_some(spec),
+        );
     }
 
     async fn load_materialization<'s>(
         &'s self,
         scope: Scope<'s>,
-        materialization_name: &'s models::Materialization,
-        spec: models::MaterializationDef,
+        catalog_name: &'s models::Materialization,
+        mut spec: models::MaterializationDef,
     ) {
         let mut tasks = Vec::new();
 
@@ -715,20 +707,23 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables_mut()
-            .materializations
-            .insert_row(scope.flatten(), materialization_name, spec);
+        self.tables_mut().materializations.insert_row(
+            catalog_name,
+            scope.flatten(),
+            spec.expect_pub_id.take(),
+            (!spec.delete).then_some(spec),
+        );
     }
 
     async fn load_test<'s>(
         &'s self,
         scope: Scope<'s>,
-        test_name: &'s models::Test,
-        spec: Vec<models::TestStep>,
+        catalog_name: &'s models::Test,
+        mut spec: models::TestDef,
     ) {
         let mut tasks = Vec::new();
 
-        for (index, test_step) in spec.iter().enumerate() {
+        for (index, test_step) in spec.steps.iter().enumerate() {
             let documents = match test_step {
                 models::TestStep::Ingest(models::TestStepIngest { documents, .. })
                 | models::TestStep::Verify(models::TestStepVerify { documents, .. }) => documents,
@@ -742,9 +737,12 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables_mut()
-            .tests
-            .insert_row(scope.flatten(), test_name.clone(), spec);
+        self.tables_mut().tests.insert_row(
+            catalog_name,
+            scope.flatten(),
+            spec.expect_pub_id.take(),
+            (!spec.delete).then_some(spec),
+        );
     }
 
     async fn load_config<'s>(&'s self, scope: Scope<'s>, config: &RawValue) {
@@ -781,7 +779,7 @@ impl<F: Fetcher> Loader<F> {
         }
     }
 
-    fn tables_mut<'a>(&'a self) -> MutexGuard<'a, tables::Sources> {
+    fn tables_mut<'a>(&'a self) -> MutexGuard<'a, tables::DraftCatalog> {
         self.tables
             .try_lock()
             .expect("tables should never be accessed concurrently or locked across await points")

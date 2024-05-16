@@ -1,42 +1,47 @@
-captures:
-  acmeCo/one/new:
-    endpoint:
-      connector:
-        image: other/image
-        config: 42
-    bindings: []
+test://example/catalog.yaml:
+  captures:
+    acmeCo/one/new:
+      endpoint:
+        connector:
+          image: other/image
+          config: 42
+      bindings: []
 
-  acmeCo/captures/exists:
-    endpoint:
-      connector:
-        image: an/image
-        config: [updated]
-    bindings: []
+    acmeCo/captures/exists:
+      endpoint:
+        connector:
+          image: an/image
+          config: [updated]
+      bindings: []
+      expectPubId: "88:66:77:55:33:00:99:00"
 
-collections:
-  acmeCo/one/new:
-    schema: true
-    key: [/int]
+  collections:
+    acmeCo/one/new:
+      schema: true
+      key: [/int]
 
-  acmeCo/collections/exists:
-    schema:
-      const: [updated-value]
-    key: [/int]
+    acmeCo/collections/exists:
+      schema:
+        const: [updated-value]
+      key: [/int]
+      expectPubId: "11:00:22:00:33:00:44:00"
 
-materializations:
-  acmeCo/two/new:
-    endpoint:
-      connector:
-        image: an/image
-        config: 42
-    bindings: []
+  materializations:
+    acmeCo/two/new:
+      endpoint:
+        connector:
+          image: an/image
+          config: 42
+      bindings: []
 
-  acmeCo/materializations/exists:
-    endpoint:
-      connector:
-        image: an/image
-        config: [also-updated]
-    bindings: []
+    acmeCo/materializations/exists:
+      endpoint:
+        connector:
+          image: an/image
+          config: [also-updated]
+      bindings: []
 
-tests:
-  acmeCo/two/new: []
+  tests:
+    acmeCo/two/new:
+      steps: []
+      expectPubId: "00:00:11:00:22:00:00:33"
