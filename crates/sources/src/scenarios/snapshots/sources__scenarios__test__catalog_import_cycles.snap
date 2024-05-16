@@ -2,7 +2,7 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [],
     errors: [],
@@ -85,6 +85,5 @@ Sources {
             content_dom: {"import":["A","B"]},
         },
     ],
-    storage_mappings: [],
     tests: [],
 }

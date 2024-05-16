@@ -2,13 +2,14 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection,
+        DraftCollection {
             collection: test/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: {
               "schema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
               "key": [
                 "/key/1",
@@ -26,19 +27,21 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
+        DraftCollection {
             collection: test/collection-no-schema,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
+            expect_pub_id: NULL,
+            model: {
               "key": [
                 "/key"
               ]
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
+        DraftCollection {
             collection: test/collection-with-write-and-inferred-read,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
               "readSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-inferred-read/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
               "key": [
@@ -47,10 +50,11 @@ Sources {
               ]
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
+        DraftCollection {
             collection: test/collection-with-write-and-read,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
               "readSchema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-read/readSchema","$ref":"schema.json#/properties/a"},
               "key": [
@@ -59,10 +63,11 @@ Sources {
               ]
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
+        DraftCollection {
             collection: test/collection/with-journals,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection~1with-journals/schema","$ref":"schema.json#foobar"},
               "key": [
                 "/a/key"
@@ -83,6 +88,5 @@ Sources {
     imports: [],
     materializations: [],
     resources: [],
-    storage_mappings: [],
     tests: [],
 }

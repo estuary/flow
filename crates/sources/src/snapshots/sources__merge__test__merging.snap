@@ -2,12 +2,13 @@
 source: crates/sources/src/merge.rs
 expression: target
 ---
-Sources {
+DraftCatalog {
     captures: [
-        Capture {
-            scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists,
+        DraftCapture {
             capture: acmeCo/captures/exists,
-            spec: {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists,
+            expect_pub_id: "88:66:77:55:33:00:99:00",
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "an/image",
@@ -17,10 +18,11 @@ Sources {
               "bindings": []
             },
         },
-        Capture {
-            scope: test://example/acmeCo/one/flow.yaml#/captures/acmeCo~1one~1new,
+        DraftCapture {
             capture: acmeCo/one/new,
-            spec: {
+            scope: test://example/acmeCo/one/flow.yaml#/captures/acmeCo~1one~1new,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "other/image",
@@ -32,20 +34,22 @@ Sources {
         },
     ],
     collections: [
-        Collection {
-            scope: test://example/catalog.yaml#/collections/acmeCo~1collections~1exists,
+        DraftCollection {
             collection: acmeCo/collections/exists,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/acmeCo~1collections~1exists,
+            expect_pub_id: "11:00:22:00:33:00:44:00",
+            model: {
               "schema": {"const":["updated-value"]},
               "key": [
                 "/int"
               ]
             },
         },
-        Collection {
-            scope: test://example/acmeCo/one/flow.yaml#/collections/acmeCo~1one~1new,
+        DraftCollection {
             collection: acmeCo/one/new,
-            spec: {
+            scope: test://example/acmeCo/one/flow.yaml#/collections/acmeCo~1one~1new,
+            expect_pub_id: NULL,
+            model: {
               "schema": true,
               "key": [
                 "/int"
@@ -83,10 +87,11 @@ Sources {
         },
     ],
     materializations: [
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/acmeCo~1materializations~1exists,
+        DraftMaterialization {
             materialization: acmeCo/materializations/exists,
-            spec: {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materializations~1exists,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "an/image",
@@ -96,10 +101,11 @@ Sources {
               "bindings": []
             },
         },
-        Materialization {
-            scope: test://example/acmeCo/two/flow.yaml#/materializations/acmeCo~1two~1new,
+        DraftMaterialization {
             materialization: acmeCo/two/new,
-            spec: {
+            scope: test://example/acmeCo/two/flow.yaml#/materializations/acmeCo~1two~1new,
+            expect_pub_id: NULL,
+            model: {
               "endpoint": {
                 "connector": {
                   "image": "an/image",
@@ -127,26 +133,31 @@ Sources {
             resource: test://example/acmeCo/two/flow.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"materializations":{"acmeCo/two/new":{"endpoint":{"connector":{"image":"an/image","config":42}},"bindings":[]}},"tests":{"acmeCo/two/new":[]}},
+            content_dom: {"materializations":{"acmeCo/two/new":{"endpoint":{"connector":{"image":"an/image","config":42}},"bindings":[]}},"tests":{"acmeCo/two/new":{"steps":[],"expectPubId":"00:00:11:00:22:00:00:33"}}},
         },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[]}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"]}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":[]}},
+            content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[],"expectPubId":"88:66:77:55:33:00:99:00"}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"],"expectPubId":"11:00:22:00:33:00:44:00"}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":{"steps":[]}}},
         },
     ],
-    storage_mappings: [],
     tests: [
-        Test {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1tests~1exists,
+        DraftTest {
             test: acmeCo/tests/exists,
-            spec: [],
+            scope: test://example/catalog.yaml#/tests/acmeCo~1tests~1exists,
+            expect_pub_id: NULL,
+            model: {
+              "steps": []
+            },
         },
-        Test {
-            scope: test://example/acmeCo/two/flow.yaml#/tests/acmeCo~1two~1new,
+        DraftTest {
             test: acmeCo/two/new,
-            spec: [],
+            scope: test://example/acmeCo/two/flow.yaml#/tests/acmeCo~1two~1new,
+            expect_pub_id: "00:00:11:00:22:00:00:33",
+            model: {
+              "steps": []
+            },
         },
     ],
 }

@@ -1,6 +1,6 @@
 use super::Format;
 use crate::Scope;
-use std::collections::BTreeMap;
+use tables::EitherOrBoth;
 
 /// Policy is a layout policy which maps a catalog name, source root,
 /// and possible current resource into a resource where the specification should live,
@@ -85,20 +85,19 @@ pub fn flat_layout_replace(
     }
 }
 
-// Map tables::Sources into a flattened Catalog.
-// Sources should already be inline.
-pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
-    let tables::Sources {
+// Map tables::DraftCatalog into a flattened Catalog.
+// The DraftCatalog should already be inline.
+pub fn into_catalog(draft: tables::DraftCatalog) -> models::Catalog {
+    let tables::DraftCatalog {
         captures,
         collections,
         fetches: _,
         imports: _,
         materializations,
         resources: _,
-        storage_mappings: _,
         tests,
         errors,
-    } = sources;
+    } = draft;
 
     assert!(errors.is_empty());
 
@@ -107,216 +106,180 @@ pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
         import: Vec::new(), // Fully inline and requires no imports.
         captures: captures
             .into_iter()
-            .map(|tables::Capture { capture, spec, .. }| (capture, spec))
+            .filter_map(
+                |tables::DraftCapture {
+                     capture,
+                     model,
+                     expect_pub_id,
+                     ..
+                 }| {
+                    model.map(|mut model| {
+                        model.expect_pub_id = expect_pub_id;
+                        (capture, model)
+                    })
+                },
+            )
             .collect(),
         collections: collections
             .into_iter()
-            .map(
-                |tables::Collection {
-                     collection, spec, ..
-                 }| (collection, spec),
+            .filter_map(
+                |tables::DraftCollection {
+                     collection,
+                     model,
+                     expect_pub_id,
+                     ..
+                 }| {
+                    model.map(|mut model| {
+                        model.expect_pub_id = expect_pub_id;
+                        (collection, model)
+                    })
+                },
             )
             .collect(),
         materializations: materializations
             .into_iter()
-            .map(
-                |tables::Materialization {
+            .filter_map(
+                |tables::DraftMaterialization {
                      materialization,
-                     spec,
+                     model,
+                     expect_pub_id,
                      ..
-                 }| (materialization, spec),
+                 }| {
+                    model.map(|mut model| {
+                        model.expect_pub_id = expect_pub_id;
+                        (materialization, model)
+                    })
+                },
             )
             .collect(),
         tests: tests
             .into_iter()
-            .map(|tables::Test { test, spec, .. }| (test, spec))
+            .filter_map(
+                |tables::DraftTest {
+                     test,
+                     model,
+                     expect_pub_id,
+                     ..
+                 }| {
+                    model.map(|mut model| {
+                        model.expect_pub_id = expect_pub_id;
+                        (test, model)
+                    })
+                },
+            )
             .collect(),
-
-        // We deliberately omit storage mappings.
-        // The control plane will inject these during its builds.
-        storage_mappings: BTreeMap::new(),
     }
 }
 
-// Map specifications from a Catalog into tables::Sources.
-// Sources should already be inline.
+// Map specifications from one tables::DraftCatalog into another.
+// The `policy` is used to re-evaluate the appropriate scopes (resources)
+// for each specification added to the `draft`.
 pub fn extend_from_catalog<P>(
-    sources: &mut tables::Sources,
-    catalog: models::Catalog,
+    draft: &mut tables::DraftCatalog,
+    catalog: tables::DraftCatalog,
     policy: P,
 ) -> usize
 where
     P: Fn(&str, &url::Url, Option<&url::Url>) -> Vec<url::Url>,
 {
-    let models::Catalog {
-        _schema: _,
-        import,
+    let tables::DraftCatalog {
         captures,
         collections,
         materializations,
         tests,
-        storage_mappings,
+        ..
     } = catalog;
 
-    assert!(
-        import.is_empty(),
-        "catalog must be fully inline and self-contained"
-    );
-    assert!(
-        storage_mappings.is_empty(),
-        "catalog must not include storage mappings"
-    );
-
-    const CAPTURES: &str = "captures";
-    const COLLECTIONS: &str = "collections";
-    const MATERIALIZATIONS: &str = "materializations";
-    const TESTS: &str = "tests";
-
-    let root = sources.fetches[0].resource.clone();
     let mut count = 0;
 
-    for (capture, spec) in captures {
-        match sources
-            .captures
-            .binary_search_by(|other| other.capture.cmp(&capture))
-        {
-            Ok(index) => {
-                let chain = eval_policy(
-                    &policy,
-                    CAPTURES,
-                    &capture,
-                    &root,
-                    Some(&sources.captures[index].scope),
-                );
+    fn inner<R, P>(
+        lhs: tables::Table<R>,
+        rhs: tables::Table<R>,
+        policy: P,
+        entity: &'static str,
+        draft: &mut tables::DraftCatalog,
+        count: &mut usize,
+    ) -> tables::Table<R>
+    where
+        R: tables::DraftRow,
+        R::Key: AsRef<str>,
+        P: Fn(&str, &url::Url, Option<&url::Url>) -> Vec<url::Url>,
+    {
+        let root = draft.fetches[0].resource.clone();
 
-                if let Some(last) = chain.last() {
-                    sources.captures[index] = tables::Capture {
-                        scope: last.clone(),
-                        capture,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
-                }
-            }
-            Err(_) => {
-                let chain = eval_policy(&policy, CAPTURES, &capture, &root, None);
+        lhs.into_outer_join(
+            rhs.into_iter().map(|row| (row.catalog_name().clone(), row)),
+            |eob| match eob {
+                EitherOrBoth::Left(row) => Some(row), // Do not modify.
+                EitherOrBoth::Both(lhs, (catalog_name, rhs)) => {
+                    let chain = eval_policy(
+                        &policy,
+                        entity,
+                        catalog_name.as_ref(),
+                        &root,
+                        Some(rhs.scope()),
+                    );
 
-                if let Some(last) = chain.last() {
-                    sources.captures.insert_row(last, capture, spec);
-                    add_imports(sources, &chain);
-                    count += 1;
+                    if let Some(last) = chain.last() {
+                        add_imports(draft, &chain);
+                        *count += 1;
+
+                        let (catalog_name, _scope, expect_pub_id, model) = rhs.into_parts();
+                        Some(R::new(catalog_name, last.clone(), expect_pub_id, model))
+                    } else {
+                        Some(lhs) // Do not modify.
+                    }
                 }
-            }
-        }
+                EitherOrBoth::Right((catalog_name, rhs)) => {
+                    let chain = eval_policy(&policy, entity, catalog_name.as_ref(), &root, None);
+                    if let Some(last) = chain.last() {
+                        add_imports(draft, &chain);
+                        *count += 1;
+
+                        let (catalog_name, _scope, expect_pub_id, model) = rhs.into_parts();
+                        Some(R::new(catalog_name, last.clone(), expect_pub_id, model))
+                    } else {
+                        None // Do not insert.
+                    }
+                }
+            },
+        )
+        .collect()
     }
-    for (collection, spec) in collections {
-        match sources
-            .collections
-            .binary_search_by(|other| other.collection.cmp(&collection))
-        {
-            Ok(index) => {
-                let chain = eval_policy(
-                    &policy,
-                    COLLECTIONS,
-                    &collection,
-                    &root,
-                    Some(&sources.collections[index].scope),
-                );
 
-                if let Some(last) = chain.last() {
-                    sources.collections[index] = tables::Collection {
-                        scope: last.clone(),
-                        collection,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
-                }
-            }
-            Err(_) => {
-                let chain = eval_policy(&policy, COLLECTIONS, &collection, &root, None);
+    draft.captures = inner(
+        std::mem::take(&mut draft.captures),
+        captures,
+        &policy,
+        "captures",
+        draft,
+        &mut count,
+    );
+    draft.collections = inner(
+        std::mem::take(&mut draft.collections),
+        collections,
+        &policy,
+        "collections",
+        draft,
+        &mut count,
+    );
+    draft.materializations = inner(
+        std::mem::take(&mut draft.materializations),
+        materializations,
+        &policy,
+        "materializations",
+        draft,
+        &mut count,
+    );
+    draft.tests = inner(
+        std::mem::take(&mut draft.tests),
+        tests,
+        &policy,
+        "tests",
+        draft,
+        &mut count,
+    );
 
-                if let Some(last) = chain.last() {
-                    sources.collections.insert_row(last, collection, spec);
-                    add_imports(sources, &chain);
-                    count += 1;
-                }
-            }
-        }
-    }
-    for (materialization, spec) in materializations {
-        match sources
-            .materializations
-            .binary_search_by(|other| other.materialization.cmp(&materialization))
-        {
-            Ok(index) => {
-                let chain = eval_policy(
-                    &policy,
-                    MATERIALIZATIONS,
-                    &materialization,
-                    &root,
-                    Some(&sources.materializations[index].scope),
-                );
-
-                if let Some(last) = chain.last() {
-                    sources.materializations[index] = tables::Materialization {
-                        scope: last.clone(),
-                        materialization,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
-                }
-            }
-            Err(_) => {
-                let chain = eval_policy(&policy, MATERIALIZATIONS, &materialization, &root, None);
-
-                if let Some(last) = chain.last() {
-                    sources
-                        .materializations
-                        .insert_row(last, materialization, spec);
-                    add_imports(sources, &chain);
-                    count += 1;
-                }
-            }
-        }
-    }
-    for (test, spec) in tests {
-        match sources
-            .tests
-            .binary_search_by(|other| other.test.cmp(&test))
-        {
-            Ok(index) => {
-                let chain = eval_policy(
-                    &policy,
-                    TESTS,
-                    &test,
-                    &root,
-                    Some(&sources.tests[index].scope),
-                );
-
-                if let Some(last) = chain.last() {
-                    sources.tests[index] = tables::Test {
-                        scope: last.clone(),
-                        test,
-                        spec,
-                    };
-                    add_imports(sources, &chain);
-                    count += 1;
-                }
-            }
-            Err(_) => {
-                let chain = eval_policy(&policy, TESTS, &test, &root, None);
-
-                if let Some(last) = chain.last() {
-                    sources.tests.insert_row(last, test, spec);
-                    add_imports(sources, &chain);
-                    count += 1;
-                }
-            }
-        }
-    }
     count
 }
 
@@ -345,7 +308,7 @@ where
     chain
 }
 
-fn add_imports(sources: &mut tables::Sources, chain: &[url::Url]) {
+fn add_imports(draft: &mut tables::DraftCatalog, chain: &[url::Url]) {
     for (importer, imports) in chain.windows(2).map(|pair| (&pair[0], &pair[1])) {
         let mut scope = importer.clone();
         scope.set_fragment(Some("/import/-"));
@@ -354,11 +317,11 @@ fn add_imports(sources: &mut tables::Sources, chain: &[url::Url]) {
         imports.set_fragment(None);
 
         // Add a new import if we haven't added one already. We'll do more de-duplication later.
-        if let Err(_) = sources
+        if let Err(_) = draft
             .imports
             .binary_search_by(|l| (&l.scope, &l.to_resource).cmp(&(&scope, &imports)))
         {
-            sources.imports.insert_row(scope, imports);
+            draft.imports.insert_row(scope, imports);
         }
     }
 }
@@ -403,9 +366,9 @@ mod test {
         let mut target = crate::scenarios::evaluate_fixtures(Default::default(), &target);
         assert!(target.errors.is_empty(), "{:?}", target.errors);
 
-        let source: serde_json::Value =
-            serde_yaml::from_slice(include_bytes!("merge_test_src.yaml")).unwrap();
-        let source: models::Catalog = serde_json::from_value(source).unwrap();
+        let source = serde_yaml::from_slice(include_bytes!("merge_test_src.yaml")).unwrap();
+        let source = crate::scenarios::evaluate_fixtures(Default::default(), &source);
+        assert!(source.errors.is_empty(), "{:?}", source.errors);
 
         let count = extend_from_catalog(&mut target, source, canonical_layout_replace);
 

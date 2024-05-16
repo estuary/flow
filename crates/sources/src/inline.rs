@@ -1,47 +1,49 @@
 use crate::Scope;
 use superslice::Ext;
 
-pub fn inline_sources(sources: &mut tables::Sources) {
-    let tables::Sources {
+pub fn inline_draft_catalog(catalog: &mut tables::DraftCatalog) {
+    let tables::DraftCatalog {
         captures,
         collections,
         fetches: _,
         imports,
         materializations,
         resources,
-        storage_mappings: _,
         tests,
         errors: _,
-    } = sources;
+    } = catalog;
 
     for capture in captures.iter_mut() {
-        inline_capture(&capture.scope, &mut capture.spec, imports, resources);
+        if let Some(model) = &mut capture.model {
+            inline_capture(&capture.scope, model, imports, resources);
+        }
     }
     for collection in collections.iter_mut() {
-        inline_collection(&collection.scope, &mut collection.spec, imports, resources);
+        if let Some(model) = &mut collection.model {
+            inline_collection(&collection.scope, model, imports, resources);
+        }
     }
     for materialization in materializations.iter_mut() {
-        inline_materialization(
-            &materialization.scope,
-            &mut materialization.spec,
-            imports,
-            resources,
-        );
+        if let Some(model) = &mut materialization.model {
+            inline_materialization(&materialization.scope, model, imports, resources);
+        }
     }
     for test in tests.iter_mut() {
-        inline_test(&test.scope, &mut test.spec, imports, resources);
+        if let Some(model) = &mut test.model {
+            inline_test(&test.scope, model, imports, resources);
+        }
     }
 }
 
 pub fn inline_capture(
     scope: &url::Url,
-    spec: &mut models::CaptureDef,
+    model: &mut models::CaptureDef,
     imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
     let models::CaptureDef {
         endpoint, bindings, ..
-    } = spec;
+    } = model;
 
     match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
@@ -81,7 +83,7 @@ pub fn inline_capture(
 
 fn inline_collection(
     scope: &url::Url,
-    spec: &mut models::CollectionDef,
+    model: &mut models::CollectionDef,
     imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
@@ -93,7 +95,9 @@ fn inline_collection(
         projections: _,
         journals: _,
         derive,
-    } = spec;
+        expect_pub_id: _,
+        delete: _,
+    } = model;
 
     if let Some(schema) = schema {
         inline_schema(
@@ -225,7 +229,7 @@ fn inline_derivation(
 
 fn inline_materialization(
     scope: &url::Url,
-    spec: &mut models::MaterializationDef,
+    model: &mut models::MaterializationDef,
     imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
@@ -234,7 +238,9 @@ fn inline_materialization(
         endpoint,
         bindings,
         shards: _,
-    } = spec;
+        expect_pub_id: _,
+        delete: _,
+    } = model;
 
     match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
@@ -277,11 +283,11 @@ fn inline_materialization(
 
 fn inline_test(
     scope: &url::Url,
-    spec: &mut Vec<models::TestStep>,
+    model: &mut models::TestDef,
     imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
-    for (index, step) in spec.iter_mut().enumerate() {
+    for (index, step) in model.steps.iter_mut().enumerate() {
         let documents = match step {
             models::TestStep::Ingest(models::TestStepIngest { documents, .. })
             | models::TestStep::Verify(models::TestStepVerify { documents, .. }) => documents,

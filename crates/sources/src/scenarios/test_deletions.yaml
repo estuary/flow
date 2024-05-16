@@ -1,0 +1,33 @@
+test://example/catalog.yaml:
+  captures:
+    deleted/capture:
+      endpoint:
+        connector:
+          image: an/image
+          config: {}
+      bindings: []
+      expectPubId: "00:11:22:33:44:55:66:77"
+      delete: true
+
+  collections:
+    deleted/collection:
+      schema: true
+      key: [/key]
+      expectPubId: "00:11:22:33:44:55:66:77"
+      delete: true
+
+  materializations:
+    deleted/materialization:
+      endpoint:
+        connector:
+          image: materialization/image
+          config: {}
+      bindings: []
+      expectPubId: "00:11:22:33:44:55:66:77"
+      delete: true
+
+  tests:
+    deleted/test:
+      steps: []
+      expectPubId: "00:11:22:33:44:55:66:77"
+      delete: true

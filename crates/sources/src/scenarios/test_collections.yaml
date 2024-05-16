@@ -6,6 +6,7 @@ test://example/catalog.yaml:
       projections:
         field_a: { location: /a/a, partition: true }
         field_b: { location: /b/b, partition: false }
+      expectPubId: "00:11:22:33:44:55:66:77"
 
     test/collection/with-journals:
       schema: schema.json#foobar
