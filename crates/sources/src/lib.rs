@@ -8,7 +8,7 @@ mod scope;
 
 pub use bundle_schema::bundle_schema;
 pub use indirect::{indirect_large_files, rebuild_catalog_resources};
-pub use inline::{inline_capture, inline_sources};
+pub use inline::{inline_capture, inline_draft_catalog};
 pub use loader::{Fetcher, LoadError, Loader};
 pub use scope::Scope;
 

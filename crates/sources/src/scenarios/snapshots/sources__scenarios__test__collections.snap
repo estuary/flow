@@ -2,13 +2,14 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection,
+        DraftCollection {
             collection: test/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: {
               "schema": "schema.json",
               "key": [
                 "/key/1",
@@ -26,19 +27,21 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
+        DraftCollection {
             collection: test/collection-no-schema,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
+            expect_pub_id: NULL,
+            model: {
               "key": [
                 "/key"
               ]
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
+        DraftCollection {
             collection: test/collection-with-write-and-inferred-read,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": "schema.json",
               "readSchema": {"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
               "key": [
@@ -47,10 +50,11 @@ Sources {
               ]
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
+        DraftCollection {
             collection: test/collection-with-write-and-read,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": "schema.json",
               "readSchema": "schema.json#/properties/a",
               "key": [
@@ -59,10 +63,11 @@ Sources {
               ]
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
+        DraftCollection {
             collection: test/collection/with-journals,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
+            expect_pub_id: NULL,
+            model: {
               "schema": "schema.json#foobar",
               "key": [
                 "/a/key"
@@ -117,7 +122,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"test/collection":{"key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"schema":"schema.json"},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-inferred-read":{"key":["/key/1","/key/0"],"readSchema":{"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},"writeSchema":"schema.json"},"test/collection-with-write-and-read":{"key":["/key/1","/key/0"],"readSchema":"schema.json#/properties/a","writeSchema":"schema.json"},"test/collection/with-journals":{"journals":{"fragments":{"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","flushInterval":"15m","length":12345,"retention":"320h"}},"key":["/a/key"],"schema":"schema.json#foobar"}}},
+            content_dom: {"collections":{"test/collection":{"expectPubId":"00:11:22:33:44:55:66:77","key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"schema":"schema.json"},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-inferred-read":{"key":["/key/1","/key/0"],"readSchema":{"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},"writeSchema":"schema.json"},"test/collection-with-write-and-read":{"key":["/key/1","/key/0"],"readSchema":"schema.json#/properties/a","writeSchema":"schema.json"},"test/collection/with-journals":{"journals":{"fragments":{"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","flushInterval":"15m","length":12345,"retention":"320h"}},"key":["/a/key"],"schema":"schema.json#foobar"}}},
         },
         Resource {
             resource: test://example/schema.json,
@@ -126,6 +131,5 @@ Sources {
             content_dom: {"$anchor":"foobar","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
         },
     ],
-    storage_mappings: [],
     tests: [],
 }

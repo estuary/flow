@@ -2,13 +2,14 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d1~1collection,
+        DraftCollection {
             collection: d1/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d1~1collection,
+            expect_pub_id: NULL,
+            model: {
               "schema": "a-schema.json",
               "key": [
                 "/d1-key"
@@ -53,10 +54,11 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d2~1collection,
+        DraftCollection {
             collection: d2/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d2~1collection,
+            expect_pub_id: "00:11:22:33:44:55:66:77",
+            model: {
               "schema": "a-schema.json",
               "key": [
                 "/d2-key"
@@ -94,10 +96,11 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d3~1collection,
+        DraftCollection {
             collection: d3/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d3~1collection,
+            expect_pub_id: NULL,
+            model: {
               "writeSchema": "a-schema.json",
               "readSchema": "other-schema.json",
               "key": [
@@ -129,10 +132,11 @@ Sources {
               }
             },
         },
-        Collection {
-            scope: test://example/catalog.yaml#/collections/d4~1local,
+        DraftCollection {
             collection: d4/local,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/d4~1local,
+            expect_pub_id: NULL,
+            model: {
               "schema": "a-schema.json",
               "key": [
                 "/key"
@@ -231,7 +235,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","notAfter":"2019-03-06T09:30:02Z","notBefore":"2017-03-03T03:02:01Z","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"backfill":2,"lambda":42,"name":"do-the-thing","shuffle":"any","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"},"d4/local":{"derive":{"transforms":[],"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}}},"key":["/key"],"schema":"a-schema.json"}}},
+            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","notAfter":"2019-03-06T09:30:02Z","notBefore":"2017-03-03T03:02:01Z","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"backfill":2,"lambda":42,"name":"do-the-thing","shuffle":"any","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"expectPubId":"00:11:22:33:44:55:66:77","journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"},"d4/local":{"derive":{"transforms":[],"using":{"local":{"command":["some-command","--with-args"],"config":{"some-local":"config"}}}},"key":["/key"],"schema":"a-schema.json"}}},
         },
         Resource {
             resource: test://example/other-schema.json,
@@ -252,6 +256,5 @@ Sources {
             content_dom: "select a whole bunch of fields and stuff from source documents to shuffle upon;\n",
         },
     ],
-    storage_mappings: [],
     tests: [],
 }

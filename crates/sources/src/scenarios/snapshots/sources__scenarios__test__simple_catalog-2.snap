@@ -2,13 +2,14 @@
 source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
-Sources {
+DraftCatalog {
     captures: [],
     collections: [
-        Collection {
-            scope: test://example/catalog.yaml#/collections/a~1collection,
+        DraftCollection {
             collection: a/collection,
-            spec: {
+            scope: test://example/catalog.yaml#/collections/a~1collection,
+            expect_pub_id: NULL,
+            model: {
               "schema": {"$id":"test://example/schema","allOf":[true]},
               "key": [
                 "/key"
@@ -41,6 +42,5 @@ Sources {
     ],
     materializations: [],
     resources: [],
-    storage_mappings: [],
     tests: [],
 }

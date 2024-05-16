@@ -156,10 +156,7 @@ expression: "&schema"
       "type": "object",
       "patternProperties": {
         "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/TestStep"
-          }
+          "$ref": "#/definitions/TestDef"
         }
       },
       "additionalProperties": false
@@ -248,9 +245,19 @@ expression: "&schema"
             "$ref": "#/definitions/CaptureBinding"
           }
         },
+        "delete": {
+          "title": "Delete this capture within the control plane.",
+          "description": "When true, a publication will delete this capture.",
+          "type": "boolean"
+        },
         "endpoint": {
           "title": "Endpoint to capture from.",
           "$ref": "#/definitions/CaptureEndpoint"
+        },
+        "expectPubId": {
+          "title": "Expected publication ID of this capture within the control plane.",
+          "description": "When present, a publication of the capture will fail if the last publication ID in the control plane doesn't match this value.",
+          "$ref": "#/definitions/Id"
         },
         "interval": {
           "title": "Interval of time between invocations of the capture.",
@@ -352,8 +359,18 @@ expression: "&schema"
         "key"
       ],
       "properties": {
+        "delete": {
+          "title": "Delete this collection within the control plane.",
+          "description": "When true, a publication will delete this collection.",
+          "type": "boolean"
+        },
         "derive": {
           "$ref": "#/definitions/Derivation"
+        },
+        "expectPubId": {
+          "title": "Expected publication ID of this collection within the control plane.",
+          "description": "When present, a publication of the collection will fail if the last publication ID in the control plane doesn't match this value.",
+          "$ref": "#/definitions/Id"
         },
         "journals": {
           "title": "Template for journals of this collection.",
@@ -696,6 +713,9 @@ expression: "&schema"
       },
       "additionalProperties": false
     },
+    "Id": {
+      "type": "string"
+    },
     "JournalTemplate": {
       "description": "A JournalTemplate configures the journals which make up the physical partitions of a collection.",
       "examples": [
@@ -834,9 +854,19 @@ expression: "&schema"
             "$ref": "#/definitions/MaterializationBinding"
           }
         },
+        "delete": {
+          "title": "Delete this materialization within the control plane.",
+          "description": "When true, a publication will delete this materialization.",
+          "type": "boolean"
+        },
         "endpoint": {
           "title": "Endpoint to materialize into.",
           "$ref": "#/definitions/MaterializationEndpoint"
+        },
+        "expectPubId": {
+          "title": "Expected publication ID of this materialization within the control plane.",
+          "description": "When present, a publication of the materialization will fail if the last publication ID in the control plane doesn't match this value.",
+          "$ref": "#/definitions/Id"
         },
         "shards": {
           "title": "Template for shards of this materialization task.",
@@ -1148,6 +1178,72 @@ expression: "&schema"
       ],
       "type": "string",
       "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
+    },
+    "TestDef": {
+      "description": "Test the behavior of reductions and derivations, through a sequence of test steps.",
+      "examples": [
+        {
+          "description": "An example test",
+          "steps": [
+            {
+              "ingest": {
+                "collection": "acmeCo/collection",
+                "description": "Description of the ingestion.",
+                "documents": [
+                  {
+                    "a": "document"
+                  },
+                  {
+                    "another": "document"
+                  }
+                ]
+              }
+            },
+            {
+              "verify": {
+                "collection": "acmeCo/collection",
+                "description": "Description of the verification.",
+                "documents": [
+                  {
+                    "a": "document"
+                  },
+                  {
+                    "another": "document"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "type": "object",
+      "required": [
+        "steps"
+      ],
+      "properties": {
+        "delete": {
+          "title": "Delete this test within the control plane.",
+          "description": "When true, a publication will delete this test.",
+          "type": "boolean"
+        },
+        "description": {
+          "title": "Description of this test.",
+          "type": "string"
+        },
+        "expectPubId": {
+          "title": "Expected publication ID of this test within the control plane.",
+          "description": "When present, a publication of the test will fail if the last publication ID in the control plane doesn't match this value.",
+          "$ref": "#/definitions/Id"
+        },
+        "steps": {
+          "title": "Sequential steps of this test.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TestStep"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "TestDocuments": {
       "description": "A test step describes either an \"ingest\" of document fixtures into a collection, or a \"verify\" of expected document fixtures from a collection.",

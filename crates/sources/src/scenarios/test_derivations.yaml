@@ -65,6 +65,7 @@ test://example/catalog.yaml:
           hotStandbys: 2
           ringBufferSize: 12345
           readChannelSize: 6789
+      expectPubId: "00:11:22:33:44:55:66:77"
 
     d3/collection:
       writeSchema: a-schema.json

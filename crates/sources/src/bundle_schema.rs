@@ -98,7 +98,7 @@ mod test {
     fn test_bundle_generation() {
         // Load a fixture into imports, collections, and schema docs.
         let fixture = serde_yaml::from_slice(include_bytes!("bundle_schema_test.yaml")).unwrap();
-        let tables::Sources {
+        let tables::DraftCatalog {
             imports,
             resources,
             collections,
@@ -114,16 +114,14 @@ mod test {
         let mut bundle_docs = serde_json::Map::new();
 
         for c in collections.iter() {
+            let Some(model) = &c.model else { continue };
+
             let mut scope = c.scope.clone();
             scope.set_fragment(Some(&format!("{}/schema", scope.fragment().unwrap())));
 
             // Build the bundled schema DOM.
-            let bundle_dom = bundle_schema(
-                &scope,
-                c.spec.schema.as_ref().unwrap(),
-                &imports,
-                &resources,
-            );
+            let bundle_dom =
+                bundle_schema(&scope, model.schema.as_ref().unwrap(), &imports, &resources);
 
             // Compile the bundle DOM into a schema, and index it.
             // Note that no external schemas are added to the index, unlike |orig_index|.

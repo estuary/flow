@@ -5,41 +5,55 @@ test://example/catalog.yaml:
 
   tests:
     acmeCo/widgest/test:
+      description: This is a test that does stuff.
+      expectPubId: "00:11:22:33:44:55:66:77"
+      steps:
+        - ingest:
+            description: Import some foos
+            collection: test/collection
+            documents: [{ "ingest": 1 }, { "next": "ingest" }]
+        # No selector.
+        - verify:
+            description: Verify without a selector.
+            collection: test/collection
+            documents: [{ "verify": 2 }, { "next": false }]
+        # With selector.
+        - verify:
+            collection:
+              name: test/collection
+              partitions:
+                include: { "a_field": ["some-val"] }
+                exclude: {}
+            documents: [{ "verify": 3 }, { "fin": null }]
+        - ingest:
+            description: Import more foos via file fixture.
+            collection: test/collection
+            documents: ./snapshots/ingest.json
+        - verify:
+            description: Verify via file fixture.
+            collection: test/collection
+            documents: ./snapshots/verify.json
+
+    acmeCo/widgest/old-style-test:
       - ingest:
-          description: Import some foos
+          description: An ingest
           collection: test/collection
-          documents: [{ "ingest": 1 }, { "next": "ingest" }]
-      # No selector.
+          documents: [{ "ingest": "hi" }]
       - verify:
-          description: Verify without a selector.
+          description: A verify.
           collection: test/collection
-          documents: [{ "verify": 2 }, { "next": false }]
-      # With selector.
-      - verify:
-          collection:
-            name: test/collection
-            partitions:
-              include: { "a_field": ["some-val"] }
-              exclude: {}
-          documents: [{ "verify": 3 }, { "fin": null }]
-      - ingest:
-          description: Import more foos via file fixture.
-          collection: test/collection
-          documents: ./snapshots/ingest.json
-      - verify:
-          description: Verify via file fixture.
-          collection: test/collection
-          documents: ./snapshots/verify.json
+          documents: [{ "verify": "bye" }]
 
     acmeCo/errors/test:
-      - ingest:
-          description: This isn't an array.
-          collection: test/collection
-          documents: ./not-an-array.json
-      - verify:
-          description: This is missing.
-          collection: test/collection
-          documents: ./not-found.json
+      steps:
+        - ingest:
+            description: This isn't an array.
+            collection: test/collection
+            documents: ./not-an-array.json
+        - verify:
+            description: This is missing.
+            collection: test/collection
+            documents: ./not-found.json
 
 test://example/snapshots/ingest.json: [{ an: ingest }]
 
@@ -52,13 +66,15 @@ test://example/not-an-array.json: { whoops: true }
 test://example/catalog-err-not-an-array.yaml:
   tests:
     acmeCo/parse/failure:
-      - ingest:
-          collection: test/collection
-          documents: { "not": "an array" }
+      steps:
+        - ingest:
+            collection: test/collection
+            documents: { "not": "an array" }
 
 test://example/catalog-err-not-an-object.yaml:
   tests:
     acmeCo/parse/failure:
-      - ingest:
-          collection: test/collection
-          documents: ["not-an-object"]
+      steps:
+        - ingest:
+            collection: test/collection
+            documents: ["not-an-object"]
