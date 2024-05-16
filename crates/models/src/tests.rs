@@ -1,7 +1,39 @@
-use super::{Collection, RawValue, Source};
+use super::{Collection, Id, RawValue, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
+
+/// Test the behavior of reductions and derivations, through a sequence of test steps.
+#[derive(Serialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[schemars(example = "TestDef::example")]
+pub struct TestDef {
+    /// # Description of this test.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// # Sequential steps of this test.
+    pub steps: Vec<TestStep>,
+    /// # Expected publication ID of this test within the control plane.
+    /// When present, a publication of the test will fail if the
+    /// last publication ID in the control plane doesn't match this value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect_pub_id: Option<Id>,
+    /// # Delete this test within the control plane.
+    /// When true, a publication will delete this test.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub delete: bool,
+}
+
+impl TestDef {
+    pub fn example() -> Self {
+        Self {
+            description: "An example test".to_string(),
+            steps: vec![TestStep::example_ingest(), TestStep::example_verify()],
+            expect_pub_id: None,
+            delete: false,
+        }
+    }
+}
 
 /// A test step describes either an "ingest" of document fixtures into a
 /// collection, or a "verify" of expected document fixtures from a collection.
@@ -111,5 +143,122 @@ impl TestStepVerify {
             collection: Source::Collection(Collection::new("acmeCo/collection")),
             documents: TestDocuments::example_inline(),
         }
+    }
+}
+
+impl super::ModelDef for TestDef {
+    fn sources(&self) -> impl Iterator<Item = &crate::Source> {
+        self.steps.iter().filter_map(|step| {
+            let TestStep::Verify(verify) = step else {
+                return None;
+            };
+            Some(&verify.collection)
+        })
+    }
+    fn targets(&self) -> impl Iterator<Item = &crate::Collection> {
+        self.steps.iter().filter_map(|step| {
+            let TestStep::Ingest(ingest) = step else {
+                return None;
+            };
+            Some(&ingest.collection)
+        })
+    }
+}
+
+// TEMPORARY: support a custom deserializer that maps from the legacy array
+// representation into a TestDef. We can remove this when all test models
+// have been updated.
+
+struct TestDefVisitor {}
+
+impl<'de> serde::Deserialize<'de> for TestDef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(TestDefVisitor {})
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for TestDefVisitor {
+    type Value = TestDef;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("A TestDef object or a legacy array of TestSteps")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut steps: Vec<TestStep> = Vec::new();
+
+        while let Some(step) = seq.next_element()? {
+            steps.push(step)
+        }
+
+        Ok(TestDef {
+            description: String::new(),
+            steps,
+            expect_pub_id: None,
+            delete: false,
+        })
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: serde::de::MapAccess<'de>,
+    {
+        let mut description = None;
+        let mut steps = None;
+        let mut expect_pub_id = None;
+        let mut delete = None;
+
+        const DESCRIPTION: &str = "description";
+        const STEPS: &str = "steps";
+        const EXPECT_PUB_ID: &str = "expectPubId";
+        const DELETE: &str = "delete";
+
+        while let Some(key) = map.next_key()? {
+            match key {
+                DESCRIPTION => {
+                    if description.is_some() {
+                        return Err(serde::de::Error::duplicate_field(DESCRIPTION));
+                    }
+                    description = Some(map.next_value()?);
+                }
+                STEPS => {
+                    if steps.is_some() {
+                        return Err(serde::de::Error::duplicate_field(STEPS));
+                    }
+                    steps = Some(map.next_value()?);
+                }
+                EXPECT_PUB_ID => {
+                    if expect_pub_id.is_some() {
+                        return Err(serde::de::Error::duplicate_field(EXPECT_PUB_ID));
+                    }
+                    expect_pub_id = Some(map.next_value()?);
+                }
+                DELETE => {
+                    if delete.is_some() {
+                        return Err(serde::de::Error::duplicate_field(DELETE));
+                    }
+                    delete = Some(map.next_value()?);
+                }
+                _ => {
+                    return Err(serde::de::Error::unknown_field(
+                        key,
+                        &[DESCRIPTION, STEPS, EXPECT_PUB_ID, DELETE],
+                    ))
+                }
+            }
+        }
+
+        Ok(TestDef {
+            description: description.unwrap_or_default(),
+            steps: steps.ok_or_else(|| serde::de::Error::missing_field(STEPS))?,
+            expect_pub_id,
+            delete: delete.unwrap_or_default(),
+        })
     }
 }

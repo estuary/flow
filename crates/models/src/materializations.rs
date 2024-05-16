@@ -1,5 +1,5 @@
 use super::{
-    Capture, ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
+    Capture, ConnectorConfig, Field, Id, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,15 @@ pub struct MaterializationDef {
     /// # Template for shards of this materialization task.
     #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,
+    /// # Expected publication ID of this materialization within the control plane.
+    /// When present, a publication of the materialization will fail if the
+    /// last publication ID in the control plane doesn't match this value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect_pub_id: Option<Id>,
+    /// # Delete this materialization within the control plane.
+    /// When true, a publication will delete this materialization.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub delete: bool,
 }
 
 /// An Endpoint connector used for Flow materializations.
@@ -100,6 +109,8 @@ impl MaterializationDef {
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
+            expect_pub_id: None,
+            delete: false,
         }
     }
 }
@@ -150,4 +161,13 @@ pub struct SqliteConfig {
     /// The path may include query arguments. See:
     /// https://github.com/mattn/go-sqlite3#connection-string
     pub path: RelativeUrl,
+}
+
+impl super::ModelDef for MaterializationDef {
+    fn sources(&self) -> impl Iterator<Item = &crate::Source> {
+        self.bindings.iter().map(|binding| &binding.source)
+    }
+    fn targets(&self) -> impl Iterator<Item = &crate::Collection> {
+        std::iter::empty()
+    }
 }
