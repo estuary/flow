@@ -1,7 +1,6 @@
 use crate::local_specs;
 use anyhow::Context;
 use proto_flow::{capture, flow};
-use std::collections::BTreeMap;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -57,16 +56,18 @@ pub async fn do_discover(
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
 
-    // Inline a clone of the capture spec for use with the discover RPC.
-    let mut spec_clone = capture.spec.clone();
+    let model = capture.model.as_mut().expect("not a deletion");
+    let mut model_clone = model.clone();
+
+    // Inline a clone of the capture model for use with the discover RPC.
     sources::inline_capture(
         &capture.scope,
-        &mut spec_clone,
+        &mut model_clone,
         &mut sources.imports,
         &sources.resources,
     );
 
-    let discover = match &spec_clone.endpoint {
+    let discover = match &model_clone.endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Discover {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: serde_json::to_string(&config).unwrap(),
@@ -81,7 +82,7 @@ pub async fn do_discover(
         ..Default::default()
     }
     .with_internal(|internal| {
-        if let Some(s) = &capture.spec.shards.log_level {
+        if let Some(s) = &model_clone.shards.log_level {
             internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
         }
     });
@@ -106,7 +107,7 @@ pub async fn do_discover(
     }
     // Modify the capture's bindings in-place.
     // TODO(johnny): Refactor and re-use discover deep-merge behavior from the agent.
-    capture.spec.bindings.clear();
+    model.bindings.clear();
 
     let prefix = capture
         .capture
@@ -114,22 +115,26 @@ pub async fn do_discover(
         .map(|(prefix, _)| prefix)
         .unwrap_or("acmeCo");
 
-    // Create a catalog with the discovered bindings
-    let mut collections = BTreeMap::new();
+    // Create a catalog with the discovered bindings.
+    let mut catalog = tables::DraftCatalog::default();
+    let scope = url::Url::parse("flow://control").unwrap();
+
     for binding in bindings {
         let collection_name = format!("{prefix}/{}", binding.recommended_name);
         let collection = models::Collection::new(collection_name);
 
-        capture.spec.bindings.push(models::CaptureBinding {
+        model.bindings.push(models::CaptureBinding {
             target: collection.clone(),
             disable: false,
             resource: models::RawValue::from_string(binding.resource_config_json)?,
             backfill: 0,
         });
 
-        collections.insert(
+        catalog.collections.insert_row(
             collection,
-            models::CollectionDef {
+            &scope,
+            None,
+            Some(models::CollectionDef {
                 schema: Some(models::Schema::new(models::RawValue::from_string(
                     binding.document_schema_json,
                 )?)),
@@ -145,14 +150,11 @@ pub async fn do_discover(
                 derive: None,
                 projections: Default::default(),
                 journals: Default::default(),
-            },
+                expect_pub_id: None,
+                delete: false,
+            }),
         );
     }
-
-    let catalog = models::Catalog {
-        collections,
-        ..Default::default()
-    };
 
     let count = local_specs::extend_from_catalog(
         &mut sources,

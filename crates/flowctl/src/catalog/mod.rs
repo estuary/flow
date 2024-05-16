@@ -129,54 +129,36 @@ pub struct SpecTypeSelector {
 
 impl SpecTypeSelector {
     /// Adds postgrest query parameters based on the arugments provided to filter specs based on the `spec_type` column.
-    /// The `include_deleted` paraemeter specifies whether to include deleted specs. This is handled outside of the
-    /// `SpecTypeSelector` arguments, because it doesn't make sense in all contexts. For example, it wouldn't make sense
-    /// to have a `--deleted` selector in `flowctl catalog delete`, but it does make sense as part of `flowctl catalog list`.
-    pub fn add_live_specs_filters(
-        &self,
-        mut builder: postgrest::Builder,
-        include_deleted: bool,
-    ) -> postgrest::Builder {
+    pub fn add_spec_type_filters(&self, mut builder: postgrest::Builder) -> postgrest::Builder {
         let all = &[
-            (CatalogSpecType::Capture.as_ref(), "eq", self.captures),
-            (CatalogSpecType::Collection.as_ref(), "eq", self.collections),
-            (
-                CatalogSpecType::Materialization.as_ref(),
-                "eq",
-                self.materializations,
-            ),
-            (CatalogSpecType::Test.as_ref(), "eq", self.tests),
-            // Deleted specs, will always be Some, so that an empty type selector
-            ("null", "is", Some(include_deleted)),
+            (SpecType::Capture.as_ref(), self.captures),
+            (SpecType::Collection.as_ref(), self.collections),
+            (SpecType::Materialization.as_ref(), self.materializations),
+            (SpecType::Test.as_ref(), self.tests),
         ];
 
         // If any of the types were explicitly included, then we'll add
         // an `or.` that only includes items for each explicitly included type.
-        if self.has_any_include_types() || include_deleted {
+        if self.has_any_include_types() {
             let expr = all
                 .iter()
-                .filter(|(_, _, inc)| inc.unwrap_or(false))
-                .map(|(ty, op, _)| format!("spec_type.{op}.{ty}"))
+                .filter(|(_, inc)| inc.unwrap_or(false))
+                .map(|(ty, _)| format!("spec_type.eq.{ty}"))
                 .join(",");
             builder = builder.or(expr);
         } else {
             // If no types were explicitly included, then we can just filter out the types we _don't_ want.
-            // We need to use `IS NOT NULL` to filter out deleted specs, rather than using `neq`.
-            // Postgrest implicitly applies AND logic for these.
-            for (ty, _, _) in all
-                .iter()
-                .filter(|(_, op, inc)| *op == "eq" && *inc == Some(false))
-            {
+            for (ty, _) in all.iter().filter(|(_, inc)| *inc == Some(false)) {
                 builder = builder.neq("spec_type", ty);
             }
-            if !include_deleted {
-                builder = builder.not("is", "spec_type", "null");
-            }
+            // We need to use `IS NOT NULL` to filter out deleted specs, rather than using `neq`.
+            // Postgrest implicitly applies AND logic for these.
+            builder = builder.not("is", "spec_type", "null");
         }
         builder
     }
 
-    pub fn has_any_include_types(&self) -> bool {
+    fn has_any_include_types(&self) -> bool {
         self.captures == Some(true)
             || self.collections == Some(true)
             || self.materializations == Some(true)
@@ -186,27 +168,27 @@ impl SpecTypeSelector {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum CatalogSpecType {
+pub enum SpecType {
     Capture,
     Collection,
     Materialization,
     Test,
 }
 
-impl std::fmt::Display for CatalogSpecType {
+impl std::fmt::Display for SpecType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str(self.as_ref())
     }
 }
 
-impl std::convert::AsRef<str> for CatalogSpecType {
+impl std::convert::AsRef<str> for SpecType {
     fn as_ref(&self) -> &str {
         // These strings match what's used by serde, and also match the definitions in the database.
         match *self {
-            CatalogSpecType::Capture => "capture",
-            CatalogSpecType::Collection => "collection",
-            CatalogSpecType::Materialization => "materialization",
-            CatalogSpecType::Test => "test",
+            SpecType::Capture => "capture",
+            SpecType::Collection => "collection",
+            SpecType::Materialization => "materialization",
+            SpecType::Test => "test",
         }
     }
 }
@@ -221,9 +203,6 @@ pub struct List {
     pub name_selector: NameSelector,
     #[clap(flatten)]
     pub type_selector: SpecTypeSelector,
-    /// Include deleted specs, which have no type.
-    #[clap(long)]
-    pub deleted: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -251,7 +230,7 @@ pub struct Draft {
     // You can use the previous publication to "revert" a specification
     // to a known-good version.
     #[clap(long, conflicts_with("delete"))]
-    pub publication_id: Option<String>,
+    pub publication_id: Option<models::Id>,
 }
 
 impl Catalog {
@@ -291,9 +270,7 @@ where
     }
 
     let builder = cp_client.from("live_specs_ext").select(columns.join(","));
-    let builder = list
-        .type_selector
-        .add_live_specs_filters(builder, list.deleted);
+    let builder = list.type_selector.add_spec_type_filters(builder);
 
     // Drive the actual request(s) based on the name selector, since the arguments there may
     // necessitate multiple requests.
@@ -316,7 +293,7 @@ where
             .collect::<FuturesUnordered<_>>();
         let mut rows = Vec::with_capacity(list.name_selector.name.len());
         while let Some(result) = stream.next().await {
-            rows.extend(result.context("exectuting live_specs_ext fetch")?);
+            rows.extend(result.context("executing live_specs_ext fetch")?);
         }
         Ok(rows)
     } else if !list.name_selector.prefix.is_empty() {
@@ -348,11 +325,10 @@ where
 #[derive(Deserialize, Serialize, Clone)]
 pub struct LiveSpecRow {
     pub catalog_name: String,
-    pub id: String,
+    pub id: models::Id,
     pub updated_at: crate::Timestamp,
-    pub spec_type: Option<CatalogSpecType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_pub_id: Option<String>,
+    pub spec_type: SpecType,
+    pub last_pub_id: models::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pub_user_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -382,12 +358,9 @@ impl crate::output::CliOutput for LiveSpecRow {
 
     fn into_table_row(self, flows: Self::TableAlt) -> Vec<Self::CellValue> {
         let mut out = vec![
-            self.id,
+            self.id.to_string(),
             self.catalog_name,
-            self.spec_type
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_else(|| String::from("DELETED")),
+            self.spec_type.to_string(),
             self.updated_at.to_string(),
             crate::format_user(
                 self.last_pub_user_email,
@@ -406,68 +379,77 @@ impl crate::output::CliOutput for LiveSpecRow {
 /// Trait that's common to database rows of catalog specs, which can be turned into a bundled catalog.
 pub trait SpecRow {
     fn catalog_name(&self) -> &str;
-    fn spec_type(&self) -> Option<CatalogSpecType>;
+    fn spec_type(&self) -> SpecType;
     fn spec(&self) -> Option<&RawValue>;
-
-    fn parse_spec<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
-        let spec = self.spec().ok_or_else(|| {
-            anyhow::anyhow!("missing spec for catalog item: '{}'", self.catalog_name())
-        })?;
-        let parsed = serde_json::from_str::<T>(spec.get())?;
-        Ok(parsed)
-    }
+    fn expect_pub_id(&self) -> Option<models::Id>;
 }
 
 impl SpecRow for LiveSpecRow {
     fn catalog_name(&self) -> &str {
         &self.catalog_name
     }
-
-    fn spec_type(&self) -> Option<CatalogSpecType> {
+    fn spec_type(&self) -> SpecType {
         self.spec_type
     }
-
     fn spec(&self) -> Option<&RawValue> {
         self.spec.as_ref()
     }
+    fn expect_pub_id(&self) -> Option<models::Id> {
+        Some(self.last_pub_id)
+    }
 }
 
-/// Collects an iterator of `SpecRow`s into a `models::Catalog`. The rows must
-/// all have a `spec` unless they are deleted (`spec_type = null`).
+/// Collects an iterator of `SpecRow`s into a `tables::DraftCatalog`.
 pub fn collect_specs(
     rows: impl IntoIterator<Item = impl SpecRow>,
-) -> anyhow::Result<models::Catalog> {
-    let mut catalog = models::Catalog::default();
+) -> anyhow::Result<tables::DraftCatalog> {
+    let mut catalog = tables::DraftCatalog::default();
+
+    fn parse<T: serde::de::DeserializeOwned>(
+        model: Option<&RawValue>,
+    ) -> anyhow::Result<Option<T>> {
+        if let Some(model) = model {
+            Ok(Some(serde_json::from_str::<T>(model.get())?))
+        } else {
+            Ok(None)
+        }
+    }
 
     for row in rows {
+        let scope = url::Url::parse(&format!("flow://control/{}", row.catalog_name())).unwrap();
+
         match row.spec_type() {
-            Some(CatalogSpecType::Capture) => {
-                let cap = row.parse_spec::<models::CaptureDef>()?;
-                catalog
-                    .captures
-                    .insert(models::Capture::new(row.catalog_name()), cap);
-            }
-            Some(CatalogSpecType::Collection) => {
-                let collection = row.parse_spec::<models::CollectionDef>()?;
-                catalog
-                    .collections
-                    .insert(models::Collection::new(row.catalog_name()), collection);
-            }
-            Some(CatalogSpecType::Materialization) => {
-                let materialization = row.parse_spec::<models::MaterializationDef>()?;
-                catalog.materializations.insert(
-                    models::Materialization::new(row.catalog_name()),
-                    materialization,
+            SpecType::Capture => {
+                catalog.captures.insert_row(
+                    models::Capture::new(row.catalog_name()),
+                    &scope,
+                    row.expect_pub_id(),
+                    parse::<models::CaptureDef>(row.spec())?,
                 );
             }
-            Some(CatalogSpecType::Test) => {
-                let test = row.parse_spec::<Vec<models::TestStep>>()?;
-                catalog
-                    .tests
-                    .insert(models::Test::new(row.catalog_name()), test);
+            SpecType::Collection => {
+                catalog.collections.insert_row(
+                    models::Collection::new(row.catalog_name()),
+                    &scope,
+                    row.expect_pub_id(),
+                    parse::<models::CollectionDef>(row.spec())?,
+                );
             }
-            None => {
-                tracing::debug!(catalog_name = %row.catalog_name(), "ignoring deleted spec from list results");
+            SpecType::Materialization => {
+                catalog.materializations.insert_row(
+                    models::Materialization::new(row.catalog_name()),
+                    &scope,
+                    row.expect_pub_id(),
+                    parse::<models::MaterializationDef>(row.spec())?,
+                );
+            }
+            SpecType::Test => {
+                catalog.tests.insert_row(
+                    models::Test::new(row.catalog_name()),
+                    &scope,
+                    row.expect_pub_id(),
+                    parse::<models::TestDef>(row.spec())?,
+                );
             }
         }
     }
@@ -478,6 +460,7 @@ async fn do_list(ctx: &mut crate::CliContext, list_args: &List) -> anyhow::Resul
     let mut columns = vec![
         "catalog_name",
         "id",
+        "last_pub_id",
         "last_pub_user_email",
         "last_pub_user_full_name",
         "last_pub_user_id",
@@ -576,10 +559,10 @@ async fn do_draft(
     #[derive(Deserialize)]
     struct Row {
         catalog_name: String,
-        last_pub_id: String,
-        pub_id: String,
-        spec: RawValue,
-        spec_type: Option<String>,
+        last_pub_id: models::Id,
+        pub_id: models::Id,
+        spec: Option<RawValue>,
+        spec_type: SpecType,
     }
 
     let Row {
@@ -587,14 +570,14 @@ async fn do_draft(
         last_pub_id,
         pub_id,
         mut spec,
-        mut spec_type,
+        spec_type,
     } = if let Some(publication_id) = publication_id {
         api_exec(
             ctx.controlplane_client()
                 .await?
                 .from("publication_specs_ext")
                 .eq("catalog_name", name)
-                .eq("pub_id", publication_id)
+                .eq("pub_id", publication_id.to_string())
                 .select("catalog_name,last_pub_id,pub_id,spec,spec_type")
                 .single(),
         )
@@ -605,6 +588,7 @@ async fn do_draft(
                 .await?
                 .from("live_specs")
                 .eq("catalog_name", name)
+                .not("is", "spec_type", "null")
                 .select("catalog_name,last_pub_id,pub_id:last_pub_id,spec,spec_type")
                 .single(),
         )
@@ -613,18 +597,17 @@ async fn do_draft(
     tracing::info!(%catalog_name, %last_pub_id, %pub_id, ?spec_type, "resolved live catalog spec");
 
     if *delete {
-        spec = RawValue::from_string("null".to_string()).unwrap();
-        spec_type = None;
+        spec = None;
     }
 
     // Build up the array of `draft_specs` to upsert.
     #[derive(Serialize, Debug)]
     struct DraftSpec {
-        draft_id: String,
+        draft_id: models::Id,
         catalog_name: String,
-        spec_type: Option<String>,
-        spec: RawValue,
-        expect_pub_id: String,
+        spec_type: SpecType,
+        spec: Option<RawValue>,
+        expect_pub_id: models::Id,
     }
     let draft_spec = DraftSpec {
         draft_id,
@@ -652,13 +635,13 @@ async fn do_draft(
 #[derive(Deserialize, Serialize)]
 pub struct SpecSummaryItem {
     pub catalog_name: String,
-    pub spec_type: Option<String>,
+    pub spec_type: SpecType,
 }
 
 impl SpecSummaryItem {
-    fn summarize_catalog(catalog: models::Catalog) -> Vec<SpecSummaryItem> {
-        let mut summary = Vec::with_capacity(catalog.spec_count());
-        let models::Catalog {
+    fn summarize_catalog(catalog: tables::DraftCatalog) -> Vec<SpecSummaryItem> {
+        let mut summary = Vec::new();
+        let tables::DraftCatalog {
             captures,
             collections,
             materializations,
@@ -666,21 +649,21 @@ impl SpecSummaryItem {
             ..
         } = catalog;
 
-        summary.extend(captures.into_keys().map(|k| SpecSummaryItem {
-            catalog_name: k.into(),
-            spec_type: Some(String::from("capture")),
+        summary.extend(captures.into_iter().map(|r| SpecSummaryItem {
+            catalog_name: r.capture.to_string(),
+            spec_type: SpecType::Capture,
         }));
-        summary.extend(collections.into_keys().map(|k| SpecSummaryItem {
-            catalog_name: k.into(),
-            spec_type: Some(String::from("collection")),
+        summary.extend(collections.into_iter().map(|r| SpecSummaryItem {
+            catalog_name: r.collection.to_string(),
+            spec_type: SpecType::Collection,
         }));
-        summary.extend(materializations.into_keys().map(|k| SpecSummaryItem {
-            catalog_name: k.into(),
-            spec_type: Some(String::from("materialization")),
+        summary.extend(materializations.into_iter().map(|r| SpecSummaryItem {
+            catalog_name: r.materialization.to_string(),
+            spec_type: SpecType::Materialization,
         }));
-        summary.extend(tests.into_keys().map(|k| SpecSummaryItem {
-            catalog_name: k.into(),
-            spec_type: Some(String::from("test")),
+        summary.extend(tests.into_iter().map(|r| SpecSummaryItem {
+            catalog_name: r.test.to_string(),
+            spec_type: SpecType::Test,
         }));
 
         summary

@@ -588,6 +588,7 @@ dependencies = [
  "assemble",
  "bytes",
  "futures",
+ "models",
  "ops",
  "proto-flow",
  "reqwest",
@@ -3286,8 +3287,9 @@ dependencies = [
 
 [[package]]
 name = "postgrest"
-version = "1.5.0"
-source = "git+https://github.com/jshearer/postgrest-rs?branch=joseph/combined_changes_rebased#71285a6fa09f267b30bf0b44f65a0797b4a9eb81"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a966c650b47a064e7082170b4be74fca08c088d893244fc4b70123e3c1f3ee7"
 dependencies = [
  "reqwest",
 ]
@@ -4801,6 +4803,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "doc",
+ "itertools 0.10.5",
  "json",
  "labels",
  "models",
@@ -5417,6 +5420,7 @@ dependencies = [
  "models",
  "pbjson-types",
  "proto-flow",
+ "proto-gazette",
  "regex",
  "rusqlite",
  "serde",

@@ -28,15 +28,15 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
     let live_specs = fetch_live_specs::<LiveSpecRow>(
         client.clone(),
         &List {
-            flows: true,
+            flows: false,
             name_selector: args.name_selector.clone(),
             type_selector: args.type_selector.clone(),
-            deleted: false, // deleted specs have nothing to pull
         },
         vec![
             "catalog_name",
             "id",
             "updated_at",
+            "last_pub_id",
             "last_pub_user_email",
             "last_pub_user_full_name",
             "last_pub_user_id",

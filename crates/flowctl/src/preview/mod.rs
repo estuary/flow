@@ -135,7 +135,12 @@ impl Preview {
             + validations
                 .built_collections
                 .iter()
-                .filter(|c| c.spec.derivation.is_some())
+                .filter(|c| {
+                    c.spec
+                        .as_ref()
+                        .map(|s| s.derivation.is_some())
+                        .unwrap_or_default()
+                })
                 .count();
 
         if num_tasks == 0 {
@@ -144,22 +149,19 @@ impl Preview {
             anyhow::bail!("sourced specification files contain multiple tasks (captures, derivations, or materializations). Use --name to identify a specific task");
         }
 
-        for capture in validations.built_captures.iter() {
-            if !matches!(name, Some(n) if n == &capture.capture) && name.is_some() {
+        for row in validations.built_captures.iter() {
+            if !matches!(name, Some(n) if n == row.capture.as_str()) && name.is_some() {
                 continue;
             }
-            let mut spec = capture.spec.clone();
-
-            // Disable UUID placeholders.
-            for binding in spec.bindings.iter_mut() {
-                binding.collection.as_mut().unwrap().uuid_ptr = String::new();
-            }
+            let Some(spec) = &row.spec else {
+                continue;
+            };
 
             return preview_capture(
                 delay,
                 runtime,
                 sessions,
-                spec,
+                spec.clone(),
                 initial_state,
                 state_dir.path(),
                 timeout,
@@ -167,25 +169,26 @@ impl Preview {
             .await;
         }
 
-        for collection in validations.built_collections.iter() {
-            if !matches!(name, Some(n) if n == collection.collection.as_str()) && name.is_some() {
-                continue;
-            } else if collection.spec.derivation.is_none() && name.is_some() {
-                anyhow::bail!("{} is not a derivation", name.as_ref().unwrap());
-            } else if collection.spec.derivation.is_none() {
+        for row in validations.built_collections.iter() {
+            if !matches!(name, Some(n) if n == row.collection.as_str()) && name.is_some() {
                 continue;
             }
-            let mut spec = collection.spec.clone();
+            let Some(spec) = &row.spec else {
+                continue;
+            };
 
-            // Disable UUID placeholders.
-            spec.uuid_ptr = String::new();
+            if spec.derivation.is_none() && name.is_some() {
+                anyhow::bail!("{} is not a derivation", name.as_ref().unwrap());
+            } else if spec.derivation.is_none() {
+                continue;
+            }
 
             if let Some(reader) = fixture_reader {
                 return preview_derivation(
                     reader,
                     runtime,
                     sessions,
-                    spec,
+                    spec.clone(),
                     initial_state,
                     state_dir.path(),
                     timeout,
@@ -196,7 +199,7 @@ impl Preview {
                     journal_reader,
                     runtime,
                     sessions,
-                    spec,
+                    spec.clone(),
                     initial_state,
                     state_dir.path(),
                     timeout,
@@ -205,20 +208,20 @@ impl Preview {
             }
         }
 
-        for materialization in validations.built_materializations.iter() {
-            if !matches!(name, Some(n) if n == materialization.materialization.as_str())
-                && name.is_some()
-            {
+        for row in validations.built_materializations.iter() {
+            if !matches!(name, Some(n) if n == row.materialization.as_str()) && name.is_some() {
                 continue;
             }
-            let spec = materialization.spec.clone();
+            let Some(spec) = &row.spec else {
+                continue;
+            };
 
             if let Some(reader) = fixture_reader {
                 return preview_materialization(
                     reader,
                     runtime,
                     sessions,
-                    spec,
+                    spec.clone(),
                     initial_state,
                     state_dir.path(),
                     timeout,
@@ -229,7 +232,7 @@ impl Preview {
                     journal_reader,
                     runtime,
                     sessions,
-                    spec,
+                    spec.clone(),
                     initial_state,
                     state_dir.path(),
                     timeout,

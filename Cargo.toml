@@ -87,7 +87,7 @@ pbjson = "0.6"
 pbjson-types = "0.6"
 percent-encoding = "2.1"
 pin-project-lite = "0.2"
-postgrest = { git = "https://github.com/jshearer/postgrest-rs", branch = "joseph/combined_changes_rebased" }
+postgrest = "1.6.0"
 page-turner = "0.8.2"
 prost = "0.12"
 protobuf = "3.1"

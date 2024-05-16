@@ -29,9 +29,9 @@ pub async fn do_develop(
     let rows: Vec<DraftSpecRow> = api_exec_paginated(
         client
             .from("draft_specs")
-            .select("catalog_name,spec,spec_type")
+            .select("catalog_name,spec,spec_type,expect_pub_id")
             .not("is", "spec_type", "null")
-            .eq("draft_id", draft_id),
+            .eq("draft_id", draft_id.to_string()),
     )
     .await?;
 
@@ -55,19 +55,21 @@ pub async fn do_develop(
 pub struct DraftSpecRow {
     pub catalog_name: String,
     pub spec: RawValue,
-    pub spec_type: Option<catalog::CatalogSpecType>,
+    pub spec_type: catalog::SpecType,
+    pub expect_pub_id: Option<models::Id>,
 }
 
 impl catalog::SpecRow for DraftSpecRow {
     fn catalog_name(&self) -> &str {
         &self.catalog_name
     }
-
-    fn spec_type(&self) -> Option<catalog::CatalogSpecType> {
+    fn spec_type(&self) -> catalog::SpecType {
         self.spec_type
     }
-
     fn spec(&self) -> Option<&RawValue> {
         Some(&self.spec)
+    }
+    fn expect_pub_id(&self) -> Option<models::Id> {
+        self.expect_pub_id
     }
 }

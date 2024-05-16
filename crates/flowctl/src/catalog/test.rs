@@ -15,22 +15,21 @@ pub struct TestArgs {
 pub async fn do_test(ctx: &mut CliContext, args: &TestArgs) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
 
-    let (sources, _validations) =
+    let (draft_catalog, _validations) =
         local_specs::load_and_validate(client.clone(), &args.source).await?;
-    let catalog = local_specs::into_catalog(sources);
 
     let draft = draft::create_draft(client.clone()).await?;
     println!("Created draft: {}", &draft.id);
     tracing::info!(draft_id = %draft.id, "created draft");
-    let spec_rows = draft::upsert_draft_specs(client.clone(), &draft.id, &catalog).await?;
+    let spec_rows = draft::upsert_draft_specs(client.clone(), draft.id, &draft_catalog).await?;
     println!("Running tests for catalog items:");
     ctx.write_all(spec_rows, ())?;
     println!("Starting tests...");
 
     // Technically, test is just a publish with the dry-run flag set to true.
-    let publish_result = draft::publish(client.clone(), true, &draft.id).await;
+    let publish_result = draft::publish(client.clone(), true, draft.id).await;
 
-    if let Err(del_err) = draft::delete_draft(client.clone(), &draft.id).await {
+    if let Err(del_err) = draft::delete_draft(client.clone(), draft.id).await {
         tracing::error!(draft_id = %draft.id, error = %del_err, "failed to delete draft");
     }
     publish_result.context("Tests failed")?;
