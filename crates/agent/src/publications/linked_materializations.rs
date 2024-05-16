@@ -203,7 +203,7 @@ pub async fn create_linked_materialization_publications(
     // Index all the captures in the build output by name for easy lookups.
     let mut captures_by_name = built_captures
         .iter()
-        .map(|row| (row.capture.as_str(), &row.spec))
+        .map(|row| (row.catalog_name.as_str(), &row.spec))
         .collect::<HashMap<_, _>>();
 
     // Determine which capture specs we'll need but don't yet have available.
