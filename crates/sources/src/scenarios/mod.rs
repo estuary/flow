@@ -21,7 +21,7 @@ mod test {
 			let mut tables = evaluate_fixtures(Default::default(), &fixture);
 			insta::assert_debug_snapshot!(tables);
 
-            crate::inline_sources(&mut tables);
+            crate::inline_draft_catalog(&mut tables);
 
             // Clear out load-related state prior to the snapshot.
             tables.errors = tables::Errors::new();
@@ -43,14 +43,14 @@ mod test {
 			insta::assert_debug_snapshot!(tables);
 
             // Inline one last time, map into a Catalog, and JSON-encode.
-            crate::inline_sources(&mut tables);
+            crate::inline_draft_catalog(&mut tables);
             tables.imports.clear();
             let lhs = serde_json::to_string_pretty(&crate::merge::into_catalog(tables)).unwrap();
 
             // Evaluate the fixture again, inline, map into a Catalog, and JSON-encode.
 			let mut tables_2 = evaluate_fixtures(Default::default(), &fixture);
             tables_2.errors = tables::Errors::new();
-            crate::inline_sources(&mut tables_2);
+            crate::inline_draft_catalog(&mut tables_2);
             let rhs = serde_json::to_string_pretty(&crate::merge::into_catalog(tables_2)).unwrap();
 
             // Expect that `tables`, which was round-tripped through inlined => indirect'd => inlined,
@@ -64,13 +64,13 @@ mod test {
         test_catalog_import_cycles,
         test_collections,
         test_derivations,
+        test_deletions,
         test_endpoints_captures_materializations,
         test_schema_with_anchors,
         test_schema_with_inline,
         test_schema_with_nested_ids,
         test_schema_with_references,
         test_simple_catalog,
-        test_storage_mappings,
         test_test_case,
     }
 }
@@ -99,7 +99,10 @@ impl<'f> Fetcher for MockFetcher<'f> {
     }
 }
 
-pub fn evaluate_fixtures(catalog: tables::Sources, fixture: &serde_json::Value) -> tables::Sources {
+pub fn evaluate_fixtures(
+    catalog: tables::DraftCatalog,
+    fixture: &serde_json::Value,
+) -> tables::DraftCatalog {
     let fixtures = match fixture {
         serde_json::Value::Object(m) => m,
         _ => panic!("fixtures must be an object having resource properties"),

@@ -27,6 +27,7 @@ test://example/catalog.yaml:
       shards:
         maxTxnDuration: 30s
         logLevel: debug
+      expectPubId: "00:11:22:33:44:55:66:77"
 
     capture/config-missing:
       endpoint:
@@ -77,6 +78,7 @@ test://example/catalog.yaml:
               add: {}
             exclude: [del]
             recommended: true
+      expectPubId: "00:11:22:33:44:55:66:77"
 
     materialization/with-config:
       endpoint:
