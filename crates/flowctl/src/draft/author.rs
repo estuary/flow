@@ -10,10 +10,13 @@ pub struct Author {
     source: String,
 }
 
-pub async fn clear_draft(client: controlplane::Client, draft_id: &str) -> anyhow::Result<()> {
+pub async fn clear_draft(client: controlplane::Client, draft_id: models::Id) -> anyhow::Result<()> {
     tracing::info!(%draft_id, "clearing existing specs from draft");
     api_exec::<Vec<serde_json::Value>>(
-        client.from("draft_specs").eq("draft_id", draft_id).delete(),
+        client
+            .from("draft_specs")
+            .eq("draft_id", draft_id.to_string())
+            .delete(),
     )
     .await
     .context("failed to clear existing draft specs")?;
@@ -22,29 +25,31 @@ pub async fn clear_draft(client: controlplane::Client, draft_id: &str) -> anyhow
 
 pub async fn upsert_draft_specs(
     client: controlplane::Client,
-    draft_id: &str,
-    bundled_catalog: &models::Catalog,
+    draft_id: models::Id,
+    draft: &tables::DraftCatalog,
 ) -> anyhow::Result<Vec<SpecSummaryItem>> {
-    let models::Catalog {
+    let tables::DraftCatalog {
         collections,
         captures,
         materializations,
         tests,
         ..
-    } = bundled_catalog;
+    } = draft;
+
     // Build up the array of `draft_specs` to upsert.
     #[derive(Serialize, Debug)]
     struct DraftSpec<'a, P: serde::Serialize> {
-        draft_id: &'a str,
+        draft_id: models::Id,
         catalog_name: String,
         spec_type: &'static str,
         spec: &'a P,
+        expect_pub_id: Option<models::Id>,
     }
 
     let mut body: Vec<u8> = Vec::new();
     body.push('[' as u8);
 
-    for (name, spec) in collections.iter() {
+    for row in collections.iter() {
         if body.len() != 1 {
             body.push(',' as u8);
         }
@@ -52,14 +57,15 @@ pub async fn upsert_draft_specs(
             &mut body,
             &DraftSpec {
                 draft_id,
-                catalog_name: name.to_string(),
+                catalog_name: row.collection.to_string(),
                 spec_type: "collection",
-                spec,
+                spec: &row.model,
+                expect_pub_id: row.expect_pub_id,
             },
         )
         .unwrap();
     }
-    for (name, spec) in captures.iter() {
+    for row in captures.iter() {
         if body.len() != 1 {
             body.push(',' as u8);
         }
@@ -67,14 +73,15 @@ pub async fn upsert_draft_specs(
             &mut body,
             &DraftSpec {
                 draft_id,
-                catalog_name: name.to_string(),
+                catalog_name: row.capture.to_string(),
                 spec_type: "capture",
-                spec,
+                spec: &row.model,
+                expect_pub_id: row.expect_pub_id,
             },
         )
         .unwrap();
     }
-    for (name, spec) in materializations.iter() {
+    for row in materializations.iter() {
         if body.len() != 1 {
             body.push(',' as u8);
         }
@@ -82,14 +89,15 @@ pub async fn upsert_draft_specs(
             &mut body,
             &DraftSpec {
                 draft_id,
-                catalog_name: name.to_string(),
+                catalog_name: row.materialization.to_string(),
                 spec_type: "materialization",
-                spec,
+                spec: &row.model,
+                expect_pub_id: row.expect_pub_id,
             },
         )
         .unwrap();
     }
-    for (name, steps) in tests.iter() {
+    for row in tests.iter() {
         if body.len() != 1 {
             body.push(',' as u8);
         }
@@ -97,9 +105,10 @@ pub async fn upsert_draft_specs(
             &mut body,
             &DraftSpec {
                 draft_id,
-                catalog_name: name.to_string(),
+                catalog_name: row.test.to_string(),
                 spec_type: "test",
-                spec: steps,
+                spec: &row.model,
+                expect_pub_id: row.expect_pub_id,
             },
         )
         .unwrap();
@@ -121,13 +130,12 @@ pub async fn do_author(
     ctx: &mut crate::CliContext,
     Author { source }: &Author,
 ) -> anyhow::Result<()> {
-    let cur_draft = ctx.config().cur_draft()?;
-    let (sources, _) =
-        local_specs::load_and_validate(ctx.controlplane_client().await?, &source).await?;
-    let catalog = local_specs::into_catalog(sources);
     let client = ctx.controlplane_client().await?;
-    clear_draft(client.clone(), &cur_draft).await?;
-    let rows = upsert_draft_specs(ctx.controlplane_client().await?, &cur_draft, &catalog).await?;
+    let draft_id = ctx.config().cur_draft()?;
+    let (draft, _) = local_specs::load_and_validate(client.clone(), &source).await?;
+
+    clear_draft(client.clone(), draft_id).await?;
+    let rows = upsert_draft_specs(client, draft_id, &draft).await?;
 
     ctx.write_all(rows, ())
 }

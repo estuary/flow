@@ -9,6 +9,7 @@ use std::{
     io::{self, Write},
     path::PathBuf,
 };
+use tables::CatalogResolver;
 
 mod discover;
 mod materialize_fixture;
@@ -106,16 +107,27 @@ pub struct Rpc {
 #[derive(Debug, Clone, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Build {
+    /// Path of database to build.
     #[clap(long)]
     db_path: PathBuf,
+    /// Publication ID of this build.
+    #[clap(long, default_value = "ff:ff:ff:ff:ff:ff:ff")]
+    pub_id: models::Id,
+    /// Build ID of this build.
     #[clap(long)]
-    build_id: String,
+    build_id: models::Id,
+    /// Docker network to use for connectors.
     #[clap(long, default_value = "")]
     connector_network: String,
+    /// File root which jails local file:// resources.
     #[clap(long, default_value = "/")]
     file_root: String,
+    /// Source file or URL from which to load the draft catalog.
     #[clap(long)]
     source: String,
+    /// Resolve current specification state from the control plane?
+    #[clap(long)]
+    resolve: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -228,27 +240,44 @@ async fn do_rpc(
 
 async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
+    let resolver = local_specs::Resolver { client };
 
     let Build {
         db_path,
+        pub_id,
         build_id,
         connector_network,
         file_root,
         source,
+        resolve,
     } = build.clone();
 
     let source_url = build::arg_source_to_url(&source, false)?;
     let project_root = build::project_root(&source_url);
 
-    let build_result = build::managed_build(
+    let draft = build::load(&source_url, std::path::Path::new(&file_root)).await;
+    let draft = local_specs::surface_errors(draft.into_result())?;
+
+    let live = if resolve {
+        resolver.resolve(draft.all_catalog_names()).await
+    } else {
+        Default::default()
+    };
+    let live = local_specs::surface_errors(live.into_result())?;
+
+    let output = build::validate(
+        pub_id,
+        build_id,
         true, // Allow local connectors.
-        build_id.clone(),
-        connector_network.clone(),
-        Box::new(local_specs::Resolver { client }),
-        file_root.clone().into(),
+        &connector_network,
+        true, // Generate ops collections.
         ops::tracing_log_handler,
-        project_root.clone(),
-        source_url,
+        false, // Don't no-op captures.
+        false, // Don't no-op derivations.
+        false, // Don't no-op materializations.
+        &project_root,
+        draft,
+        live,
     )
     .await;
 
@@ -256,13 +285,13 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     // expect and validate when we open up a DB from Go.
     let build_config = proto_flow::flow::build_api::Config {
         build_db: db_path.to_string_lossy().to_string(),
-        build_id,
+        build_id: format!("{build_id}"),
         source,
         source_type: proto_flow::flow::ContentType::Catalog as i32,
         ..Default::default()
     };
 
-    build::persist(build_config, &db_path, &build_result)?;
+    build::persist(build_config, &db_path, &output)?;
 
     Ok(())
 }
@@ -288,21 +317,18 @@ async fn do_combine(
         Ok(index) => &validations.built_collections[index],
         Err(_) => anyhow::bail!("collection {collection} not found"),
     };
+    let spec = collection.spec.as_ref().expect("not a deletion");
 
-    let schema = if collection.spec.read_schema_json.is_empty() {
-        doc::validation::build_bundle(&collection.spec.write_schema_json).unwrap()
+    let schema = if spec.read_schema_json.is_empty() {
+        doc::validation::build_bundle(&spec.write_schema_json).unwrap()
     } else {
-        doc::validation::build_bundle(&collection.spec.read_schema_json).unwrap()
+        doc::validation::build_bundle(&spec.read_schema_json).unwrap()
     };
 
     let mut accumulator = combine::Accumulator::new(
         combine::Spec::with_one_binding(
             true, // Full reductions. Make this an option?
-            extractors::for_key(
-                &collection.spec.key,
-                &collection.spec.projections,
-                &doc::SerPolicy::noop(),
-            )?,
+            extractors::for_key(&spec.key, &spec.projections, &doc::SerPolicy::noop())?,
             "source",
             None,
             doc::Validator::new(schema).unwrap(),

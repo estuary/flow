@@ -1,16 +1,18 @@
-use futures::{future::BoxFuture, FutureExt, TryStreamExt};
+use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
+use proto_flow::flow;
+use tables::CatalogResolver;
 
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
     client: crate::controlplane::Client,
     source: &str,
-) -> anyhow::Result<(tables::Sources, tables::Validations)> {
+) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
     let source = build::arg_source_to_url(source, false)?;
-    let sources = surface_errors(load(&source).await.into_result())?;
-    let (sources, validations) = validate(client, true, false, true, sources, "").await;
-    Ok((sources, surface_errors(validations.into_result())?))
+    let draft = surface_errors(load(&source).await.into_result())?;
+    let (draft, _live, built) = validate(client, true, false, true, draft, "").await;
+    Ok((draft, surface_errors(built.into_result())?))
 }
 
 /// Load and validate sources and all connectors.
@@ -18,24 +20,24 @@ pub(crate) async fn load_and_validate_full(
     client: crate::controlplane::Client,
     source: &str,
     network: &str,
-) -> anyhow::Result<(tables::Sources, tables::Validations)> {
+) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (sources, validations) = validate(client, false, false, false, sources, network).await;
-    Ok((sources, surface_errors(validations.into_result())?))
+    let (draft, _live, built) = validate(client, false, false, false, sources, network).await;
+    Ok((draft, surface_errors(built.into_result())?))
 }
 
 /// Generate connector files by validating sources with derivation connectors.
 pub(crate) async fn generate_files(
     client: crate::controlplane::Client,
-    sources: tables::Sources,
+    sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut sources, validations) = validate(client, true, false, true, sources, "").await;
+    let (mut draft, _live, built) = validate(client, true, false, true, sources, "").await;
 
-    let project_root = build::project_root(&sources.fetches[0].resource);
-    build::generate_files(&project_root, &validations)?;
+    let project_root = build::project_root(&draft.fetches[0].resource);
+    build::generate_files(&project_root, &built)?;
 
-    sources.errors = sources
+    draft.errors = draft
         .errors
         .into_iter()
         .filter_map(|tables::Error { scope, error }| {
@@ -47,10 +49,7 @@ pub(crate) async fn generate_files(
         })
         .collect();
 
-    if let Err(errors) = sources
-        .into_result()
-        .and_then(|_| validations.into_result())
-    {
+    if let Err(errors) = draft.into_result().and_then(|_| built.into_result()) {
         for tables::Error { scope, error } in errors.iter() {
             tracing::error!(%scope, ?error);
         }
@@ -62,7 +61,7 @@ pub(crate) async fn generate_files(
     Ok(())
 }
 
-pub(crate) async fn load(source: &url::Url) -> tables::Sources {
+pub(crate) async fn load(source: &url::Url) -> tables::DraftCatalog {
     // We never use a file root jail when loading on a user's machine.
     build::load(source, std::path::Path::new("/")).await
 }
@@ -72,43 +71,33 @@ async fn validate(
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
-    sources: tables::Sources,
+    draft: tables::DraftCatalog,
     network: &str,
-) -> (tables::Sources, tables::Validations) {
-    let source = &sources.fetches[0].resource.clone();
+) -> (
+    tables::DraftCatalog,
+    tables::LiveCatalog,
+    tables::Validations,
+) {
+    let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
-    let (sources, mut validations) = build::validate(
+    let live = Resolver { client }.resolve(draft.all_catalog_names()).await;
+
+    let output = build::validate(
+        models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
+        models::Id::new([1; 8]),
         true, // Allow local connectors.
-        "localbuild",
         network,
-        &Resolver { client },
         false, // Don't generate ops collections.
         ops::tracing_log_handler,
         noop_captures,
         noop_derivations,
         noop_materializations,
         &project_root,
-        sources,
+        draft,
+        live,
     )
     .await;
-
-    // Local specs are not expected to satisfy all referential integrity checks.
-    // Filter out errors which are not really "errors" for the Flow CLI.
-    validations.errors = validations
-        .errors
-        .into_iter()
-        .filter(|err| match err.error.downcast_ref() {
-            // Ok if *no* storage mappings are defined.
-            // If at least one mapping is defined, then we do require that all
-            // collections have appropriate mappings.
-            Some(validation::Error::NoStorageMappings { .. }) => false,
-            // All other validation errors bubble up as top-level errors.
-            _ => true,
-        })
-        .collect::<tables::Errors>();
-
-    let out = build::Output::new(sources, validations);
 
     // If DEBUG tracing is enabled, then write sources and validations to a
     // debugging database that can be inspected or shipped to Estuary for support.
@@ -119,11 +108,11 @@ async fn validate(
             .as_secs();
 
         let db_path = std::env::temp_dir().join(format!("flowctl_{seconds}.sqlite"));
-        build::persist(Default::default(), &db_path, &out).expect("failed to write build DB");
+        build::persist(Default::default(), &db_path, &output).expect("failed to write build DB");
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    out.into_parts()
+    output.into_parts()
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
@@ -141,20 +130,22 @@ pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Re
 // Indirect specifications so that larger configurations, etc become reference
 // resources, then write them out if they're under the project root.
 pub(crate) fn indirect_and_write_resources(
-    mut sources: tables::Sources,
-) -> anyhow::Result<tables::Sources> {
-    ::sources::indirect_large_files(&mut sources, 1 << 9);
-    write_resources(sources)
+    mut draft: tables::DraftCatalog,
+) -> anyhow::Result<tables::DraftCatalog> {
+    ::sources::indirect_large_files(&mut draft, 1 << 9);
+    write_resources(draft)
 }
 
-pub(crate) fn write_resources(mut sources: tables::Sources) -> anyhow::Result<tables::Sources> {
-    let source = &sources.fetches[0].resource.clone();
+pub(crate) fn write_resources(
+    mut draft: tables::DraftCatalog,
+) -> anyhow::Result<tables::DraftCatalog> {
+    let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
-    ::sources::rebuild_catalog_resources(&mut sources);
+    ::sources::rebuild_catalog_resources(&mut draft);
 
     build::write_files(
         &project_root,
-        sources
+        draft
             .resources
             .iter()
             .map(
@@ -165,16 +156,16 @@ pub(crate) fn write_resources(mut sources: tables::Sources) -> anyhow::Result<ta
             .collect(),
     )?;
 
-    Ok(sources)
+    Ok(draft)
 }
 
-pub(crate) fn into_catalog(sources: tables::Sources) -> models::Catalog {
-    ::sources::merge::into_catalog(sources)
+pub(crate) fn into_catalog(draft: tables::DraftCatalog) -> models::Catalog {
+    ::sources::merge::into_catalog(draft)
 }
 
 pub(crate) fn extend_from_catalog<P>(
-    sources: &mut tables::Sources,
-    catalog: models::Catalog,
+    sources: &mut tables::DraftCatalog,
+    catalog: tables::DraftCatalog,
     policy: P,
 ) -> usize
 where
@@ -199,25 +190,51 @@ pub(crate) struct Resolver {
     pub client: crate::controlplane::Client,
 }
 
-impl validation::ControlPlane for Resolver {
-    fn resolve_collections<'a>(
+impl tables::CatalogResolver for Resolver {
+    fn resolve<'a>(
         &'a self,
-        collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>> {
-        #[derive(serde::Deserialize, Clone)]
-        struct Row {
-            pub catalog_name: String,
-            pub built_spec: Option<proto_flow::flow::CollectionSpec>,
+        catalog_names: Vec<&'a str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tables::LiveCatalog> + Send + 'a>> {
+        async move {
+            let result = futures::try_join!(
+                self.resolve_specs(&catalog_names),
+                self.resolve_inferred_schemas(&catalog_names),
+            );
+
+            match result {
+                Ok((mut live, inferred_schemas)) => {
+                    live.inferred_schemas = inferred_schemas;
+                    live
+                }
+                Err(err) => {
+                    let mut live = tables::LiveCatalog::default();
+                    live.errors.push(tables::Error {
+                        scope: url::Url::parse("flow://control").unwrap(),
+                        error: err,
+                    });
+                    live
+                }
+            }
+        }
+        .boxed()
+    }
+}
+
+impl Resolver {
+    async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
+        use crate::catalog::SpecType;
+
+        #[derive(serde::Deserialize)]
+        struct LiveSpec {
+            catalog_name: String,
+            spec_type: SpecType,
+            #[serde(alias = "spec")]
+            model: models::RawValue,
+            built_spec: models::RawValue,
+            last_pub_id: models::Id,
         }
 
-        let type_selector = crate::catalog::SpecTypeSelector {
-            captures: Some(false),
-            collections: Some(true),
-            materializations: Some(false),
-            tests: Some(false),
-        };
-
-        let rows = collections
+        let rows = catalog_names
             .into_iter()
             .chunks(API_FETCH_CHUNK_SIZE)
             .into_iter()
@@ -225,41 +242,67 @@ impl validation::ControlPlane for Resolver {
                 let builder = self
                     .client
                     .from("live_specs_ext")
-                    .select("catalog_name,built_spec")
+                    .select("catalog_name,spec_type,spec,built_spec,last_pub_id")
+                    .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
-                let builder = type_selector.add_live_specs_filters(builder, false);
 
-                async move { crate::api_exec::<Vec<Row>>(builder).await }
+                async move { crate::api_exec::<Vec<LiveSpec>>(builder).await }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
-            .try_collect::<Vec<Vec<Row>>>();
+            .try_collect::<Vec<Vec<LiveSpec>>>()
+            .await?;
 
-        async move {
-            let rows = rows.await?;
+        let mut live = tables::LiveCatalog::default();
 
-            rows
-                .into_iter()
-                .map(|chunk| chunk.into_iter().map(
-                    |Row{ catalog_name, built_spec}| {
-                        let Some(built_spec) = built_spec else {
-                            anyhow::bail!("collection {catalog_name} is an old specification which must be upgraded to continue. Please contact support for assistance");
-                        };
-                        Ok(built_spec)
-                    }
-                ))
-                .flatten()
-                .try_collect()
+        for LiveSpec {
+            catalog_name,
+            spec_type,
+            model,
+            built_spec,
+            last_pub_id,
+        } in rows.into_iter().flat_map(|i| i.into_iter())
+        {
+            let scope = url::Url::parse(&format!("flow://control/{catalog_name}")).unwrap();
+
+            match spec_type {
+                SpecType::Capture => live.captures.insert_row(
+                    models::Capture::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    serde_json::from_str::<models::CaptureDef>(model.get())?,
+                    serde_json::from_str::<flow::CaptureSpec>(built_spec.get())?,
+                ),
+                SpecType::Collection => live.collections.insert_row(
+                    models::Collection::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    serde_json::from_str::<models::CollectionDef>(model.get())?,
+                    serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
+                ),
+                SpecType::Materialization => live.materializations.insert_row(
+                    models::Materialization::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    serde_json::from_str::<models::MaterializationDef>(model.get())?,
+                    serde_json::from_str::<flow::MaterializationSpec>(built_spec.get())?,
+                ),
+                SpecType::Test => live.tests.insert_row(
+                    models::Test::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    serde_json::from_str::<models::TestDef>(model.get())?,
+                    serde_json::from_str::<flow::TestSpec>(built_spec.get())?,
+                ),
+            }
         }
-        .boxed()
+
+        Ok(live)
     }
 
-    fn get_inferred_schemas<'a>(
-        &'a self,
-        collections: Vec<models::Collection>,
-    ) -> BoxFuture<
-        'a,
-        anyhow::Result<std::collections::BTreeMap<models::Collection, validation::InferredSchema>>,
-    > {
+    async fn resolve_inferred_schemas(
+        &self,
+        catalog_names: &[&str],
+    ) -> anyhow::Result<tables::InferredSchemas> {
         #[derive(serde::Deserialize, Clone)]
         struct Row {
             pub collection_name: models::Collection,
@@ -267,7 +310,7 @@ impl validation::ControlPlane for Resolver {
             pub md5: String,
         }
 
-        let rows = collections
+        let rows = catalog_names
             .into_iter()
             .chunks(API_FETCH_CHUNK_SIZE)
             .into_iter()
@@ -281,28 +324,21 @@ impl validation::ControlPlane for Resolver {
                 async move { crate::api_exec::<Vec<Row>>(builder).await }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
-            .try_collect::<Vec<Vec<Row>>>();
+            .try_collect::<Vec<Vec<Row>>>()
+            .await?;
 
-        async move {
-            let rows = rows.await?;
+        let mut inferred = tables::InferredSchemas::default();
 
-            Ok(rows
-                .into_iter()
-                .map(|chunk| {
-                    chunk.into_iter().map(
-                        |Row {
-                             collection_name,
-                             schema,
-                             md5,
-                         }| {
-                            (collection_name, validation::InferredSchema { schema, md5 })
-                        },
-                    )
-                })
-                .flatten()
-                .collect())
+        for Row {
+            collection_name,
+            schema,
+            md5,
+        } in rows.into_iter().flat_map(|i| i.into_iter())
+        {
+            inferred.insert_row(collection_name, schema, md5);
         }
-        .boxed()
+
+        Ok(inferred)
     }
 }
 
