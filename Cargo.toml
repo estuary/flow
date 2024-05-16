@@ -198,7 +198,7 @@ pbjson-build = "0.6"
 prost-build = "0.12"
 tonic-build = "0.10"
 
-warp = "0.3.3" # TODO(johnny) remove me in favor of axum
+warp = "0.3.3"                                     # TODO(johnny) remove me in favor of axum
 axum = { version = "0.6", features = ["headers"] }
 
 [profile.release]
@@ -206,5 +206,5 @@ incremental = true
 debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugger.
 
 [patch.'crates-io']
-rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb", branch="from-raw" }
-librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb", branch="from-raw" }
+rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
+librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
