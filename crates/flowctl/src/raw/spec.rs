@@ -26,28 +26,29 @@ pub async fn do_spec(
     }: &Spec,
 ) -> anyhow::Result<()> {
     let source = build::arg_source_to_url(source, false)?;
-    let mut sources = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+    let draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
 
     // Identify the capture to inspect.
     let needle = if let Some(needle) = capture {
         needle.as_str()
-    } else if sources.captures.len() == 1 {
-        sources.captures.first().unwrap().capture.as_str()
-    } else if sources.captures.is_empty() {
+    } else if draft.captures.len() == 1 {
+        draft.captures.first().unwrap().capture.as_str()
+    } else if draft.captures.is_empty() {
         anyhow::bail!("sourced specification files do not contain any captures");
     } else {
         anyhow::bail!("sourced specification files contain multiple captures. Use --capture to identify a specific one");
     };
 
-    let capture = match sources
+    let capture = match draft
         .captures
         .binary_search_by_key(&needle, |c| c.capture.as_str())
     {
-        Ok(index) => &mut sources.captures[index],
+        Ok(index) => &draft.captures[index],
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
+    let model = capture.model.as_ref().expect("not a deletion");
 
-    let request = match &capture.spec.endpoint {
+    let request = match &model.endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: serde_json::to_string(&config).unwrap(),
@@ -62,7 +63,7 @@ pub async fn do_spec(
         ..Default::default()
     }
     .with_internal(|internal| {
-        if let Some(s) = &capture.spec.shards.log_level {
+        if let Some(s) = &model.shards.log_level {
             internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
         }
     });
