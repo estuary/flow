@@ -74,10 +74,10 @@ pub fn project_root(source: &url::Url) -> url::Url {
     url::Url::from_file_path(dir).expect("cannot map project directory into a URL")
 }
 
-/// Load a Flow specification `source` into tables::Sources.
+/// Load a Flow specification `source` into a tables::DraftCatalog.
 /// All file:// resources are rooted ("jailed") to the given `file_root`.
-pub async fn load(source: &url::Url, file_root: &Path) -> tables::Sources {
-    let loader = sources::Loader::new(tables::Sources::default(), Fetcher::new(file_root));
+pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
+    let loader = sources::Loader::new(tables::DraftCatalog::default(), Fetcher::new(file_root));
 
     loader
         .load_resource(
@@ -90,37 +90,37 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::Sources {
     loader.into_tables()
 }
 
-/// Perform validations and produce built specifications for `sources`.
+/// Perform validations and produce built specifications for `draft` and `live`.
 /// * If `generate_ops_collections` is set, then ops collections are added into `sources`.
 /// * If any of `noop_*` is true, then validations are skipped for connectors of that type.
 pub async fn validate(
+    pub_id: models::Id,
+    build_id: models::Id,
     allow_local: bool,
-    build_id: &str,
     connector_network: &str,
-    control_plane: &dyn validation::ControlPlane,
     generate_ops_collections: bool,
     log_handler: impl runtime::LogHandler,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
     project_root: &url::Url,
-    mut sources: tables::Sources,
-) -> (tables::Sources, tables::Validations) {
+    mut draft: tables::DraftCatalog,
+    live: tables::LiveCatalog,
+) -> Output {
     // TODO(johnny): We *really* need to kill this, and have ops collections
     // be injected exclusively from the control-plane.
     if generate_ops_collections {
-        assemble::generate_ops_collections(&mut sources);
+        assemble::generate_ops_collections(&mut draft);
     }
-    ::sources::inline_sources(&mut sources);
+    ::sources::inline_draft_catalog(&mut draft);
 
     let runtime = runtime::Runtime::new(
         allow_local,
         connector_network.to_string(),
         log_handler,
         None,
-        format!("build/{}", build_id),
+        format!("build/{build_id}"),
     );
-
     let connectors = Connectors {
         noop_captures,
         noop_derivations,
@@ -128,34 +128,18 @@ pub async fn validate(
         runtime,
     };
 
-    let tables::Sources {
-        captures,
-        collections,
-        errors: _,
-        fetches,
-        imports,
-        materializations,
-        resources: _,
-        storage_mappings,
-        tests,
-    } = &sources;
-
-    let validations = validation::validate(
+    let built = validation::validate(
+        pub_id,
         build_id,
         project_root,
         &connectors,
-        control_plane,
-        &captures,
-        &collections,
-        &fetches,
-        &imports,
-        &materializations,
-        &storage_mappings,
-        &tests,
+        &draft,
+        &live,
+        true, // Fail-fast.
     )
     .await;
 
-    (sources, validations)
+    Output::new(draft, live, built)
 }
 
 /// The output of a build, which can be either successful, failed, or anything
@@ -164,100 +148,113 @@ pub async fn validate(
 /// of getting the collection projections, in which case you may not want to
 /// consider errors from materialization validations to be terminal.
 pub struct Output {
-    sources: tables::Sources,
-    validations: tables::Validations,
+    draft: tables::DraftCatalog,
+    live: tables::LiveCatalog,
+    built: tables::Validations,
 }
 
 impl Output {
-    pub fn new(sources: tables::Sources, validations: tables::Validations) -> Self {
-        Output {
-            sources,
-            validations,
-        }
+    pub fn new(
+        draft: tables::DraftCatalog,
+        live: tables::LiveCatalog,
+        built: tables::Validations,
+    ) -> Self {
+        Output { draft, live, built }
     }
 
-    pub fn into_parts(self) -> (tables::Sources, tables::Validations) {
-        (self.sources, self.validations)
+    pub fn into_parts(
+        self,
+    ) -> (
+        tables::DraftCatalog,
+        tables::LiveCatalog,
+        tables::Validations,
+    ) {
+        (self.draft, self.live, self.built)
     }
 
     /// Returns an iterator of all errors that have occurred during any phase of the build.
     pub fn errors(&self) -> impl Iterator<Item = &tables::Error> {
-        self.sources
+        self.draft
             .errors
             .iter()
-            .chain(self.validations.errors.iter())
-    }
-
-    pub fn built_materializations(&self) -> &tables::BuiltMaterializations {
-        &self.validations.built_materializations
+            .chain(self.live.errors.iter())
+            .chain(self.built.errors.iter())
     }
 
     pub fn built_captures(&self) -> &tables::BuiltCaptures {
-        &self.validations.built_captures
+        &self.built.built_captures
     }
-
     pub fn built_collections(&self) -> &tables::BuiltCollections {
-        &self.validations.built_collections
+        &self.built.built_collections
     }
-
+    pub fn built_materializations(&self) -> &tables::BuiltMaterializations {
+        &self.built.built_materializations
+    }
     pub fn built_tests(&self) -> &tables::BuiltTests {
-        &self.validations.built_tests
+        &self.built.built_tests
     }
 }
 
 /// Perform a "managed" build, which is a convenience for:
 /// * Loading `source` and failing-fast on any load errors.
+/// * Resolving the live catalog and failing-fast on resolution errors.
 /// * Then performing all validations and producing built specs.
 ///
 /// This function is used to produce builds by managed control-plane
 /// components but not the `flowctl` CLI, which requires finer-grain
 /// control over build behavior.
 pub async fn managed_build(
+    pub_id: models::Id,
+    build_id: models::Id,
     allow_local: bool,
-    build_id: String,
     connector_network: String,
-    control_plane: Box<dyn validation::ControlPlane>,
+    control_plane: Box<dyn tables::CatalogResolver>,
     file_root: PathBuf,
     log_handler: impl runtime::LogHandler,
     project_root: url::Url,
     source: url::Url,
 ) -> Output {
-    let in_sources = load(&source, &file_root).await;
+    let draft = load(&source, &file_root).await;
+    if !draft.errors.is_empty() {
+        return Output::new(draft, Default::default(), Default::default());
+    }
 
-    let (sources, validations) = if in_sources.errors.is_empty() {
-        validate(
-            allow_local,
-            &build_id,
-            &connector_network,
-            &*control_plane,
-            true, // Generate ops collections.
-            log_handler,
-            false, // Validate captures.
-            false, // Validate derivations.
-            false, // Validate materializations.
-            &project_root,
-            in_sources,
-        )
-        .await
-    } else {
-        (in_sources, Default::default())
-    };
+    let live = control_plane.resolve(draft.all_catalog_names()).await;
+    if !live.errors.is_empty() {
+        return Output::new(draft, live, Default::default());
+    }
 
-    Output::new(sources, validations)
+    validate(
+        pub_id,
+        build_id,
+        allow_local,
+        &connector_network,
+        true, // Generate ops collections.
+        log_handler,
+        false, // Don't no-op captures.
+        false, // Don't no-op derivations.
+        false, // Don't no-op materializations.
+        &project_root,
+        draft,
+        live,
+    )
+    .await
 }
 
 /// Persist a managed build Result into the SQLite tables commonly known as a "build DB".
 pub fn persist(
     build_config: proto_flow::flow::build_api::Config,
     db_path: &Path,
-    result: &Output,
+    output: &Output,
 ) -> anyhow::Result<()> {
     let db = rusqlite::Connection::open(db_path).context("failed to open catalog database")?;
 
-    tables::persist_tables(&db, &result.sources.as_tables())
-        .context("failed to persist catalog sources")?;
-    tables::persist_tables(&db, &result.validations.as_tables())
-        .context("failed to persist catalog validations")?;
+    tables::persist_tables(&db, &output.draft.as_tables())
+        .context("failed to persist draft catalog")?;
+    tables::persist_tables(&db, &output.live.as_tables())
+        .context("failed to persist live catalog")?;
+    tables::persist_tables(&db, &output.built.as_tables())
+        .context("failed to persist built catalog")?;
 
     // Legacy support: encode and persist a deprecated protobuf build Config.
     // At the moment, these are still covered by Go snapshot tests.
