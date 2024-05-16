@@ -1,4 +1,4 @@
-use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, Schema};
+use super::{CompositeKey, Derivation, Field, Id, JournalTemplate, JsonPointer, Schema};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
@@ -38,6 +38,15 @@ pub struct CollectionDef {
     // # Derivation which builds this collection as transformations of other collections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derive: Option<Derivation>,
+    /// # Expected publication ID of this collection within the control plane.
+    /// When present, a publication of the collection will fail if the
+    /// last publication ID in the control plane doesn't match this value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect_pub_id: Option<Id>,
+    /// # Delete this collection within the control plane.
+    /// When true, a publication will delete this collection.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub delete: bool,
 }
 
 impl CollectionDef {
@@ -50,6 +59,8 @@ impl CollectionDef {
             projections: BTreeMap::new(),
             journals: JournalTemplate::default(),
             derive: None,
+            expect_pub_id: None,
+            delete: false,
         }
     }
 }
@@ -115,4 +126,16 @@ fn projections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::sch
         }],
     }))
     .unwrap()
+}
+
+impl super::ModelDef for CollectionDef {
+    fn sources(&self) -> impl Iterator<Item = &crate::Source> {
+        self.derive
+            .iter()
+            .map(|derive| derive.transforms.iter().map(|transform| &transform.source))
+            .flatten()
+    }
+    fn targets(&self) -> impl Iterator<Item = &crate::Collection> {
+        std::iter::empty()
+    }
 }

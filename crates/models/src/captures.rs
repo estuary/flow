@@ -1,4 +1,4 @@
-use super::{Collection, ConnectorConfig, LocalConfig, RawValue, ShardTemplate};
+use super::{Collection, ConnectorConfig, Id, LocalConfig, RawValue, ShardTemplate};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -38,6 +38,15 @@ pub struct CaptureDef {
     /// # Template for shards of this capture task.
     #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,
+    /// # Expected publication ID of this capture within the control plane.
+    /// When present, a publication of the capture will fail if the
+    /// last publication ID in the control plane doesn't match this value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect_pub_id: Option<Id>,
+    /// # Delete this capture within the control plane.
+    /// When true, a publication will delete this capture.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub delete: bool,
 }
 
 /// Settings to determine how Flow should stay abreast of ongoing changes to collections and schemas.
@@ -113,6 +122,8 @@ impl CaptureDef {
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),
+            expect_pub_id: None,
+            delete: false,
         }
     }
 }
@@ -125,5 +136,14 @@ impl CaptureBinding {
             target: Collection::new("target/collection"),
             backfill: 0,
         }
+    }
+}
+
+impl super::ModelDef for CaptureDef {
+    fn sources(&self) -> impl Iterator<Item = &crate::Source> {
+        std::iter::empty()
+    }
+    fn targets(&self) -> impl Iterator<Item = &crate::Collection> {
+        self.bindings.iter().map(|b| &b.target)
     }
 }
