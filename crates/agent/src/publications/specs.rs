@@ -495,7 +495,7 @@ pub async fn add_build_output_to_live_specs(
         // Pruned collections will already have had their live_specs rows deleted.
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == collection.collection.as_str())
+            .find(|r| r.catalog_name == collection.catalog_name.as_str())
             .filter(|r| !pruned_collections.contains(r.catalog_name.as_str()))
             .filter(|r| r.draft_spec.is_some())
         {
@@ -513,7 +513,7 @@ pub async fn add_build_output_to_live_specs(
     for capture in build_output.built_captures().iter() {
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == capture.capture.as_str())
+            .find(|r| r.catalog_name == capture.catalog_name.as_str())
             .filter(|r| r.draft_spec.is_some())
         {
             agent_sql::publications::add_built_specs(row.live_spec_id, &capture.spec, txn).await?;
@@ -523,7 +523,7 @@ pub async fn add_build_output_to_live_specs(
     for materialization in build_output.built_materializations().iter() {
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == materialization.materialization.as_str())
+            .find(|r| r.catalog_name == materialization.catalog_name.as_str())
             .filter(|r| r.draft_spec.is_some())
         {
             agent_sql::publications::add_built_specs(row.live_spec_id, &materialization.spec, txn)
@@ -534,7 +534,7 @@ pub async fn add_build_output_to_live_specs(
     for test in build_output.built_tests().iter() {
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == test.test.as_str())
+            .find(|r| r.catalog_name == test.catalog_name.as_str())
             .filter(|r| r.draft_spec.is_some())
         {
             agent_sql::publications::add_built_specs(row.live_spec_id, &test.spec, txn).await?;
@@ -558,7 +558,7 @@ pub async fn add_built_specs_to_draft_specs(
     for collection in build_output.built_collections().iter() {
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == collection.collection.as_str())
+            .find(|r| r.catalog_name == collection.catalog_name.as_str())
             .filter(|r| r.draft_spec.is_some())
         {
             agent_sql::drafts::add_built_spec(
@@ -574,7 +574,7 @@ pub async fn add_built_specs_to_draft_specs(
     for capture in build_output.built_captures().iter() {
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == capture.capture.as_str())
+            .find(|r| r.catalog_name == capture.catalog_name.as_str())
             .filter(|r| r.draft_spec.is_some())
         {
             agent_sql::drafts::add_built_spec(
@@ -590,7 +590,7 @@ pub async fn add_built_specs_to_draft_specs(
     for materialization in build_output.built_materializations().iter() {
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == materialization.materialization.as_str())
+            .find(|r| r.catalog_name == materialization.catalog_name.as_str())
             .filter(|r| r.draft_spec.is_some())
         {
             agent_sql::drafts::add_built_spec(
@@ -606,7 +606,7 @@ pub async fn add_built_specs_to_draft_specs(
     for test in build_output.built_tests().iter() {
         if let Some(row) = spec_rows
             .iter()
-            .find(|r| r.catalog_name == test.test.as_str())
+            .find(|r| r.catalog_name == test.catalog_name.as_str())
             .filter(|r| r.draft_spec.is_some())
         {
             agent_sql::drafts::add_built_spec(row.draft_spec_id, &test.spec, None::<()>, txn)
