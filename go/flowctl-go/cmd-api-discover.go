@@ -19,7 +19,6 @@ import (
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
-	"gopkg.in/yaml.v3"
 )
 
 type apiDiscover struct {
@@ -34,7 +33,7 @@ type apiDiscover struct {
 }
 
 func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, error) {
-	var config, err = readConfig(cmd.Config)
+	var config, err = os.ReadFile(cmd.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -142,18 +141,4 @@ func (cmd apiDiscover) Execute(_ []string) error {
 	} else {
 		panic(cmd.Output)
 	}
-}
-
-func readConfig(path string) (raw json.RawMessage, err error) {
-	var iface interface{}
-
-	if r, err := os.Open(path); err != nil {
-		return nil, fmt.Errorf("opening config: %w", err)
-	} else if err = yaml.NewDecoder(r).Decode(&iface); err != nil {
-		return nil, fmt.Errorf("decoding config: %w", err)
-	} else if raw, err = json.Marshal(iface); err != nil {
-		return nil, fmt.Errorf("encoding JSON config: %w", err)
-	}
-
-	return raw, nil
 }
