@@ -177,7 +177,7 @@ fn parse_shard_labeling(
     let Some(set) = &shard.labels else {
         anyhow::bail!("missing shard labels")
     };
-    labels::parse::shard_labeling(set).context("parsing shard labeling")
+    labels::shard::decode_labeling(set).context("parsing shard labeling")
 }
 
 struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);

@@ -2,8 +2,6 @@ use doc::shape::{location::Exists, Shape};
 use json::schema::{formats, types};
 use proto_flow::flow;
 use proto_gazette::{broker, consumer};
-use serde_json::Value;
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 mod ops;
@@ -422,59 +420,32 @@ fn shard_hostname_label(task_name: &str) -> String {
     format!("{:x}", hash)
 }
 
+// TODO(johnny): This should return a Result, but I'm punting on that refactor right now.
 pub fn journal_selector(
     collection: &models::Collection,
     selector: Option<&models::PartitionSelector>,
 ) -> broker::LabelSelector {
-    let mut include = vec![broker::Label {
-        name: labels::COLLECTION.to_string(),
-        value: collection.to_string(),
-    }];
-    let mut exclude = Vec::new();
+    let mut include = labels::build_set([(labels::COLLECTION, collection.as_str())]);
+    let mut exclude = broker::LabelSet::default();
 
     if let Some(selector) = selector {
-        push_partitions(&selector.include, &mut include);
-        push_partitions(&selector.exclude, &mut exclude);
+        for (field, values) in &selector.include {
+            for value in values {
+                include =
+                    labels::partition::add_value(include, field, value).expect("value is valid");
+            }
+        }
+        for (field, values) in &selector.exclude {
+            for value in values {
+                exclude =
+                    labels::partition::add_value(exclude, field, value).expect("value is valid");
+            }
+        }
     }
-
-    // LabelSets must be in sorted order.
-    include.sort_by(|l, r| (&l.name, &l.value).cmp(&(&r.name, &r.value)));
-    exclude.sort_by(|l, r| (&l.name, &l.value).cmp(&(&r.name, &r.value)));
 
     broker::LabelSelector {
-        include: Some(broker::LabelSet { labels: include }),
-        exclude: Some(broker::LabelSet { labels: exclude }),
-    }
-}
-
-/// Percent-encodes string values so that they can be used in Gazette label values.
-pub fn percent_encode_partition_value(s: &str) -> String {
-    // The set of characters that must be percent-encoded when used in partition
-    // values. It's nearly everything, aside from a few special cases.
-    const SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
-        .remove(b'-')
-        .remove(b'_')
-        .remove(b'.');
-    percent_encoding::utf8_percent_encode(s, SET).to_string()
-}
-
-// Flatten partition selector fields into a Vec<Label>.
-// JSON strings are percent-encoded but un-quoted.
-// Other JSON types map to their literal JSON strings prefixed with `%_`,
-// which is a production that percent-encoding will never produce.
-// *** This MUST match the Go-side behavior! ***
-fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::Label>) {
-    for (field, value) in fields {
-        for value in value {
-            let value = match value {
-                Value::String(s) => percent_encode_partition_value(s),
-                _ => format!("%_{}", value),
-            };
-            out.push(broker::Label {
-                name: format!("{}{}", labels::FIELD_PREFIX, field),
-                value,
-            });
-        }
+        include: Some(include),
+        exclude: Some(exclude),
     }
 }
 
@@ -582,7 +553,8 @@ pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
 mod test {
     use super::*;
     use doc::shape::StringShape;
-    use serde_json::json;
+    use serde_json::{json, Value};
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_inference() {
