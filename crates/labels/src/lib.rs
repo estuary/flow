@@ -39,8 +39,26 @@ pub const CONTENT_TYPE_JSON_LINES: &str = "application/x-ndjson";
 pub const CONTENT_TYPE_RECOVERY_LOG: &str = "application/x-gazette-recoverylog";
 pub const MANAGED_BY: &str = "app.gazette.dev/managed-by";
 
-pub mod encode;
-pub mod parse;
+pub mod partition;
+pub mod shard;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("expected one label for {0} (got {1:?})")]
+    ExpectedOne(String, Vec<Label>),
+    #[error("label {0} value is empty but shouldn't be")]
+    ValueEmpty(String),
+    #[error("invalid value {value:?} for label {name}")]
+    InvalidValue { name: String, value: String },
+    #[error("both split-source {0} and split-target {1} are set but shouldn't be")]
+    SplitSourceAndTarget(String, String),
+    #[error("failed to parse label value as integer")]
+    ParseInt(#[from] std::num::ParseIntError),
+    #[error("failed to parse label value as UTF-8 string")]
+    PercentDecode(#[from] std::str::Utf8Error),
+    #[error("invalid value type for partition field value encoding")]
+    InvalidValueType,
+}
 
 /// Retrieve the sub-slice of Label having the given label `name`.
 /// Or, if no labels match, return an empty slice.
@@ -97,30 +115,99 @@ where
 }
 
 /// Update a LabelSet, replacing all labels of `name` with a single label having `value`.
-pub fn set_value(set: &mut LabelSet, name: &str, value: &str) {
+pub fn set_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
     set.labels.splice(
-        range(set, name),
+        range(&set, name),
         [Label {
             name: name.to_string(),
             value: value.to_string(),
         }],
     );
+    set
 }
 
 /// Update a LabelSet, adding a new label of `name` and `value`.
-pub fn add_value(set: &mut LabelSet, name: &str, value: &str) {
+pub fn add_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
     set.labels.insert(
-        range(set, name).end,
+        range(&set, name).end,
         Label {
             name: name.to_string(),
             value: value.to_string(),
         },
     );
+    set
 }
 
 /// Update a LabelSet, removing all labels of `name`.
-pub fn remove(set: &mut LabelSet, name: &str) {
-    set.labels.drain(range(set, name));
+pub fn remove(mut set: LabelSet, name: &str) -> LabelSet {
+    set.labels.drain(range(&set, name));
+    set
+}
+
+// Determine whether `label` is managed by the Flow data-plane,
+// as opposed to the Flow control-plane.
+// * Data-plane labels exist exclusively within the data-plane,
+//   and use its Etcd as their source of truth.
+// * All other labels are set by the contorl-plane.
+pub fn is_data_plane_label(label: &str) -> bool {
+    // If `label` has FIELD_PREFIX as a prefix, its suffix is an encoded logical partition.
+    if label.starts_with(FIELD_PREFIX) {
+        return true;
+    }
+    match label {
+        // Key and R-Clock splits are performed within the data-plane.
+        KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET => true,
+        _ => false,
+    }
+}
+
+/// Percent-encoding of string values so that they can be used in label values.
+pub fn percent_encoding<'s>(s: &'s str) -> percent_encoding::PercentEncode<'s> {
+    // The set of characters that must be percent-encoded when used in partition
+    // values. It's nearly everything, aside from a few special cases.
+    const SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.');
+    percent_encoding::utf8_percent_encode(s, SET)
+}
+
+fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
+    let value = expect_one(set, name)?;
+
+    let (8, Ok(parsed)) = (value.len(), u32::from_str_radix(value, 16)) else {
+        return Err(Error::InvalidValue {
+            name: name.to_string(),
+            value: value.to_string(),
+        });
+    };
+    Ok(parsed)
+}
+
+fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
+    let labels = values(set, name);
+
+    if labels.len() != 1 {
+        return Err(Error::ExpectedOne(name.to_string(), labels.to_vec()));
+    } else if labels[0].value.is_empty() {
+        return Err(Error::ValueEmpty(name.to_string()));
+    } else {
+        Ok(labels[0].value.as_str())
+    }
+}
+
+fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
+    let labels = values(set, name);
+
+    if labels.len() > 1 {
+        return Err(Error::ExpectedOne(name.to_string(), labels.to_vec()));
+    } else if labels.is_empty() {
+        return Ok("");
+    } else if labels[0].value.is_empty() {
+        return Err(Error::ValueEmpty(name.to_string()));
+    } else {
+        Ok(labels[0].value.as_str())
+    }
 }
 
 #[cfg(test)]
@@ -154,13 +241,12 @@ mod test {
     #[test]
     fn mutation_cases() {
         let mut set = crate::build_set([("a", "aa"), ("c", "cc"), ("d", "dd"), ("z", "")]);
-        let set = &mut set;
 
-        add_value(set, "a", "aa.2");
-        set_value(set, "d", "dd.2");
-        add_value(set, "b", "bb.1");
-        remove(set, "c");
-        remove(set, "z");
+        set = add_value(set, "a", "aa.2");
+        set = set_value(set, "d", "dd.2");
+        set = add_value(set, "b", "bb.1");
+        set = remove(set, "c");
+        set = remove(set, "z");
 
         insta::assert_json_snapshot!(set, @r###"
         {
@@ -184,5 +270,25 @@ mod test {
           ]
         }
         "###);
+    }
+
+    #[test]
+    fn percent_encode() {
+        let cases = [
+            ("foo", "foo"),
+            ("one/two", "one%2Ftwo"),
+            ("hello, world!", "hello%2C%20world%21"),
+            (
+                "no.no&no-no@no$yes_yes();",
+                "no.no%26no-no%40no%24yes_yes%28%29%3B",
+            ),
+            (
+                "http://example/path?q1=v1&q2=v2;ex%20tra",
+                "http%3A%2F%2Fexample%2Fpath%3Fq1%3Dv1%26q2%3Dv2%3Bex%2520tra",
+            ),
+        ];
+        for (fixture, expect) in cases {
+            assert_eq!(percent_encoding(fixture).to_string(), expect);
+        }
     }
 }

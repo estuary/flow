@@ -12,15 +12,11 @@ LabelSelector {
                 },
                 Label {
                     name: "estuary.dev/field/bool",
-                    value: "%_false",
-                },
-                Label {
-                    name: "estuary.dev/field/bool",
                     value: "%_true",
                 },
                 Label {
-                    name: "estuary.dev/field/integers",
-                    value: "%_-9223372036854775808",
+                    name: "estuary.dev/field/bool",
+                    value: "%_false",
                 },
                 Label {
                     name: "estuary.dev/field/integers",
@@ -28,11 +24,15 @@ LabelSelector {
                 },
                 Label {
                     name: "estuary.dev/field/integers",
-                    value: "%_18446744073709551615",
+                    value: "%_-9223372036854775808",
                 },
                 Label {
                     name: "estuary.dev/field/integers",
                     value: "%_9223372036854775807",
+                },
+                Label {
+                    name: "estuary.dev/field/integers",
+                    value: "%_18446744073709551615",
                 },
                 Label {
                     name: "estuary.dev/field/null",
@@ -40,7 +40,7 @@ LabelSelector {
                 },
                 Label {
                     name: "estuary.dev/field/strings",
-                    value: "Baz%21%40%22Bing%22",
+                    value: "simple",
                 },
                 Label {
                     name: "estuary.dev/field/strings",
@@ -48,7 +48,7 @@ LabelSelector {
                 },
                 Label {
                     name: "estuary.dev/field/strings",
-                    value: "http%3A%2F%2Fexample%2Fpath%3Fq1%3Dv1%26q2%3Dv2%3Bex%2520tra",
+                    value: "Baz%21%40%22Bing%22",
                 },
                 Label {
                     name: "estuary.dev/field/strings",
@@ -56,7 +56,7 @@ LabelSelector {
                 },
                 Label {
                     name: "estuary.dev/field/strings",
-                    value: "simple",
+                    value: "http%3A%2F%2Fexample%2Fpath%3Fq1%3Dv1%26q2%3Dv2%3Bex%2520tra",
                 },
             ],
         },
@@ -66,11 +66,11 @@ LabelSelector {
             labels: [
                 Label {
                     name: "estuary.dev/field/naughty-strings",
-                    value: "%25_null",
+                    value: "null",
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
-                    value: "-456",
+                    value: "%25_null",
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
@@ -78,15 +78,15 @@ LabelSelector {
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
-                    value: "false",
-                },
-                Label {
-                    name: "estuary.dev/field/naughty-strings",
-                    value: "null",
+                    value: "-456",
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
                     value: "true",
+                },
+                Label {
+                    name: "estuary.dev/field/naughty-strings",
+                    value: "false",
                 },
             ],
         },
