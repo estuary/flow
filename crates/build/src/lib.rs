@@ -148,9 +148,9 @@ pub async fn validate(
 /// of getting the collection projections, in which case you may not want to
 /// consider errors from materialization validations to be terminal.
 pub struct Output {
-    draft: tables::DraftCatalog,
-    live: tables::LiveCatalog,
-    built: tables::Validations,
+    pub draft: tables::DraftCatalog,
+    pub live: tables::LiveCatalog,
+    pub built: tables::Validations,
 }
 
 impl Output {
@@ -172,6 +172,20 @@ impl Output {
         (self.draft, self.live, self.built)
     }
 
+    pub fn into_result(mut self) -> Result<Self, tables::Errors> {
+        let mut errors = tables::Errors::default();
+
+        errors.extend(std::mem::take(&mut self.draft.errors).into_iter());
+        errors.extend(std::mem::take(&mut self.live.errors).into_iter());
+        errors.extend(std::mem::take(&mut self.built.errors).into_iter());
+
+        if errors.is_empty() {
+            Ok(self)
+        } else {
+            Err(errors)
+        }
+    }
+
     /// Returns an iterator of all errors that have occurred during any phase of the build.
     pub fn errors(&self) -> impl Iterator<Item = &tables::Error> {
         self.draft
@@ -179,19 +193,6 @@ impl Output {
             .iter()
             .chain(self.live.errors.iter())
             .chain(self.built.errors.iter())
-    }
-
-    pub fn built_captures(&self) -> &tables::BuiltCaptures {
-        &self.built.built_captures
-    }
-    pub fn built_collections(&self) -> &tables::BuiltCollections {
-        &self.built.built_collections
-    }
-    pub fn built_materializations(&self) -> &tables::BuiltMaterializations {
-        &self.built.built_materializations
-    }
-    pub fn built_tests(&self) -> &tables::BuiltTests {
-        &self.built.built_tests
     }
 }
 
@@ -462,6 +463,31 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
                     .unary_materialize(request, CONNECTOR_TIMEOUT)
                     .await?)
             }
+        }
+        .boxed()
+    }
+}
+
+/// NoOpCatalogResolver is a CatalogResolver which does nothing, for use by
+/// test cases which want to build catalogs without an integrated control plane.
+pub struct NoOpCatalogResolver;
+
+impl tables::CatalogResolver for NoOpCatalogResolver {
+    fn resolve<'a>(
+        &'a self,
+        _catalog_names: Vec<&'a str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tables::LiveCatalog> + Send + 'a>> {
+        async move {
+            let mut live = tables::LiveCatalog::default();
+            live.storage_mappings.insert_row(
+                models::Prefix::new(""),
+                url::Url::parse("flow://control").unwrap(),
+                vec![models::Store::Gcs(models::GcsBucketAndPrefix {
+                    bucket: "example-bucket".to_string(),
+                    prefix: None,
+                })],
+            );
+            live
         }
         .boxed()
     }
