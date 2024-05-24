@@ -186,7 +186,12 @@ pub fn mapped_stores<'a>(
     match lookup_mapping(storage_mappings, name) {
         Some(m) => &m.stores,
         None if storage_mappings.is_empty() => {
-            // We produce a single, top-level error if no mappings are defined.
+            Error::NoStorageMapping {
+                this_thing: name.to_string(),
+                this_entity: entity,
+            }
+            .push(scope, errors);
+
             &[]
         }
         None => {
