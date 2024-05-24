@@ -1,0 +1,21 @@
+---
+source: crates/activate/src/lib.rs
+expression: "list_partitions_request(&models::Collection::new(\"the/collection\"))"
+---
+ListRequest {
+    selector: Some(
+        LabelSelector {
+            include: Some(
+                LabelSet {
+                    labels: [
+                        Label {
+                            name: "estuary.dev/collection",
+                            value: "the/collection",
+                        },
+                    ],
+                },
+            ),
+            exclude: None,
+        },
+    ),
+}
