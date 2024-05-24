@@ -3,6 +3,30 @@
 version = 3
 
 [[package]]
+name = "activate"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "assemble",
+ "build",
+ "doc",
+ "extractors",
+ "futures",
+ "gazette",
+ "insta",
+ "labels",
+ "models",
+ "ops",
+ "proto-flow",
+ "proto-gazette",
+ "serde_json",
+ "tables",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "addr"
 version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2649,7 +2673,9 @@ dependencies = [
 name = "labels"
 version = "0.0.0"
 dependencies = [
+ "doc",
  "insta",
+ "percent-encoding",
  "proto-flow",
  "proto-gazette",
  "serde_json",

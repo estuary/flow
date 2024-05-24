@@ -1,0 +1,53 @@
+---
+source: crates/activate/src/lib.rs
+expression: "list_task_request(ops::TaskType::Derivation, \"the/derivation\")"
+---
+(
+    ListRequest {
+        selector: Some(
+            LabelSelector {
+                include: Some(
+                    LabelSet {
+                        labels: [
+                            Label {
+                                name: "estuary.dev/task-name",
+                                value: "the/derivation",
+                            },
+                            Label {
+                                name: "estuary.dev/task-type",
+                                value: "derivation",
+                            },
+                        ],
+                    },
+                ),
+                exclude: None,
+            },
+        ),
+        extension: [],
+    },
+    ListRequest {
+        selector: Some(
+            LabelSelector {
+                include: Some(
+                    LabelSet {
+                        labels: [
+                            Label {
+                                name: "content-type",
+                                value: "application/x-gazette-recoverylog",
+                            },
+                            Label {
+                                name: "estuary.dev/task-name",
+                                value: "the/derivation",
+                            },
+                            Label {
+                                name: "estuary.dev/task-type",
+                                value: "derivation",
+                            },
+                        ],
+                    },
+                ),
+                exclude: None,
+            },
+        ),
+    },
+)

@@ -1,0 +1,45 @@
+collections:
+  example/collection:
+    schema: &schema
+      type: object
+      properties:
+        a_key: { type: string }
+        a_val: { type: [integer, "null"] }
+        a_bool: { type: boolean }
+        a_str: { type: string }
+      required: [a_key, a_bool, a_str]
+    key: [/a_key]
+    projections:
+      a_bool:
+        location: /a_bool
+        partition: true
+      a_str:
+        location: /a_str
+        partition: true
+    journals:
+      fragments:
+        # Expect this is reflected in data partitions.
+        flushInterval: 15m
+
+  example/derivation:
+    schema: *schema
+    key: [/a_key]
+    derive:
+      using:
+        typescript:
+          module: |
+            import { IDerivation, Document, SourceSwizzle } from 'flow/example/derivation.ts';
+
+            export class Derivation extends IDerivation {
+                swizzle(source: { doc: SourceSwizzle }): Document[] {
+                  return [];
+                }
+            }
+      transforms:
+        - name: swizzle
+          source: example/collection
+          shuffle: any
+      shards:
+        # Expect this is reflected in shard specs.
+        maxTxnDuration: 60s
+        hotStandbys: 3
