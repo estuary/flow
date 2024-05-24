@@ -28,8 +28,9 @@ pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
 pub use id::Id;
 pub use journals::{
-    CompressionCodec, CustomStore, FragmentTemplate, JournalTemplate, S3StorageConfig, StorageDef,
-    Store, AZURE_CONTAINER_RE, AZURE_STORAGE_ACCOUNT_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
+    AzureStorageConfig, CompressionCodec, CustomStore, FragmentTemplate, GcsBucketAndPrefix,
+    JournalTemplate, S3StorageConfig, StorageDef, Store, AZURE_CONTAINER_RE,
+    AZURE_STORAGE_ACCOUNT_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,

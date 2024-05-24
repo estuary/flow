@@ -204,6 +204,17 @@ impl tables::CatalogResolver for Resolver {
             match result {
                 Ok((mut live, inferred_schemas)) => {
                     live.inferred_schemas = inferred_schemas;
+
+                    // TODO(johnny): Fetch actual storage mappings?
+                    live.storage_mappings.insert_row(
+                        models::Prefix::new(""),
+                        url::Url::parse("flow://control").unwrap(),
+                        vec![models::Store::Gcs(models::GcsBucketAndPrefix {
+                            bucket: "example-bucket".to_string(),
+                            prefix: None,
+                        })],
+                    );
+
                     live
                 }
                 Err(err) => {

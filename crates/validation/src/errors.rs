@@ -48,6 +48,11 @@ pub enum Error {
         prefix: String,
         disallowed: &'static str, // will either be "empty" or "'default/'"
     },
+    #[error("could not map {this_entity} {this_thing} into a storage mapping")]
+    NoStorageMapping {
+        this_thing: String,
+        this_entity: &'static str,
+    },
     #[error("could not map {this_entity} {this_thing} into a storage mapping; did you mean {suggest_name} defined at {suggest_scope}?")]
     NoStorageMappingSuggest {
         this_thing: String,
