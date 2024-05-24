@@ -1,6 +1,7 @@
-pub use proto_gazette::broker;
+pub use proto_gazette::{broker, consumer};
 
 pub mod journal;
+pub mod shard;
 pub mod uuid;
 
 mod router;
@@ -25,6 +26,8 @@ pub enum Error {
     BearerToken(#[source] tonic::metadata::errors::InvalidMetadataValue),
     #[error("unexpected broker status: {0:?}")]
     BrokerStatus(broker::Status),
+    #[error("unexpected consumer status: {0:?}")]
+    ConsumerStatus(consumer::Status),
     #[error("failed to parse document near journal offset {0}")]
     Parsing(i64, #[source] std::io::Error),
     #[error("{0}")]
