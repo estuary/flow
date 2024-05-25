@@ -26,12 +26,12 @@ collections:
 tests:
   "Expect we can sum two numbers":
     - ingest:
-        collection: example/reductions/sum
+        collection: example/reductions/bigSum
         documents:
           - { key: "key", value: 5 }
           - { key: "key", value: "-1.2" }
     - verify:
-        collection: example/reductions/sum
+        collection: example/reductions/bigSum
         documents:
           - { key: "key", value: "3.8" }
 ```
