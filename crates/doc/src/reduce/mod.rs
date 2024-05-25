@@ -8,6 +8,9 @@ use std::cmp::Ordering;
 pub mod strategy;
 pub use strategy::Strategy;
 
+mod parsed_number;
+use parsed_number::ParsedNumber;
+
 mod schema;
 mod set;
 
