@@ -1495,6 +1495,7 @@ version = "0.0.0"
 dependencies = [
  "allocator",
  "base64 0.13.1",
+ "bigdecimal",
  "bumpalo",
  "bytes",
  "fancy-regex",

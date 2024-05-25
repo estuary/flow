@@ -13,6 +13,7 @@ json = { path = "../json" }
 tuple = { path = "../tuple" }
 
 base64 = { workspace = true }
+bigdecimal = { workspace = true }
 bumpalo = { workspace = true }
 bytes = { workspace = true }
 fancy-regex = { workspace = true }

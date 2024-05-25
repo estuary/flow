@@ -1,6 +1,6 @@
 use super::{
     compare_key_lazy, compare_lazy, count_nodes, count_nodes_lazy, reduce_item, reduce_prop,
-    schema::json_schema_merge, Cursor, Error, Result,
+    schema::json_schema_merge, Cursor, Error, ParsedNumber, Result,
 };
 use crate::{
     lazy::{LazyDestructured, LazyNode},
@@ -309,44 +309,50 @@ impl Strategy {
             full: _,
             lhs,
             rhs,
-            alloc: _,
+            alloc,
         } = cur;
 
         use LazyDestructured as LD;
+        use ParsedNumber as PN;
 
         let ln = match lhs.as_ref().map(LazyNode::destructure) {
-            None => json::Number::Unsigned(0),
-            Some(LD::ScalarNode(Node::PosInt(n))) => json::Number::Unsigned(n),
-            Some(LD::ScalarNode(Node::NegInt(n))) => json::Number::Signed(n),
-            Some(LD::ScalarNode(Node::Float(n))) => json::Number::Float(n),
-            Some(LD::ScalarHeap(HeapNode::PosInt(n))) => json::Number::Unsigned(*n),
-            Some(LD::ScalarHeap(HeapNode::NegInt(n))) => json::Number::Signed(*n),
-            Some(LD::ScalarHeap(HeapNode::Float(n))) => json::Number::Float(*n),
-            _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
+            None => Some(PN::PosInt(0u64)),
+            Some(LD::ScalarNode(Node::PosInt(n))) => Some(PN::PosInt(n)),
+            Some(LD::ScalarNode(Node::NegInt(n))) => Some(PN::NegInt(n)),
+            Some(LD::ScalarNode(Node::Float(n))) => Some(PN::Float(n)),
+            Some(LD::ScalarNode(Node::String(n))) => n.parse().ok().map(PN::Arbitrary),
+            Some(LD::ScalarHeap(HeapNode::PosInt(n))) => Some(PN::PosInt(*n)),
+            Some(LD::ScalarHeap(HeapNode::NegInt(n))) => Some(PN::NegInt(*n)),
+            Some(LD::ScalarHeap(HeapNode::Float(n))) => Some(PN::Float(*n)),
+            Some(LD::ScalarHeap(HeapNode::String(n))) => n.parse().ok().map(PN::Arbitrary),
+            _ => None,
         };
         let rn = match rhs.destructure() {
-            LD::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(n),
-            LD::ScalarNode(Node::NegInt(n)) => json::Number::Signed(n),
-            LD::ScalarNode(Node::Float(n)) => json::Number::Float(n),
-            LD::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
-            LD::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
-            LD::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
-            _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
+            LD::ScalarNode(Node::PosInt(n)) => Some(PN::PosInt(n)),
+            LD::ScalarNode(Node::NegInt(n)) => Some(PN::NegInt(n)),
+            LD::ScalarNode(Node::Float(n)) => Some(PN::Float(n)),
+            LD::ScalarNode(Node::String(n)) => n.parse().ok().map(PN::Arbitrary),
+            LD::ScalarHeap(HeapNode::PosInt(n)) => Some(PN::PosInt(*n)),
+            LD::ScalarHeap(HeapNode::NegInt(n)) => Some(PN::NegInt(*n)),
+            LD::ScalarHeap(HeapNode::Float(n)) => Some(PN::Float(*n)),
+            LD::ScalarHeap(HeapNode::String(n)) => n.parse().ok().map(PN::Arbitrary),
+            _ => None,
+        };
+        let (Some(ln), Some(rn)) = (ln, rn) else {
+            return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs));
         };
 
         *tape = &tape[1..];
 
-        match json::Number::checked_add(ln, rn) {
-            Some(json::Number::Float(n)) => Ok(HeapNode::Float(n)),
-            Some(json::Number::Unsigned(n)) => Ok(HeapNode::PosInt(n)),
-            Some(json::Number::Signed(n)) if n >= 0 => Ok(HeapNode::PosInt(n as u64)),
-            Some(json::Number::Signed(n)) => Ok(HeapNode::NegInt(n)),
-            None => Err(Error::with_details(
+        if let Some(n) = PN::checked_add(ln, rn) {
+            Ok(n.into_heap_node(alloc))
+        } else {
+            Err(Error::with_details(
                 Error::SumNumericOverflow,
                 loc,
                 lhs,
                 rhs,
-            )),
+            ))
         }
     }
 
@@ -825,6 +831,45 @@ mod test {
                 Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::SumWrongType),
+                },
+            ],
+        );
+
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "sum" } }),
+            vec![
+                Partial {
+                    rhs: json!(0),
+                    expect: Ok(json!(0)),
+                },
+                // String-encoded numerics coerce to arbitrary precision.
+                Partial {
+                    rhs: json!("1"),
+                    expect: Ok(json!("1")),
+                },
+                Partial {
+                    rhs: json!("9000000000000000000"),
+                    expect: Ok(json!("9000000000000000001")),
+                },
+                Partial {
+                    rhs: json!("10000000000000000000"),
+                    expect: Ok(json!("19000000000000000001")),
+                },
+                Partial {
+                    rhs: json!(1_233),
+                    expect: Ok(json!("19000000000000001234")),
+                },
+                Partial {
+                    rhs: json!(-10_000),
+                    expect: Ok(json!("18999999999999991234")),
+                },
+                Partial {
+                    rhs: json!(86753.09),
+                    expect: Ok(json!("19000000000000077987.09000000000")),
+                },
+                Partial {
+                    rhs: json!("10203.040506070812"),
+                    expect: Ok(json!("19000000000000088190.130506070812")),
                 },
             ],
         );

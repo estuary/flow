@@ -101,30 +101,6 @@ impl PartialEq for Number {
 impl Eq for Number {}
 
 impl Number {
-    pub fn checked_add(self: Self, other: Self) -> Option<Self> {
-        match (self, other) {
-            (Unsigned(lhs), Unsigned(rhs)) => lhs.checked_add(rhs).map(Into::into),
-            (Signed(lhs), Signed(rhs)) => lhs.checked_add(rhs).map(Into::into),
-            (Float(lhs), Float(rhs)) => f64_checked_add(lhs, rhs).map(Into::into),
-
-            // Promotion of u64 into i64. We require the value be representable.
-            (Unsigned(lhs), Signed(rhs)) => i64::try_from(lhs)
-                .ok()
-                .and_then(|lhs| lhs.checked_add(rhs))
-                .map(Into::into),
-            (Signed(lhs), Unsigned(rhs)) => i64::try_from(rhs)
-                .ok()
-                .and_then(|rhs| lhs.checked_add(rhs))
-                .map(Into::into),
-
-            // Promotion into f64. We accept loss of precision in these cases.
-            (Unsigned(lhs), Float(rhs)) => f64_checked_add(lhs as f64, rhs).map(Into::into),
-            (Signed(lhs), Float(rhs)) => f64_checked_add(lhs as f64, rhs).map(Into::into),
-            (Float(lhs), Unsigned(rhs)) => f64_checked_add(lhs, rhs as f64).map(Into::into),
-            (Float(lhs), Signed(rhs)) => f64_checked_add(lhs, rhs as f64).map(Into::into),
-        }
-    }
-
     pub fn is_multiple_of(&self, d: &Self) -> bool {
         use Number::*;
 
@@ -160,10 +136,6 @@ fn f64_cmp(lhs: &f64, rhs: &f64) -> Ordering {
             panic!("couldn't compare {} and {}", lhs, rhs);
         }
     })
-}
-
-fn f64_checked_add(a: f64, b: f64) -> Option<f64> {
-    Some(a + b).filter(|f| f.is_finite())
 }
 
 #[cfg(test)]
@@ -284,67 +256,6 @@ mod test {
             Unsigned(10000000000000000000u64),
             Float(11000000000000000000.0),
         );
-    }
-
-    #[test]
-    fn test_add() {
-        assert_eq!(Unsigned(1).checked_add(Unsigned(2)), Some(Unsigned(3)));
-        assert_eq!(Signed(-1).checked_add(Signed(-2)), Some(Signed(-3)));
-        assert_eq!(Float(1.0).checked_add(Float(2.0)), Some(Float(3.0)));
-
-        assert_eq!(Unsigned(1).checked_add(Signed(-2)), Some(Signed(-1)));
-        assert_eq!(Signed(-2).checked_add(Unsigned(3)), Some(Signed(1)));
-
-        assert_eq!(Unsigned(1).checked_add(Float(0.1)), Some(Float(1.1)));
-        assert_eq!(Float(-0.1).checked_add(Unsigned(1)), Some(Float(0.9)));
-
-        assert_eq!(Signed(-1).checked_add(Float(2.1)), Some(Float(1.1)));
-        assert_eq!(Float(0.1).checked_add(Signed(-2)), Some(Float(-1.9)));
-    }
-
-    #[test]
-    fn test_add_overflows() {
-        // Representable u64 => i64 promotions work.
-        assert_eq!(
-            Signed(-1).checked_add(Unsigned(u64::MAX / 2)),
-            Some(Signed(i64::MAX - 1))
-        );
-        assert_eq!(
-            Unsigned(u64::MAX / 2).checked_add(Signed(-1)),
-            Some(Signed(i64::MAX - 1))
-        );
-        // Un-representable ones don't.
-        assert_eq!(Signed(-1).checked_add(Unsigned(1 + (u64::MAX / 2))), None);
-        assert_eq!(Unsigned(1 + u64::MAX / 2).checked_add(Signed(-1)), None);
-
-        const MAX_F64_INT: i64 = 1 << f64::MANTISSA_DIGITS;
-
-        // Representable u64 & i64 => f64 promotions work.
-        assert_eq!(
-            Unsigned(MAX_F64_INT as u64 - 1).checked_add(Float(1.0)),
-            Some(Float(MAX_F64_INT as f64))
-        );
-        assert_eq!(
-            Signed(-MAX_F64_INT + 1).checked_add(Float(-1.0)),
-            Some(Float(-MAX_F64_INT as f64))
-        );
-
-        // We begin to lose precision at the boundaries of f64 integer representation.
-        assert_eq!(
-            Unsigned(MAX_F64_INT as u64).checked_add(Float(1.0)),
-            Some(Float(MAX_F64_INT as f64))
-        );
-        assert_eq!(
-            Signed(-MAX_F64_INT).checked_add(Float(-1.0)),
-            Some(Float(-MAX_F64_INT as f64))
-        );
-
-        // Cases of overflow.
-        assert_eq!(Unsigned(1).checked_add(Unsigned(u64::MAX)), None);
-        assert_eq!(Signed(1).checked_add(Signed(i64::MAX)), None);
-        assert_eq!(Signed(-1).checked_add(Signed(i64::MIN)), None);
-        assert_eq!(Float(f64::MIN).checked_add(Float(f64::MIN / 2.0)), None);
-        assert_eq!(Float(f64::MAX).checked_add(Float(f64::MAX / 2.0)), None);
     }
 
     fn is_lt(lhs: Number, rhs: Number) {
