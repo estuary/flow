@@ -18,6 +18,7 @@ The available strategies are:
 * [minimize and maximize](minimize-and-maximize.md)
 * [set](set.md)
 * [sum](sum.md)
+* [bigSum](big-sum.md)
 
 When no other strategy is specified in a schema, Flow defaults to `lastWriteWins`.  For even more customization, you can use [conditional statements](composing-with-conditionals.md).&#x20;
 
