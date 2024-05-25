@@ -26,6 +26,8 @@ pub enum Error {
     SumNumericOverflow,
     #[error("'sum' strategy expects numbers")]
     SumWrongType,
+    #[error("'big-sum' strategy could not parse text as number: {detail}")]
+    BigSumParserError { detail: String },
     #[error(
         "'json-schema-merge' strategy expects objects containing valid JSON schemas: {detail}"
     )]

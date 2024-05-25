@@ -46,6 +46,7 @@ fn reduce_description(reduce: Reduction) -> &'static str {
         Reduction::Strategy(Strategy::Minimize(_)) => "minimize",
         Reduction::Strategy(Strategy::Set(_)) => "set",
         Reduction::Strategy(Strategy::Sum) => "sum",
+        Reduction::Strategy(Strategy::BigSum) => "big-sum",
         Reduction::Unset => "unset",
     }
 }

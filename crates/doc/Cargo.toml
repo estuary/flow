@@ -30,6 +30,7 @@ time = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
+bigdecimal.workspace = true
 
 [dev-dependencies]
 allocator = { path = "../allocator" }

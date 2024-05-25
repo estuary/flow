@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     lazy::{LazyDestructured, LazyNode},
-    AsNode, BumpVec, HeapNode, Node, Pointer,
+    AsNode, BumpStr, BumpVec, HeapNode, Node, Pointer,
 };
 use itertools::EitherOrBoth;
 
@@ -76,6 +76,10 @@ pub enum Strategy {
     /// In the future, we may allow for arbitrary-sized integer and
     /// floating-point representations which use a string encoding scheme.
     Sum,
+    /// Sum the LHS and RHS, both of which must be numbers, which can be strings.
+    /// BigSum will always return a string.
+    /// TODO: this could also be done automatically as part of `Strategy::Sum`.
+    BigSum,
     /// Deep-merge the JSON schemas in LHS and RHS
     /// both of which must be objects containing valid json schemas.
     JsonSchemaMerge,
@@ -160,6 +164,7 @@ impl Strategy {
             Strategy::Minimize(min) => Ok((Self::minimize(cur, min)?, false)),
             Strategy::Set(set) => Ok((set.apply(cur)?, false)),
             Strategy::Sum => Ok((Self::sum(cur)?, false)),
+            Strategy::BigSum => Ok((Self::big_sum(cur)?, false)),
         }
     }
 
@@ -348,6 +353,105 @@ impl Strategy {
                 rhs,
             )),
         }
+    }
+
+    fn big_sum<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
+        let Cursor {
+            tape,
+            loc,
+            full: _,
+            lhs,
+            rhs,
+            alloc,
+        } = cur;
+
+        use bigdecimal::{BigDecimal, FromPrimitive};
+        use LazyDestructured as LD;
+
+        // TODO: consider enabling the `arbitrary_precision` feature on serde_json,
+        //       which is closer to what the JSON spec actually allows.
+
+        let ln: BigDecimal = match lhs.as_ref().map(LazyNode::destructure) {
+            None => bigdecimal::BigDecimal::from(0),
+            Some(LD::ScalarNode(Node::PosInt(n))) => BigDecimal::from(n),
+            Some(LD::ScalarNode(Node::NegInt(n))) => BigDecimal::from(n),
+            Some(LD::ScalarNode(Node::Float(n))) => BigDecimal::from_f64(n).unwrap(),
+            Some(LD::ScalarNode(Node::String(s))) => match s.parse() {
+                Ok(n) => n,
+                Err(e) => {
+                    return Err(Error::with_details(
+                        Error::BigSumParserError {
+                            detail: e.to_string(),
+                        },
+                        loc,
+                        lhs,
+                        rhs,
+                    ))
+                }
+            },
+            Some(LD::ScalarHeap(HeapNode::PosInt(n))) => BigDecimal::from(*n),
+            Some(LD::ScalarHeap(HeapNode::NegInt(n))) => BigDecimal::from(*n),
+            Some(LD::ScalarHeap(HeapNode::Float(n))) => BigDecimal::from_f64(*n).unwrap(),
+            Some(LD::ScalarHeap(HeapNode::String(s))) => match s.parse() {
+                Ok(n) => n,
+                Err(e) => {
+                    return Err(Error::with_details(
+                        Error::BigSumParserError {
+                            detail: e.to_string(),
+                        },
+                        loc,
+                        lhs,
+                        rhs,
+                    ))
+                }
+            },
+            _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
+        };
+
+        let rn: BigDecimal = match rhs.destructure() {
+            LD::ScalarNode(Node::PosInt(n)) => BigDecimal::from(n),
+            LD::ScalarNode(Node::NegInt(n)) => BigDecimal::from(n),
+            LD::ScalarNode(Node::String(s)) => match s.parse() {
+                Ok(n) => n,
+                Err(e) => {
+                    return Err(Error::with_details(
+                        Error::BigSumParserError {
+                            detail: e.to_string(),
+                        },
+                        loc,
+                        lhs,
+                        rhs,
+                    ))
+                }
+            },
+            LD::ScalarHeap(HeapNode::PosInt(n)) => BigDecimal::from(*n),
+            LD::ScalarHeap(HeapNode::NegInt(n)) => BigDecimal::from(*n),
+            LD::ScalarHeap(HeapNode::String(s)) => match s.parse() {
+                Ok(n) => n,
+                Err(e) => {
+                    return Err(Error::with_details(
+                        Error::BigSumParserError {
+                            detail: e.to_string(),
+                        },
+                        loc,
+                        lhs,
+                        rhs,
+                    ))
+                }
+            },
+            _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
+        };
+
+        *tape = &tape[1..];
+
+        let sum = (ln + rn).normalized();
+
+        Ok(HeapNode::String(BumpStr::from_str(
+            sum.to_string().as_str(),
+            alloc,
+        )))
     }
 
     fn merge<'alloc, L: AsNode, R: AsNode>(
@@ -825,6 +929,70 @@ mod test {
                 Partial {
                     rhs: json!("whoops"),
                     expect: Err(Error::SumWrongType),
+                },
+            ],
+        );
+    }
+
+    #[test]
+    fn test_big_sum() {
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "bigSum" } }),
+            vec![
+                Partial {
+                    rhs: json!("0"),
+                    expect: Ok(json!("0")),
+                },
+                // RHS number should still produce string.
+                Partial {
+                    rhs: json!(1),
+                    expect: Ok(json!("1")),
+                },
+                // Takes initial value.
+                Partial {
+                    rhs: json!("123"),
+                    expect: Ok(json!("124")),
+                },
+                // Add unsigned.
+                Partial {
+                    rhs: json!("45"),
+                    expect: Ok(json!("169")),
+                },
+                // Add signed.
+                Partial {
+                    rhs: json!(-70),
+                    expect: Ok(json!("99")),
+                },
+                // Floats appear not to work very well, so rejecting them for now.
+                Partial {
+                    rhs: json!(0.1),
+                    expect: Err(Error::SumWrongType),
+                },
+                Partial {
+                    rhs: json!("0.1"),
+                    expect: Ok(json!("99.1")),
+                },
+                // Back to zero.
+                Partial {
+                    rhs: json!("-99.1"),
+                    expect: Ok(json!("0")),
+                },
+                // Add maximum u64.
+                Partial {
+                    rhs: json!(u64::MAX),
+                    expect: Ok(json!(u64::MAX.to_string())),
+                },
+                // Add maximum u64 again.
+                Partial {
+                    rhs: json!(u64::MAX),
+                    expect: Ok(json!("36893488147419103230")),
+                },
+                // Non-numeric type (now with LHS) returns an error.
+                Partial {
+                    rhs: json!("whoops"),
+                    expect: Err(Error::BigSumParserError {
+                        detail: "invalid digit found in string".to_string(),
+                    }),
                 },
             ],
         );
