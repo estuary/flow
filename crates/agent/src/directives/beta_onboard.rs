@@ -52,7 +52,7 @@ pub async fn apply(
     }
     if agent_sql::directives::beta_onboard::tenant_exists(&requested_tenant, &mut *txn).await? {
         return Ok(JobStatus::invalid_claims(anyhow::anyhow!(
-            "requested tenant {} is not available",
+            "The organization name {} is already in use, please choose a different one or contact support@estuary.dev.",
             requested_tenant.as_str()
         )));
     }
@@ -214,7 +214,7 @@ mod test {
             },
             "did": "cc:00:00:00:00:00:00:00",
             "status": {
-              "error": "requested tenant TakenTeNaNt is not available",
+              "error": "The organization name TakenTeNaNt is already in use, please choose a different one or contact support@estuary.dev.",
               "type": "invalidClaims"
             }
           },
