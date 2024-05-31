@@ -21,7 +21,7 @@ In the future, other open-source materialization connectors from third parties c
   * [Configuration](./amazon-redshift.md)
   * Package - ghcr.io/estuary/materialize-redshift:dev
 * Amazon SQL Server
-  * [Configuration](./amazon-rds-sqlserver.md)
+  * [Configuration](./SQLServer/amazon-rds-sqlserver.md)
   * Package - ghcr.io/estuary/materialize-amazon-rds-sqlserver:dev
 * Apache Parquet in S3
   * [Configuration](./apache-parquet.md)
@@ -44,7 +44,7 @@ In the future, other open-source materialization connectors from third parties c
   * [Configuration](./google-pubsub.md)
   * Package - ghcr.io/estuary/materialize-google-pubsub:dev
 * Google Cloud SQL Server
-  * [Configuration](./google-cloud-sql-sqlserver.md)
+  * [Configuration](./SQLServer/google-cloud-sql-sqlserver.md)
   * Package = ghcr.io/estuary/materialize-google-cloud-sql-sqlserver:dev
 * MongoDB
   * [Configuration](./mongodb.md)
