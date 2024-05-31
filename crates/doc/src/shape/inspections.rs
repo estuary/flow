@@ -1,7 +1,7 @@
 /// This module implements various inspections which can be performed over Shapes.
 use super::*;
 use crate::reduce::Strategy;
-use json::{LocatedProperty, Location};
+use json::{schema::formats::Format, LocatedProperty, Location};
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -9,7 +9,7 @@ pub enum Error {
     ImpossibleMustExist(String),
     #[error("'{0}' has reduction strategy, but its parent does not")]
     ChildWithoutParentReduction(String),
-    #[error("{0} has 'sum' reduction strategy, restricted to numbers, but has types {1:?}")]
+    #[error("{0} has 'sum' reduction strategy (restricted to integers, numbers and strings with `format: integer` or `format: number`) but has types {1:?}")]
     SumNotNumber(String, types::Set),
     #[error(
         "{0} has 'merge' reduction strategy, restricted to objects & arrays, but has types {1:?}"
@@ -80,13 +80,14 @@ impl Shape {
             }
         };
 
-        if matches!(self.reduction, Reduction::Strategy(Strategy::Sum))
-            && self.type_ - types::INT_OR_FRAC != types::INVALID
-        {
-            out.push(Error::SumNotNumber(
-                loc.pointer_str().to_string(),
-                self.type_,
-            ));
+        if matches!(self.reduction, Reduction::Strategy(Strategy::Sum)) {
+            match (self.type_ - types::INT_OR_FRAC, &self.string.format) {
+                (types::INVALID, _) => (), // Okay (native numeric only).
+                (types::STRING, Some(Format::Number) | Some(Format::Integer)) => (), // Okay (string-formatted numeric).
+                (type_, _) => {
+                    out.push(Error::SumNotNumber(loc.pointer_str().to_string(), type_));
+                }
+            }
         }
         if matches!(self.reduction, Reduction::Strategy(Strategy::Merge(_)))
             && self.type_ - (types::OBJECT | types::ARRAY) != types::INVALID
@@ -145,6 +146,11 @@ mod test {
         type: object
         reduce: {strategy: merge}
         properties:
+            sum-right-type:
+                reduce: {strategy: sum}
+                type: [number, string]
+                format: integer
+
             sum-wrong-type:
                 reduce: {strategy: sum}
                 type: [number, string]
@@ -207,10 +213,7 @@ mod test {
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
                 Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
                 Error::ImpossibleMustExist("/nested-array/1".to_owned()),
-                Error::SumNotNumber(
-                    "/sum-wrong-type".to_owned(),
-                    types::INT_OR_FRAC | types::STRING
-                ),
+                Error::SumNotNumber("/sum-wrong-type".to_owned(), types::STRING),
                 Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
             ]
