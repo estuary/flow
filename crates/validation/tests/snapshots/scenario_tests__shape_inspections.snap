@@ -17,7 +17,7 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/schema,
-        error: /str has 'sum' reduction strategy, restricted to numbers, but has types "string",
+        error: /str has 'sum' reduction strategy (restricted to integers, numbers and strings with `format: integer` or `format: number`) but has types "string",
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/key/0,
@@ -37,7 +37,7 @@ expression: errors
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
-        error: /str has 'sum' reduction strategy, restricted to numbers, but has types "string",
+        error: /str has 'sum' reduction strategy (restricted to integers, numbers and strings with `format: integer` or `format: number`) but has types "string",
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
