@@ -116,7 +116,6 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 3. Note the following important items for configuration:
 
    * Find the instance's host under Server Name. The port is always `1433`. Together, you'll use the host:port as the `address` property when you configure the connector.
-   * Format `user` as `username@databasename`; for example, `flow_capture@myazuredb`.
 
 
 ## Configuration

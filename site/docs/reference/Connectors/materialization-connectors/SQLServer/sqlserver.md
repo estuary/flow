@@ -73,7 +73,7 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 3. Note the following important items for configuration:
 
    * Find the instance's host under Server Name. The port is always `1433`. Together, you'll use the host:port as the `address` property when you configure the connector.
-   * Format `user` as `username@databasename`; for example, `flow_materialize@myazuredb`.
+
 
 
 ## Configuration
