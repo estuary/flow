@@ -26,6 +26,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * Amazon Kinesis
   * [Configuration](./amazon-kinesis.md)
   * Package — ghcr.io/estuary/source-kinesis:dev
+* Amazon RDS SQL Server
+  * [Configuration](./amazon-rds-sqlserver.md)
+  * Package - ghcr.io/estuary/source-amazon-rds-sqlserver
 * Amazon S3
   * [Configuration](./amazon-s3.md)
   * Package — ghcr.io/estuary/source-s3:dev
@@ -35,6 +38,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * Azure Blob Storage
   * [Configuration](./azure-blob-storage.md)
   * Package — ghcr.io/estuary/azure-blob-storage:dev
+* Azure SQL Server
+  * [Configuration](./SQLServer/)
+  * Package - ghcr.io/estuary/source-azure-sqlserver:dev
 * BigQuery
   * [Configuration](./bigquery-batch.md)
   * Package — ghcr.io/estuary/source-bigquery-batch:dev
@@ -44,6 +50,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * Google Firestore
   * [Configuration](./google-firestore.md)
   * Package - ghcr.io/estuary/source-firestore:dev
+* Google Cloud SQL Server
+  * [Configuration](./google-cloud-sqlserver.md)
+  * Package - ghcr.ioe/estuary/source-google-cloud-sql-sqlserver:md
 * HTTP file
   * [Configuration](./http-file.md)
   * Package - ghcr.io/estuary/source-http-file:dev
