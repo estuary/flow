@@ -14,6 +14,8 @@ This connector supports all Supabase PostgreSQL instances.
 ## Prerequisites
 
 You'll need a Supabase PostgreSQL database setup with the following:
+* A Supabase IPv4 address and direct connection hostname which bypasses the Supabase connection pooler.
+  See [Direct Database Connection](#direct-database-connection) for details.
 * [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
 * [User role](https://www.postgresql.org/docs/current/sql-createrole.html) with `REPLICATION` attribute
 * A [replication slot](https://www.postgresql.org/docs/current/warm-standby.html#STREAMING-REPLICATION-SLOTS). This represents a “cursor” into the PostgreSQL write-ahead log from which change events can be read.
@@ -29,9 +31,22 @@ You'll need a Supabase PostgreSQL database setup with the following:
 To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see [configure connections with SSH tunneling](/guides/connect-network/).
 :::
 
-Additional Prequisties:
+### Direct Database Connection
 
-* A Supabase IPV4 address.  This can be configured under "Project Settings" -> "Add ons" within Supabase's UI.
+By default, Supabase guides users into connecting to their database through a
+[Connection Pooler](https://supabase.com/docs/guides/database/connecting-to-postgres#connection-pooler).
+Connection poolers are helpful for many applications, but unfortunately the pooler
+does not support the CDC replication features that this connector relies on.
+
+This capture connector requires a direct connection address for your database.
+This address can be found by navigating to `Settings > Database` in the Supabase
+dashboard and then making sure that the `Display connection pooler` checkbox is
+**unchecked** so that the appropriate connection information is shown for a direct
+connection.
+
+You will also need to configure a [dedicated IPv4 address](https://supabase.com/docs/guides/platform/ipv4-address)
+for your database, if you have not already done so. This can be configured under `Project Settings > Add Ons > Dedicated IPv4 address`
+in the Supabase dashboard.
 
 ## Setup
 
