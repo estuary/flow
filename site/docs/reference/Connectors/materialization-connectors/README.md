@@ -16,13 +16,18 @@ In the future, other open-source materialization connectors from third parties c
   * Package - ghcr.io/estuary/materialize-alloydb:dev
 * Amazon DynamoDB
   * [Configuration](./amazon-dynamodb.md)
-  * Package - ghrc.io/estuary/materialize-dynamodb:dev
+  * Package - ghcr.io/estuary/materialize-dynamodb:dev
 * Amazon Redshift
   * [Configuration](./amazon-redshift.md)
-  * Package - ghrc.io/estuary/materialize-redshift:dev
+  * Package - ghcr.io/estuary/materialize-redshift:dev
+* Amazon SQL Server
+  * [Configuration](./SQLServer/amazon-rds-sqlserver.md)
+  * Package - ghcr.io/estuary/materialize-amazon-rds-sqlserver:dev
 * Apache Parquet in S3
   * [Configuration](./apache-parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
+* Azure SQL Server
+  * [Configuration](./SQLServer/)
 * Databricks
   * [Configuration](./databricks.md)
   * Package — ghcr.io/estuary/materialize-databricks:dev
@@ -38,6 +43,9 @@ In the future, other open-source materialization connectors from third parties c
 * Google Cloud Pub/Sub
   * [Configuration](./google-pubsub.md)
   * Package - ghcr.io/estuary/materialize-google-pubsub:dev
+* Google Cloud SQL Server
+  * [Configuration](./SQLServer/google-cloud-sql-sqlserver.md)
+  * Package = ghcr.io/estuary/materialize-google-cloud-sql-sqlserver:dev
 * MongoDB
   * [Configuration](./mongodb.md)
   * Package - ghcr.io/estuary/materialize-mongodb:dev
