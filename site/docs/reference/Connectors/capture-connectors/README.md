@@ -51,8 +51,8 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   * [Configuration](./google-firestore.md)
   * Package - ghcr.io/estuary/source-firestore:dev
 * Google Cloud SQL Server
-  * [Configuration](./SQLServer/google-cloud-sqlserver.md)
-  * Package - ghcr.ioe/estuary/source-google-cloud-sql-sqlserver:md
+  * [Configuration](./SQLServer/google-cloud-sql-sqlserver.md)
+  * Package - ghcr.io/estuary/source-google-cloud-sql-sqlserver:md
 * HTTP file
   * [Configuration](./http-file.md)
   * Package - ghcr.io/estuary/source-http-file:dev
