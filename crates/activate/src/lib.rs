@@ -524,24 +524,35 @@ mod test {
         ),)
     }
 
+    async fn managed_build(source: url::Url) -> build::Output {
+        let file_root = std::path::Path::new("/");
+        let draft = build::load(&source, file_root).await;
+        if !draft.errors.is_empty() {
+            return build::Output::new(draft, Default::default(), Default::default());
+        }
+
+        build::validate(
+            models::Id::new([32; 8]), // pub_id
+            models::Id::new([1; 8]),  // build_id
+            true,                     // allow_local
+            "",                       // connector_network
+            true,                     // generate_ops_collections
+            ops::tracing_log_handler,
+            false, // don't no-op validations
+            false, // don't no-op validations
+            false, // don't no-op validations
+            &build::project_root(&source),
+            draft,
+            tables::LiveCatalog::default(),
+        )
+        .await
+    }
+
     #[tokio::test]
     async fn fixture_subtests() {
         let source = build::arg_source_to_url("./src/test.flow.yaml", false).unwrap();
 
-        let build::Output { built, .. } = build::managed_build(
-            models::Id::new([32; 8]),
-            models::Id::new([1; 8]),
-            true,
-            String::new(),
-            Box::new(build::NoOpCatalogResolver),
-            "/".into(),
-            ops::tracing_log_handler,
-            build::project_root(&source),
-            source,
-        )
-        .await
-        .into_result()
-        .unwrap();
+        let build::Output { built, .. } = managed_build(source).await.into_result().unwrap();
 
         let tables::BuiltCollection { spec, .. } = built
             .built_collections

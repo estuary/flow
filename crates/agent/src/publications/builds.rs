@@ -364,13 +364,15 @@ pub async fn deploy_build(
     // Activate non-deleted drafts plus all non-test expanded specifications.
 
     let activate_names = built
-        .built_captures()
+        .built
+        .built_captures
         .iter()
         .filter(|r| !r.is_delete())
         .map(|r| format!("--name={}", r.catalog_name()))
         .chain(
             built
-                .built_collections()
+                .built
+                .built_collections
                 .iter()
                 .filter(|r| {
                     !r.is_delete() && r.model().map(|m| m.derive.is_some()).unwrap_or_default()
@@ -379,7 +381,8 @@ pub async fn deploy_build(
         )
         .chain(
             built
-                .built_materializations()
+                .built
+                .built_materializations
                 .iter()
                 .filter(|r| !r.is_delete())
                 .map(|r| format!("--name={}", r.catalog_name())),

@@ -124,7 +124,12 @@ async fn update_drafted_live_spec_flows(
     build: &build::Output,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
-    for r in build.built_captures().iter().filter(|r| !r.is_unchanged()) {
+    for r in build
+        .built
+        .built_captures
+        .iter()
+        .filter(|r| !r.is_unchanged())
+    {
         update_live_spec_flows(
             &r.catalog_name(),
             agent_sql::CatalogType::Capture,
@@ -136,7 +141,8 @@ async fn update_drafted_live_spec_flows(
         .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
     }
     for r in build
-        .built_collections()
+        .built
+        .built_collections
         .iter()
         .filter(|r| !r.is_unchanged())
     {
@@ -151,7 +157,8 @@ async fn update_drafted_live_spec_flows(
         .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
     }
     for r in build
-        .built_materializations()
+        .built
+        .built_materializations
         .iter()
         .filter(|r| !r.is_unchanged())
     {
@@ -165,7 +172,7 @@ async fn update_drafted_live_spec_flows(
         .await
         .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
     }
-    for r in build.built_tests().iter().filter(|r| !r.is_unchanged()) {
+    for r in build.built.built_tests.iter().filter(|r| !r.is_unchanged()) {
         update_live_spec_flows(
             &r.catalog_name(),
             agent_sql::CatalogType::Test,
@@ -195,7 +202,12 @@ async fn update_live_specs(
     let mut images = Vec::with_capacity(n_specs);
     let mut image_tags = Vec::with_capacity(n_specs);
 
-    for r in output.built_captures().iter().filter(|r| !r.is_unchanged()) {
+    for r in output
+        .built
+        .built_captures
+        .iter()
+        .filter(|r| !r.is_unchanged())
+    {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Capture);
         models.push(to_raw_value(r.model(), agent_sql::TextJson));
@@ -208,7 +220,8 @@ async fn update_live_specs(
         image_tags.push(image_tag);
     }
     for r in output
-        .built_collections()
+        .built
+        .built_collections
         .iter()
         .filter(|r| !r.is_unchanged())
     {
@@ -224,7 +237,8 @@ async fn update_live_specs(
         image_tags.push(image_tag);
     }
     for r in output
-        .built_materializations()
+        .built
+        .built_materializations
         .iter()
         .filter(|r| !r.is_unchanged())
     {
@@ -239,7 +253,12 @@ async fn update_live_specs(
         images.push(image_name);
         image_tags.push(image_tag);
     }
-    for r in output.built_tests().iter().filter(|r| !r.is_unchanged()) {
+    for r in output
+        .built
+        .built_tests
+        .iter()
+        .filter(|r| !r.is_unchanged())
+    {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Test);
         models.push(to_raw_value(r.model(), agent_sql::TextJson));
@@ -373,7 +392,12 @@ async fn insert_publication_specs(
     built: &build::Output,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
-    for r in built.built_captures().iter().filter(|r| !r.is_unchanged()) {
+    for r in built
+        .built
+        .built_captures
+        .iter()
+        .filter(|r| !r.is_unchanged())
+    {
         let spec_id = *live_spec_ids
             .get(r.catalog_name().as_str())
             .expect("live_spec_id must be Some if spec is changed");
@@ -391,7 +415,8 @@ async fn insert_publication_specs(
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
     for r in built
-        .built_collections()
+        .built
+        .built_collections
         .iter()
         .filter(|r| !r.is_unchanged())
     {
@@ -412,7 +437,8 @@ async fn insert_publication_specs(
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
     for r in built
-        .built_materializations()
+        .built
+        .built_materializations
         .iter()
         .filter(|r| !r.is_unchanged())
     {
@@ -432,7 +458,7 @@ async fn insert_publication_specs(
         .await
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
-    for r in built.built_tests().iter().filter(|r| !r.is_unchanged()) {
+    for r in built.built.built_tests.iter().filter(|r| !r.is_unchanged()) {
         let spec_id = *live_spec_ids
             .get(r.catalog_name().as_str())
             .expect("live_spec_id must be Some if spec is changed");
@@ -465,27 +491,31 @@ async fn verify_unchanged_revisions(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<LockFailure>> {
     let mut expected: BTreeMap<&str, Id> = output
-        .built_captures()
+        .built
+        .built_captures
         .iter()
         .filter(|r| r.is_unchanged())
         .map(|r| (r.catalog_name().as_str(), r.expect_pub_id()))
         .chain(
             output
-                .built_collections()
+                .built
+                .built_collections
                 .iter()
                 .filter(|r| r.is_unchanged())
                 .map(|r| (r.catalog_name().as_str(), r.expect_pub_id())),
         )
         .chain(
             output
-                .built_materializations()
+                .built
+                .built_materializations
                 .iter()
                 .filter(|r| r.is_unchanged())
                 .map(|r| (r.catalog_name().as_str(), r.expect_pub_id())),
         )
         .chain(
             output
-                .built_tests()
+                .built
+                .built_tests
                 .iter()
                 .filter(|r| r.is_unchanged())
                 .map(|r| (r.catalog_name().as_str(), r.expect_pub_id())),
@@ -836,7 +866,7 @@ pub async fn add_built_specs_to_draft_specs(
 ) -> Result<(), sqlx::Error> {
     // Possible optimization, which I'm not doing right now: collect vecs of all the
     // prepared statement parameters and update all draft specs in a single query.
-    for collection in build_output.built_collections().iter() {
+    for collection in build_output.built.built_collections.iter() {
         if !collection.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,
@@ -849,7 +879,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for capture in build_output.built_captures().iter() {
+    for capture in build_output.built.built_captures.iter() {
         if !capture.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,
@@ -862,7 +892,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for materialization in build_output.built_materializations().iter() {
+    for materialization in build_output.built.built_materializations.iter() {
         if !materialization.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,
@@ -875,7 +905,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for test in build_output.built_tests().iter() {
+    for test in build_output.built.built_tests.iter() {
         if !test.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,
