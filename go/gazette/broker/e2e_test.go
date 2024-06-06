@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"testing"
 
@@ -334,7 +335,11 @@ func applySpoolContentFixture(r *replica) {
 // may see "transport is closing" errors due to the loopback ClientConn being closed
 // before a final EOF response is read.
 func newDialedClient(t *testing.T, bk *testBroker) (*grpc.ClientConn, pb.JournalClient) {
-	var conn, err = grpc.Dial(bk.srv.Endpoint().URL().Host, grpc.WithInsecure())
+	var tlsConfig = &tls.Config{InsecureSkipVerify: true} // Allow self-signed.
+
+	var conn, err = grpc.Dial(bk.srv.Endpoint().URL().Host,
+		grpc.WithTransportCredentials(pb.NewDispatchedCredentials(tlsConfig, bk.srv.Endpoint())),
+	)
 	require.NoError(t, err)
 	return conn, pb.NewJournalClient(conn)
 }

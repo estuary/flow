@@ -1,9 +1,8 @@
-// +build !windows
+//go:build !windows
 
 package fragment
 
 import (
-	"io/ioutil"
 	"os"
 )
 
@@ -14,8 +13,8 @@ import (
 // to the OS after an explicit call to Close, or if the os.File is garbage-
 // collected (such that the runtime finalizer calls Close on our behalf).
 var newSpoolFile = func() (File, error) {
-	if f, err := ioutil.TempFile("", "spool"); err != nil {
-		return f, err
+	if f, err := os.CreateTemp("", "spool"); err != nil {
+		return nil, err
 	} else {
 		return f, os.Remove(f.Name())
 	}

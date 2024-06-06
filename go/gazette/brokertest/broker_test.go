@@ -3,6 +3,7 @@ package brokertest
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
 	"testing"
@@ -248,7 +249,11 @@ func updateReplication(t require.TestingT, ctx context.Context, bk pb.JournalCli
 // may see "transport is closing" errors due to the loopback ClientConn being closed
 // before the final EOF response is read.
 func newDialedClient(t *testing.T, bk *Broker) (*grpc.ClientConn, pb.RoutedJournalClient) {
-	var conn, err = grpc.Dial(bk.Endpoint().URL().Host, grpc.WithInsecure())
+	var tlsConfig = &tls.Config{InsecureSkipVerify: true} // Allow self-signed.
+
+	var conn, err = grpc.Dial(bk.Endpoint().URL().Host,
+		grpc.WithTransportCredentials(pb.NewDispatchedCredentials(tlsConfig, bk.Endpoint())),
+	)
 	require.NoError(t, err)
 	return conn, pb.NewRoutedJournalClient(pb.NewJournalClient(conn), pb.NoopDispatchRouter{})
 }

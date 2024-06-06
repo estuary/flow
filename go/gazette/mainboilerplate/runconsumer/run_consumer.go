@@ -6,6 +6,7 @@ package runconsumer
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"os/signal"
@@ -120,8 +121,21 @@ func (sc Cmd) Execute(args []string) error {
 	}).Info("consumer configuration")
 	pb.RegisterGRPCDispatcher(bc.Consumer.Zone)
 
+	var err error
+	var serverTLS, peerTLS *tls.Config
+
+	if bc.Consumer.ServerCertFile != "" {
+		serverTLS, err = server.BuildTLSConfig(
+			bc.Consumer.ServerCertFile, bc.Consumer.ServerCertKeyFile, bc.Consumer.ServerCAFile)
+		mbp.Must(err, "building server TLS config")
+
+		peerTLS, err = server.BuildTLSConfig(
+			bc.Consumer.PeerCertFile, bc.Consumer.PeerCertKeyFile, bc.Consumer.PeerCAFile)
+		mbp.Must(err, "building peer TLS config")
+	}
+
 	// Bind our server listener, grabbing a random available port if Port is zero.
-	var srv, err = server.New("", bc.Consumer.Port)
+	srv, err := server.New("", bc.Consumer.Host, bc.Consumer.Port, serverTLS, peerTLS)
 	mbp.Must(err, "building Server instance")
 
 	if bc.Broker.Cache.Size <= 0 {

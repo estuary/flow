@@ -2,13 +2,18 @@ package protocol
 
 import (
 	"context"
+	"crypto/tls"
+	"net"
 	"sync"
 	"time"
 
 	"golang.org/x/net/trace"
+	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/status"
 )
@@ -56,6 +61,15 @@ func WithDispatchItemRoute(ctx context.Context, dr DispatchRouter, item string, 
 	}
 	return context.WithValue(ctx, dispatchRouteCtxKey{},
 		dispatchRoute{route: rt, id: id, item: item, DispatchRouter: dr})
+}
+
+// GetDispatchRoute returns a Route and ProcessSpec_ID which haven been previously attached to the Context.
+func GetDispatchRoute(ctx context.Context) (Route, ProcessSpec_ID, bool) {
+	if dr, ok := ctx.Value(dispatchRouteCtxKey{}).(dispatchRoute); ok {
+		return dr.route, dr.id, true
+	} else {
+		return Route{}, ProcessSpec_ID{}, false
+	}
 }
 
 // DispatchRouter routes item to Routes, and observes item Routes.
@@ -191,9 +205,7 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 		// Initiate a new SubConn to the ProcessSpec_ID.
 		var err error
 		if msc.subConn, err = d.cc.NewSubConn(
-			[]resolver.Address{{
-				Addr: d.idToAddr(dr.route, dispatchID),
-			}},
+			[]resolver.Address{d.idToAddr(dr.route, dispatchID)},
 			balancer.NewSubConnOptions{
 				StateListener: func(state balancer.SubConnState) {
 					d.updateSubConnState(msc.subConn, state)
@@ -288,13 +300,16 @@ func (d *dispatcher) less(lhs, rhs ProcessSpec_ID) bool {
 }
 
 // idToAddr returns a suitable address for the ID.
-func (d *dispatcher) idToAddr(rt Route, id ProcessSpec_ID) string {
+func (d *dispatcher) idToAddr(rt Route, id ProcessSpec_ID) resolver.Address {
 	if id == (ProcessSpec_ID{}) {
-		return d.cc.Target() // Use the default service address.
+		return resolver.Address{Addr: d.cc.Target()} // Use the default service address.
 	}
 	for i := range rt.Members {
 		if rt.Members[i] == id {
-			return rt.Endpoints[i].GRPCAddr()
+			return resolver.Address{
+				Addr:       rt.Endpoints[i].GRPCAddr(),
+				Attributes: attributes.New("endpoint", rt.Endpoints[i]),
+			}
 		}
 	}
 	panic("ProcessSpec_ID must be in Route.Members")
@@ -389,3 +404,32 @@ type (
 )
 
 var dispatchSweepInterval = time.Second * 30
+
+// NewDispatchedCredentials returns a TransportCredentials implementation which
+// dynamically uses TLS or insecure credentials depending on the scheme of the
+// dispatched endpoint. It must be used with the dispatch balancer.
+func NewDispatchedCredentials(tlsConfig *tls.Config, serviceEndpoint Endpoint) credentials.TransportCredentials {
+	return &dispatcherCredentials{
+		TransportCredentials: credentials.NewTLS(tlsConfig),
+		serviceEndpoint:      serviceEndpoint,
+	}
+}
+
+type dispatcherCredentials struct {
+	credentials.TransportCredentials
+	serviceEndpoint Endpoint
+}
+
+func (d *dispatcherCredentials) ClientHandshake(ctx context.Context, authority string, conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	var endpoint = d.serviceEndpoint
+
+	if v := credentials.ClientHandshakeInfoFromContext(ctx).Attributes.Value("endpoint"); v != nil {
+		endpoint = v.(Endpoint)
+	}
+
+	if u := endpoint.URL(); u.Scheme == "https" {
+		return d.TransportCredentials.ClientHandshake(ctx, u.Host, conn)
+	} else {
+		return insecure.NewCredentials().ClientHandshake(ctx, u.Host, conn)
+	}
+}

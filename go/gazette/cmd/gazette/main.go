@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"os"
 	"os/signal"
 	"syscall"
@@ -56,8 +57,21 @@ func (cmdServe) Execute(args []string) error {
 	}).Info("broker configuration")
 	pb.RegisterGRPCDispatcher(Config.Broker.Zone)
 
+	var err error
+	var serverTLS, peerTLS *tls.Config
+
+	if Config.Broker.ServerCertFile != "" {
+		serverTLS, err = server.BuildTLSConfig(
+			Config.Broker.ServerCertFile, Config.Broker.ServerCertKeyFile, Config.Broker.ServerCAFile)
+		mbp.Must(err, "building server TLS config")
+
+		peerTLS, err = server.BuildTLSConfig(
+			Config.Broker.PeerCertFile, Config.Broker.PeerCertKeyFile, Config.Broker.PeerCAFile)
+		mbp.Must(err, "building peer TLS config")
+	}
+
 	// Bind our server listener, grabbing a random available port if Port is zero.
-	var srv, err = server.New("", Config.Broker.Port)
+	srv, err := server.New("", Config.Broker.Host, Config.Broker.Port, serverTLS, peerTLS)
 	mbp.Must(err, "building Server instance")
 
 	// If a file:// root was provided, ensure it exists and apply it.

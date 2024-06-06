@@ -1,9 +1,8 @@
-// +build windows
+//go:build windows
 
 package fragment
 
 import (
-	"io/ioutil"
 	"os"
 	"runtime"
 
@@ -15,8 +14,8 @@ import (
 // behavior is used because Windows does not support removing the one-and-only
 // hard link of a currently-open file.
 var newSpoolFile = func() (File, error) {
-	if f, err := ioutil.TempFile("", "spool"); err != nil {
-		return f, err
+	if f, err := os.CreateTemp("", "spool"); err != nil {
+		return nil, err
 	} else {
 		runtime.SetFinalizer(f, removeFileFinalizer)
 		return f, nil

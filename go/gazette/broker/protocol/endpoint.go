@@ -8,8 +8,8 @@ import (
 // scheme defines the network transport and semantics of the host, path,
 // and query components. At present, supported schemes are:
 //
-//  * http://host(:port)/path?query
-//
+//   - http://host(:port)/path?query
+//   - unix://host/absolute/path/to/unix/domain/socket
 type Endpoint string
 
 // Validate returns an error if the Endpoint is not well-formed.
@@ -34,6 +34,10 @@ func (ep Endpoint) GRPCAddr() string {
 	var addr string
 	if u := ep.URL(); u.Scheme == "unix" {
 		addr = "unix://" + u.Path
+	} else if u.Port() == "" && u.Scheme == "https" {
+		addr = u.Host + ":443"
+	} else if u.Port() == "" && u.Scheme == "http" {
+		addr = u.Host + ":80"
 	} else {
 		addr = u.Host
 	}

@@ -2,10 +2,14 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -15,16 +19,16 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/task"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/backoff"
 )
 
 // Server bundles gRPC & HTTP servers, multiplexed over a single bound TCP
 // socket (using CMux). Additional protocols may be added to the Server by
 // interacting directly with its provided CMux.
 type Server struct {
-	// RawListener is the bound listener of the Server.
-	RawListener net.Listener
-	// CMux wraps RawListener to provide connection protocol multiplexing over
+	// Advertised Endpoint of this Server.
+	endpoint pb.Endpoint
+	// CMux wraps a listener to provide connection protocol multiplexing over
 	// a single bound socket. gRPC and HTTP Listeners are provided by default.
 	// Additional Listeners may be added directly via CMux.Match() -- though
 	// it is then the user's responsibility to Serve the resulting Listeners.
@@ -43,37 +47,65 @@ type Server struct {
 	httpServer http.Server
 }
 
-// New builds and returns a Server of the given TCP network interface |iface|
-// and |port|. |port| may be empty, in which case a random free port is assigned.
-func New(iface string, port string) (*Server, error) {
-	var network, addr string
+// New builds and returns a Server of the given TCP network interface `iface`
+// and `port` for serving traffic directed at `host`.
+// `port` may be empty, in which case a random free port is assigned.
+// if `tlsConfig` is non-nil, the Server uses TLS (and is otherwise in the clear).
+func New(iface, host, port string, serverTLS, peerTLS *tls.Config) (*Server, error) {
+	var network, bind string
 	if port == "" {
-		network, addr = "tcp", fmt.Sprintf("%s:0", iface) // Assign a random free port.
+		network, bind = "tcp", fmt.Sprintf("%s:0", iface) // Assign a random free port.
 	} else if u, err := url.Parse(port); err == nil && u.Scheme == "unix" {
-		network, addr = "unix", u.Path
+		network, bind = "unix", u.Path
+
+		// Ignore TLS for UDS. It's already local, and clients cannot use the
+		// advertised endpoint scheme to determine whether to expect TLS.
+		serverTLS, peerTLS = nil, nil
 	} else {
-		network, addr = "tcp", fmt.Sprintf("%s:%s", iface, port)
+		network, bind = "tcp", fmt.Sprintf("%s:%s", iface, port)
 	}
 
-	var raw, err = net.Listen(network, addr)
+	var listener, err = net.Listen(network, bind)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to bind service address (%s)", addr)
+		return nil, errors.Wrapf(err, "failed to bind service address (%s)", bind)
 	}
-	return NewFromListener(raw)
-}
 
-// NewFromListener builds a new Server using the provided Listener, which can be customized by the
-// caller. This is intended to support servers wishing to use TLS.
-func NewFromListener(listener net.Listener) (*Server, error) {
+	// If no host was specified, use the hostname.
+	if host == "" {
+		if host, err = os.Hostname(); err != nil {
+			return nil, err
+		}
+	}
+	// If no port was specified, query the dynamic port which we bound.
+	if port == "" {
+		port = strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	}
+
+	var endpoint string
+	if network == "unix" {
+		endpoint = fmt.Sprintf("unix://%s%s", host, bind)
+	} else {
+		endpoint = fmt.Sprintf("://%s:%s", host, port)
+
+		if serverTLS != nil {
+			endpoint = "https" + endpoint
+		} else {
+			endpoint = "http" + endpoint
+		}
+	}
+
 	var srv = &Server{
-		HTTPMux: http.DefaultServeMux,
+		endpoint: pb.Endpoint(endpoint),
+		HTTPMux:  http.DefaultServeMux,
 		GRPCServer: grpc.NewServer(
 			grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 			grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
 		),
-		RawListener: listener,
 	}
-	srv.CMux = cmux.New(srv.RawListener)
+	if serverTLS != nil {
+		listener = tls.NewListener(listener, serverTLS)
+	}
+	srv.CMux = cmux.New(listener)
 
 	srv.CMux.HandleError(func(err error) bool {
 		if _, ok := err.(net.Error); !ok {
@@ -94,19 +126,21 @@ func NewFromListener(listener net.Listener) (*Server, error) {
 	srv.GRPCListener = srv.CMux.MatchWithWriters(
 		cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
 
-	var err error
+	// This grpc.ClientConn connects to this server's loopback, and also
+	// to peer server addresses via the dispatch balancer. It has particular
+	// knowledge of what addresses *should* be reach-able (from Etcd
+	// advertisements). Use an aggressive back-off for server-to-server
+	// connections, as it's crucial for quick cluster recovery from
+	// partitions, etc.
+	var backoffConfig = backoff.DefaultConfig
+	backoffConfig.MaxDelay = time.Millisecond * 500
+
 	srv.GRPCLoopback, err = grpc.DialContext(
 		context.Background(),
-		srv.RawListener.Addr().String(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		srv.endpoint.GRPCAddr(),
+		grpc.WithTransportCredentials(pb.NewDispatchedCredentials(peerTLS, srv.endpoint)),
+		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoffConfig}),
 		grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"loadBalancingConfig": [{"%s":{}}]}`, pb.DispatcherGRPCBalancerName)),
-		// This grpc.ClientConn connects to this server's loopback, and also
-		// to peer server addresses via the dispatch balancer. It has particular
-		// knowledge of what addresses *should* be reach-able (from Etcd
-		// advertisements). Use an aggressive back-off for server-to-server
-		// connections, as it's crucial for quick cluster recovery from
-		// partitions, etc.
-		grpc.WithBackoffMaxDelay(time.Millisecond*500),
 		// Instrument client for gRPC metric collection.
 		grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
 		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor),
@@ -122,10 +156,43 @@ func NewFromListener(listener net.Listener) (*Server, error) {
 	return srv, nil
 }
 
+func BuildTLSConfig(certPath, keyPath, trustedCAPath string) (*tls.Config, error) {
+	var tlsConfig = &tls.Config{
+		ClientAuth: tls.VerifyClientCertIfGiven,
+	}
+
+	// Load a presented certificate and key.
+	if certPath != "" {
+		var cert, err = tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load certificate and key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	// Load a trusted Certificate Authority, which is required for clients.
+	if trustedCAPath != "" {
+		caCert, err := os.ReadFile(trustedCAPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+
+		var caCertPool = x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to append CA certificate to pool")
+		}
+		tlsConfig.ClientCAs = caCertPool
+		tlsConfig.RootCAs = caCertPool
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+
+	return tlsConfig, nil
+}
+
 // MustLoopback builds and returns a new Server instance bound to a random
 // port on the loopback interface. It panics on error.
 func MustLoopback() *Server {
-	if srv, err := New("127.0.0.1", ""); err != nil {
+	if srv, err := New("127.0.0.1", "127.0.0.1", "", nil, nil); err != nil {
 		log.WithField("err", err).Panic("failed to build Server")
 		panic("not reached")
 	} else {
@@ -135,7 +202,7 @@ func MustLoopback() *Server {
 
 // Endpoint of the Server.
 func (s *Server) Endpoint() pb.Endpoint {
-	return pb.Endpoint("http://" + s.RawListener.Addr().String())
+	return s.endpoint
 }
 
 // QueueTasks serving the CMux, HTTP, and gRPC component servers onto the task.Group.
