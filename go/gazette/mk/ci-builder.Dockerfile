@@ -2,7 +2,7 @@
 # this file. This works only so long as there are no _other_ files that go into the final image.
 # So if you add any ADD or COPY directives, be sure to update the cache key in the github actions
 # workflow yaml
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 RUN apt-get update -y \
  && apt-get upgrade -y \
@@ -23,8 +23,8 @@ RUN apt-get update -y \
       zip \
  && rm -rf /var/lib/apt/lists/*
 
-ARG GOLANG_VERSION=1.19.13
-ARG GOLANG_SHA256=4643d4c29c55f53fa0349367d7f1bb5ca554ea6ef528c146825b0f8464e2e668
+ARG GOLANG_VERSION=1.22.4
+ARG GOLANG_SHA256=ba79d4526102575196273416239cca418a651e049c2b099f3159db85e7bade7d
 
 ARG DOCKER_VERSION=19.03.8
 ARG DOCKER_SHA256=7f4115dc6a3c19c917f8b9664d7b51c904def1c984e082c4600097433323cf6f
