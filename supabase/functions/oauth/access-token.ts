@@ -11,10 +11,29 @@ interface OauthSettings {
 }
 
 export async function accessToken(req: Record<string, any>) {
-    const { state, code_verifier, config, redirect_uri, connector_config, ...params } = req;
+    const { state, code_challenge: incoming_code_challenge, config, redirect_uri, connector_config, ...params } = req;
 
-    const decodedState = JSON.parse(atob(state));
-    const { connector_id } = decodedState;
+    const { data: loadedFlow, error } = await supabaseClient
+        .from("oauth_flows")
+        .select("connector_id,code_verifier,code_challenge")
+        .eq("state", state)
+        .single();
+
+    if (error != null) {
+        returnPostgresError(error);
+    }
+
+    if (incoming_code_challenge !== loadedFlow?.code_challenge) {
+        return new Response(JSON.stringify({ error: "Code challenge mismatch" }), {
+            headers: {
+                ...corsHeaders,
+                "Content-Type": "application/json",
+            },
+            status: 403,
+        });
+    }
+
+    const { connector_id, code_verifier } = loadedFlow;
 
     let data: OauthSettings;
 
@@ -88,6 +107,8 @@ export async function accessToken(req: Record<string, any>) {
         )
         ? {}
         : { "content-type": "application/json" };
+
+    console.log(`Request URL: ${url}. Request body: ${JSON.stringify(body, null, 4)}. Request headers: ${JSON.stringify(headers, null, 4)}`);
 
     const response = await fetch(url, {
         method: "POST",
