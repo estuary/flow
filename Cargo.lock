@@ -2989,26 +2989,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "network-tunnel"
-version = "0.0.0"
-dependencies = [
- "async-process",
- "async-trait",
- "base64 0.13.1",
- "flow_cli_common",
- "futures",
- "rand 0.8.5",
- "schemars",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
 name = "nibble_vec"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

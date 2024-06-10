@@ -183,10 +183,6 @@ ${RUSTBIN}/flowctl:
 ${RUST_MUSL_BIN}/flow-connector-init:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init
 
-.PHONY: ${RUST_MUSL_BIN}/flow-network-tunnel
-${RUST_MUSL_BIN}/flow-network-tunnel:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p network-tunnel
-
 .PHONY: ${RUST_MUSL_BIN}/flow-parser
 ${RUST_MUSL_BIN}/flow-parser:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
@@ -209,7 +205,6 @@ GNU_TARGETS = \
 
 MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-connector-init \
-	${PKGDIR}/bin/flow-network-tunnel \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schemalate
 
@@ -224,9 +219,8 @@ endif
 
 .PHONY: linux-musl-binaries
 linux-musl-binaries: | ${PKGDIR}
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p network-tunnel -p parser -p schemalate
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p parser -p schemalate
 	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-init .build/package/bin/
-	cp -f target/x86_64-unknown-linux-musl/release/flow-network-tunnel .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-parser .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-schemalate .build/package/bin/
 
@@ -247,9 +241,6 @@ ${PKGDIR}:
 # The following binaries are statically linked, so come from a different subdirectory
 ${PKGDIR}/bin/flow-connector-init: ${RUST_MUSL_BIN}/flow-connector-init | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-connector-init $@
-
-${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-network-tunnel $@
 
 ${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-parser $@
@@ -296,11 +287,11 @@ install-tools: ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 .PHONY: rust-gnu-test
 rust-gnu-test:
 	PATH=${PKGDIR}/bin:$$PATH ;\
-	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector-init
+	cargo test --release --locked --workspace --exclude parser --exclude schemalate --exclude connector-init
 
 .PHONY: rust-musl-test
 rust-musl-test:
-	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector-init
+	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package schemalate --package connector-init
 
 # `go` test targets must have PATH-based access to tools (etcd & sops),
 # because the `go` tool compiles tests as binaries within a temp directory,
