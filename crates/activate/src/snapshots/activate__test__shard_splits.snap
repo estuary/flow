@@ -155,7 +155,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -211,7 +211,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -283,7 +283,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -323,7 +323,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -360,7 +360,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -416,7 +416,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -488,7 +488,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -528,7 +528,7 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
