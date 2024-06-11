@@ -49,6 +49,21 @@ impl Client {
 
         check_ok(resp.status(), resp)
     }
+
+    pub async fn unassign(
+        &self,
+        req: consumer::UnassignRequest,
+    ) -> Result<consumer::UnassignResponse, crate::Error> {
+        let mut client = self.router.route(None, false).await?;
+
+        let resp = client
+            .unassign(req)
+            .await
+            .map_err(crate::Error::Grpc)?
+            .into_inner();
+
+        check_ok(resp.status(), resp)
+    }
 }
 
 impl crate::Router<SubClient> {
