@@ -50,7 +50,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -103,7 +103,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -156,7 +156,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -209,7 +209,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/key-begin",
@@ -265,7 +265,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -305,7 +305,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -345,7 +345,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -385,7 +385,7 @@ expression: "(partition_changes, shard_changes, log_changes)"
               },
               {
                 "name": "estuary.dev/build",
-                "value": "01:01:01:01:01:01:01:01"
+                "value": "0101010101010101"
               },
               {
                 "name": "estuary.dev/task-name",
