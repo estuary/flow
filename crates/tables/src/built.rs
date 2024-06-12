@@ -1,3 +1,5 @@
+use crate::{BuiltCaptures, BuiltCollections, BuiltMaterializations, BuiltTests, Errors};
+
 /// BuiltRow is a common trait of rows reflecting built specifications.
 pub trait BuiltRow: crate::Row {
     type ModelDef: models::ModelDef;
@@ -230,5 +232,90 @@ impl BuiltRow for crate::BuiltTest {
     }
     fn previous_spec(&self) -> Option<&Self::BuiltSpec> {
         self.previous_spec.as_ref()
+    }
+}
+
+/// Validations are tables populated by catalog validations of the `validation` crate.
+#[derive(Default, Debug)]
+pub struct Validations {
+    pub built_captures: BuiltCaptures,
+    pub built_collections: BuiltCollections,
+    pub built_materializations: BuiltMaterializations,
+    pub built_tests: BuiltTests,
+    pub errors: Errors,
+}
+
+impl Validations {
+    pub fn all_spec_names(&self) -> impl Iterator<Item = &str> {
+        self.built_captures
+            .iter()
+            .map(|r| r.catalog_name().as_str())
+            .chain(
+                self.built_collections
+                    .iter()
+                    .map(|r| r.catalog_name().as_str()),
+            )
+            .chain(
+                self.built_materializations
+                    .iter()
+                    .map(|r| r.catalog_name().as_str()),
+            )
+            .chain(self.built_tests.iter().map(|r| r.catalog_name().as_str()))
+    }
+
+    pub fn spec_count(&self) -> usize {
+        self.built_captures.len()
+            + self.built_collections.len()
+            + self.built_materializations.len()
+            + self.built_tests.len()
+    }
+}
+
+#[cfg(feature = "persist")]
+impl Validations {
+    pub fn into_result(mut self) -> Result<Self, Errors> {
+        match std::mem::take(&mut self.errors) {
+            errors if errors.is_empty() => Ok(self),
+            errors => Err(errors),
+        }
+    }
+
+    // Access all tables as an array of dynamic TableObj instances.
+    pub fn as_tables(&self) -> Vec<&dyn crate::SqlTableObj> {
+        // This de-structure ensures we can't fail to update as tables change.
+        let Self {
+            built_captures,
+            built_collections,
+            built_materializations,
+            built_tests,
+            errors,
+        } = self;
+
+        vec![
+            built_captures,
+            built_collections,
+            built_materializations,
+            built_tests,
+            errors,
+        ]
+    }
+
+    // Access all tables as an array of mutable dynamic SqlTableObj instances.
+    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn crate::SqlTableObj> {
+        let Self {
+            built_captures,
+            built_collections,
+            built_materializations,
+            built_tests,
+            errors,
+        } = self;
+
+        vec![
+            built_captures,
+            built_collections,
+            built_materializations,
+            built_tests,
+            errors,
+        ]
     }
 }

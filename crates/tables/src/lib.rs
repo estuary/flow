@@ -1,10 +1,14 @@
 #[macro_use]
 mod macros;
+mod behaviors;
+
+use std::str::FromStr;
+
 use macros::*;
 
 // Re-exports for users of this crate.
 pub use itertools::EitherOrBoth;
-pub use macros::Table;
+pub use macros::{Row, Table};
 
 #[cfg(feature = "persist")]
 pub use macros::{load_tables, persist_tables, SqlTableObj};
@@ -14,9 +18,9 @@ use prost::Message;
 mod built;
 mod draft;
 mod live;
-pub use built::BuiltRow;
-pub use draft::DraftRow;
-pub use live::{CatalogResolver, LiveRow};
+pub use built::{BuiltRow, Validations};
+pub use draft::{DraftCatalog, DraftRow};
+pub use live::{CatalogResolver, LiveCatalog, LiveRow};
 
 tables!(
     table Fetches (row Fetch, sql "fetches") {
@@ -240,206 +244,28 @@ tables!(
     }
 );
 
-/// DraftCatalog are tables which are populated by catalog loads of the `sources` crate.
-#[derive(Default, Debug)]
-pub struct DraftCatalog {
-    pub captures: DraftCaptures,
-    pub collections: DraftCollections,
-    pub errors: Errors,
-    pub fetches: Fetches,
-    pub imports: Imports,
-    pub materializations: DraftMaterializations,
-    pub resources: Resources,
-    pub tests: DraftTests,
+/// Attempts to parse a catalog type and name from a URL in the form of:
+/// `flow://<catalog-type>/<catalog-name>`. Returns None if the URL doesn't
+/// have a valid `CatalogType`, or if the scheme doesn't match.
+pub fn parse_synthetic_scope(url: &url::Url) -> Option<(models::CatalogType, String)> {
+    if url.scheme() != "flow" {
+        return None;
+    }
+    let host = url.host_str()?;
+    let catalog_type = models::CatalogType::from_str(host).ok()?;
+    let catalog_name = url.path().trim_start_matches('/').to_string();
+    Some((catalog_type, catalog_name))
 }
 
-// LiveCatalog are tables which are populated from the Estuary control plane.
-#[derive(Default, Debug)]
-pub struct LiveCatalog {
-    pub captures: LiveCaptures,
-    pub collections: LiveCollections,
-    pub errors: Errors,
-    pub inferred_schemas: InferredSchemas,
-    pub materializations: LiveMaterializations,
-    pub storage_mappings: StorageMappings,
-    pub tests: LiveTests,
-}
-
-/// Validations are tables populated by catalog validations of the `validation` crate.
-#[derive(Default, Debug)]
-pub struct Validations {
-    pub built_captures: BuiltCaptures,
-    pub built_collections: BuiltCollections,
-    pub built_materializations: BuiltMaterializations,
-    pub built_tests: BuiltTests,
-    pub errors: Errors,
-}
-
-#[cfg(feature = "persist")]
-impl DraftCatalog {
-    pub fn into_result(mut self) -> Result<Self, Errors> {
-        match std::mem::take(&mut self.errors) {
-            errors if errors.is_empty() => Ok(self),
-            errors => Err(errors),
-        }
-    }
-
-    // Access all tables as an array of dynamic TableObj instances.
-    pub fn as_tables(&self) -> Vec<&dyn SqlTableObj> {
-        // This de-structure ensures we can't fail to update as tables change.
-        let Self {
-            captures,
-            collections,
-            errors,
-            fetches,
-            imports,
-            materializations,
-            resources,
-            tests,
-        } = self;
-
-        vec![
-            captures,
-            collections,
-            errors,
-            fetches,
-            imports,
-            materializations,
-            resources,
-            tests,
-        ]
-    }
-
-    // Access all tables as an array of mutable dynamic SqlTableObj instances.
-    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn SqlTableObj> {
-        let Self {
-            captures,
-            collections,
-            errors,
-            fetches,
-            imports,
-            materializations,
-            resources,
-            tests,
-        } = self;
-
-        vec![
-            captures,
-            collections,
-            errors,
-            fetches,
-            imports,
-            materializations,
-            resources,
-            tests,
-        ]
-    }
-}
-
-#[cfg(feature = "persist")]
-impl LiveCatalog {
-    pub fn into_result(mut self) -> Result<Self, Errors> {
-        match std::mem::take(&mut self.errors) {
-            errors if errors.is_empty() => Ok(self),
-            errors => Err(errors),
-        }
-    }
-
-    // Access all tables as an array of dynamic TableObj instances.
-    pub fn as_tables(&self) -> Vec<&dyn SqlTableObj> {
-        // This de-structure ensures we can't fail to update as tables change.
-        let Self {
-            captures,
-            collections,
-            errors,
-            inferred_schemas,
-            materializations,
-            storage_mappings,
-            tests,
-        } = self;
-
-        vec![
-            captures,
-            collections,
-            errors,
-            inferred_schemas,
-            materializations,
-            storage_mappings,
-            tests,
-        ]
-    }
-
-    // Access all tables as an array of mutable dynamic SqlTableObj instances.
-    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn SqlTableObj> {
-        let Self {
-            captures,
-            collections,
-            errors,
-            inferred_schemas,
-            materializations,
-            storage_mappings,
-            tests,
-        } = self;
-
-        vec![
-            captures,
-            collections,
-            errors,
-            inferred_schemas,
-            materializations,
-            storage_mappings,
-            tests,
-        ]
-    }
-}
-
-#[cfg(feature = "persist")]
-impl Validations {
-    pub fn into_result(mut self) -> Result<Self, Errors> {
-        match std::mem::take(&mut self.errors) {
-            errors if errors.is_empty() => Ok(self),
-            errors => Err(errors),
-        }
-    }
-
-    // Access all tables as an array of dynamic TableObj instances.
-    pub fn as_tables(&self) -> Vec<&dyn SqlTableObj> {
-        // This de-structure ensures we can't fail to update as tables change.
-        let Self {
-            built_captures,
-            built_collections,
-            built_materializations,
-            built_tests,
-            errors,
-        } = self;
-
-        vec![
-            built_captures,
-            built_collections,
-            built_materializations,
-            built_tests,
-            errors,
-        ]
-    }
-
-    // Access all tables as an array of mutable dynamic SqlTableObj instances.
-    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn SqlTableObj> {
-        let Self {
-            built_captures,
-            built_collections,
-            built_materializations,
-            built_tests,
-            errors,
-        } = self;
-
-        vec![
-            built_captures,
-            built_collections,
-            built_materializations,
-            built_tests,
-            errors,
-        ]
-    }
+/// Generate a synthetic scope URL for a given catalog type and name, for when a meaningful scope
+/// URL is otherwise not avaialble. The `catalog_type` can be a `models::CatalogType` or a `&str`.
+pub fn synthetic_scope(catalog_type: impl AsRef<str>, catalog_name: impl AsRef<str>) -> url::Url {
+    let url_str = format!("flow://{}/", catalog_type.as_ref());
+    let mut url = url::Url::parse(&url_str).unwrap();
+    // using set_path for the catalog name ensures that the name gets properly escaped so that the URL is
+    // guaranteed to be valid, even if the catalog_name is not.
+    url.set_path(catalog_name.as_ref());
+    url
 }
 
 // macros::TableColumn implementations for table columns.
@@ -504,9 +330,6 @@ proto_sql_types!(
     proto_flow::flow::build_api::Config,
     proto_flow::materialize::response::Validated,
 );
-
-// Modules that extend tables with additional implementations.
-mod behaviors;
 
 // Additional bespoke column implementations for types that require extra help.
 impl Column for anyhow::Error {
