@@ -4,6 +4,41 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
 use std::collections::BTreeMap;
 
+// Note that OnIncompatibleSchemaChange is currently only used with materializations.
+// It theoretically could be useful for derivations, but that's being left for future work.
+/// Determines how to handle incompatible schema changes for a given binding.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(example = "OnIncompatibleSchemaChange::example")]
+pub enum OnIncompatibleSchemaChange {
+    /// Fail the publication of the incompatible schema change. This prevents any schema change
+    /// from being applied if it is incompatible with the existing schema, as determined by the
+    /// connector.
+    Abort,
+    /// Increment the backfill counter of the binding, causing it to start over from the beginning.
+    Backfill,
+    /// Disable the binding, which will be effectively excluded from the task until it is re-enabled.
+    DisableBinding,
+    /// Disable the entire task, preventing it from running until it is re-enabled.
+    DisableTask,
+}
+
+impl Default for OnIncompatibleSchemaChange {
+    fn default() -> Self {
+        OnIncompatibleSchemaChange::Backfill
+    }
+}
+
+impl OnIncompatibleSchemaChange {
+    pub fn example() -> Self {
+        OnIncompatibleSchemaChange::Backfill
+    }
+
+    pub fn is_default(&self) -> bool {
+        self == &OnIncompatibleSchemaChange::default()
+    }
+}
+
 /// A source collection and details of how it's read.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]

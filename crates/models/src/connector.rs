@@ -3,6 +3,20 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Splits a full connector image name into separate image and tag components.
+/// The resulting tag will always begin with either a `@sha256:` or `:` if a
+/// tag is present. Otherwise, the tag will be an empty string.
+pub fn split_image_tag(image_full: &str) -> (String, String) {
+    let mut image = image_full.to_string();
+
+    if let Some(pivot) = image.find("@sha256:").or_else(|| image.find(":")) {
+        let tag = image.split_off(pivot);
+        (image, tag)
+    } else {
+        (image, String::new())
+    }
+}
+
 /// Connector image and configuration specification.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ConnectorConfig {

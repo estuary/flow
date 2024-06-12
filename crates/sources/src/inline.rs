@@ -240,6 +240,7 @@ fn inline_materialization(
         shards: _,
         expect_pub_id: _,
         delete: _,
+        on_incompatible_schema_change: _,
     } = model;
 
     match endpoint {
