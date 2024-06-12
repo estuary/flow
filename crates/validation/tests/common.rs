@@ -233,6 +233,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             shards: models::ShardTemplate::default(),
             source_capture: None,
             delete: false,
+            on_incompatible_schema_change: Default::default(),
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
             id: format!("{materialization}/pass-through/shard_id_prefix"),
