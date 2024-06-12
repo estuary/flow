@@ -1,24 +1,4 @@
-use serde_json::{value::RawValue, Value};
-
-pub async fn fetch_resource_spec_schema(
-    image: &str,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<Box<RawValue>> {
-    let Some(colon_idx) = image.find(':') else {
-        anyhow::bail!("connector image '{image}' is missing a version tag");
-    };
-    let image_name = &image[..colon_idx];
-    let image_tag = &image[colon_idx..];
-
-    let schema_json = agent_sql::evolutions::fetch_resource_spec_schema(
-        image_name.to_owned(),
-        image_tag.to_owned(),
-        txn,
-    )
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("no resource spec schema found for image '{image}"))?;
-    Ok(schema_json.0)
-}
+use serde_json::Value;
 
 ///
 /// # Panics

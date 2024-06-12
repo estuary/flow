@@ -192,6 +192,7 @@ impl TagHandler {
     }
 }
 
+// TODO(phil): maybe unify this with the controlplane::ConnectorSpec?
 struct ConnectorSpec {
     documentation_url: String,
     endpoint_config_schema: Box<RawValue>,

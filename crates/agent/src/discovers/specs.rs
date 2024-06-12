@@ -124,6 +124,8 @@ pub fn merge_capture(
             bindings: fetched_bindings,
             interval,
             shards,
+            expect_pub_id: _, // The persisted model always has this set to None.
+            delete: _,        // The persisted model always has this set to false.
         }) => (fetched_bindings, interval, shards, auto_discover),
 
         None => (
@@ -213,6 +215,8 @@ pub fn merge_capture(
             bindings: capture_bindings,
             interval,
             shards,
+            expect_pub_id: None,
+            delete: false,
         },
         filtered_bindings,
     ))
@@ -251,24 +255,27 @@ pub fn merge_collections(
                     projections: Default::default(),
                     journals: Default::default(),
                     derive: None,
+                    expect_pub_id: None,
+                    delete: false,
                 });
 
         if collection.read_schema.is_some() {
+            // If read_schema is already set, it means we're updating an existing collection.
+            // It's important that we don't update the `read_schema` in this case, or else we could
+            // overwrite a users modifications to it.
             collection.write_schema = Some(document_schema);
         } else if matches!(
             // Does the connector use schema inference?
             document_schema.to_value().get("x-infer-schema"),
             Some(serde_json::Value::Bool(true))
         ) {
-            collection.schema = None;
+            // This is either a new collection, or else discovery has just started asking for
+            // the inferred schema. In either case, we must initialize the read schema with the
+            // inferred schema placeholder.
+            let read_schema = models::Schema::default_inferred_read_schema(&document_schema);
+            collection.read_schema = Some(read_schema);
             collection.write_schema = Some(document_schema);
-
-            // Synthesize a minimal read schema.
-            collection.read_schema = Some(models::Schema::new(models::RawValue::from_value(
-                &serde_json::json!({
-                    "allOf": [{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}],
-                }),
-            )));
+            collection.schema = None;
         } else {
             collection.schema = Some(document_schema)
         }

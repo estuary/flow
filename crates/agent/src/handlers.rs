@@ -5,7 +5,7 @@ use sqlx::postgres::PgListener;
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum HandleResult {
     HadJob,
     NoJobs,
@@ -78,6 +78,9 @@ async fn listen_for_tasks(
         let maybe_notification = tokio::select! {
            _ = recv_timeout => {
                should_poke_connection = true;
+               // This is just a convenient place to ensure that the controller_jobs handler
+               // gets invoked periodically, since it needs to handle periodic tasks.
+               task_tx.send(String::from(CONTROLLER_JOBS_TABLE))?;
                continue;
            },
            notify = listener.try_recv() => notify
@@ -113,16 +116,39 @@ enum Status {
     Idle,
 }
 
+const PUBLICATIONS_TABLE: &str = "publications";
+const CONTROLLER_JOBS_TABLE: &str = "controller_jobs";
+
+/// The purpose of this is to ensure that the controllers handler gets polled
+/// promptly after a publication. Without any form of explicit trigger, the
+/// controllers handler might otherwise only be polled in response to the
+/// periodic trigger in `listen_for_notifications`. But we know that every
+/// successful publication will result in at least one controller run, so this
+/// notifies the controllers handler after every successful invocation of the
+/// publications handler.
+struct ControllersHack(tokio::sync::mpsc::UnboundedSender<String>);
+impl ControllersHack {
+    fn notify(&self) {
+        let _ = self.0.send(String::from(CONTROLLER_JOBS_TABLE));
+    }
+}
+
 struct WrappedHandler {
     status: Status,
     handler: Box<dyn Handler>,
+    controllers_hack: Option<ControllersHack>,
 }
 
 impl WrappedHandler {
     async fn handle_next_job(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()> {
         let allow_background = self.status != Status::PollInteractive;
         match self.handler.handle(pg_pool, allow_background).await {
-            Ok(HandleResult::HadJob) => Ok(()),
+            Ok(HandleResult::HadJob) => {
+                if let Some(hack) = &self.controllers_hack {
+                    hack.notify();
+                }
+                Ok(())
+            }
             Ok(HandleResult::NoJobs) if self.status == Status::PollInteractive => {
                 tracing::debug!(handler = %self.handler.name(), "handler completed all interactive jobs");
                 self.status = Status::PollBackground;
@@ -152,6 +178,11 @@ where
 {
     use futures::FutureExt;
 
+    // We use a channel here because we're spawning another task to listen for notifications.
+    // We could probably use a bounded channel, but it doesn't seem important that we do so,
+    // and I'm uncertain as to how a bounded channel might affect the reliability of the listener.
+    let (task_tx, mut task_rx) = mpsc::unbounded_channel::<String>();
+
     let handler_table_names = handlers
         .iter()
         .map(|h| h.table_name().to_string())
@@ -160,23 +191,22 @@ where
     let mut handlers_by_table = handlers
         .into_iter()
         .map(|h| {
+            let controllers_hack = if h.table_name() == PUBLICATIONS_TABLE {
+                Some(ControllersHack(task_tx.clone()))
+            } else {
+                None
+            };
             (
                 h.table_name().to_string(),
                 WrappedHandler {
                     // We'll start by assuming every handler might have interactive jobs to handle
                     status: Status::PollInteractive,
                     handler: h,
+                    controllers_hack,
                 },
             )
         })
         .collect::<HashMap<_, _>>();
-
-    // -----------------------------------------------------------------------------
-
-    // We use a channel here because we're spawning another task to listen for notifications.
-    // We could probably use a bounded channel, but it doesn't seem important that we do so,
-    // and I'm uncertain as to how a bounded channel might affect the reliability of the listener.
-    let (task_tx, mut task_rx) = mpsc::unbounded_channel::<String>();
 
     let mut listen_to_datbase_notifications = tokio::spawn(listen_for_tasks(
         task_tx.clone(),
@@ -277,22 +307,42 @@ mod test {
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
+    const SETUP: &str = r#"
+        with p1 as (
+          insert into auth.users (id) values
+          ('43a18a3e-5a59-11ed-9b6a-0242ac120002') on conflict do nothing
+        ),
+        p2 as (
+          insert into drafts (id, user_id) values
+          ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+        ),
+        p3 as (
+          insert into publications (id, job_status, user_id, draft_id) values
+          ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+        ),
+        p4 as (
+          insert into role_grants (subject_role, object_role, capability) values
+          ('handlerTest/', 'handlerTest/', 'admin')
+          on conflict do nothing
+        ),
+        p5 as (
+          insert into user_grants (user_id, object_role, capability) values
+          ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'handlerTest/', 'admin')
+          on conflict do nothing
+        )
+        select 1;
+    "#;
+
     // Delete in reverse order to avoid integrity-check issues
-    const HAPPY_PATH_CLEANUP: &str = r#"
-      with p7 as (
+    const CLEANUP: &str = r#"
+      with p5 as (
         delete from user_grants where user_id = '43a18a3e-5a59-11ed-9b6a-0242ac120002'
       ),
-      p6 as (
-        delete from role_grants where subject_role = 'usageB/'
-      ),
-      p5 as (
-        delete from publications where id = '1111100000000000'
-      ),
       p4 as (
-        delete from draft_specs where id = '1111000000000000'
+        delete from role_grants where subject_role = 'handlerTest/'
       ),
       p3 as (
-          delete from live_specs where id = '1000000000000000'
+        delete from publications where id = '1111100000000000'
       ),
       p2 as (
         delete from drafts where id = '1110000000000000'
@@ -370,8 +420,8 @@ mod test {
                 // Do this 10 times in a row to make sure that our handler gets called consistently quickly
                 for _ in 0..10{
                     let mut txn = pg_pool.begin().await.unwrap();
-                    // Sets up the database to have a valid publication task and associated draft/specs
-                    sqlx::query(include_str!("publications/test_resources/happy_path.sql"))
+                    // Sets up the database to have a valid publication task
+                    sqlx::query(SETUP)
                         .execute(&mut txn)
                         .await
                         .unwrap();
@@ -389,7 +439,7 @@ mod test {
                     // We can't use `txn` since `.commit()` consumes itself, so we have to
                     // acquire another connection for a sec to do this cleanup
                     let mut conn = pg_pool.acquire().await.unwrap();
-                    sqlx::query(HAPPY_PATH_CLEANUP).execute(&mut conn).await.unwrap();
+                    sqlx::query(CLEANUP).execute(&mut conn).await.unwrap();
                 }
 
                 Ok(())
@@ -412,10 +462,7 @@ mod test {
 
         // This sets up the database to have a valid publication
         // which should trigger a NOTIFY on the AGENT_NOTIFICATION_CHANNEL
-        sqlx::query(include_str!("publications/test_resources/happy_path.sql"))
-            .execute(&mut txn)
-            .await
-            .unwrap();
+        sqlx::query(SETUP).execute(&mut txn).await.unwrap();
 
         // We have to commit the transaction for the NOTIFY to get sent
         txn.commit().await.unwrap();
@@ -429,10 +476,7 @@ mod test {
         // We can't use `txn` since `.commit()` consumes itself, so we have to
         // acquire another connection for a sec to do this cleanup
         let mut conn = pg_pool.acquire().await.unwrap();
-        sqlx::query(HAPPY_PATH_CLEANUP)
-            .execute(&mut conn)
-            .await
-            .unwrap();
+        sqlx::query(CLEANUP).execute(&mut conn).await.unwrap();
 
         insta::assert_json_snapshot!(
             notification,
