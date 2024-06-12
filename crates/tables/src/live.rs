@@ -1,3 +1,11 @@
+use anyhow::Context;
+use serde_json::value::RawValue;
+
+use crate::{
+    Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection, LiveCollections,
+    LiveMaterialization, LiveMaterializations, LiveTest, LiveTests, StorageMappings,
+};
+
 // CatalogResolver is a trait which maps `catalog_names`, such as those from
 // DraftCatalog::all_catalog_names(), into their live specifications.
 pub trait CatalogResolver {
@@ -114,5 +122,179 @@ impl LiveRow for crate::LiveTest {
     }
     fn spec(&self) -> &Self::BuiltSpec {
         &self.spec
+    }
+}
+
+#[cfg(feature = "persist")]
+impl LiveCatalog {
+    pub fn into_result(mut self) -> Result<Self, Errors> {
+        match std::mem::take(&mut self.errors) {
+            errors if errors.is_empty() => Ok(self),
+            errors => Err(errors),
+        }
+    }
+
+    // Access all tables as an array of dynamic TableObj instances.
+    pub fn as_tables(&self) -> Vec<&dyn crate::SqlTableObj> {
+        // This de-structure ensures we can't fail to update as tables change.
+        let Self {
+            captures,
+            collections,
+            errors,
+            inferred_schemas,
+            materializations,
+            storage_mappings,
+            tests,
+        } = self;
+
+        vec![
+            captures,
+            collections,
+            errors,
+            inferred_schemas,
+            materializations,
+            storage_mappings,
+            tests,
+        ]
+    }
+
+    // Access all tables as an array of mutable dynamic SqlTableObj instances.
+    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn crate::SqlTableObj> {
+        let Self {
+            captures,
+            collections,
+            errors,
+            inferred_schemas,
+            materializations,
+            storage_mappings,
+            tests,
+        } = self;
+
+        vec![
+            captures,
+            collections,
+            errors,
+            inferred_schemas,
+            materializations,
+            storage_mappings,
+            tests,
+        ]
+    }
+}
+
+// LiveCatalog are tables which are populated from the Estuary control plane.
+#[derive(Default, Debug)]
+pub struct LiveCatalog {
+    pub captures: LiveCaptures,
+    pub collections: LiveCollections,
+    pub errors: Errors,
+    pub inferred_schemas: InferredSchemas,
+    pub materializations: LiveMaterializations,
+    pub storage_mappings: StorageMappings,
+    pub tests: LiveTests,
+}
+
+impl LiveCatalog {
+    pub fn is_empty(&self) -> bool {
+        self.captures.is_empty()
+            && self.collections.is_empty()
+            && self.inferred_schemas.is_empty()
+            && self.materializations.is_empty()
+            && self.tests.is_empty()
+    }
+
+    pub fn all_spec_names(&self) -> impl Iterator<Item = &str> {
+        self.captures
+            .iter()
+            .map(|c| c.capture.as_str())
+            .chain(self.collections.iter().map(|c| c.collection.as_str()))
+            .chain(
+                self.materializations
+                    .iter()
+                    .map(|c| c.materialization.as_str()),
+            )
+            .chain(self.tests.iter().map(|c| c.test.as_str()))
+    }
+
+    pub fn spec_count(&self) -> usize {
+        self.captures.len()
+            + self.collections.len()
+            + self.materializations.len()
+            + self.tests.len()
+    }
+
+    pub fn last_pub_ids<'a>(&'a self) -> impl Iterator<Item = models::Id> + 'a {
+        self.captures
+            .iter()
+            .map(|v| v.last_pub_id)
+            .chain(self.collections.iter().map(|v| v.last_pub_id))
+            .chain(self.materializations.iter().map(|v| v.last_pub_id))
+            .chain(self.tests.iter().map(|v| v.last_pub_id))
+    }
+
+    pub fn add_spec(
+        &mut self,
+        spec_type: models::CatalogType,
+        catalog_name: &str,
+        scope: url::Url,
+        last_pub_id: models::Id,
+        model_json: &RawValue,
+        built_spec_json: &RawValue,
+    ) -> anyhow::Result<()> {
+        match spec_type {
+            models::CatalogType::Capture => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live capture spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built capture spec")?;
+                self.captures.insert(LiveCapture {
+                    capture: models::Capture::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+            models::CatalogType::Collection => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live collection spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built collection spec")?;
+                self.collections.insert(LiveCollection {
+                    collection: models::Collection::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+            models::CatalogType::Materialization => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live materialization spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built materialization spec")?;
+                self.materializations.insert(LiveMaterialization {
+                    materialization: models::Materialization::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+            models::CatalogType::Test => {
+                let model = serde_json::from_str(model_json.get())
+                    .context("deserializing live test spec")?;
+                let built = serde_json::from_str(built_spec_json.get())
+                    .context("deserializing live built test spec")?;
+                self.tests.insert(LiveTest {
+                    test: models::Test::new(catalog_name),
+                    scope,
+                    last_pub_id,
+                    model,
+                    spec: built,
+                });
+            }
+        }
+        Ok(())
     }
 }
