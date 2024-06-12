@@ -28,7 +28,7 @@ pub use connector::{split_image_tag, ConnectorConfig, LocalConfig};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
-pub use id::Id;
+pub use id::{Id, IdGenerator};
 pub use journals::{
     AzureStorageConfig, CompressionCodec, CustomStore, FragmentTemplate, GcsBucketAndPrefix,
     JournalTemplate, S3StorageConfig, StorageDef, Store, AZURE_CONTAINER_RE,
