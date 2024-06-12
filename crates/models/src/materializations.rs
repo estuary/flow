@@ -1,10 +1,12 @@
+use crate::{source::OnIncompatibleSchemaChange, Collection, Id};
+
 use super::{
-    Capture, ConnectorConfig, Field, Id, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
+    Capture, ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A Materialization binds a Flow collection with an external system & target
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
@@ -14,6 +16,13 @@ pub struct MaterializationDef {
     /// # Automatically materialize new bindings from a named capture
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_capture: Option<Capture>,
+    /// # Default handling of schema changes that are incompatible with the target resource.
+    /// This can be overridden on a per-binding basis.
+    #[serde(
+        default,
+        skip_serializing_if = "OnIncompatibleSchemaChange::is_default"
+    )]
+    pub on_incompatible_schema_change: OnIncompatibleSchemaChange,
     /// # Endpoint to materialize into.
     pub endpoint: MaterializationEndpoint,
     /// # Bound collections to materialize into the endpoint.
@@ -44,7 +53,7 @@ pub enum MaterializationEndpoint {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "MaterializationBinding::example")]
 pub struct MaterializationBinding {
     /// # Endpoint resource to materialize into.
@@ -79,6 +88,14 @@ pub struct MaterializationBinding {
     /// collection.
     #[serde(default, skip_serializing_if = "super::is_u32_zero")]
     pub backfill: u32,
+
+    /// # Action to take when a schema change is rejected due to incompatibility.
+    /// This setting is used to determine the action to take when a schema change
+    /// is rejected due to incompatibility with the target resource. By default,
+    /// the binding will have its `backfill` counter incremented, causing it to
+    /// be re-materialized from the source collection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_incompatible_schema_change: Option<OnIncompatibleSchemaChange>,
 }
 
 /// MaterializationFields defines a selection of projections to materialize,
@@ -111,6 +128,7 @@ impl MaterializationDef {
             shards: ShardTemplate::default(),
             expect_pub_id: None,
             delete: false,
+            on_incompatible_schema_change: OnIncompatibleSchemaChange::default(),
         }
     }
 }
@@ -124,6 +142,7 @@ impl MaterializationBinding {
             priority: 0,
             fields: MaterializationFields::default(),
             backfill: 0,
+            on_incompatible_schema_change: None,
         }
     }
 
@@ -165,9 +184,43 @@ pub struct SqliteConfig {
 
 impl super::ModelDef for MaterializationDef {
     fn sources(&self) -> impl Iterator<Item = &crate::Source> {
-        self.bindings.iter().map(|binding| &binding.source)
+        self.bindings
+            .iter()
+            .filter(|b| !b.disable)
+            .map(|binding| &binding.source)
     }
-    fn targets(&self) -> impl Iterator<Item = &crate::Collection> {
+    fn targets(&self) -> impl Iterator<Item = &Collection> {
         std::iter::empty()
+    }
+
+    fn catalog_type(&self) -> crate::CatalogType {
+        crate::CatalogType::Materialization
+    }
+
+    fn reads_from(&self) -> BTreeSet<Collection> {
+        self.bindings
+            .iter()
+            .filter(|b| !b.disable)
+            .map(|b| b.source.collection().clone())
+            .collect()
+    }
+
+    fn is_enabled(&self) -> bool {
+        !self.shards.disable
+    }
+
+    fn materialization_source_capture(&self) -> Option<crate::Capture> {
+        self.source_capture.clone()
+    }
+
+    fn writes_to(&self) -> BTreeSet<Collection> {
+        BTreeSet::new()
+    }
+
+    fn connector_image(&self) -> Option<&str> {
+        match &self.endpoint {
+            MaterializationEndpoint::Connector(cfg) => Some(&cfg.image),
+            _ => None,
+        }
     }
 }

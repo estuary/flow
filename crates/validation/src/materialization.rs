@@ -83,6 +83,7 @@ async fn walk_materialization(
         shards: shard_template,
         expect_pub_id: _,
         delete: _,
+        on_incompatible_schema_change: _,
     } = model;
 
     indexed::walk_name(
@@ -216,6 +217,7 @@ async fn walk_materialization(
             priority,
             resource: _,
             backfill: _,
+            on_incompatible_schema_change: _,
         } = model;
 
         let field_selection = Some(walk_materialization_response(
@@ -354,6 +356,7 @@ fn walk_materialization_binding<'a>(
         disable: _,
         priority: _,
         backfill,
+        on_incompatible_schema_change: _,
     } = binding;
 
     let (collection, source_partitions) = match source {
