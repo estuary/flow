@@ -41,6 +41,10 @@ impl Schema {
         self.0
     }
 
+    pub fn to_value(&self) -> serde_json::Value {
+        self.0.to_value()
+    }
+
     // URL for referencing the inferred schema of a collection, which may be used within a read schema.
     pub const REF_INFERRED_SCHEMA_URL: &'static str = "flow://inferred-schema";
     // URL for referencing the write schema of a collection, which may be used within a read schema.
@@ -70,6 +74,17 @@ impl Schema {
             }
         }))
         .unwrap()
+    }
+
+    pub fn default_inferred_read_schema(write_schema: &Self) -> Self {
+        let read_schema = serde_json::json!({
+            "allOf": [
+                {"$ref": "flow://write-schema"},
+                {"$ref": "flow://inferred-schema"}
+            ],
+        });
+        let read_bundle = Self(crate::RawValue::from_value(&read_schema));
+        Self::extend_read_bundle(&read_bundle, write_schema, None)
     }
 
     /// Extend a bundled Flow read schema, which may include references to the

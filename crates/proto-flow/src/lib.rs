@@ -10,6 +10,15 @@ pub mod ops;
 pub mod runtime;
 mod zeroize;
 
+/// An enum representing any one of the types of built specs.
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum AnyBuiltSpec {
+    Capture(flow::CaptureSpec),
+    Collection(flow::CollectionSpec),
+    Materialization(flow::MaterializationSpec),
+    Test(flow::TestSpec),
+}
+
 // Adapt a &str of JSON to a &RawValue for serialization.
 fn as_raw_json<E: serde::ser::Error>(v: &str) -> Result<&RawValue, E> {
     match serde_json::from_str::<&RawValue>(v) {
