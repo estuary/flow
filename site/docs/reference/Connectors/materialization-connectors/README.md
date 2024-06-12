@@ -23,11 +23,20 @@ In the future, other open-source materialization connectors from third parties c
 * Amazon SQL Server
   * [Configuration](./SQLServer/amazon-rds-sqlserver.md)
   * Package - ghcr.io/estuary/materialize-amazon-rds-sqlserver:dev
-* Apache Parquet in S3
-  * [Configuration](./apache-parquet.md)
+* Apache Parquet Files in GCS
+  * [Configuration](./google-gcs-parquet.md)
+  * Package — ghcr.io/estuary/materialize-gcs-parquet:dev
+* Apache Parquet Files in S3
+  * [Configuration](./amazon-s3-parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
 * Azure SQL Server
   * [Configuration](./SQLServer/)
+* CSV Files in GCS
+  * [Configuration](./google-gcs-csv.md)
+  * Package — ghcr.io/estuary/materialize-gcs-csv:dev
+* CSV Files in S3
+  * [Configuration](./amazon-s3-csv.md)
+  * Package — ghcr.io/estuary/materialize-s3-csv:dev
 * Databricks
   * [Configuration](./databricks.md)
   * Package — ghcr.io/estuary/materialize-databricks:dev
