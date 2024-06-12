@@ -80,11 +80,17 @@ mod test {
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_cases() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
             .unwrap();
         let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"delete from tenants;"#)
+            .execute(&mut txn)
+            .await
+            .unwrap();
 
         sqlx::query(
             r#"

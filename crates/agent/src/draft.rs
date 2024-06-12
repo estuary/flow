@@ -1,14 +1,47 @@
 use std::collections::BTreeMap;
 
+use crate::publications::LockFailure;
+
 use super::Id;
 use agent_sql::{drafts as drafts_sql, CatalogType};
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Error {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub catalog_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
     pub detail: String,
+}
+
+impl Error {
+    pub fn from_tables_error(err: &tables::Error) -> Self {
+        let catalog_name = tables::parse_synthetic_scope(&err.scope)
+            .map(|(_, name)| name)
+            .unwrap_or_default();
+        Error {
+            catalog_name,
+            scope: Some(err.scope.to_string()),
+            // use alternate to print chained contexts
+            detail: format!("{:#}", err.error),
+        }
+    }
+}
+
+impl From<LockFailure> for Error {
+    fn from(err: LockFailure) -> Self {
+        let detail = format!(
+            "the expectVersionId of spec {:?} {:?} did not match that of the live spec {:?}",
+            err.catalog_name, err.expect_pub_id, err.last_pub_id
+        );
+        Error {
+            catalog_name: err.catalog_name,
+            detail,
+            scope: None,
+        }
+    }
 }
 
 /// upsert_specs updates the given draft with specifications of the catalog.
