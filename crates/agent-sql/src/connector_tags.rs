@@ -78,7 +78,7 @@ pub async fn resolve_unknown_connectors(
 
 pub async fn does_connector_exist(
     connector_image: &str,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: impl sqlx::PgExecutor<'_>,
 ) -> sqlx::Result<bool> {
     sqlx::query!(
         r#"select 1 as "exists: bool" from connectors

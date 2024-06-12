@@ -80,8 +80,6 @@ DraftCatalog {
             },
         },
     ],
-    errors: [],
-    fetches: [],
     imports: [
         Import {
             scope: builtin://flow/ops-catalog/ops-log-schema.json,
@@ -100,7 +98,6 @@ DraftCatalog {
             to_resource: builtin://flow/ops-catalog/ops-stats-schema.json,
         },
     ],
-    materializations: [],
     resources: [
         Resource {
             resource: builtin://flow/ops-catalog/ops-log-schema.json,
@@ -397,5 +394,4 @@ DraftCatalog {
             },
         },
     ],
-    tests: [],
 }
