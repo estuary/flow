@@ -21,6 +21,8 @@ Because it’s the centerpiece of so many applications, it’s a common data eng
 
 This tutorial will guide you through using Estuary Flow to capture data from MongoDB using change data capture (CDC), requiring minimal configuration. By following these steps, you can empower your organization to leverage its application data in just a few minutes.
 
+## Video tutorial
+
 <ReactPlayer controls url="https://www.youtube.com/watch?v=kpF-YCxtArk" />
 
 ## What is CDC?<a id="what-is-cdc"></a>
