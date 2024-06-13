@@ -33,7 +33,7 @@ begin
         },
         "bindings": []
       }', now() - '2h'::interval),
-    ('aliceCo/capture/deleted', null, null, now() - '3h'::interval),
+    ('aliceCo/capture/deleted', 'capture', null, now() - '3h'::interval),
     ('aliceCo/materialization/four-hours', 'materialization', '{
         "endpoint": {
           "connector": {
