@@ -5,8 +5,13 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'site/**'
   pull_request:
     branches: [master]
+    paths-ignore:
+      - 'site/**'
+
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +25,6 @@ concurrency:
 jobs:
   gnu-binaries:
     runs-on: ubuntu-2004-large
-    if: ${{ contains(github.event.head_commit.modified, 'site/') && !contains(github.event.head_commit.modified, '/') }}
 
     steps:
       - uses: actions/checkout@v2
@@ -87,7 +91,6 @@ jobs:
 
   musl-binaries:
     runs-on: ubuntu-2004-large
-    if: ${{ contains(github.event.head_commit.modified, 'site/') && !contains(github.event.head_commit.modified, '/') }}
 
     steps:
       - uses: actions/checkout@v2
@@ -122,7 +125,6 @@ jobs:
   assembly:
     runs-on: ubuntu-2004-large
     needs: [gnu-binaries, musl-binaries]
-    if: ${{ contains(github.event.head_commit.modified, 'site/') && !contains(github.event.head_commit.modified, '/') }}
 
     services:
       postgres:
