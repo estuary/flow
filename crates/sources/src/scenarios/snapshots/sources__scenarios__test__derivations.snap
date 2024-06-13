@@ -3,7 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
     collections: [
         DraftCollection {
             collection: d1/collection,
@@ -156,7 +155,6 @@ DraftCatalog {
             },
         },
     ],
-    errors: [],
     fetches: [
         Fetch {
             depth: 1,
@@ -217,7 +215,6 @@ DraftCatalog {
             to_resource: test://example/a-schema.json,
         },
     ],
-    materializations: [],
     resources: [
         Resource {
             resource: test://example/a-schema.json,
@@ -256,5 +253,4 @@ DraftCatalog {
             content_dom: "select a whole bunch of fields and stuff from source documents to shuffle upon;\n",
         },
     ],
-    tests: [],
 }

@@ -19,9 +19,6 @@ DraftCatalog {
             model: NULL,
         },
     ],
-    errors: [],
-    fetches: [],
-    imports: [],
     materializations: [
         DraftMaterialization {
             materialization: deleted/materialization,
@@ -30,7 +27,6 @@ DraftCatalog {
             model: NULL,
         },
     ],
-    resources: [],
     tests: [
         DraftTest {
             test: deleted/test,

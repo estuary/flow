@@ -3,26 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
-    collections: [],
-    errors: [],
-    fetches: [],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/import/0,
-            to_resource: test://example/catalog-err-not-an-array.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/import/1,
-            to_resource: test://example/catalog-err-not-an-object.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
-            to_resource: test://example/not-found.json,
-        },
-    ],
-    materializations: [],
-    resources: [],
     tests: [
         DraftTest {
             test: acmeCo/errors/test,
@@ -153,6 +133,20 @@ DraftCatalog {
                 }
               ]
             },
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/catalog-err-not-an-array.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            to_resource: test://example/catalog-err-not-an-object.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
+            to_resource: test://example/not-found.json,
         },
     ],
 }

@@ -57,35 +57,6 @@ DraftCatalog {
             },
         },
     ],
-    errors: [],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/acmeCo/flow.yaml,
-        },
-    ],
-    imports: [
-        Import {
-            scope: test://example/acmeCo/flow.yaml#/import/-,
-            to_resource: test://example/acmeCo/one/flow.yaml,
-        },
-        Import {
-            scope: test://example/acmeCo/flow.yaml#/import/-,
-            to_resource: test://example/acmeCo/two/flow.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/import/-,
-            to_resource: test://example/acmeCo/flow.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/import/0,
-            to_resource: test://example/acmeCo/flow.yaml,
-        },
-    ],
     materializations: [
         DraftMaterialization {
             materialization: acmeCo/materializations/exists,
@@ -116,6 +87,52 @@ DraftCatalog {
             },
         },
     ],
+    tests: [
+        DraftTest {
+            test: acmeCo/tests/exists,
+            scope: test://example/catalog.yaml#/tests/acmeCo~1tests~1exists,
+            expect_pub_id: NULL,
+            model: {
+              "steps": []
+            },
+        },
+        DraftTest {
+            test: acmeCo/two/new,
+            scope: test://example/acmeCo/two/flow.yaml#/tests/acmeCo~1two~1new,
+            expect_pub_id: "00:00:11:00:22:00:00:33",
+            model: {
+              "steps": []
+            },
+        },
+    ],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/acmeCo/flow.yaml,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/acmeCo/flow.yaml#/import/-,
+            to_resource: test://example/acmeCo/one/flow.yaml,
+        },
+        Import {
+            scope: test://example/acmeCo/flow.yaml#/import/-,
+            to_resource: test://example/acmeCo/two/flow.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/-,
+            to_resource: test://example/acmeCo/flow.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/acmeCo/flow.yaml,
+        },
+    ],
     resources: [
         Resource {
             resource: test://example/acmeCo/flow.yaml,
@@ -140,24 +157,6 @@ DraftCatalog {
             content_type: "CATALOG",
             content: ".. binary ..",
             content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[],"expectPubId":"88:66:77:55:33:00:99:00"}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"],"expectPubId":"11:00:22:00:33:00:44:00"}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":{"steps":[]}}},
-        },
-    ],
-    tests: [
-        DraftTest {
-            test: acmeCo/tests/exists,
-            scope: test://example/catalog.yaml#/tests/acmeCo~1tests~1exists,
-            expect_pub_id: NULL,
-            model: {
-              "steps": []
-            },
-        },
-        DraftTest {
-            test: acmeCo/two/new,
-            scope: test://example/acmeCo/two/flow.yaml#/tests/acmeCo~1two~1new,
-            expect_pub_id: "00:00:11:00:22:00:00:33",
-            model: {
-              "steps": []
-            },
         },
     ],
 }

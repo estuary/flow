@@ -3,7 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
     collections: [
         DraftCollection {
             collection: test,
@@ -17,7 +16,6 @@ DraftCatalog {
             },
         },
     ],
-    errors: [],
     fetches: [
         Fetch {
             depth: 1,
@@ -34,7 +32,6 @@ DraftCatalog {
             to_resource: test://example/schema.json,
         },
     ],
-    materializations: [],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -49,5 +46,4 @@ DraftCatalog {
             content_dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"type":"string"},
         },
     ],
-    tests: [],
 }

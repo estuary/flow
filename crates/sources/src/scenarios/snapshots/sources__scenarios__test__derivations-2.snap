@@ -3,7 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
     collections: [
         DraftCollection {
             collection: d1/collection,
@@ -156,10 +155,4 @@ DraftCatalog {
             },
         },
     ],
-    errors: [],
-    fetches: [],
-    imports: [],
-    materializations: [],
-    resources: [],
-    tests: [],
 }
