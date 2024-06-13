@@ -106,97 +106,6 @@ DraftCatalog {
             },
         },
     ],
-    collections: [],
-    errors: [
-        Error {
-            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
-            error: failed to fetch resource test://example/referenced/config.yaml#/bad/fragment: resources cannot have fragments,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
-            error: failed to fetch resource test://example/config/not/found.yaml: fixture not found,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
-            error: failed to fetch resource test://example/resource/not/found.yaml: fixture not found,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
-            error: failed to fetch resource test://example/referenced/not/found.yaml: fixture not found,
-        },
-    ],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/config/not/found.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/raw-config.foo,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/referenced/config.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/referenced/not/found.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/referenced/resource.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/resource/not/found.yaml,
-        },
-    ],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
-            to_resource: test://example/resource/not/found.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
-            to_resource: test://example/config/not/found.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/captures/capture~1config-raw/endpoint/connector/config,
-            to_resource: test://example/raw-config.foo,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/captures/capture~1second/bindings/0/resource,
-            to_resource: test://example/referenced/resource.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/captures/capture~1second/endpoint/connector/config,
-            to_resource: test://example/referenced/config.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
-            to_resource: test://example/referenced/not/found.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/endpoint/connector/config,
-            to_resource: test://example/config/not/found.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
-            to_resource: test://example/referenced/config.yaml#/bad/fragment,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/materializations/materialization~1with-config/bindings/0/resource,
-            to_resource: test://example/referenced/resource.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/materializations/materialization~1with-config/endpoint/connector/config,
-            to_resource: test://example/referenced/config.yaml,
-        },
-    ],
     materializations: [
         DraftMaterialization {
             materialization: a/materialization,
@@ -338,6 +247,96 @@ DraftCatalog {
             },
         },
     ],
+    errors: [
+        Error {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
+            error: failed to fetch resource test://example/referenced/config.yaml#/bad/fragment: resources cannot have fragments,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
+            error: failed to fetch resource test://example/config/not/found.yaml: fixture not found,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
+            error: failed to fetch resource test://example/resource/not/found.yaml: fixture not found,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
+            error: failed to fetch resource test://example/referenced/not/found.yaml: fixture not found,
+        },
+    ],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/config/not/found.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/raw-config.foo,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/referenced/config.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/referenced/not/found.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/referenced/resource.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/resource/not/found.yaml,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
+            to_resource: test://example/resource/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
+            to_resource: test://example/config/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-raw/endpoint/connector/config,
+            to_resource: test://example/raw-config.foo,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1second/bindings/0/resource,
+            to_resource: test://example/referenced/resource.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1second/endpoint/connector/config,
+            to_resource: test://example/referenced/config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
+            to_resource: test://example/referenced/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/endpoint/connector/config,
+            to_resource: test://example/config/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
+            to_resource: test://example/referenced/config.yaml#/bad/fragment,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config/bindings/0/resource,
+            to_resource: test://example/referenced/resource.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config/endpoint/connector/config,
+            to_resource: test://example/referenced/config.yaml,
+        },
+    ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -364,5 +363,4 @@ DraftCatalog {
             content_dom: {"referenced":"resource that's fairly long and does not inline"},
         },
     ],
-    tests: [],
 }

@@ -3,51 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
-    collections: [],
-    errors: [],
-    fetches: [],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/import/0,
-            to_resource: test://example/catalog-err-not-an-array.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/import/1,
-            to_resource: test://example/catalog-err-not-an-object.yaml,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4/documents,
-            to_resource: test://example/test.step.4.yaml,
-        },
-    ],
-    materializations: [],
-    resources: [
-        Resource {
-            resource: test://example/catalog-err-not-an-array.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"tests":{"acmeCo/parse/failure":{"steps":[{"ingest":{"collection":"test/collection","documents":{"not":"an array"}}}]}}},
-        },
-        Resource {
-            resource: test://example/catalog-err-not-an-object.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"tests":{"acmeCo/parse/failure":{"steps":[{"ingest":{"collection":"test/collection","documents":["not-an-object"]}}]}}},
-        },
-        Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":{"steps":[{"ingest":{"description":"This isn't an array.","collection":"test/collection","documents":{"whoops":true}}},{"verify":{"description":"This is missing.","collection":"test/collection","documents":"test://example/not-found.json"}}]},"acmeCo/widgest/old-style-test":{"steps":[{"ingest":{"description":"An ingest","collection":"test/collection","documents":[{"ingest":"hi"}]}},{"verify":{"description":"A verify.","collection":"test/collection","documents":[{"verify":"bye"}]}}]},"acmeCo/widgest/test":{"description":"This is a test that does stuff.","steps":[{"ingest":{"description":"Import some foos","collection":"test/collection","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"description":"Verify without a selector.","collection":"test/collection","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":{"name":"test/collection","partitions":{"include":{"a_field":["some-val"]},"exclude":{}}},"documents":[{"verify":3},{"fin":null}]}},{"ingest":{"description":"Import more foos via file fixture.","collection":"test/collection","documents":[{"an":"ingest"}]}},{"verify":{"description":"Verify via file fixture.","collection":"test/collection","documents":"test.step.4.yaml"}}],"expectPubId":"00:11:22:33:44:55:66:77"}}},
-        },
-        Resource {
-            resource: test://example/test.step.4.yaml,
-            content_type: "CONFIG",
-            content: ".. binary ..",
-            content_dom: [{"a":"verify"},{"another":"one that is pretty long and causes this not to be inline"}],
-        },
-    ],
     tests: [
         DraftTest {
             test: acmeCo/errors/test,
@@ -178,6 +133,46 @@ DraftCatalog {
                 }
               ]
             },
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/catalog-err-not-an-array.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            to_resource: test://example/catalog-err-not-an-object.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4/documents,
+            to_resource: test://example/test.step.4.yaml,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/catalog-err-not-an-array.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"tests":{"acmeCo/parse/failure":{"steps":[{"ingest":{"collection":"test/collection","documents":{"not":"an array"}}}]}}},
+        },
+        Resource {
+            resource: test://example/catalog-err-not-an-object.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"tests":{"acmeCo/parse/failure":{"steps":[{"ingest":{"collection":"test/collection","documents":["not-an-object"]}}]}}},
+        },
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":{"steps":[{"ingest":{"description":"This isn't an array.","collection":"test/collection","documents":{"whoops":true}}},{"verify":{"description":"This is missing.","collection":"test/collection","documents":"test://example/not-found.json"}}]},"acmeCo/widgest/old-style-test":{"steps":[{"ingest":{"description":"An ingest","collection":"test/collection","documents":[{"ingest":"hi"}]}},{"verify":{"description":"A verify.","collection":"test/collection","documents":[{"verify":"bye"}]}}]},"acmeCo/widgest/test":{"description":"This is a test that does stuff.","steps":[{"ingest":{"description":"Import some foos","collection":"test/collection","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"description":"Verify without a selector.","collection":"test/collection","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":{"name":"test/collection","partitions":{"include":{"a_field":["some-val"]},"exclude":{}}},"documents":[{"verify":3},{"fin":null}]}},{"ingest":{"description":"Import more foos via file fixture.","collection":"test/collection","documents":[{"an":"ingest"}]}},{"verify":{"description":"Verify via file fixture.","collection":"test/collection","documents":"test.step.4.yaml"}}],"expectPubId":"00:11:22:33:44:55:66:77"}}},
+        },
+        Resource {
+            resource: test://example/test.step.4.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: [{"a":"verify"},{"another":"one that is pretty long and causes this not to be inline"}],
         },
     ],
 }

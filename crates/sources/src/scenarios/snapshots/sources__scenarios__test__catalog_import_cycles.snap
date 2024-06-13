@@ -3,9 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
-    collections: [],
-    errors: [],
     fetches: [
         Fetch {
             depth: 1,
@@ -58,7 +55,6 @@ DraftCatalog {
             to_resource: test://example/B,
         },
     ],
-    materializations: [],
     resources: [
         Resource {
             resource: test://example/A,
@@ -85,5 +81,4 @@ DraftCatalog {
             content_dom: {"import":["A","B"]},
         },
     ],
-    tests: [],
 }

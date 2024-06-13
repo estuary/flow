@@ -3,10 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
-    collections: [],
-    errors: [],
-    fetches: [],
     imports: [
         Import {
             scope: test://example/A#/import/0,
@@ -41,7 +37,4 @@ DraftCatalog {
             to_resource: test://example/B,
         },
     ],
-    materializations: [],
-    resources: [],
-    tests: [],
 }
