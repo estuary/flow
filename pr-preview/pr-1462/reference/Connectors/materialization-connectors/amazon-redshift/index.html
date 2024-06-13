@@ -6,8 +6,8 @@
 <title data-rh="true">Amazon Redshift | Estuary Flow</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/pr-preview/pr-1462/reference/Connectors/materialization-connectors/amazon-redshift/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Amazon Redshift | Estuary Flow"><meta data-rh="true" name="description" content="This connector materializes Flow collections into tables in an Amazon Redshift database."><meta data-rh="true" property="og:description" content="This connector materializes Flow collections into tables in an Amazon Redshift database."><link data-rh="true" rel="icon" href="/pr-preview/pr-1462/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/pr-preview/pr-1462/reference/Connectors/materialization-connectors/amazon-redshift/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1462/reference/Connectors/materialization-connectors/amazon-redshift/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1462/reference/Connectors/materialization-connectors/amazon-redshift/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/pr-preview/pr-1462/assets/css/styles.004045bb.css">
-<script src="/pr-preview/pr-1462/assets/js/runtime~main.d3157e9d.js" defer="defer"></script>
-<script src="/pr-preview/pr-1462/assets/js/main.07eb0a84.js" defer="defer"></script>
+<script src="/pr-preview/pr-1462/assets/js/runtime~main.023f1417.js" defer="defer"></script>
+<script src="/pr-preview/pr-1462/assets/js/main.5b3af2c9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const c=new URLSearchParams(window.location.search).entries();for(var[t,e]of c)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -73,9 +73,12 @@ details and a sample.</p>
 <p>Redshift has requirements for <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_names.html" target="_blank" rel="noopener noreferrer">names and
 identifiers</a> and this connector will
 automatically apply quoting when needed. All table identifiers and column identifiers (corresponding
-to Flow collection fields) are treated as lowercase. Table names for bindings must be unique on a
-case-insensitive basis, as well as field names of the source collection. If any names are not unique
-on a case-insensitive basis (ex: <code>myField</code> vs. <code>MyField</code>) the materialization will fail to apply.</p>
+to Flow collection fields) are treated as lowercase, unless the
+<a href="https://docs.aws.amazon.com/redshift/latest/dg/r_enable_case_sensitive_identifier.html" target="_blank" rel="noopener noreferrer">enable_case_sensitive_identifier</a>
+configuration is enabled on the cluster being materialized to. Table names for bindings must be
+unique on a case-insensitive basis, as well as field names of the source collection. If any names
+are not unique on a case-insensitive basis (ex: <code>myField</code> vs. <code>MyField</code>) the materialization will
+fail to apply.</p>
 <p>If necessary, you can add <a href="/pr-preview/pr-1462/concepts/advanced/projections/">projections</a> to your
 collection specification to change field names.</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="performance-considerations">Performance considerations<a href="#performance-considerations" class="hash-link" aria-label="Direct link to Performance considerations" title="Direct link to Performance considerations">​</a></h2>
