@@ -3,7 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
     collections: [
         DraftCollection {
             collection: d1/collection,
@@ -156,8 +155,6 @@ DraftCatalog {
             },
         },
     ],
-    errors: [],
-    fetches: [],
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derive/using/typescript/module,
@@ -196,7 +193,6 @@ DraftCatalog {
             to_resource: test://example/local.schema.yaml,
         },
     ],
-    materializations: [],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -253,5 +249,4 @@ DraftCatalog {
             content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
         },
     ],
-    tests: [],
 }

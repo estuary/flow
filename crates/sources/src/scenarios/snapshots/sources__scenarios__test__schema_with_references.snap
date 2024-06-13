@@ -3,7 +3,6 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 DraftCatalog {
-    captures: [],
     collections: [
         DraftCollection {
             collection: test,
@@ -17,7 +16,6 @@ DraftCatalog {
             },
         },
     ],
-    errors: [],
     fetches: [
         Fetch {
             depth: 1,
@@ -50,7 +48,6 @@ DraftCatalog {
             to_resource: test://external/c,
         },
     ],
-    materializations: [],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -77,5 +74,4 @@ DraftCatalog {
             content_dom: true,
         },
     ],
-    tests: [],
 }
