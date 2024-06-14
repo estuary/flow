@@ -187,7 +187,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "01:01:01:01:01:01:01:01",
+                                                        value: "0101010101010101",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -256,7 +256,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "01:01:01:01:01:01:01:01",
+                                        value: "0101010101010101",
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
@@ -295,7 +295,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "01:01:01:01:01:01:01:01",
+                                        value: "0101010101010101",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -524,7 +524,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "01:01:01:01:01:01:01:01",
+                                        value: "0101010101010101",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -761,7 +761,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "01:01:01:01:01:01:01:01",
+                                        value: "0101010101010101",
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
@@ -943,7 +943,7 @@ Outcome {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "01:01:01:01:01:01:01:01",
+                                                                value: "0101010101010101",
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
@@ -1043,7 +1043,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "01:01:01:01:01:01:01:01",
+                                                value: "0101010101010101",
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
@@ -1082,7 +1082,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "01:01:01:01:01:01:01:01",
+                                                value: "0101010101010101",
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
@@ -1383,7 +1383,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "01:01:01:01:01:01:01:01",
+                                                        value: "0101010101010101",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
@@ -1488,7 +1488,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "01:01:01:01:01:01:01:01",
+                                        value: "0101010101010101",
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
@@ -1527,7 +1527,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "01:01:01:01:01:01:01:01",
+                                        value: "0101010101010101",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
