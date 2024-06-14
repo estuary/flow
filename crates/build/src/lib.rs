@@ -119,7 +119,7 @@ pub async fn validate(
         connector_network.to_string(),
         log_handler,
         None,
-        format!("build/{build_id}"),
+        format!("build/{build_id:#}"),
     );
     let connectors = Connectors {
         noop_captures,
