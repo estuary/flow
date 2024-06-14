@@ -128,8 +128,18 @@ pub fn set_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
 
 /// Update a LabelSet, adding a new label of `name` and `value`.
 pub fn add_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
+    let r = range(&set, name);
+
+    // Within the range of labels matching `name`, find the insertion point for `value`.
+    let index = match set.labels[r.start..r.end]
+        .binary_search_by(|probe| probe.value.as_str().cmp(value))
+    {
+        Ok(_index) => return set,      // `value` is already present.
+        Err(index) => r.start + index, // Insertion point.
+    };
+
     set.labels.insert(
-        range(&set, name).end,
+        index,
         Label {
             name: name.to_string(),
             value: value.to_string(),
@@ -258,6 +268,50 @@ mod test {
             {
               "name": "a",
               "value": "aa.2"
+            },
+            {
+              "name": "b",
+              "value": "bb.1"
+            },
+            {
+              "name": "d",
+              "value": "dd.2"
+            }
+          ]
+        }
+        "###);
+
+        // Adding values out of order and with repeats.
+        for v in &["aa.2", "aa.1", "aa.3", "aa.1", "aa.2", "aa.4", "aa.0"] {
+            set = add_value(set, "a", v);
+        }
+
+        insta::assert_json_snapshot!(set, @r###"
+        {
+          "labels": [
+            {
+              "name": "a",
+              "value": "aa"
+            },
+            {
+              "name": "a",
+              "value": "aa.0"
+            },
+            {
+              "name": "a",
+              "value": "aa.1"
+            },
+            {
+              "name": "a",
+              "value": "aa.2"
+            },
+            {
+              "name": "a",
+              "value": "aa.3"
+            },
+            {
+              "name": "a",
+              "value": "aa.4"
             },
             {
               "name": "b",
