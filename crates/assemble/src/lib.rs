@@ -149,7 +149,7 @@ pub fn partition_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: build_id.to_string(),
+            value: format!("{build_id:#}"), // use alternate to omit colon separators
         },
         broker::Label {
             name: labels::COLLECTION.to_string(),
@@ -233,7 +233,7 @@ pub fn recovery_log_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: build_id.to_string(),
+            value: format!("{build_id:#}"), // use alternate to omit colon separators
         },
         broker::Label {
             name: labels::TASK_NAME.to_string(),
@@ -340,7 +340,7 @@ pub fn shard_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: build_id.to_string(),
+            value: format!("{build_id:#}"), // use alternate to omit colon separators
         },
         broker::Label {
             name: labels::LOG_LEVEL.to_string(),
