@@ -261,7 +261,16 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let live = if resolve {
         resolver.resolve(draft.all_catalog_names()).await
     } else {
-        Default::default()
+        let mut live = tables::LiveCatalog::default();
+        live.storage_mappings.insert_row(
+            models::Prefix::new(""),
+            url::Url::parse("flow://control").unwrap(),
+            vec![models::Store::Gcs(models::GcsBucketAndPrefix {
+                bucket: "example-bucket".to_string(),
+                prefix: None,
+            })],
+        );
+        live
     };
     let live = local_specs::surface_errors(live.into_result())?;
 
@@ -285,7 +294,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     // expect and validate when we open up a DB from Go.
     let build_config = proto_flow::flow::build_api::Config {
         build_db: db_path.to_string_lossy().to_string(),
-        build_id: format!("{build_id}"),
+        build_id: format!("{build_id:#}"), // use alternate to omit colon separators
         source,
         source_type: proto_flow::flow::ContentType::Catalog as i32,
         ..Default::default()
