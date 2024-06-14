@@ -152,17 +152,19 @@ async fn converge_task_shards(
     journal_client.apply(log_changes).await?;
     shard_client.apply(shard_changes).await?;
 
-    // Unassign any failed shards to get them running again after updating their specs
-    let shard_ids = shards.into_iter().map(|s| s.0).collect();
-    let unassign_req = consumer::UnassignRequest {
-        shards: shard_ids,
-        only_failed: true,
-        dry_run: false,
-    };
-    shard_client
-        .unassign(unassign_req)
-        .await
-        .context("unassigning failed shards")?;
+    if template.is_some() {
+        // Unassign any failed shards to get them running again after updating their specs
+        let shard_ids = shards.into_iter().map(|s| s.0).collect();
+        let unassign_req = consumer::UnassignRequest {
+            shards: shard_ids,
+            only_failed: true,
+            dry_run: false,
+        };
+        shard_client
+            .unassign(unassign_req)
+            .await
+            .context("unassigning failed shards")?;
+    }
 
     Ok(())
 }
