@@ -44,7 +44,7 @@ echo "Started Postgres and SSH server"
 ###############################################################################
 # Build the catalog under test.
 
-BUILD_ID=run-end-to-end-${TEST}
+BUILD_ID=1122334455667788
 
 # Build the catalog.
 # `flowctl temp-data-plane` always uses ./builds/ of --tempdir as its --flow.builds-root.
