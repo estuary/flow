@@ -26,6 +26,3 @@ collections:
           source: a/collection
           shuffle: any
           lambda: SELECT 1;
-
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }

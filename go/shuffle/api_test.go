@@ -36,7 +36,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "a-build-id",
+			BuildId:    "2222222222222222",
 			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///ab.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,

@@ -21,7 +21,7 @@ func TestBuildingSpecs(t *testing.T) {
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "fixture",
+			BuildId:    "3333333333333333",
 			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///specs_test.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,

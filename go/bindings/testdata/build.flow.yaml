@@ -68,6 +68,3 @@ tests:
         documents:
           - { a_key: one }
           - { a_key: three }
-
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }

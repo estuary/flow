@@ -44,5 +44,3 @@ materializations:
           table: greetings
         source: examples/greetings
 
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }
