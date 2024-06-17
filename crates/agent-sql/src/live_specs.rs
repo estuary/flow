@@ -14,6 +14,10 @@ pub async fn hard_delete_live_spec(
         ),
         delete_capture_flows as (
             delete from live_spec_flows where source_id = $1 and flow_type = 'capture'
+        ),
+        delete_inferred_schema as (
+            delete from inferred_schemas
+            where collection_name = (select catalog_name from live_specs where id = $1)
         )
         delete from live_specs where id = $1
         returning 1 as "must_exist!: i32"

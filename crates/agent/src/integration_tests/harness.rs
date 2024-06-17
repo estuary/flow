@@ -330,6 +330,16 @@ impl TestHarness {
             rows.is_empty(),
             "expected no live specs for name: '{name}', found: {rows:?}"
         );
+
+        let inferred_schema = self
+            .control_plane()
+            .get_inferred_schema(models::Collection::new(name))
+            .await
+            .expect("failed to fetch inferred schema");
+        assert!(
+            inferred_schema.is_none(),
+            "expecte inferred schema to have been deleted"
+        );
     }
 
     pub async fn assert_live_spec_soft_deleted(&mut self, name: &str, last_pub_id: models::Id) {
