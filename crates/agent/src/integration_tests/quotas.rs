@@ -213,7 +213,9 @@ async fn test_disable_when_over_quota() {
                         },
                     },
                 ),
-                spec_type: "capture",
+                spec_type: Some(
+                    "capture",
+                ),
             },
         ],
     }
