@@ -60,8 +60,8 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "a-build-id",
-			BuildDb:    path.Join(dir, "a-build-id"),
+			BuildId:    "6666666666666666",
+			BuildDb:    path.Join(dir, "6666666666666666"),
 			Source:     "file:///specs_test.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}

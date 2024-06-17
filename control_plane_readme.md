@@ -331,11 +331,6 @@ materializations:
       - source: examples/citi-bike/rides
         resource:
           table: citi_rides
-storageMappings:
-  # Flow builds out data lakes for your collections in your cloud storage buckets.
-  # A storage mapping relates a prefix, like examples/citi-bike/, to a storage location.
-  # Here we tell Flow to store everything in one bucket.
-  "": { stores: [{ provider: S3, bucket: my-storage-bucket }] }
 ```
 
 </details>

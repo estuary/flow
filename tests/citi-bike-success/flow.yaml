@@ -55,5 +55,3 @@ captures:
       - resource: { table: not_a_real_table }
         target: examples/citi-bike/rides
 
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }

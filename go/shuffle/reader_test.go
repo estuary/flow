@@ -69,7 +69,7 @@ func TestConsumerIntegration(t *testing.T) {
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "a-build-id",
+			BuildId:    "1111111111111111",
 			BuildDb:    path.Join(t.TempDir(), "build.id"),
 			Source:     "file:///ab.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,

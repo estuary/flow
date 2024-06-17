@@ -28,7 +28,7 @@ func TestSimpleDerive(t *testing.T) {
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "fixture",
+			BuildId:    "9999999999999999",
 			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///build.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
