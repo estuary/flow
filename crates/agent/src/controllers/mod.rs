@@ -76,36 +76,55 @@ impl ControllerState {
         } else {
             serde_json::from_str(job.status.get()).context("deserializing controller status")?
         };
-        let catalog_type = job.spec_type.into();
 
-        let live_spec = if let Some(live_json) = &job.live_spec {
-            let spec = AnySpec::deserialize(catalog_type, live_json.get())
-                .context("deserializing live spec")?;
-            Some(spec)
-        } else {
-            None
-        };
-
-        let built_spec = if let Some(built_json) = &job.built_spec {
-            let s = match catalog_type {
-                CatalogType::Capture => AnyBuiltSpec::Capture(serde_json::from_str::<
-                    flow::CaptureSpec,
-                >(built_json.get())?),
-                CatalogType::Collection => {
-                    AnyBuiltSpec::Collection(serde_json::from_str::<flow::CollectionSpec>(
-                        built_json.get(),
-                    )?)
-                }
-                CatalogType::Materialization => AnyBuiltSpec::Materialization(
-                    serde_json::from_str::<flow::MaterializationSpec>(built_json.get())?,
-                ),
-                CatalogType::Test => {
-                    AnyBuiltSpec::Test(serde_json::from_str::<flow::TestSpec>(built_json.get())?)
-                }
+        // Spec_type may be null for specs last published by a previous version.
+        // We now leave the spec_type in place when soft-deleting live_specs.
+        let maybe_type = job.spec_type.map(Into::<CatalogType>::into);
+        let (live_spec, built_spec) = if let Some(catalog_type) = maybe_type {
+            let live_spec = if let Some(live_json) = &job.live_spec {
+                let spec = AnySpec::deserialize(catalog_type, live_json.get())
+                    .context("deserializing live spec")?;
+                Some(spec)
+            } else {
+                None
             };
-            Some(s)
+
+            let built_spec = if let Some(built_json) = &job.built_spec {
+                let s = match catalog_type {
+                    CatalogType::Capture => {
+                        AnyBuiltSpec::Capture(serde_json::from_str::<flow::CaptureSpec>(
+                            built_json.get(),
+                        )?)
+                    }
+                    CatalogType::Collection => {
+                        AnyBuiltSpec::Collection(serde_json::from_str::<flow::CollectionSpec>(
+                            built_json.get(),
+                        )?)
+                    }
+                    CatalogType::Materialization => {
+                        AnyBuiltSpec::Materialization(serde_json::from_str::<
+                            flow::MaterializationSpec,
+                        >(built_json.get())?)
+                    }
+                    CatalogType::Test => AnyBuiltSpec::Test(
+                        serde_json::from_str::<flow::TestSpec>(built_json.get())?,
+                    ),
+                };
+                Some(s)
+            } else {
+                None
+            };
+            if live_spec.is_some() != built_spec.is_some() {
+                anyhow::bail!(
+                    "expected live and built specs to both be Some or None, got live: {}, built: {}",
+                    live_spec.is_some(),
+                    built_spec.is_some()
+                );
+            }
+
+            (live_spec, built_spec)
         } else {
-            None
+            (None, None)
         };
 
         let controller_state = ControllerState {
@@ -210,11 +229,12 @@ impl Status {
         control_plane: &mut C,
     ) -> anyhow::Result<Option<NextRun>> {
         let Some(live_spec) = &state.live_spec else {
-            if let Some(catalog_type) = self.catalog_type() {
+            // There's no need to delete tests and nothing depends on them.
+            if let Some(catalog_type) = self.catalog_type().filter(|ct| *ct != CatalogType::Test) {
                 // The live spec has been deleted. Delete the data plane
                 // resources, and then notify dependent controllers, to make
                 // sure that they can respond. The controller job row will be
-                // deleted automoatically after we return.
+                // deleted automatically after we return.
                 control_plane
                     .data_plane_delete(state.catalog_name.clone(), catalog_type)
                     .await

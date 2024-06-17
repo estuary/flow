@@ -26,7 +26,7 @@ pub struct LiveSpec {
     pub reads_from: Option<Vec<String>>,
     pub writes_to: Option<Vec<String>>,
     pub spec: Option<Value>,
-    pub spec_type: String,
+    pub spec_type: Option<String>,
 }
 
 #[derive(Debug)]
@@ -399,7 +399,7 @@ impl TestHarness {
                 ls.last_pub_id as "last_pub_id: agent_sql::Id",
                 ls.spec as "live_spec: TextJson<Box<RawValue>>",
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
-                ls.spec_type as "spec_type!: agent_sql::CatalogType",
+                ls.spec_type as "spec_type: agent_sql::CatalogType",
                 cj.controller_version as "controller_version: i32",
                 cj.updated_at,
                 cj.logs_token,
