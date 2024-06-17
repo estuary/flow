@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
 
 use super::harness::{draft_catalog, TestHarness};
-use crate::{controllers::ControllerState, ControlPlane};
+use crate::{
+    controllers::ControllerState, integration_tests::harness::mock_inferred_schema, ControlPlane,
+};
 use models::CatalogType;
 use uuid::Uuid;
 
@@ -240,6 +242,10 @@ async fn test_dependencies_and_controllers() {
             // tests do not get activated
         ],
     );
+    // Insert an inferred schema so that we can assert it gets deleted along with the collection
+    harness
+        .upsert_inferred_schema(mock_inferred_schema("owls/hoots", 3))
+        .await;
 
     // Publish a deletion of the collection, and then assert that the dependents can still be
     // notified after the deletion
