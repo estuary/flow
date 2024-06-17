@@ -14,12 +14,17 @@ comment on type flow_type is
   'Represents the type of a dependency of one spec on another. This enum is a
   strict superset of catalog_spec_type, for historical reasons.';
 
+-- This cast, specifically the `as assignment`, is required to allow the old version
+-- of control plane to continue to insert `catalog_spec_type`s into the `flow_type`
+-- column.
+create cast (catalog_spec_type as flow_type) with inout as assignment;
+
 -- This works because the `flow_type` enum is a superset of the `catalog_spec_type` enum.
 -- This approach was taken from:
 -- https://www.munderwood.ca/index.php/2015/05/28/altering-postgresql-columns-from-one-enum-to-another/
 alter table live_spec_flows
 alter column flow_type set data type flow_type
-using flow_type::text::flow_type;
+using flow_type::flow_type;
 
 -- We now allow live specs to be deleted even though they're still referenced by other specs.
 -- This means we need to relax the foreign key constraints on `live_spec_flows`.
@@ -40,20 +45,10 @@ where controller_next_run is not null;
 -- This constraint is removed because we're changing how we represent deleted specs, so that only
 -- the `spec` column is null. Setting `spec_type` to null was unnecessary, and retaining it is
 -- now necessary in order for `live_spec_flows` to stay consistent with `live_specs` in case of
--- spec deletions that don't draft all the connected specs.
+-- spec deletions that don't draft all the connected specs. Note that spec_type columns are still
+-- nullable to maintain compatibility with old agent versions during the transition.
 alter table live_specs drop constraint "spec and spec_type must be consistent";
 alter table draft_specs drop constraint "spec and spec_type must be consistent";
-
--- The goal is to make `spec_type` non-nullable. There's a bunch of existing soft-deleted
--- live_specs that already have a null `spec_type`, though, so we we need to either delete those
--- rows or set the `spec_type` to a non-null value. Deleting them could _technically_ make it
--- possible for old agent instances to re-create `live_specs` with the same name during the rollout
--- period, so we instead set the type to `test`. The test controller will run and hard-delete the
--- `live_specs` row. Using `test` means that we won't try to modify any shards or journals as part
--- of that process.
-update live_specs set spec_type = 'test' where spec_type is null;
-alter table live_specs alter column spec_type set not null;
-
 -- Allow spec_type to remain non-null for deleted specs
 alter table publication_specs drop constraint "spec and spec_type must be consistent";
 
