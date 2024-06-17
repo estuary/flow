@@ -16,8 +16,10 @@ func (s *LabelSuite) TestLabelValidationCases(c *gc.C) {
 	}{
 		{"a-label", "a-value", ""},   // Success.
 		{"a/label", "a%20value", ""}, // Success.
+		{"a-label", "a:value", ""},   // Success
 		{"a|label", "a-value", `Name: not a valid token \(a|label\)`},
 		{"a-label", "a|value", `Value: not a valid token \(a|value\)`},
+		{"a:label", "a-value", `Name: not a valid token \(a:label\)`},
 		{"a", "a-value", `Name: invalid length \(1; expected 2 <= length <= 64\)`},
 		{strings.Repeat("a", maxLabelLen+1), "a-value", `Name: invalid length \(65; expected .*`},
 		{"a-label", "", ""}, // Success

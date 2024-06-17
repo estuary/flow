@@ -16,6 +16,7 @@ func (s *JournalSuite) TestJournalValidationCases(c *gc.C) {
 		expect string
 	}{
 		{"a/valid/path/to/a/journal", ""}, // Success.
+		{"a/valid/path/to/a:journal", ""}, // Success.
 		{"/leading/slash", `cannot begin with '/' \(/leading/slash\)`},
 		{"trailing/slash/", `must be a clean path \(trailing/slash/\)`},
 		{"extra-middle//slash", `must be a clean path \(extra-middle//slash\)`},
