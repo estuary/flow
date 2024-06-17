@@ -64,7 +64,7 @@ func TestExtractorValidation(t *testing.T) {
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "fixture",
+			BuildId:    "8888888888888888",
 			BuildDb:    path.Join(t.TempDir(), "build-db"),
 			Source:     "file:///int-string.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,

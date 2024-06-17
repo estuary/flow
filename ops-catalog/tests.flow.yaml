@@ -379,6 +379,3 @@ tests:
           partitions: *tempManualPartitions
         documents: *docs
 
-# TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }

@@ -29,5 +29,3 @@ materializations:
       - source: messages
         resource: { table: messages }
 
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }

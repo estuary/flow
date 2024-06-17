@@ -16,5 +16,3 @@ collections:
         location: /bar
         partition: true
 
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }

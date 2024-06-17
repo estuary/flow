@@ -44,5 +44,3 @@ collections:
         maxTxnDuration: 60s
         hotStandbys: 3
 
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }
