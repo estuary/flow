@@ -212,7 +212,7 @@ async fn update_live_specs(
         models.push(to_raw_value(r.model(), agent_sql::TextJson));
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson));
         expect_pub_ids.push(r.expect_pub_id().into());
-        reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
+        reads_froms.push(None);
         writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
@@ -229,8 +229,12 @@ async fn update_live_specs(
         models.push(to_raw_value(r.model(), agent_sql::TextJson));
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson));
         expect_pub_ids.push(r.expect_pub_id().into());
-        reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
-        writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
+        reads_froms.push(get_dependencies(
+            // reads_from should be null for regular collections
+            r.model().filter(|m| m.derive.is_some()),
+            ModelDef::reads_from,
+        ));
+        writes_tos.push(None);
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
@@ -247,7 +251,7 @@ async fn update_live_specs(
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson));
         expect_pub_ids.push(r.expect_pub_id().into());
         reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
-        writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
+        writes_tos.push(None);
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);

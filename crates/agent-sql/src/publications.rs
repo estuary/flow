@@ -101,7 +101,7 @@ pub async fn update_live_specs(
                 else
                     array(select json_array_elements_text(reads_from))
                 end,
-                case when json_typeof(reads_from) is null then
+                case when json_typeof(writes_to) is null then
                     null
                 else
                     array(select json_array_elements_text(writes_to))

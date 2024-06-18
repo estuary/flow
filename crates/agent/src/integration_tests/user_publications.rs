@@ -63,6 +63,33 @@ async fn test_user_publications() {
         .await;
     assert!(first_pub_result.status.is_success());
 
+    // Verify that reads_from and writes_to are set appropriately
+    let capture = first_pub_result
+        .live_specs
+        .iter()
+        .find(|s| s.catalog_name == "cats/capture")
+        .unwrap();
+    assert_eq!(&Some(vec!["cats/noms".to_string()]), &capture.writes_to);
+    assert!(capture.reads_from.is_none());
+
+    let noms = first_pub_result
+        .live_specs
+        .iter()
+        .find(|s| s.catalog_name == "cats/noms")
+        .unwrap();
+    assert!(noms.reads_from.is_none());
+    assert!(noms.writes_to.is_none());
+    let materialize = first_pub_result
+        .live_specs
+        .iter()
+        .find(|s| s.catalog_name == "cats/materialize")
+        .unwrap();
+    assert!(materialize.writes_to.is_none());
+    assert_eq!(
+        &Some(vec!["cats/noms".to_string()]),
+        &materialize.reads_from
+    );
+
     harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(
         "after initial publication",
