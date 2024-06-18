@@ -5,22 +5,22 @@ expression: errors
 [
     Error {
         scope: flow://control/collections/the/collection,
-        error: current publication ID 20:20:20:20:20:20:20:20 has been superseded by a larger publication ID 90:90:90:90:90:90:90:90; please retry the operation,
+        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
         scope: flow://control/collections/the/derivation,
-        error: current publication ID 20:20:20:20:20:20:20:20 has been superseded by a larger publication ID 90:90:90:90:90:90:90:90; please retry the operation,
+        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
         scope: flow://control/tests/the/test,
-        error: current publication ID 20:20:20:20:20:20:20:20 has been superseded by a larger publication ID 90:90:90:90:90:90:90:90; please retry the operation,
+        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
         scope: flow://control/captures/the/capture,
-        error: current publication ID 20:20:20:20:20:20:20:20 has been superseded by a larger publication ID 90:90:90:90:90:90:90:90; please retry the operation,
+        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
         scope: flow://control/materializations/the/materialization,
-        error: current publication ID 20:20:20:20:20:20:20:20 has been superseded by a larger publication ID 90:90:90:90:90:90:90:90; please retry the operation,
+        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
 ]
