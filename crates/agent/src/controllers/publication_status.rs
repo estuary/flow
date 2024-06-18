@@ -123,10 +123,10 @@ impl PublicationInfo {
 
     pub fn observed(publication: &PublicationResult) -> Self {
         PublicationInfo {
-            id: publication.publication_id,
+            id: publication.pub_id,
             created: Some(publication.started_at),
             completed: Some(publication.completed_at),
-            result: Some(publication.publication_status.clone()),
+            result: Some(publication.status.clone()),
             detail: publication.detail.clone(),
             errors: publication.draft_errors(),
         }
@@ -297,8 +297,8 @@ impl PublicationStatus {
             .await?;
 
         self.record_result(PublicationInfo::observed(&result));
-        if result.publication_status.is_success() {
-            self.max_observed_pub_id = result.publication_id;
+        if result.status.is_success() {
+            self.max_observed_pub_id = result.pub_id;
             cp.notify_dependents(state.catalog_name.clone()).await?;
         }
 

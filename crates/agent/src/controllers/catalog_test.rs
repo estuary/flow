@@ -30,7 +30,7 @@ impl TestStatus {
                 .publications
                 .finish_pending_publication(state, control_plane)
                 .await?;
-            self.passing = result.publication_status.is_success();
+            self.passing = result.status.is_success();
             // TODO(phil): This would be a great place to trigger an alert if the publication failed
         } else {
             // We're up-to-date with our dependencies, which means the test has been published successfully

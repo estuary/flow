@@ -345,8 +345,7 @@ impl ControlPlane for PGControlPlane {
                 return Ok(built.build_failed());
             }
             let commit_result = self.publications_handler.commit(built).await?;
-            let JobStatus::ExpectPubIdMismatch { failures } = &commit_result.publication_status
-            else {
+            let JobStatus::ExpectPubIdMismatch { failures } = &commit_result.status else {
                 return Ok(commit_result);
             };
             // There's been an optimistic locking failure.

@@ -13,10 +13,12 @@ pub struct LiveRevision {
     pub last_pub_id: Id,
 }
 
-/// Locks the given live specs rows and returns their current revisions. This is used for verifying the revisions
-/// for specs that were used during the build, but are not being updated. We verify the revisions in-memory in order
-/// to handle the case where a row has subsequently been deleted, since you can't use `for update` on the nullable
-/// side of an outer join.
+/// Locks the given live specs rows and returns their current `last_pub_id`s.
+/// This is used for verifying the `last_pub_id`s for specs that were used
+/// during the build, but are not being updated. We verify the revisions
+/// in-memory in order to handle the case where a row has subsequently been
+/// deleted, since you can't use `for update` on the nullable side of an outer
+/// join.
 pub async fn lock_live_specs(
     catalog_names: &[&str],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
