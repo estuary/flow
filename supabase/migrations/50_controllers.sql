@@ -26,12 +26,18 @@ alter table live_spec_flows
 alter column flow_type set data type flow_type
 using flow_type::flow_type;
 
--- We now allow live specs to be deleted even though they're still referenced by other specs.
--- This means we need to relax the foreign key constraints on `live_spec_flows`.
+-- Update live_spec_flows foreign keys to add `on delete cascade`
 alter table live_spec_flows
 drop constraint live_spec_flows_source_id_fkey;
 alter table live_spec_flows
 drop constraint live_spec_flows_target_id_fkey;
+
+alter table live_spec_flows
+add constraint live_spec_flows_source_id_fkey
+foreign key(source_id) references live_specs(id) on delete cascade;
+alter table live_spec_flows
+add constraint live_spec_flows_target_id_fkey
+foreign key(target_id) references live_specs(id) on delete cascade;
 
 alter table live_specs add column controller_next_run timestamptz;
 comment on column live_specs.controller_next_run is 'The next time the controller for this spec should run.';
