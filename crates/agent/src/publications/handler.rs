@@ -210,7 +210,7 @@ impl Publisher {
                 .await
                 .context("adding built specs to draft")?;
 
-            return Ok(built.into_result(chrono::Utc::now(), JobStatus::success()));
+            return Ok(built.into_result(chrono::Utc::now(), JobStatus::Success));
         };
 
         self.commit(built).await.context("committing publication")

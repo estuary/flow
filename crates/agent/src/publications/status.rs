@@ -21,12 +21,7 @@ pub enum JobStatus {
     },
     TestFailed,
     PublishFailed,
-    Success {
-        /// If any materializations are to be updated in response to this publication,
-        /// their publication ids will be included here. This is purely informational.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        linked_materialization_publications: Vec<Id>,
-    },
+    Success,
     /// Returned when there are no draft specs (after pruning unbound
     /// collections). There will not be any `draft_errors` in this case, because
     /// there's no `catalog_name` to associate with an error. And it may not be
@@ -59,13 +54,6 @@ impl JobStatus {
         matches!(self, JobStatus::EmptyDraft)
     }
 
-    pub fn success() -> JobStatus {
-        JobStatus::Success {
-            // This field is no longer used, but is being kept around for a while in case we need
-            // parse an existing status that includes it.
-            linked_materialization_publications: Vec::new(),
-        }
-    }
     pub fn build_failed(incompatible_collections: Vec<IncompatibleCollection>) -> JobStatus {
         JobStatus::BuildFailed {
             incompatible_collections,
@@ -90,8 +78,6 @@ pub enum ReCreateReason {
     KeyChange,
     /// One or more collection partition fields in the draft differs from that of the live spec.
     PartitionChange,
-    /// A live spec with the same name has already been created and was subsequently deleted.
-    PrevDeletedSpec,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
