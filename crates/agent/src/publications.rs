@@ -346,7 +346,7 @@ impl Publisher {
             .await
             .context("committing publication transaction")?;
         tracing::info!("successfully committed publication");
-        Ok(uncommitted.into_result(completed_at, JobStatus::success()))
+        Ok(uncommitted.into_result(completed_at, JobStatus::Success))
     }
 }
 

@@ -173,9 +173,7 @@ async fn test_disable_when_over_quota() {
     insta::assert_debug_snapshot!(result, @r###"
     ScenarioResult {
         publication_id: 0000000000000000,
-        status: Success {
-            linked_materialization_publications: [],
-        },
+        status: Success,
         errors: [],
         live_specs: [
             LiveSpec {
