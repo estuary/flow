@@ -149,7 +149,7 @@ pub fn partition_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: format!("{build_id:#}"), // use alternate to omit colon separators
+            value: build_id.to_string(),
         },
         broker::Label {
             name: labels::COLLECTION.to_string(),
@@ -233,7 +233,7 @@ pub fn recovery_log_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: format!("{build_id:#}"), // use alternate to omit colon separators
+            value: build_id.to_string(),
         },
         broker::Label {
             name: labels::TASK_NAME.to_string(),
@@ -275,8 +275,6 @@ pub fn shard_id_prefix(pub_id: models::Id, task_name: &str, task_type: &str) -> 
         labels::TASK_TYPE_MATERIALIZATION => "materialize",
         _ => panic!("invalid task type {}", task_type),
     };
-    // Semi-colons are disallowed in Gazette journal names and shard IDs.
-    let pub_id = pub_id.to_string().replace(":", "");
 
     format!("{task_type}/{task_name}/{pub_id}")
 }
@@ -340,7 +338,7 @@ pub fn shard_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: format!("{build_id:#}"), // use alternate to omit colon separators
+            value: build_id.to_string(),
         },
         broker::Label {
             name: labels::LOG_LEVEL.to_string(),

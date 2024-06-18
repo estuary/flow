@@ -294,7 +294,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     // expect and validate when we open up a DB from Go.
     let build_config = proto_flow::flow::build_api::Config {
         build_db: db_path.to_string_lossy().to_string(),
-        build_id: format!("{build_id:#}"), // use alternate to omit colon separators
+        build_id: build_id.to_string(),
         source,
         source_type: proto_flow::flow::ContentType::Catalog as i32,
         ..Default::default()

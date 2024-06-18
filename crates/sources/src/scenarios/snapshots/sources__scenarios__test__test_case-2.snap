@@ -83,7 +83,7 @@ DraftCatalog {
         DraftTest {
             test: acmeCo/widgest/test,
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test,
-            expect_pub_id: "00:11:22:33:44:55:66:77",
+            expect_pub_id: "0011223344556677",
             model: {
               "description": "This is a test that does stuff.",
               "steps": [

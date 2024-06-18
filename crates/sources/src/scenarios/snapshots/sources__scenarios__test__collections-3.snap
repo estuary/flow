@@ -7,7 +7,7 @@ DraftCatalog {
         DraftCollection {
             collection: test/collection,
             scope: test://example/catalog.yaml#/collections/test~1collection,
-            expect_pub_id: "00:11:22:33:44:55:66:77",
+            expect_pub_id: "0011223344556677",
             model: {
               "schema": "collection.schema.yaml",
               "key": [
@@ -113,7 +113,7 @@ DraftCatalog {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"test/collection":{"schema":"collection.schema.yaml","key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"expectPubId":"00:11:22:33:44:55:66:77"},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-inferred-read":{"writeSchema":"collection-with-write-and-inferred-read.write.schema.yaml","readSchema":"collection-with-write-and-inferred-read.read.schema.yaml","key":["/key/1","/key/0"]},"test/collection-with-write-and-read":{"writeSchema":"collection-with-write-and-read.write.schema.yaml","readSchema":"collection-with-write-and-read.read.schema.yaml","key":["/key/1","/key/0"]},"test/collection/with-journals":{"schema":"with-journals.schema.yaml","key":["/a/key"],"journals":{"fragments":{"length":12345,"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","retention":"13days 8h","flushInterval":"15m"}}}}},
+            content_dom: {"collections":{"test/collection":{"schema":"collection.schema.yaml","key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"expectPubId":"0011223344556677"},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-inferred-read":{"writeSchema":"collection-with-write-and-inferred-read.write.schema.yaml","readSchema":"collection-with-write-and-inferred-read.read.schema.yaml","key":["/key/1","/key/0"]},"test/collection-with-write-and-read":{"writeSchema":"collection-with-write-and-read.write.schema.yaml","readSchema":"collection-with-write-and-read.read.schema.yaml","key":["/key/1","/key/0"]},"test/collection/with-journals":{"schema":"with-journals.schema.yaml","key":["/a/key"],"journals":{"fragments":{"length":12345,"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","retention":"13days 8h","flushInterval":"15m"}}}}},
         },
         Resource {
             resource: test://example/collection-with-write-and-inferred-read.read.schema.yaml,

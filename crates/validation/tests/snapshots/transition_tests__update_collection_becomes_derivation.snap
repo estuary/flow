@@ -8,7 +8,7 @@ Outcome {
         BuiltCollection {
             collection: the/collection,
             scope: flow://control/collections/the/collection,
-            expect_pub_id: "10:10:10:10:10:10:10:10",
+            expect_pub_id: "1010101010101010",
             model: {
               "schema": {"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"type":"object","x-live":"pass-through"},
               "key": [
@@ -79,7 +79,7 @@ Outcome {
         BuiltCollection {
             collection: the/derivation,
             scope: test://example/catalog.yaml#/collections/the~1derivation,
-            expect_pub_id: "10:10:10:10:10:10:10:10",
+            expect_pub_id: "1010101010101010",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema","properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"},
               "key": [
@@ -495,7 +495,7 @@ Outcome {
         DraftCollection {
             collection: the/derivation,
             scope: test://example/catalog.yaml#/collections/the~1derivation,
-            expect_pub_id: "10:10:10:10:10:10:10:10",
+            expect_pub_id: "1010101010101010",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema","properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"},
               "key": [

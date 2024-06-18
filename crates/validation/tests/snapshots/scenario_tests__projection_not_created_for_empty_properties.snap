@@ -8,7 +8,7 @@ Outcome {
         BuiltCollection {
             collection: testing/schema_with_empty_properties,
             scope: test://example/catalog.yaml#/collections/testing~1schema_with_empty_properties,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_empty_properties/schema","properties":{"":{"type":"string"},"a":{"properties":{"":{"type":"string"}},"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [

@@ -7,7 +7,7 @@ Outcome {
         BuiltCapture {
             capture: the/capture,
             scope: test://example/catalog.yaml#/captures/the~1capture,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -339,7 +339,7 @@ Outcome {
         BuiltCollection {
             collection: the/collection,
             scope: test://example/catalog.yaml#/collections/the~1collection,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"required":["f_one","f_two"],"type":"object"},
               "key": [
@@ -528,7 +528,7 @@ Outcome {
         BuiltCollection {
             collection: the/derivation,
             scope: test://example/catalog.yaml#/collections/the~1derivation,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema","properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"},
               "key": [
@@ -1072,7 +1072,7 @@ Outcome {
         BuiltMaterialization {
             materialization: the/materialization,
             scope: test://example/catalog.yaml#/materializations/the~1materialization,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -1458,7 +1458,7 @@ Outcome {
         BuiltTest {
             test: the/test,
             scope: test://example/catalog.yaml#/tests/the~1test,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "steps": [
                 {
@@ -1510,7 +1510,7 @@ Outcome {
         DraftCapture {
             capture: the/capture,
             scope: test://example/catalog.yaml#/captures/the~1capture,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -1531,7 +1531,7 @@ Outcome {
         DraftCollection {
             collection: the/collection,
             scope: test://example/catalog.yaml#/collections/the~1collection,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"required":["f_one","f_two"],"type":"object"},
               "key": [
@@ -1542,7 +1542,7 @@ Outcome {
         DraftCollection {
             collection: the/derivation,
             scope: test://example/catalog.yaml#/collections/the~1derivation,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema","properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"},
               "key": [
@@ -1583,7 +1583,7 @@ Outcome {
         DraftMaterialization {
             materialization: the/materialization,
             scope: test://example/catalog.yaml#/materializations/the~1materialization,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -1629,7 +1629,7 @@ Outcome {
         DraftTest {
             test: the/test,
             scope: test://example/catalog.yaml#/tests/the~1test,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "steps": [
                 {

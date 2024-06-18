@@ -1,4 +1,3 @@
-use std::fmt::Write;
 use std::str::FromStr;
 
 // Estuary epoch is the first representable timestamp in generated IDs.
@@ -59,16 +58,10 @@ impl std::str::FromStr for Id {
 
 impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = String::with_capacity(23);
-
-        for (ind, b) in self.0.iter().enumerate() {
-            if ind != 0 && !f.alternate() {
-                s.push(':');
-            }
-            write!(&mut s, "{b:02x}").unwrap();
+        for b in self.0.iter() {
+            write!(f, "{b:02x}")?;
         }
-
-        f.write_str(&s)
+        Ok(())
     }
 }
 
