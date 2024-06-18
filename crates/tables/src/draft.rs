@@ -39,32 +39,6 @@ impl DraftCatalog {
             .chain(self.tests.iter().map(|t| t.catalog_name().as_str()))
     }
 
-    pub fn to_models_catalog(&self) -> models::Catalog {
-        models::Catalog {
-            captures: self
-                .captures
-                .iter()
-                .filter_map(|r| r.model.clone().map(|s| (r.capture.clone(), s)))
-                .collect(),
-            collections: self
-                .collections
-                .iter()
-                .filter_map(|r| r.model.clone().map(|s| (r.collection.clone(), s)))
-                .collect(),
-            materializations: self
-                .materializations
-                .iter()
-                .filter_map(|r| r.model.clone().map(|s| (r.materialization.clone(), s)))
-                .collect(),
-            tests: self
-                .tests
-                .iter()
-                .filter_map(|r| r.model.clone().map(|s| (r.test.clone(), s)))
-                .collect(),
-            ..Default::default()
-        }
-    }
-
     /// Retrieve all catalog names which are included or referenced
     /// by this DraftCatalog, in sorted and unique order.
     pub fn all_catalog_names<'s>(&'s self) -> Vec<&'s str> {

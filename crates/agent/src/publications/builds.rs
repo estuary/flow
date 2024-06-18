@@ -28,8 +28,7 @@ pub async fn build_catalog(
     std::fs::create_dir(&builds_dir).context("creating builds directory")?;
     tracing::debug!(?builds_dir, "using build directory");
 
-    // colons were causing grpc validation errors. Alternate removes colons
-    let build_id_str = format!("{build_id:#}");
+    let build_id_str = build_id.to_string();
     let db_path = builds_dir.join(&build_id_str);
     let project_root = url::Url::parse("file:///").unwrap();
     let source = url::Url::parse("file:///flow.json").unwrap();
@@ -47,7 +46,7 @@ pub async fn build_catalog(
         connector_network.to_string(),
         log_handler,
         None,
-        format!("build/{build_id:#}"),
+        format!("build/{build_id_str}"),
     );
     let connectors = if cfg!(test) {
         Connectors::new(runtime).with_noop_validations()
@@ -160,7 +159,7 @@ pub async fn test_catalog(
         "unix://localhost/{}/consumer.sock",
         tmpdir.as_os_str().to_string_lossy()
     );
-    let build_id = format!("{build_id:#}"); // no colons
+    let build_id = format!("{build_id}");
 
     // Activate all derivations.
     let job = jobs::run(

@@ -21,7 +21,7 @@ pub use self::status::{
 /// Represents a publication that has just completed.
 #[derive(Debug)]
 pub struct PublicationResult {
-    pub publication_id: models::Id,
+    pub pub_id: models::Id,
     pub user_id: Uuid,
     pub detail: Option<String>,
     pub started_at: DateTime<Utc>,
@@ -34,12 +34,12 @@ pub struct PublicationResult {
     pub built: tables::Validations,
     /// The final status of the publication. Note that this is not neccessarily `Success`,
     /// even if there are no `errors`.
-    pub publication_status: JobStatus,
+    pub status: JobStatus,
 }
 
 impl PublicationResult {
     pub fn new(
-        publication_id: models::Id,
+        pub_id: models::Id,
         user_id: Uuid,
         detail: Option<String>,
         start_time: DateTime<Utc>,
@@ -47,7 +47,7 @@ impl PublicationResult {
         status: JobStatus,
     ) -> Self {
         Self {
-            publication_id,
+            pub_id,
             user_id,
             detail,
             started_at: start_time,
@@ -55,7 +55,7 @@ impl PublicationResult {
             draft: built.draft,
             live: built.live,
             built: built.built,
-            publication_status: status,
+            status,
         }
     }
 
@@ -148,13 +148,13 @@ impl UncommittedBuild {
         PublicationResult {
             user_id,
             detail,
-            publication_id,
+            pub_id: publication_id,
             started_at,
             completed_at,
             draft,
             live,
             built,
-            publication_status: status,
+            status,
         }
     }
 }
@@ -238,7 +238,6 @@ impl Publisher {
 
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
         let tmpdir = tmpdir_handle.path();
-        //let log_handler = logs::ops_handler(self.logs_tx.clone(), "build".to_string(), logs_token);
         let mut built = builds::build_catalog(
             self.allow_local,
             &self.builds_root,

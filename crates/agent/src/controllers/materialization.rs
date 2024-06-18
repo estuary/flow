@@ -83,9 +83,9 @@ impl MaterializationStatus {
                 .finish_pending_publication(state, control_plane)
                 .await?;
 
-            if result.publication_status.has_incompatible_collections() {
+            if result.status.has_incompatible_collections() {
                 let PublicationResult {
-                    publication_id,
+                    pub_id: publication_id,
                     built,
                     mut detail,
                     mut draft,
@@ -103,16 +103,16 @@ impl MaterializationStatus {
                     .await?;
                 self.publications
                     .record_result(PublicationInfo::observed(&new_result));
-                if !new_result.publication_status.is_success() {
+                if !new_result.status.is_success() {
                     tracing::warn!(
-                        publication_status = ?new_result.publication_status,
+                        publication_status = ?new_result.status,
                         "publication failed after applying evolution actions (will retry)"
                     );
                 }
             }
             // If the publication was successful, update the source capture status to reflect that it's up-to-date.
             match self.source_capture.as_mut() {
-                Some(status) if result.publication_status.is_success() => status.publish_success(),
+                Some(status) if result.status.is_success() => status.publish_success(),
                 _ => {}
             }
         } else {
