@@ -264,10 +264,7 @@ impl Validations {
     }
 
     pub fn spec_count(&self) -> usize {
-        self.built_captures.len()
-            + self.built_collections.len()
-            + self.built_materializations.len()
-            + self.built_tests.len()
+        self.all_spec_names().count()
     }
 }
 

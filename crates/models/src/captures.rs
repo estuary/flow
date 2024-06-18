@@ -2,7 +2,7 @@ use super::{Collection, ConnectorConfig, Id, LocalConfig, RawValue, ShardTemplat
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::BTreeSet, time::Duration};
+use std::time::Duration;
 
 /// A Capture binds an external system and target (e.x., a SQL table or cloud storage bucket)
 /// from which data should be continuously captured, with a Flow collection into that captured
@@ -153,24 +153,15 @@ impl super::ModelDef for CaptureDef {
     fn catalog_type(&self) -> crate::CatalogType {
         crate::CatalogType::Capture
     }
-    fn writes_to(&self) -> BTreeSet<Collection> {
-        self.bindings
-            .iter()
-            .filter(|b| !b.disable)
-            .map(|b| b.target.clone())
-            .collect()
-    }
+
     fn is_enabled(&self) -> bool {
         !self.shards.disable
     }
+
     fn connector_image(&self) -> Option<&str> {
         match &self.endpoint {
             CaptureEndpoint::Connector(cfg) => Some(&cfg.image),
             _ => None,
         }
-    }
-
-    fn reads_from(&self) -> BTreeSet<Collection> {
-        BTreeSet::new()
     }
 }
