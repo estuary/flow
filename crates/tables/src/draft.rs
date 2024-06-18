@@ -23,10 +23,7 @@ pub struct DraftCatalog {
 
 impl DraftCatalog {
     pub fn spec_count(&self) -> usize {
-        self.captures.len()
-            + self.collections.len()
-            + self.materializations.len()
-            + self.tests.len()
+        self.all_spec_names().count()
     }
 
     pub fn all_spec_names(&self) -> impl Iterator<Item = &str> {

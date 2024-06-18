@@ -1,10 +1,10 @@
-use crate::{Collection, DeriveUsing};
+use crate::DeriveUsing;
 
 use super::{CompositeKey, Derivation, Field, Id, JournalTemplate, JsonPointer, Schema};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Collection describes a set of related documents, where each adheres to a
 /// common schema and grouping key. Collections are append-only: once a document
@@ -150,18 +150,6 @@ impl super::ModelDef for CollectionDef {
     fn catalog_type(&self) -> crate::CatalogType {
         crate::CatalogType::Collection
     }
-    fn reads_from(&self) -> BTreeSet<Collection> {
-        self.derive
-            .iter()
-            .flat_map(|derive| {
-                derive
-                    .transforms
-                    .iter()
-                    .filter(|b| !b.disable)
-                    .map(|b| b.source.collection().clone())
-            })
-            .collect()
-    }
 
     fn is_enabled(&self) -> bool {
         self.derive
@@ -174,9 +162,5 @@ impl super::ModelDef for CollectionDef {
             DeriveUsing::Connector(cfg) => Some(cfg.image.as_str()),
             _ => None,
         })
-    }
-
-    fn writes_to(&self) -> BTreeSet<Collection> {
-        BTreeSet::new()
     }
 }

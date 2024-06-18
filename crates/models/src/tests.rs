@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use super::{Collection, Id, RawValue, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -168,26 +166,6 @@ impl super::ModelDef for TestDef {
 
     fn catalog_type(&self) -> crate::CatalogType {
         crate::CatalogType::Test
-    }
-
-    fn reads_from(&self) -> BTreeSet<Collection> {
-        self.steps
-            .iter()
-            .filter_map(|s| match s {
-                TestStep::Verify(v) => Some(v.collection.collection().clone()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn writes_to(&self) -> BTreeSet<Collection> {
-        self.steps
-            .iter()
-            .filter_map(|s| match s {
-                TestStep::Ingest(i) => Some(i.collection.clone()),
-                _ => None,
-            })
-            .collect()
     }
 
     fn is_enabled(&self) -> bool {
