@@ -5,10 +5,10 @@ use crate::integration_tests::harness::{draft_catalog, TestHarness};
 async fn test_quota_single_task() {
     let mut harness = TestHarness::init("test_quota_single_task").await;
 
-    let user_id = harness.setup_tenant("usageB").await;
+    let user_id = harness.setup_tenant("seaTurtles").await;
 
     sqlx::query(
-        "update tenants set tasks_quota = 2, collections_quota = 2 where tenant = 'usageB/';",
+        "update tenants set tasks_quota = 2, collections_quota = 2 where tenant = 'seaTurtles/';",
     )
     .execute(&harness.pool)
     .await
@@ -16,13 +16,13 @@ async fn test_quota_single_task() {
 
     let draft = draft_catalog(serde_json::json!({
         "captures": {
-            "usageB/CaptureA": minimal_capture(false, &["usageB/CollectionA"]),
-            "usageB/CaptureB": minimal_capture(false, &["usageB/CollectionB"]),
-            "usageB/CaptureDisabled": minimal_capture(true, &[]),
+            "seaTurtles/CaptureA": minimal_capture(false, &["seaTurtles/CollectionA"]),
+            "seaTurtles/CaptureB": minimal_capture(false, &["seaTurtles/CollectionB"]),
+            "seaTurtles/CaptureDisabled": minimal_capture(true, &[]),
         },
         "collections": {
-            "usageB/CollectionA": minimal_collection(),
-            "usageB/CollectionB": minimal_collection(),
+            "seaTurtles/CollectionA": minimal_collection(),
+            "seaTurtles/CollectionB": minimal_collection(),
         }
     }));
     let result = harness
@@ -32,10 +32,10 @@ async fn test_quota_single_task() {
 
     let draft = draft_catalog(serde_json::json!({
         "captures": {
-            "usageB/CaptureC": minimal_capture(false, &["usageB/CollectionA"]),
+            "seaTurtles/CaptureC": minimal_capture(false, &["seaTurtles/CollectionA"]),
         },
         "collections": {
-            "usageB/UnboundCollection": minimal_collection(),
+            "seaTurtles/UnboundCollection": minimal_collection(),
         }
     }));
     let mut results = harness
@@ -49,8 +49,8 @@ async fn test_quota_single_task() {
         status: PublishFailed,
         errors: [
             (
-                "flow://tenant-quotas/usageB/tasks",
-                "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
+                "flow://tenant-quotas/seaTurtles/tasks",
+                "Request to add 1 task(s) would exceed tenant 'seaTurtles/' quota of 2. 2 are currently in use.",
             ),
         ],
         live_specs: [],
@@ -63,10 +63,10 @@ async fn test_quota_single_task() {
 async fn test_quota_derivations() {
     let mut harness = TestHarness::init("test_quota_derivation").await;
 
-    let user_id = harness.setup_tenant("usageB").await;
+    let user_id = harness.setup_tenant("seagulls").await;
 
     sqlx::query(
-        "update tenants set tasks_quota = 2, collections_quota = 2 where tenant = 'usageB/';",
+        "update tenants set tasks_quota = 2, collections_quota = 2 where tenant = 'seagulls/';",
     )
     .execute(&harness.pool)
     .await
@@ -74,13 +74,13 @@ async fn test_quota_derivations() {
 
     let setup_draft = draft_catalog(serde_json::json!({
         "captures": {
-            "usageB/CaptureA": minimal_capture(false, &["usageB/CollectionA"]),
-            "usageB/CaptureB": minimal_capture(false, &["usageB/CollectionB"]),
-            "usageB/CaptureDisabled": minimal_capture(true, &[]),
+            "seagulls/CaptureA": minimal_capture(false, &["seagulls/CollectionA"]),
+            "seagulls/CaptureB": minimal_capture(false, &["seagulls/CollectionB"]),
+            "seagulls/CaptureDisabled": minimal_capture(true, &[]),
         },
         "collections": {
-            "usageB/CollectionA": minimal_collection(),
-            "usageB/CollectionB": minimal_collection(),
+            "seagulls/CollectionA": minimal_collection(),
+            "seagulls/CollectionB": minimal_collection(),
         },
     }));
     let setup_result = harness
@@ -90,7 +90,7 @@ async fn test_quota_derivations() {
 
     let draft = draft_catalog(serde_json::json!({
         "collections": {
-            "usageB/DerivationA": {
+            "seagulls/DerivationA": {
                 "schema": {
                     "type": "object",
                     "properties": {
@@ -100,7 +100,7 @@ async fn test_quota_derivations() {
                 "key": ["/id"],
                 "derive": {
                     "using":{ "typescript": { "module": "foo.ts"}},
-                    "transforms": [{ "source": "usageB/CollectionA","shuffle": "any", "name": "foo"}]
+                    "transforms": [{ "source": "seagulls/CollectionA","shuffle": "any", "name": "foo"}]
                 }
             }
         }
@@ -116,12 +116,12 @@ async fn test_quota_derivations() {
         status: PublishFailed,
         errors: [
             (
-                "flow://tenant-quotas/usageB/tasks",
-                "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
+                "flow://tenant-quotas/seagulls/tasks",
+                "Request to add 1 task(s) would exceed tenant 'seagulls/' quota of 2. 2 are currently in use.",
             ),
             (
-                "flow://tenant-quotas/usageB/collections",
-                "Request to add 1 collections(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
+                "flow://tenant-quotas/seagulls/collections",
+                "Request to add 1 collections(s) would exceed tenant 'seagulls/' quota of 2. 2 are currently in use.",
             ),
         ],
         live_specs: [],
@@ -135,15 +135,15 @@ async fn test_quota_derivations() {
 async fn test_disable_when_over_quota() {
     let mut harness = TestHarness::init("test_disable_when_over_quota").await;
 
-    let user_id = harness.setup_tenant("usageC").await;
+    let user_id = harness.setup_tenant("albatrosses").await;
 
     let setup_draft = draft_catalog(serde_json::json!({
         "collections": {
-            "usageC/CollectionA": minimal_collection(),
+            "albatrosses/CollectionA": minimal_collection(),
         },
         "captures": {
-            "usageC/CaptureA": minimal_capture(false, &["usageC/CollectionA"]),
-            "usageC/CaptureB": minimal_capture(false, &["usageC/CollectionA"]),
+            "albatrosses/CaptureA": minimal_capture(false, &["albatrosses/CollectionA"]),
+            "albatrosses/CaptureB": minimal_capture(false, &["albatrosses/CollectionA"]),
         }
     }));
 
@@ -154,7 +154,7 @@ async fn test_disable_when_over_quota() {
 
     // Now drop the quota to be lower than the current number of tasks
     sqlx::query(
-        "update tenants set tasks_quota = 1, collections_quota = 1 where tenant = 'usageC/';",
+        "update tenants set tasks_quota = 1, collections_quota = 1 where tenant = 'albatrosses/';",
     )
     .execute(&harness.pool)
     .await
@@ -162,7 +162,7 @@ async fn test_disable_when_over_quota() {
 
     let draft = draft_catalog(serde_json::json!({
         "captures": {
-            "usageC/CaptureA": minimal_capture(true, &["usageC/CollectionA"]),
+            "albatrosses/CaptureA": minimal_capture(true, &["albatrosses/CollectionA"]),
         }
     }));
     let mut result = harness
@@ -179,19 +179,17 @@ async fn test_disable_when_over_quota() {
         errors: [],
         live_specs: [
             LiveSpec {
-                catalog_name: "usageC/CaptureA",
+                catalog_name: "albatrosses/CaptureA",
                 connector_image_name: Some(
                     "source/test",
                 ),
                 connector_image_tag: Some(
                     ":dev",
                 ),
-                reads_from: Some(
-                    [],
-                ),
+                reads_from: None,
                 writes_to: Some(
                     [
-                        "usageC/CollectionA",
+                        "albatrosses/CollectionA",
                     ],
                 ),
                 spec: Some(
@@ -199,7 +197,7 @@ async fn test_disable_when_over_quota() {
                         "bindings": Array [
                             Object {
                                 "resource": Object {},
-                                "target": String("usageC/CollectionA"),
+                                "target": String("albatrosses/CollectionA"),
                             },
                         ],
                         "endpoint": Object {
