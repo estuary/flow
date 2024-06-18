@@ -9,13 +9,7 @@ pub async fn hard_delete_live_spec(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
-        with delete_flows_target as (
-            delete from live_spec_flows where target_id = $1 and flow_type != 'capture'
-        ),
-        delete_capture_flows as (
-            delete from live_spec_flows where source_id = $1 and flow_type = 'capture'
-        ),
-        delete_inferred_schema as (
+        with delete_inferred_schema as (
             delete from inferred_schemas
             where collection_name = (select catalog_name from live_specs where id = $1)
         )
