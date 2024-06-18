@@ -8,7 +8,7 @@ Outcome {
         BuiltCollection {
             collection: testing/constraints,
             scope: test://example/catalog.yaml#/collections/testing~1constraints,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1constraints/schema","properties":{"id":{"type":"string"},"naughty_f":{"type":"string"},"naughty_u":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -233,7 +233,7 @@ Outcome {
         BuiltMaterialization {
             materialization: testing/db-views,
             scope: test://example/catalog.yaml#/materializations/testing~1db-views,
-            expect_pub_id: "00:00:00:00:00:00:00:00",
+            expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {

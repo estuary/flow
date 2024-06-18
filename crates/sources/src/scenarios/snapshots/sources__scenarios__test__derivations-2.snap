@@ -56,7 +56,7 @@ DraftCatalog {
         DraftCollection {
             collection: d2/collection,
             scope: test://example/catalog.yaml#/collections/d2~1collection,
-            expect_pub_id: "00:11:22:33:44:55:66:77",
+            expect_pub_id: "0011223344556677",
             model: {
               "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
               "key": [

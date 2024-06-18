@@ -7,7 +7,7 @@ DraftCatalog {
         DraftCapture {
             capture: acmeCo/captures/exists,
             scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists,
-            expect_pub_id: "88:66:77:55:33:00:99:00",
+            expect_pub_id: "8866775533009900",
             model: {
               "endpoint": {
                 "connector": {
@@ -37,7 +37,7 @@ DraftCatalog {
         DraftCollection {
             collection: acmeCo/collections/exists,
             scope: test://example/catalog.yaml#/collections/acmeCo~1collections~1exists,
-            expect_pub_id: "11:00:22:00:33:00:44:00",
+            expect_pub_id: "1100220033004400",
             model: {
               "schema": {"const":["updated-value"]},
               "key": [
@@ -99,7 +99,7 @@ DraftCatalog {
         DraftTest {
             test: acmeCo/two/new,
             scope: test://example/acmeCo/two/flow.yaml#/tests/acmeCo~1two~1new,
-            expect_pub_id: "00:00:11:00:22:00:00:33",
+            expect_pub_id: "0000110022000033",
             model: {
               "steps": []
             },
@@ -150,13 +150,13 @@ DraftCatalog {
             resource: test://example/acmeCo/two/flow.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"materializations":{"acmeCo/two/new":{"endpoint":{"connector":{"image":"an/image","config":42}},"bindings":[]}},"tests":{"acmeCo/two/new":{"steps":[],"expectPubId":"00:00:11:00:22:00:00:33"}}},
+            content_dom: {"materializations":{"acmeCo/two/new":{"endpoint":{"connector":{"image":"an/image","config":42}},"bindings":[]}},"tests":{"acmeCo/two/new":{"steps":[],"expectPubId":"0000110022000033"}}},
         },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[],"expectPubId":"88:66:77:55:33:00:99:00"}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"],"expectPubId":"11:00:22:00:33:00:44:00"}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":{"steps":[]}}},
+            content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[],"expectPubId":"8866775533009900"}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"],"expectPubId":"1100220033004400"}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":{"steps":[]}}},
         },
     ],
 }

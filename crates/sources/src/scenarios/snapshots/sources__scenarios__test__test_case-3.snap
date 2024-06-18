@@ -83,7 +83,7 @@ DraftCatalog {
         DraftTest {
             test: acmeCo/widgest/test,
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test,
-            expect_pub_id: "00:11:22:33:44:55:66:77",
+            expect_pub_id: "0011223344556677",
             model: {
               "description": "This is a test that does stuff.",
               "steps": [
@@ -166,7 +166,7 @@ DraftCatalog {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":{"steps":[{"ingest":{"description":"This isn't an array.","collection":"test/collection","documents":{"whoops":true}}},{"verify":{"description":"This is missing.","collection":"test/collection","documents":"test://example/not-found.json"}}]},"acmeCo/widgest/old-style-test":{"steps":[{"ingest":{"description":"An ingest","collection":"test/collection","documents":[{"ingest":"hi"}]}},{"verify":{"description":"A verify.","collection":"test/collection","documents":[{"verify":"bye"}]}}]},"acmeCo/widgest/test":{"description":"This is a test that does stuff.","steps":[{"ingest":{"description":"Import some foos","collection":"test/collection","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"description":"Verify without a selector.","collection":"test/collection","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":{"name":"test/collection","partitions":{"include":{"a_field":["some-val"]},"exclude":{}}},"documents":[{"verify":3},{"fin":null}]}},{"ingest":{"description":"Import more foos via file fixture.","collection":"test/collection","documents":[{"an":"ingest"}]}},{"verify":{"description":"Verify via file fixture.","collection":"test/collection","documents":"test.step.4.yaml"}}],"expectPubId":"00:11:22:33:44:55:66:77"}}},
+            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":{"steps":[{"ingest":{"description":"This isn't an array.","collection":"test/collection","documents":{"whoops":true}}},{"verify":{"description":"This is missing.","collection":"test/collection","documents":"test://example/not-found.json"}}]},"acmeCo/widgest/old-style-test":{"steps":[{"ingest":{"description":"An ingest","collection":"test/collection","documents":[{"ingest":"hi"}]}},{"verify":{"description":"A verify.","collection":"test/collection","documents":[{"verify":"bye"}]}}]},"acmeCo/widgest/test":{"description":"This is a test that does stuff.","steps":[{"ingest":{"description":"Import some foos","collection":"test/collection","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"description":"Verify without a selector.","collection":"test/collection","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":{"name":"test/collection","partitions":{"include":{"a_field":["some-val"]},"exclude":{}}},"documents":[{"verify":3},{"fin":null}]}},{"ingest":{"description":"Import more foos via file fixture.","collection":"test/collection","documents":[{"an":"ingest"}]}},{"verify":{"description":"Verify via file fixture.","collection":"test/collection","documents":"test.step.4.yaml"}}],"expectPubId":"0011223344556677"}}},
         },
         Resource {
             resource: test://example/test.step.4.yaml,
