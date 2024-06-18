@@ -6,7 +6,7 @@ use super::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// A Materialization binds a Flow collection with an external system & target
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
@@ -197,24 +197,12 @@ impl super::ModelDef for MaterializationDef {
         crate::CatalogType::Materialization
     }
 
-    fn reads_from(&self) -> BTreeSet<Collection> {
-        self.bindings
-            .iter()
-            .filter(|b| !b.disable)
-            .map(|b| b.source.collection().clone())
-            .collect()
-    }
-
     fn is_enabled(&self) -> bool {
         !self.shards.disable
     }
 
     fn materialization_source_capture(&self) -> Option<crate::Capture> {
         self.source_capture.clone()
-    }
-
-    fn writes_to(&self) -> BTreeSet<Collection> {
-        BTreeSet::new()
     }
 
     fn connector_image(&self) -> Option<&str> {

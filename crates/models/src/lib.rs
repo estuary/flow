@@ -276,11 +276,20 @@ impl ModelDef for AnySpec {
         }
     }
 
+    // AnySpec does not implement `sources` or `targets` because the borrowed return type
+    // can't be abstracted over. This is gross, but it'll probably be better to refactor
+    // how `ModelDef` surfaces dependencies as opposed to doing backbends to make these
+    // functions work.
     fn sources(&self) -> impl Iterator<Item = &Source> {
+        unimplemented!("AnySpec does not implement sources()");
+        // This is silly, but it keeps the compiler happy
+        #[allow(unreachable_code)]
         std::iter::empty()
     }
 
     fn targets(&self) -> impl Iterator<Item = &Collection> {
+        unimplemented!("AnySpec does not implement targets()");
+        #[allow(unreachable_code)]
         std::iter::empty()
     }
 }
