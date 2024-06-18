@@ -179,14 +179,11 @@ impl InferredSchemaStatus {
                     .finish_pending_publication(state, control_plane)
                     .await?;
 
-                if pub_result.publication_status.is_success() {
+                if pub_result.status.is_success() {
                     self.schema_md5 = Some(md5);
                     self.schema_last_updated = Some(pub_result.started_at);
                 } else {
-                    anyhow::bail!(
-                        "Failed to publish inferred schema: {:?}",
-                        pub_result.publication_status
-                    );
+                    anyhow::bail!("Failed to publish inferred schema: {:?}", pub_result.status);
                 }
             }
         } else {

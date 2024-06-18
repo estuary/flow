@@ -39,18 +39,15 @@ impl Handler for Publisher {
 
             draft::insert_errors(draft_id, result.draft_errors(), &mut txn).await?;
 
-            info!(%id, %time_queued, %background, status = ?result.publication_status, "build finished");
-            agent_sql::publications::resolve(id, &result.publication_status, &mut txn).await?;
+            info!(%id, %time_queued, %background, status = ?result.status, "build finished");
+            agent_sql::publications::resolve(id, &result.status, &mut txn).await?;
 
             txn.commit().await?;
 
             // As a separate transaction, delete the draft. Note that the user technically could
             // have inserted or updated draft specs after we started the publication, and those
             // would still be removed by this.
-            if (result.publication_status.is_success()
-                || result.publication_status.is_empty_draft())
-                && !dry_run
-            {
+            if (result.status.is_success() || result.status.is_empty_draft()) && !dry_run {
                 agent_sql::publications::delete_draft(draft_id, pg_pool).await?;
             }
             return Ok(HandleResult::HadJob);
@@ -107,7 +104,7 @@ impl Publisher {
                 ));
             }
             let result = self.try_process(&row, draft).await?;
-            let JobStatus::ExpectPubIdMismatch { failures } = &result.publication_status else {
+            let JobStatus::ExpectPubIdMismatch { failures } = &result.status else {
                 return Ok(result);
             };
             if attempt == Publisher::MAX_OPTIMISTIC_LOCKING_RETRIES {

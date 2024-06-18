@@ -95,7 +95,7 @@ async fn test_publication_optimistic_locking_failures() {
         .commit(build_b)
         .await
         .expect("commit b failed");
-    assert!(result_b.publication_status.is_success());
+    assert!(result_b.status.is_success());
 
     let result_a = harness
         .publisher
@@ -108,7 +108,7 @@ async fn test_publication_optimistic_locking_failures() {
             ("mice/seeds", Id::zero(), Some(pub_b)),
             ("mice/capture", Id::zero(), Some(pub_b)),
         ],
-        &result_a.publication_status,
+        &result_a.status,
     );
 
     // Now simulate raced publications of cheese and seeds, wich each publication having "expanded"
@@ -161,7 +161,7 @@ async fn test_publication_optimistic_locking_failures() {
         .commit(seeds_build)
         .await
         .expect("failed to commit seeds");
-    assert!(seeds_result.publication_status.is_success());
+    assert!(seeds_result.status.is_success());
 
     let cheese_result = harness
         .publisher
@@ -170,7 +170,7 @@ async fn test_publication_optimistic_locking_failures() {
         .expect("failed to commit cheese"); // lol
     assert_lock_failures(
         &[("mice/capture", pub_b, Some(seeds_pub))],
-        &cheese_result.publication_status,
+        &cheese_result.status,
     );
 }
 

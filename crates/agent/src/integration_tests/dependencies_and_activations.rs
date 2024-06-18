@@ -120,7 +120,7 @@ async fn test_dependencies_and_controllers() {
         .await
         .expect("initial publish failed");
     assert!(
-        result.publication_status.is_success(),
+        result.status.is_success(),
         "publication failed with: {:?}",
         result.draft_errors()
     );
@@ -175,7 +175,7 @@ async fn test_dependencies_and_controllers() {
         .await
         .expect("publication failed");
     assert_eq!(1, result.draft.spec_count());
-    assert!(result.publication_status.is_success());
+    assert!(result.status.is_success());
 
     // Simulate a failed call to activate the collection in the data plane
     harness.control_plane().fail_next_activation("owls/hoots");
@@ -262,7 +262,7 @@ async fn test_dependencies_and_controllers() {
         )
         .await
         .expect("failed to publish collection deletion");
-    assert!(del_result.publication_status.is_success());
+    assert!(del_result.status.is_success());
     harness
         .assert_live_spec_soft_deleted("owls/hoots", del_pub_id)
         .await;
@@ -381,7 +381,7 @@ async fn test_dependencies_and_controllers() {
         )
         .await
         .expect("failed to publish");
-    assert!(result.publication_status.is_success());
+    assert!(result.status.is_success());
     harness
         .assert_live_spec_soft_deleted("owls/capture", del_pub_id)
         .await;
@@ -424,7 +424,7 @@ async fn test_dependencies_and_controllers() {
         )
         .await
         .expect("failed to publish deletions");
-    assert!(del_result.publication_status.is_success());
+    assert!(del_result.status.is_success());
     harness
         .assert_live_spec_soft_deleted("owls/materialize", del_pub_id)
         .await;
