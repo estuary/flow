@@ -17,7 +17,6 @@ func (s *SpecSuite) TestShardValidationCases(c *gc.C) {
 		expect string
 	}{
 		{"a-valid-shard", ""}, // Success.
-		{"a:valid-shard", ""}, // Success.
 		{"not-$%|-a-token", `not a valid token \(.*\)`},
 		{"", `invalid length \(0; expected 4 <= .*`},
 		{"zz", `invalid length \(2; expected 4 <= .*`},

@@ -69,7 +69,7 @@ func ValidateToken(n, symbols string, min, max int) error {
 // a "clean" path (as defined by path.Clean), is non-rooted, and consists only
 // of characters drawn from pathSymbols.
 func ValidatePathComponent(n string, min, max int) error {
-	if err := ValidateToken(n, PathSymbols, min, max); err != nil {
+	if err := ValidateToken(n, pathSymbols, min, max); err != nil {
 		return err
 	} else if n != "" && path.Clean(n) != n {
 		return NewValidationError("must be a clean path (%s)", n)
@@ -85,7 +85,7 @@ const (
 	// which is the allocator KeySpace separator, must not be included in this alphabet.
 	// The alphabet leads with '-' to facilitate escaping in |reToken|.
 	TokenSymbols = "-_+/."
-	// PathSymbols is allowed runes of strings which form path components.
+	// pathSymbols is allowed runes of strings which form path components.
 	// It extends TokenSymbols with the '=', '%', and ':' runes.
-	PathSymbols = TokenSymbols + "=%:"
+	pathSymbols = TokenSymbols + "=%:"
 )

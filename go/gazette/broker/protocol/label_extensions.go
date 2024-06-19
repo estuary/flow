@@ -12,7 +12,7 @@ import (
 func (m Label) Validate() error {
 	if err := ValidateToken(m.Name, TokenSymbols, minLabelLen, maxLabelLen); err != nil {
 		return ExtendContext(err, "Name")
-	} else if err = ValidateToken(m.Value, PathSymbols, 0, maxLabelValueLen); err != nil {
+	} else if err = ValidateToken(m.Value, pathSymbols, 0, maxLabelValueLen); err != nil {
 		return ExtendContext(err, "Value")
 	}
 	return nil
@@ -452,7 +452,7 @@ func parseSetParts(name, s string) ([]Label, error) {
 
 var (
 	reToken         = ` ?([\pL\pN\` + regexp.QuoteMeta(TokenSymbols) + `]{2,})`
-	rePath          = ` ?([\pL\pN\` + regexp.QuoteMeta(PathSymbols) + `]{0,})`
+	rePath          = ` ?([\pL\pN\` + regexp.QuoteMeta(pathSymbols) + `]{0,})`
 	reCommaOrEnd    = ` ?(?:,|$)`
 	reParenthetical = ` ?\(([^)]+)\)`
 
