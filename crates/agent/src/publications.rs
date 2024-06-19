@@ -59,6 +59,15 @@ impl PublicationResult {
         }
     }
 
+    pub fn error_for_status(self) -> Result<PublicationResult, anyhow::Error> {
+        // TODO(phil): consider returning Ok if status is EmptyDraft?
+        if self.status.is_success() {
+            Ok(self)
+        } else {
+            anyhow::bail!("publication failed with status: {:?}", self.status)
+        }
+    }
+
     pub fn draft_errors(&self) -> Vec<draft::Error> {
         self.draft
             .errors

@@ -454,7 +454,7 @@ impl ControlPlane for PGControlPlane {
                 .await
             }
             CatalogType::Test => Err(anyhow::anyhow!(
-                "attempted to activate a Test, which is not a thing"
+                "attempted to delete a Test, which is not a thing"
             )),
         }
     }

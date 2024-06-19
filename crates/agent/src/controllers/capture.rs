@@ -1,6 +1,7 @@
 use super::{
+    backoff_data_plane_activate,
     publication_status::{ActivationStatus, Dependencies},
-    ControlPlane, ControllerState, NextRun,
+    ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
 use chrono::{DateTime, Utc};
@@ -35,7 +36,7 @@ impl CaptureStatus {
                     state,
                     format!("in response to publication of one or more depencencies"),
                 )
-                .await?;
+                .await;
             if !dependencies.deleted.is_empty() {
                 tracing::debug!(deleted_collections = ?dependencies.deleted, "disabling bindings for collections that have been deleted");
                 let draft_capture = draft
@@ -64,16 +65,33 @@ impl CaptureStatus {
             let _result = self
                 .publications
                 .finish_pending_publication(state, control_plane)
-                .await?;
+                .await
+                .expect("failed to execute publish")
+                .error_for_status()
+                .with_maybe_retry(backoff_publication_failure(state.failures))?;
         } else {
             // Not much point in activating if we just published, since we're going to be
             // immediately invoked again.
-            self.activation.update(state, control_plane).await?;
+            self.activation
+                .update(state, control_plane)
+                .await
+                .with_retry(backoff_data_plane_activate(state.failures))?;
             self.publications
                 .notify_dependents(state, control_plane)
-                .await?;
+                .await
+                .expect("failed to notify dependents");
         }
 
-        Ok(self.publications.next_run(state))
+        Ok(None)
+    }
+}
+
+fn backoff_publication_failure(prev_failures: i32) -> Option<NextRun> {
+    if prev_failures < 3 {
+        Some(NextRun::after_minutes(prev_failures.max(1) as u32))
+    } else if prev_failures < 10 {
+        Some(NextRun::after_minutes(prev_failures as u32 * 60))
+    } else {
+        None
     }
 }
