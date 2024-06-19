@@ -1,6 +1,7 @@
 use super::{
+    backoff_data_plane_activate,
     publication_status::{ActivationStatus, Dependencies},
-    reduce_next_run, ControlPlane, ControllerState, NextRun,
+    ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
 use chrono::{DateTime, Utc};
@@ -33,7 +34,7 @@ impl CollectionStatus {
                     state,
                     format!("in response to publication of one or more depencencies"),
                 )
-                .await?;
+                .await;
             if !dependencies.deleted.is_empty() {
                 let add_detail = handle_deleted_dependencies(draft, state, dependencies);
                 self.publications
@@ -56,9 +57,8 @@ impl CollectionStatus {
         };
 
         if self.publications.has_pending() {
-            // If the publication fails, then the only recourse is to retry later. We'll defer to the
-            // `self.publications` to determine when that should be. In the future, we may want to
-            // handle schema incompatibilities for derivations, and this is where we would do that.
+            // If the publication fails, then it's quite unlikely to succeed if
+            // we were to retry it. So consider this a terminal error.
             let _result = self
                 .publications
                 .finish_pending_publication(state, control_plane)
@@ -66,7 +66,10 @@ impl CollectionStatus {
         } else {
             // Not much point in activating if we just published, since we're going to be
             // immediately invoked again.
-            self.activation.update(state, control_plane).await?;
+            self.activation
+                .update(state, control_plane)
+                .await
+                .with_retry(backoff_data_plane_activate(state.failures))?;
             // Wait until after activation is complete to notify dependents.
             // This just helps encourage more orderly rollouts.
             self.publications
@@ -74,10 +77,7 @@ impl CollectionStatus {
                 .await?;
         }
 
-        Ok(reduce_next_run(&[
-            inferred_schema_next_run,
-            self.publications.next_run(state),
-        ]))
+        Ok(inferred_schema_next_run)
     }
 }
 
@@ -142,7 +142,8 @@ impl InferredSchemaStatus {
 
         let maybe_inferred_schema = control_plane
             .get_inferred_schema(collection_name.clone())
-            .await?;
+            .await
+            .expect("failed to fetch inferred schema");
 
         if let Some(inferred_schema) = maybe_inferred_schema {
             let tables::InferredSchema {
@@ -175,16 +176,15 @@ impl InferredSchemaStatus {
                         });
                 update_inferred_schema(draft_row, &schema)?;
 
+                // Don't retry publications, since they're unlikely to succeed.
                 let pub_result = publication_status
                     .finish_pending_publication(state, control_plane)
-                    .await?;
+                    .await
+                    .expect("failed to execute publication")
+                    .error_for_status()?;
 
-                if pub_result.status.is_success() {
-                    self.schema_md5 = Some(md5);
-                    self.schema_last_updated = Some(pub_result.started_at);
-                } else {
-                    anyhow::bail!("Failed to publish inferred schema: {:?}", pub_result.status);
-                }
+                self.schema_md5 = Some(md5);
+                self.schema_last_updated = Some(pub_result.started_at);
             }
         } else {
             tracing::debug!(%collection_name, "No inferred schema available yet");
