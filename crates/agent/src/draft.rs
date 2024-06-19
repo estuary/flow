@@ -33,7 +33,7 @@ impl Error {
 impl From<LockFailure> for Error {
     fn from(err: LockFailure) -> Self {
         let detail = format!(
-            "the expectVersionId of spec {:?} {:?} did not match that of the live spec {:?}",
+            "the expectPubId of spec {:?} {:?} did not match that of the live spec {:?}",
             err.catalog_name, err.expect_pub_id, err.last_pub_id
         );
         Error {
