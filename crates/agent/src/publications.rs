@@ -252,7 +252,8 @@ impl Publisher {
         )
         .await?;
 
-        if built.live.tests.len() > 0 && !cfg!(test) && built.errors().next().is_none() {
+        // If there are any tests, run them now as long as there's no build errors
+        if built.built.built_tests.len() > 0 && !cfg!(test) && built.errors().next().is_none() {
             let data_plane_job = builds::data_plane(
                 &self.connector_network,
                 &self.bindir,
@@ -278,6 +279,7 @@ impl Publisher {
                 }
                 r = &mut test_jobs => r,
             }?;
+            tracing::debug!(test_count = %built.live.tests.len(), test_errors = %errors.len(), "finished running tests");
 
             // TODO(phil): we don't thread through test failures properly, so we
             // never set the `TestFailed` job status.
