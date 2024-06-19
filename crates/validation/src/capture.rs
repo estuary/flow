@@ -97,14 +97,14 @@ async fn walk_capture(
         ),
     };
 
-    // We only validated and build enabled bindings, in their declaration order.
+    // We only validate and build enabled bindings, in their declaration order.
     let enabled_bindings: Vec<(usize, &models::CaptureBinding)> = all_bindings
         .iter()
         .enumerate()
         .filter_map(|(index, binding)| (!binding.disable).then_some((index, binding)))
         .collect();
 
-    // Map enabled bindings into validation requests.
+    // Map enabled bindings into the validation request.
     let binding_requests: Vec<_> = enabled_bindings
         .iter()
         .filter_map(|(binding_index, binding)| {
@@ -138,7 +138,11 @@ async fn walk_capture(
         config_json: config_json.clone(),
         bindings: binding_requests.clone(),
         last_capture: live_spec.cloned(),
-        last_version: expect_pub_id.to_string(),
+        last_version: if expect_pub_id.is_zero() {
+            String::new()
+        } else {
+            expect_pub_id.to_string()
+        },
     };
     let wrapped_request = capture::Request {
         validate: Some(validate_request.clone()),
