@@ -48,7 +48,7 @@ To meet these requirements, follow the steps for your hosting type.
 * [Amazon Aurora](#amazon-aurora)
 * [Google Cloud SQL](./google-cloud-sql-postgres/)
 * [Azure Database for PostgreSQL](#azure-database-for-postgresql)
-* [Supabase](#Supabase)
+* [Supabase](Supabase)
 
 ### Self-hosted PostgreSQL
 
