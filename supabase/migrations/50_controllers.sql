@@ -113,9 +113,6 @@ comment on column controller_jobs.error is
   'The error from the most recent controller run, which will be null if the
   run was successful. If this is set, then failures will be > 0';
 
-insert into controller_jobs (live_spec_id)
-    select id from live_specs;
-
 alter table controller_jobs enable row level security;
 
 create policy "Users must be authorized to live specifications"
