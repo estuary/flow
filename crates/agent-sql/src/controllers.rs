@@ -22,6 +22,10 @@ pub struct ControllerJob {
     pub error: Option<String>,
 }
 
+/// Returns the next available controller job, if any are due to be run. Filters
+/// out any rows having a `controller_version` that is greater than the provided
+/// `controller_version` so that old agent versions don't trample the changes
+/// from newer agent versions during a deployment rollout.
 #[tracing::instrument(level = "debug", skip(txn))]
 pub async fn dequeue(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -29,36 +33,9 @@ pub async fn dequeue(
 ) -> sqlx::Result<Option<ControllerJob>> {
     sqlx::query_as!(
         ControllerJob,
-        r#"with needs_periodic(live_spec_id) as (
-            select id as live_spec_id
-            from live_specs
-            where
-                -- This condition is required in order to for this query to use the sparse index
-                controller_next_run is not null
-                and controller_next_run <= now()
-            order by controller_next_run asc
-        ),
-        needs_upgrade(live_spec_id) as (
-            select live_spec_id
-            from controller_jobs cj
-            join live_specs ls on cj.live_spec_id = ls.id
-            where cj.controller_version < $1
-            -- This condition is needed in order to respect the backoff when the upgrade run of a
-            -- controller fails. If a spec has a controller_next_run, then that should always
-            -- determine the time of the next run.
-            and ls.controller_next_run is null
-        ),
-        next(live_spec_id) as (
-            -- Scheduled runs take precedence over upgrades
-            select live_spec_id
-            from needs_periodic
-            union
-            select live_spec_id
-            from needs_upgrade
-        )
-        select
-            next.live_spec_id as "live_spec_id!: Id",
-            ls.catalog_name as "catalog_name!: String",
+        r#"select
+            ls.id as "live_spec_id: Id",
+            ls.catalog_name as "catalog_name: String",
             ls.controller_next_run,
             ls.last_pub_id as "last_pub_id: Id",
             ls.spec as "live_spec: TextJson<Box<RawValue>>",
@@ -70,9 +47,14 @@ pub async fn dequeue(
             cj.status as "status: TextJson<Box<RawValue>>",
             cj.failures,
             cj.error
-        from next
-        join controller_jobs cj on next.live_spec_id = cj.live_spec_id
-        join live_specs ls on next.live_spec_id = ls.id
+        from live_specs ls
+        join controller_jobs cj on ls.id = cj.live_spec_id
+        where
+            -- This condition is required in order to for this query to use the sparse index
+            ls.controller_next_run is not null
+            and ls.controller_next_run <= now()
+            and cj.controller_version <= $1
+        order by ls.controller_next_run asc
         limit 1
         for update of cj skip locked;
         "#,
