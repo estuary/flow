@@ -182,7 +182,7 @@ async fn walk_derivation(
 
     let scope_transforms = scope.push_prop("transforms");
 
-    // We only validated and build enabled transforms, in their declaration order.
+    // We only validate and build enabled transforms, in their declaration order.
     let enabled_transforms: Vec<(usize, &models::TransformDef)> = all_transforms
         .iter()
         .enumerate()
@@ -311,7 +311,7 @@ async fn walk_derivation(
         project_root: project_root.to_string(),
         import_map,
         last_collection: last_collection.cloned(),
-        last_version: last_pub_id.map(|id| format!("{id}")).unwrap_or_default(),
+        last_version: last_pub_id.map(models::Id::to_string).unwrap_or_default(),
     };
     let wrapped_request = derive::Request {
         validate: Some(validate_request),
