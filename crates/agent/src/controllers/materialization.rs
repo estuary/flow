@@ -1,6 +1,6 @@
 use super::{
     publication_status::{ActivationStatus, PublicationInfo},
-    ControlPlane, ControllerState, NextRun,
+    ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::{
     controllers::publication_status::{Dependencies, PublicationStatus},
@@ -40,7 +40,7 @@ impl MaterializationStatus {
                     state,
                     format!("in response to publication of one or more depencencies"),
                 )
-                .await?;
+                .await;
             if !dependencies.deleted.is_empty() {
                 let mat_name = models::Materialization::new(&state.catalog_name);
                 let draft_row = draft.materializations.get_mut_by_key(&mat_name);
@@ -65,6 +65,7 @@ impl MaterializationStatus {
                     self.source_capture = Some(SourceCaptureStatus::default());
                 }
                 let source_capture_status = self.source_capture.as_mut().unwrap();
+                // Source capture errors are terminal
                 source_capture_status
                     .update(
                         state,
@@ -81,7 +82,8 @@ impl MaterializationStatus {
             let result = self
                 .publications
                 .finish_pending_publication(state, control_plane)
-                .await?;
+                .await
+                .expect("failed to execute publication");
 
             if result.status.has_incompatible_collections() {
                 let PublicationResult {
@@ -96,19 +98,27 @@ impl MaterializationStatus {
                     .unwrap()
                     .push_str(", and applying onIncompatibleSchemaChange actions");
                 self.apply_evolution_actions(state, built, &mut draft)
+                    .with_maybe_retry(backoff_publication_failure(state.failures))
                     .context("applying evolution actions")?;
 
                 let new_result = control_plane
                     .publish(publication_id, detail, state.logs_token, draft)
-                    .await?;
+                    .await
+                    .expect("failed to execute publication");
                 self.publications
                     .record_result(PublicationInfo::observed(&new_result));
                 if !new_result.status.is_success() {
                     tracing::warn!(
                         publication_status = ?new_result.status,
-                        "publication failed after applying evolution actions (will retry)"
+                        "publication failed after applying evolution actions"
                     );
                 }
+                // We retry materialization publication failures, because they primarily depend on the
+                // availability and state of an external system. But we don't retry indefinitely, since
+                // oftentimes users will abandon live tasks after deleting those external systems.
+                new_result
+                    .error_for_status()
+                    .with_maybe_retry(backoff_publication_failure(state.failures))?;
             }
             // If the publication was successful, update the source capture status to reflect that it's up-to-date.
             match self.source_capture.as_mut() {
@@ -122,7 +132,7 @@ impl MaterializationStatus {
             // materializations have no dependents, so nobody to notify
         }
 
-        Ok(self.publications.next_run(state))
+        Ok(None)
     }
 
     fn apply_evolution_actions(
@@ -211,6 +221,16 @@ impl MaterializationStatus {
     }
 }
 
+fn backoff_publication_failure(prev_failures: i32) -> Option<NextRun> {
+    if prev_failures < 3 {
+        Some(NextRun::after_minutes(prev_failures.max(1) as u32))
+    } else if prev_failures < 10 {
+        Some(NextRun::after_minutes(prev_failures as u32 * 60))
+    } else {
+        None
+    }
+}
+
 fn handle_deleted_dependencies(
     deleted: &BTreeSet<String>,
     drafted: &mut models::MaterializationDef,
@@ -295,7 +315,8 @@ impl SourceCaptureStatus {
         };
         let connector_spec = control_plane
             .get_connector_spec(config.image.clone())
-            .await?;
+            .await
+            .expect("failed to fetch connector spec");
         let collection_name_pointer = crate::resource_configs::pointer_for_schema(
             connector_spec.resource_config_schema.get(),
         )?;
@@ -329,6 +350,7 @@ impl SourceCaptureStatus {
                     model: Some(model.clone()),
                 });
 
+        // Failures here are terminal
         update_linked_materialization(
             collection_name_pointer,
             &self.add_bindings,

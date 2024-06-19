@@ -1,4 +1,5 @@
 use crate::{
+    controllers::ControllerErrorExt,
     controlplane::ControlPlane,
     publications::{self, PublicationResult},
 };
@@ -8,7 +9,7 @@ use models::{AnySpec, Id, ModelDef};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
-use super::{ControllerState, NextRun};
+use super::{backoff_data_plane_activate, ControllerState};
 
 /// Information about the dependencies of a live spec.
 pub struct Dependencies {
@@ -91,6 +92,7 @@ impl ActivationStatus {
             control_plane
                 .data_plane_activate(name, built_spec)
                 .await
+                .with_retry(backoff_data_plane_activate(state.failures))
                 .context("failed to activate")?;
             tracing::debug!(last_activated = %self.last_activated, "activated");
             self.last_activated = state.last_pub_id;
@@ -213,7 +215,7 @@ impl PublicationStatus {
         pub_id: models::Id,
         state: &ControllerState,
         detail: String,
-    ) -> anyhow::Result<&'a mut tables::DraftCatalog> {
+    ) -> &'a mut tables::DraftCatalog {
         self.target_pub_id = self.target_pub_id.max(pub_id);
         let model = state
             .live_spec
@@ -226,7 +228,7 @@ impl PublicationStatus {
             details: vec![detail],
         });
 
-        Ok(&mut self.pending.as_mut().unwrap().draft)
+        &mut self.pending.as_mut().unwrap().draft
     }
 
     pub async fn notify_dependents<C: ControlPlane>(
@@ -241,36 +243,6 @@ impl PublicationStatus {
             self.max_observed_pub_id = state.last_pub_id;
         }
         Ok(())
-    }
-
-    /// Determines whether a subsequent controller run is required in order to bring this spec up
-    /// to date with it's dependencies. Applies a steep backoff if previous publications have
-    /// failed.
-    pub fn next_run(&self, state: &ControllerState) -> Option<NextRun> {
-        let last_success_pub_id = self
-            .history
-            .front()
-            .filter(|p| p.is_success())
-            .map(|p| p.id)
-            .unwrap_or(Id::zero())
-            .max(state.last_pub_id);
-        if self.target_pub_id > last_success_pub_id {
-            let fail_count = self.history.iter().take_while(|p| !p.is_success()).count();
-            let after_seconds = match fail_count {
-                0..=1 => 60,
-                2 => 180,
-                3 => 300,
-                _ => 600,
-            };
-            tracing::info!(%fail_count, %last_success_pub_id, target_pub_id = %self.target_pub_id, "publication status determined need to retry");
-
-            Some(NextRun {
-                after_seconds,
-                jitter_percent: 25,
-            })
-        } else {
-            None
-        }
     }
 
     pub fn record_result(&mut self, publication: PublicationInfo) {

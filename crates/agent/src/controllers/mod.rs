@@ -144,6 +144,61 @@ impl ControllerState {
     }
 }
 
+/// A wrapper around an `anyhow::Error` that also contains retry information.
+/// All other types of errors are terminal, but `ControllerError`s may contain
+/// a backoff, in which case the controller will be re-tried.
+#[derive(Debug)]
+pub struct RetryableError {
+    pub inner: anyhow::Error,
+    pub retry: Option<NextRun>,
+}
+
+impl std::fmt::Display for RetryableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let maybe_retry = if self.retry.is_some() {
+            " (will retry)"
+        } else {
+            ""
+        };
+        write!(f, "{}{}", self.inner, maybe_retry)
+    }
+}
+
+impl std::error::Error for RetryableError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.inner.source()
+    }
+}
+
+/// A trait to help controllers specify retry behavior for different errors.
+/// Allows calling `my_result.with_retry(next_run)?` in order to consider an
+/// error retriable.
+trait ControllerErrorExt {
+    type Success;
+
+    fn with_maybe_retry(
+        self,
+        maybe_retry: Option<NextRun>,
+    ) -> Result<Self::Success, RetryableError>;
+
+    fn with_retry(self, after: NextRun) -> Result<Self::Success, RetryableError>
+    where
+        Self: Sized,
+    {
+        self.with_maybe_retry(Some(after))
+    }
+}
+
+impl<T, E: Into<anyhow::Error>> ControllerErrorExt for Result<T, E> {
+    type Success = T;
+    fn with_maybe_retry(self, after: Option<NextRun>) -> Result<T, RetryableError> {
+        self.map_err(|e| RetryableError {
+            inner: e.into(),
+            retry: after,
+        })
+    }
+}
+
 /// Represents a desired future run of the controller.
 /// This is represented as a simple duration and jitter in order to make
 /// testing easier, and to keep controller implementations simple.
@@ -211,6 +266,17 @@ pub enum Status {
     Uninitialized,
 }
 
+/// Returns a backoff after failing to activate or delete shards/journals in the
+/// data-plane. Failures to do so should be re-tried indefinitely.
+fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
+    let after_minutes = if prev_failures < 3 {
+        prev_failures.max(1) as u32
+    } else {
+        prev_failures as u32 * 15
+    };
+    NextRun::after_minutes(after_minutes)
+}
+
 impl Status {
     fn catalog_type(&self) -> Option<CatalogType> {
         match self {
@@ -238,10 +304,15 @@ impl Status {
                 control_plane
                     .data_plane_delete(state.catalog_name.clone(), catalog_type)
                     .await
-                    .context("deleting from data plane")?;
+                    .context("deleting from data-plane")
+                    .with_retry(backoff_data_plane_activate(state.failures))?;
+                tracing::info!("deleted from data-plane");
                 control_plane
                     .notify_dependents(state.catalog_name.clone())
-                    .await?;
+                    .await
+                    .expect("failed to update dependents");
+            } else {
+                tracing::info!("skipping data-plane deletion because there is no spec_type");
             }
             return Ok(None);
         };

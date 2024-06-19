@@ -24,13 +24,16 @@ impl TestStatus {
                     state,
                     format!("in response to publication of one or more depencencies"),
                 )
-                .await?;
+                .await;
 
             let result = self
                 .publications
                 .finish_pending_publication(state, control_plane)
-                .await?;
+                .await
+                .expect("failed to execute publication");
             self.passing = result.status.is_success();
+            // return a (terminal) error if the publication failed
+            result.error_for_status()?;
             // TODO(phil): This would be a great place to trigger an alert if the publication failed
         } else {
             // We're up-to-date with our dependencies, which means the test has been published successfully

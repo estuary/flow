@@ -1,14 +1,13 @@
 use agent_sql::controllers::{dequeue, update};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use rand::Rng;
 
 use crate::{
     controlplane::{ControlPlane, PGControlPlane},
     HandleResult, Handler,
 };
 
-use super::{ControllerState, NextRun, Status};
+use super::{ControllerState, NextRun, RetryableError, Status};
 
 use crate::controllers::CONTROLLER_VERSION;
 
@@ -69,12 +68,14 @@ impl<C: ControlPlane> ControllerHandler<C> {
             }
             Err(error) => {
                 let failures = job.failures + 1;
-                // next_run may be None, in which case the job will not be re-scheduled automatically.
-                // Note that we leave the job as `active`. This means that manual publications of the task
-                // may still trigger new runs of the controller, though continued failures will not be subject
-                // to further retries until there's been at least one success.
-                let next_run = backoff_next_run(failures);
-                tracing::warn!(%failures, ?error, ?job, retry_at = ?next_run, "controller job update failed");
+                // All errors are considered terminal unless the controller
+                // specifically opts into retrying them (by wrapping them in a
+                // `ControllerError`).
+                let next_run = error
+                    .downcast_ref::<RetryableError>()
+                    .and_then(|ce| ce.retry)
+                    .map(|next| next.compute_time());
+                tracing::warn!(%failures, ?error, ?job, ?next_run, "controller job update failed with a terminal error");
                 let err_str = format!("{:?}", error);
                 agent_sql::controllers::update(
                     &mut txn,
@@ -84,7 +85,7 @@ impl<C: ControlPlane> ControllerHandler<C> {
                     failures,
                     Some(err_str.as_str()),
                     job.controller_next_run, // See comment on `upsert` about optimistic locking
-                    Some(next_run),
+                    next_run,
                 )
                 .await?;
             }
@@ -116,24 +117,6 @@ impl Handler for ControllerHandler {
     fn table_name(&self) -> &'static str {
         "controller_jobs"
     }
-}
-
-/// Applies a jittered backoff to determine the next time to retry the job.
-fn backoff_next_run(failures: i32) -> DateTime<Utc> {
-    let failures = failures.max(1).min(8) as i64;
-    let multiplier: i64 = if failures <= 3 {
-        60 // a minute per failure
-    } else {
-        3600 // an hour per failure
-    };
-    let total = failures * multiplier;
-
-    let max_jitter = (total as f64 * 0.2) as i64;
-    let add_secs = rand::thread_rng().gen_range(0..=max_jitter);
-    // We use `from_timestamp` because it's guaranteed to round-trip through a `timestamptz` column.
-    // See: https://docs.rs/sqlx/latest/sqlx/types/chrono/struct.DateTime.html#method.from_timestamp
-    DateTime::<Utc>::from_timestamp(Utc::now().timestamp() + total + add_secs, 0)
-        .expect("from_timestamp cannot fail because subsecond nanos is 0")
 }
 
 #[tracing::instrument(err(level = tracing::Level::WARN), skip(state, next_status, control_plane), fields(
