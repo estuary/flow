@@ -106,7 +106,7 @@ async fn walk_materialization(
         ),
     };
 
-    // We only validated and build enabled bindings, in their declaration order.
+    // We only validate and build enabled bindings, in their declaration order.
     let enabled_bindings: Vec<(usize, &models::MaterializationBinding)> = all_bindings
         .iter()
         .enumerate()
@@ -148,7 +148,11 @@ async fn walk_materialization(
         config_json: config_json.clone(),
         bindings: binding_requests.clone(),
         last_materialization: live_spec.cloned(),
-        last_version: expect_pub_id.to_string(),
+        last_version: if expect_pub_id.is_zero() {
+            String::new()
+        } else {
+            expect_pub_id.to_string()
+        },
     };
     let wrapped_request = materialize::Request {
         validate: Some(validate_request.clone()),

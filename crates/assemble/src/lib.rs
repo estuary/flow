@@ -91,7 +91,7 @@ pub fn inference_truncation_indicator() -> flow::Inference {
 // or updating data partitions of the collection.
 pub fn partition_template(
     build_id: models::Id,
-    catalog_name: &models::Collection,
+    collection: &models::Collection,
     journal_name_prefix: &str,
     journals: &models::JournalTemplate,
     stores: &[models::Store],
@@ -153,7 +153,7 @@ pub fn partition_template(
         },
         broker::Label {
             name: labels::COLLECTION.to_string(),
-            value: catalog_name.to_string(),
+            value: collection.to_string(),
         },
     ];
 
@@ -169,7 +169,7 @@ pub fn partition_template(
             retention,
             stores: stores
                 .iter()
-                .map(|s| s.to_url(&catalog_name).into())
+                .map(|s| s.to_url(&collection).into())
                 .collect(),
         }),
         flags,

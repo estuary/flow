@@ -194,7 +194,7 @@ fn walk_transition<'a, D, L, B>(
         &'a D::Key,               // Catalog name.
         &'a url::Url,             // Scope.
         &'a D::ModelDef,          // Model to validate.
-        models::Id,               // Live revision.
+        models::Id,               // Live publication ID.
         Option<&'a L::BuiltSpec>, // Live spec.
     ),
     // Result::Err is a completed BuiltRow for this specification.
