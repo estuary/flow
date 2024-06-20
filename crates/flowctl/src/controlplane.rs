@@ -12,7 +12,14 @@ use std::sync::Arc;
 /// This client implements `Deref<Target=Postgrest>`, so you can use it
 /// just like you would the normal `Postgrest` client.
 #[derive(Clone)]
-pub struct Client(Arc<postgrest::Postgrest>);
+pub struct Client(Arc<postgrest::Postgrest>, bool);
+
+impl Client {
+    /// Is this client authenticated (versus being an anonymous user)?
+    pub fn is_authenticated(&self) -> bool {
+        self.1
+    }
+}
 
 impl Debug for Client {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -64,7 +71,7 @@ pub(crate) async fn new_client(ctx: &mut CliContext) -> anyhow::Result<Client> {
             }
             let client =
                 client.insert_header("Authorization", format!("Bearer {}", &api.access_token));
-            Ok(Client(Arc::new(client)))
+            Ok(Client(Arc::new(client), true))
         }
         None => {
             // If there has been no prior login, but FLOW_AUTH_TOKEN is available, we use that to
@@ -89,13 +96,13 @@ pub(crate) async fn new_client(ctx: &mut CliContext) -> anyhow::Result<Client> {
 
                 let client = client
                     .insert_header("Authorization", format!("Bearer {}", response.access_token));
-                Ok(Client(Arc::new(client)))
+                Ok(Client(Arc::new(client), true))
             } else {
                 tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
 
                 let client = postgrest::Postgrest::new(ENDPOINT);
                 let client = client.insert_header("apikey", PUBLIC_TOKEN);
-                Ok(Client(Arc::new(client)))
+                Ok(Client(Arc::new(client), false))
             }
         }
     }
