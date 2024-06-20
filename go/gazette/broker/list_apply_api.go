@@ -39,6 +39,18 @@ func (svc *Service) List(ctx context.Context, req *pb.ListRequest) (resp *pb.Lis
 	}
 	var metaLabels, allLabels pb.LabelSet
 
+	// Gazette has historically offered a special "prefix" label which matches
+	// slash-terminated prefixes of a journal name. Today, it's implemented in
+	// terms of a LabelSelector prefix match.
+	for _, set := range []*pb.LabelSet{&req.Selector.Include, &req.Selector.Exclude} {
+		if prefix := set.ValuesOf("prefix"); len(prefix) != 0 {
+			for _, val := range prefix {
+				set.AddValue("name:prefix", val)
+			}
+			set.Remove("prefix")
+		}
+	}
+
 	defer s.KS.Mu.RUnlock()
 	s.KS.Mu.RLock()
 

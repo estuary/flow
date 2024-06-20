@@ -110,7 +110,14 @@ func TestListCases(t *testing.T) {
 	require.NoError(t, err)
 	verify(resp, specB)
 
-	// Case: Meta-label "prefix" selects journals by name prefix.
+	// Case: Meta-label "name:prefix" selects journals by name prefix.
+	resp, err = broker.client().List(ctx, &pb.ListRequest{
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name:prefix", "journal/1")},
+	})
+	require.NoError(t, err)
+	verify(resp, specA, specC)
+
+	// Case: legacy meta-label "prefix" also selects journals by name prefix.
 	resp, err = broker.client().List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("prefix", "journal/1/")},
 	})

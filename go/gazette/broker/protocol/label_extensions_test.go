@@ -22,6 +22,7 @@ func (s *LabelSuite) TestLabelValidationCases(c *gc.C) {
 		{strings.Repeat("a", maxLabelLen+1), "a-value", `Name: invalid length \(65; expected .*`},
 		{"a-label", "", ""}, // Success
 		{"a-label", strings.Repeat("a", maxLabelValueLen+1), `Value: invalid length \(1025; expected .*`},
+		{"a-label:prefix", "a-value", `Name: not a valid token \(a-label:prefix\)`},
 	}
 	for _, tc := range cases {
 		if tc.expect == "" {
@@ -50,6 +51,7 @@ func (s *LabelSuite) TestSetValidationCases(c *gc.C) {
 			{Name: "ccc", Value: ""},
 			{Name: "ccc", Value: ""},
 			{Name: "ccc", Value: "555"},
+			{Name: "ddd", Value: "666", Prefix: true},
 		},
 	}
 
@@ -68,16 +70,30 @@ func (s *LabelSuite) TestSetValidationCases(c *gc.C) {
 	c.Check(set.Validate(), gc.ErrorMatches, `Label has empty & non-empty values \(index 5; label ccc value 444\)`)
 	set.Labels[4].Value = "44"
 
+	c.Check(set.Validate(), gc.ErrorMatches, `Labels\[7\]: Prefix may not be set outside of a LabelSelector`)
+	set.Labels[7].Prefix = false
+
 	c.Check(set.Validate(), gc.IsNil)
 }
 
 func (s *LabelSuite) TestEqualityCases(c *gc.C) {
 	var lhs = MustLabelSet("one", "1", "three", "3")
-	var rhs = MustLabelSet("one", "1")
+	var rhs = MustLabelSet("one", "1", "two:prefix", "pre/")
 
 	c.Check(lhs.Equal(&rhs), gc.Equals, false)
 	rhs.AddValue("three", "3")
+	c.Check(lhs.Equal(&rhs), gc.Equals, false)
+	lhs.AddValue("two:prefix", "pre/")
 	c.Check(lhs.Equal(&rhs), gc.Equals, true)
+
+	c.Check(lhs.Equal(&LabelSet{
+		Labels: []Label{
+			{Name: "one", Value: "1"},
+			{Name: "three", Value: "3"},
+			{Name: "two", Value: "pre/", Prefix: true},
+		},
+	}), gc.Equals, true)
+
 	rhs.AddValue("four", "4")
 	c.Check(lhs.Equal(&rhs), gc.Equals, false)
 
@@ -144,16 +160,16 @@ func (s *LabelSuite) TestSetAddAndRemove(c *gc.C) {
 
 	c.Check(set, gc.DeepEquals, MustLabelSet("aa", "0", "aa", "2", "bb", "1", "bb", "3", "bb", "4"))
 
-	set.SetValue("bb", "5") // Replace at end.
-	set.SetValue("cc", "6") // Insert at end.
-	set.SetValue("00", "6") // Insert at beginning.
+	set.SetValue("bb:prefix", "5") // Replace at end.
+	set.SetValue("cc", "6")        // Insert at end.
+	set.SetValue("00", "6")        // Insert at beginning.
 
-	c.Check(set, gc.DeepEquals, MustLabelSet("00", "6", "aa", "0", "aa", "2", "bb", "5", "cc", "6"))
+	c.Check(set, gc.DeepEquals, MustLabelSet("00", "6", "aa", "0", "aa", "2", "bb:prefix", "5", "cc", "6"))
 
 	set.SetValue("00", "7") // Replace at beginning
 	set.SetValue("aa", "8") // Replace at middle.
 
-	c.Check(set, gc.DeepEquals, MustLabelSet("00", "7", "aa", "8", "bb", "5", "cc", "6"))
+	c.Check(set, gc.DeepEquals, MustLabelSet("00", "7", "aa", "8", "bb:prefix", "5", "cc", "6"))
 
 	set.AddValue("bb", "9")
 	set.AddValue("00", "00")
@@ -250,6 +266,7 @@ func (s *LabelSuite) TestSelectorValidationCases(c *gc.C) {
 		Include: LabelSet{
 			Labels: []Label{
 				{Name: "include", Value: "a-value"},
+				{Name: "prefix-thing", Value: "prefix/", Prefix: true},
 			},
 		},
 		Exclude: LabelSet{
@@ -271,7 +288,7 @@ func (s *LabelSuite) TestSelectorValidationCases(c *gc.C) {
 func (s *LabelSuite) TestSelectorMatchingCases(c *gc.C) {
 	var sel = LabelSelector{
 		Include: MustLabelSet(
-			"inc-1", "a-val",
+			"inc-1:prefix", "a-val/",
 			"inc-2", "",
 			"inc-3", "val-1",
 			"inc-3", "val-2"),
@@ -287,17 +304,17 @@ func (s *LabelSuite) TestSelectorMatchingCases(c *gc.C) {
 		expect bool
 	}{
 		{set: MustLabelSet(), expect: false}, // Not matched.
-		{set: MustLabelSet("foo", "bar", "inc-1", "a-val", "inc-2", "any", "inc-3", "val-1"), expect: true}, // Matched.
-		{set: MustLabelSet("foo", "bar", "inc-1", "a-val", "inc-2", "foo", "inc-3", "val-1"), expect: true}, // Matched (invariant to inc-2 value).
-		{set: MustLabelSet("foo", "bar", "inc-1", "a-val", "inc-2", "any", "inc-3", "val-2"), expect: true}, // Matched (alternate inc-3 value).
+		{set: MustLabelSet("foo", "bar", "inc-1", "a-val/a/1", "inc-2", "any", "inc-3", "val-1"), expect: true}, // Matched.
+		{set: MustLabelSet("foo", "bar", "inc-1", "a-val/b/2", "inc-2", "foo", "inc-3", "val-1"), expect: true}, // Matched (invariant to inc-2 value).
+		{set: MustLabelSet("foo", "bar", "inc-1", "a-val/c/3", "inc-2", "any", "inc-3", "val-2"), expect: true}, // Matched (alternate inc-3 value).
 
-		{set: MustLabelSet("foo", "bar", "inc-1", "bad-val", "inc-2", "any", "inc-3", "val-1"), expect: false},   // Not matched (inc-1 not matched).
-		{set: MustLabelSet("foo", "bar", "inc-1", "a-val", "inc-3", "val-1"), expect: false},                     // Not matched (inc-2 missing).
-		{set: MustLabelSet("foo", "bar", "inc-1", "a-val", "inc-2", "any", "inc-3", "val-other"), expect: false}, // Not matched (inc-3 not matched).
+		{set: MustLabelSet("foo", "bar", "inc-1", "bad-val/4", "inc-2", "any", "inc-3", "val-1"), expect: false},   // Not matched (inc-1 not matched).
+		{set: MustLabelSet("foo", "bar", "inc-1", "a-val/5", "inc-3", "val-1"), expect: false},                     // Not matched (inc-2 missing).
+		{set: MustLabelSet("foo", "bar", "inc-1", "a-val/6", "inc-2", "any", "inc-3", "val-other"), expect: false}, // Not matched (inc-3 not matched).
 
-		{set: MustLabelSet("exc-1", "any", "foo", "bar", "inc-1", "a-val", "inc-2", "any", "inc-3", "val-1"), expect: false},   // Not matched (exc-1 matched).
-		{set: MustLabelSet("exc-2", "val-4", "foo", "bar", "inc-1", "a-val", "inc-2", "any", "inc-3", "val-1"), expect: false}, // Not matched (exc-2 matched).
-		{set: MustLabelSet("exc-2", "val-ok", "foo", "bar", "inc-1", "a-val", "inc-2", "any", "inc-3", "val-1"), expect: true}, // Matched (exc-2 not matched).
+		{set: MustLabelSet("exc-1", "any", "foo", "bar", "inc-1", "a-val/a/7", "inc-2", "any", "inc-3", "val-1"), expect: false},   // Not matched (exc-1 matched).
+		{set: MustLabelSet("exc-2", "val-4", "foo", "bar", "inc-1", "a-val/8", "inc-2", "any", "inc-3", "val-1"), expect: false},   // Not matched (exc-2 matched).
+		{set: MustLabelSet("exc-2", "val-ok", "foo", "bar", "inc-1", "a-val/9/9", "inc-2", "any", "inc-3", "val-1"), expect: true}, // Matched (exc-2 not matched).
 	}
 	for _, tc := range cases {
 		c.Check(sel.Matches(tc.set), gc.Equals, tc.expect)
@@ -316,9 +333,9 @@ func (s *LabelSuite) TestOuterJoin(c *gc.C) {
 	var lhs, rhs = MustLabelSet(
 		"aaa", "l0",
 		"aaa", "l1",
-		"ccc", "l2",
-		"ccc", "l3",
-		"ccc", "l4",
+		"ccc:prefix", "l2",
+		"ccc:prefix", "l3",
+		"ccc:prefix", "l4",
 		"eee", "l5",
 		"eee", "l6",
 	), MustLabelSet(
@@ -362,6 +379,10 @@ func (s *LabelSuite) TestSelectorParsingCases(c *gc.C) {
 			expect: LabelSelector{Include: MustLabelSet("foo", "bar")},
 		},
 		{
+			s:      "foo:prefix =bar",
+			expect: LabelSelector{Include: MustLabelSet("foo:prefix", "bar")},
+		},
+		{
 			s:      "foo != bar",
 			expect: LabelSelector{Exclude: MustLabelSet("foo", "bar")},
 		},
@@ -382,17 +403,17 @@ func (s *LabelSuite) TestSelectorParsingCases(c *gc.C) {
 			expect: LabelSelector{Exclude: MustLabelSet("foo", "apple", "foo", "pear")},
 		},
 		{
-			s: "foo==bar, baz !=bing ,apple in (fruit, banana)",
+			s: "foo==bar, baz !=bing ,apple:prefix in (fruit, banana)",
 			expect: LabelSelector{
-				Include: MustLabelSet("apple", "banana", "apple", "fruit", "foo", "bar"),
+				Include: MustLabelSet("apple:prefix", "banana", "apple:prefix", "fruit", "foo", "bar"),
 				Exclude: MustLabelSet("baz", "bing"),
 			},
 		},
 		{
-			s: "!foo,baz,bing not in (thing-one, thing-2),!bar,",
+			s: "!foo,baz,bing:prefix not in (thing-one, thing-2),!bar,",
 			expect: LabelSelector{
 				Include: MustLabelSet("baz", ""),
-				Exclude: MustLabelSet("bar", "", "bing", "thing-2", "bing", "thing-one", "foo", ""),
+				Exclude: MustLabelSet("bar", "", "bing:prefix", "thing-2", "bing:prefix", "thing-one", "foo", ""),
 			},
 		},
 		// Label values may include '='.

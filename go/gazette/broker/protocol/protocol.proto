@@ -97,8 +97,15 @@ enum CompressionCodec {
 message Label {
   option (gogoproto.equal) = true;
 
+  // Name of this label.
   string name = 1;
+  // Value of this label.
   string value = 2;
+  // Does this label match on value prefix?
+  // May only be set true within a LabelSelector.
+  bool prefix = 3 [
+    (gogoproto.moretags) = "yaml:\",omitempty\""
+  ];
 }
 
 // LabelSet is a collection of labels and their values.

@@ -4,16 +4,22 @@ import (
 	"bytes"
 	"regexp"
 	"sort"
+	"strings"
 
 	"go.gazette.dev/core/labels"
 )
 
 // Validate returns an error if the Label is not well-formed.
 func (m Label) Validate() error {
+	return m.validate(false)
+}
+func (m Label) validate(allowPrefix bool) error {
 	if err := ValidateToken(m.Name, TokenSymbols, minLabelLen, maxLabelLen); err != nil {
 		return ExtendContext(err, "Name")
 	} else if err = ValidateToken(m.Value, pathSymbols, 0, maxLabelValueLen); err != nil {
 		return ExtendContext(err, "Value")
+	} else if m.Prefix && !allowPrefix {
+		return NewValidationError("Prefix may not be set outside of a LabelSelector")
 	}
 	return nil
 }
@@ -27,7 +33,7 @@ func MustLabelSet(nv ...string) (set LabelSet) {
 	for i := 0; i != len(nv); i += 2 {
 		set.AddValue(nv[i], nv[i+1])
 	}
-	if err := set.Validate(); err != nil {
+	if err := set.validate(true); err != nil {
 		panic(err.Error())
 	}
 	return
@@ -35,8 +41,11 @@ func MustLabelSet(nv ...string) (set LabelSet) {
 
 // Validate returns an error if the LabelSet is not well-formed.
 func (m LabelSet) Validate() error {
+	return m.validate(false)
+}
+func (m LabelSet) validate(allowPrefix bool) error {
 	for i := range m.Labels {
-		if err := m.Labels[i].Validate(); err != nil {
+		if err := m.Labels[i].validate(allowPrefix); err != nil {
 			return ExtendContext(err, "Labels[%d]", i)
 		} else if i == 0 {
 			continue
@@ -90,7 +99,12 @@ func (m LabelSet) ValueOf(name string) string {
 }
 
 // SetValue adds Label |name| with |value|, replacing any existing Labels |name|.
+// If |name| has the special suffix ":prefix", the Label is marked as a prefix
+// match. It's only valid to use ":prefix" within the context of a LabelSelector.
 func (m *LabelSet) SetValue(name, value string) {
+	var prefix = strings.HasSuffix(name, ":prefix")
+	name = strings.TrimSuffix(name, ":prefix")
+
 	var begin = sort.Search(len(m.Labels), func(i int) bool { return m.Labels[i].Name >= name })
 
 	var end = begin
@@ -103,12 +117,17 @@ func (m *LabelSet) SetValue(name, value string) {
 		end = begin + 1
 	}
 
-	m.Labels[begin] = Label{Name: name, Value: value}
+	m.Labels[begin] = Label{Name: name, Value: value, Prefix: prefix}
 	m.Labels = append(m.Labels[:begin+1], m.Labels[end:]...) // Cut |begin+1, end).
 }
 
 // AddValue adds Label |name| with |value|, retaining any existing Labels |name|.
+// If |name| has the special suffix ":prefix", the Label is marked as a prefix
+// match. It's only valid to use ":prefix" within the context of a LabelSelector.
 func (m *LabelSet) AddValue(name, value string) {
+	var prefix = strings.HasSuffix(name, ":prefix")
+	name = strings.TrimSuffix(name, ":prefix")
+
 	var ind = sort.Search(len(m.Labels), func(i int) bool {
 		if m.Labels[i].Name != name {
 			return m.Labels[i].Name > name
@@ -116,7 +135,7 @@ func (m *LabelSet) AddValue(name, value string) {
 			return m.Labels[i].Value >= value
 		}
 	})
-	var label = Label{Name: name, Value: value}
+	var label = Label{Name: name, Value: value, Prefix: prefix}
 
 	if ind != len(m.Labels) && m.Labels[ind] == label {
 		// No-op.
@@ -215,9 +234,9 @@ func SubtractLabelSet(lhs, rhs, out LabelSet) LabelSet {
 
 // Validate returns an error if the LabelSelector is not well-formed.
 func (m LabelSelector) Validate() error {
-	if err := m.Include.Validate(); err != nil {
+	if err := m.Include.validate(true); err != nil {
 		return ExtendContext(err, "Include")
-	} else if err := m.Exclude.Validate(); err != nil {
+	} else if err := m.Exclude.validate(true); err != nil {
 		return ExtendContext(err, "Exclude")
 	}
 	return nil
@@ -237,7 +256,20 @@ func (m LabelSelector) Matches(s LabelSet) bool {
 func (s LabelSelector) String() string {
 	var w = bytes.NewBuffer(nil)
 
-	var f = func(l []Label, exc bool) {
+	var f = func(input []Label, exc bool) {
+		var l []Label
+
+		// Attach literal ":prefix" suffixes to names so that prefixes are
+		// distinguished during the subsequent self-join over `l`.
+		for _, ll := range input {
+			if ll.Prefix {
+				ll.Name = ll.Name + ":prefix"
+			}
+			l = append(l, ll)
+		}
+		// We may have changed Name ordering. Re-index.
+		sort.Slice(l, func(i, j int) bool { return l[i].Name < l[j].Name })
+
 		var it = labelJoin{setL: l, setR: l, lenL: len(l), lenR: len(l)}
 		for cur, ok := it.next(); ok; cur, ok = it.next() {
 			if cur.lBeg+1 == cur.lEnd && l[cur.lBeg].Value == "" {
@@ -298,7 +330,9 @@ func matchSelector(sel, set []Label, reqAll bool) bool {
 		var matched bool
 
 		for a, b := sel[cur.lBeg:cur.lEnd], set[cur.rBeg:cur.rEnd]; !matched && len(a) != 0 && len(b) != 0; {
-			if a[0].Value == "" || a[0].Value == b[0].Value {
+			if a[0].Value == "" ||
+				(!a[0].Prefix && a[0].Value == b[0].Value) ||
+				(a[0].Prefix && strings.HasPrefix(b[0].Value, a[0].Value)) {
 				matched = true // Selector value "" implicitly matches any value of the label.
 			} else if a[0].Value < b[0].Value {
 				a = a[1:]
@@ -378,16 +412,22 @@ func labelValuesEqual(it labelJoin, cur labelJoinCursor) bool {
 // expression types are equality, in-equality, set membership, set exclusion,
 // existence, and non-existence. Eg:
 //
-//   * "foo = bar" requires that label "foo" be present with value "bar"
-//   * "foo != bar" requires that label "foo" not be present with value "bar"
-//   * "foo" requires that label "foo" be present (with any value).
-//   * "!foo" requires that label "foo" not be present.
-//   * "foo in (bar,baz)" requires that "foo" be present with either "bar" or "baz".
-//   * "foo notin (bar,baz)" requires that "foo", if present, not have value "bar" or "baz".
+//   - "foo = bar" requires that label "foo" be present with value "bar"
+//   - "foo != bar" requires that label "foo" not be present with value "bar"
+//   - "foo" requires that label "foo" be present (with any value).
+//   - "!foo" requires that label "foo" not be present.
+//   - "foo in (bar,baz)" requires that "foo" be present with either "bar" or "baz".
+//   - "foo notin (bar,baz)" requires that "foo", if present, not have value "bar" or "baz".
+//
+// A label name within a selector can have a "my-label:prefix" suffix which
+// tests whether the selector value is a prefix of the named label value,
+// instead of using exact equality.
+// For example, "foo:prefix in (one/two/, three/)" would match "one/two/three"
+// and "three/four/five" but not "one/one/" or "four/five/six".
 //
 // Additional examples of composite expressions:
-//   * "topic in (topic/one, topic/two), prefix=/my/journal/prefix"
-//   * "env in (production, qa), tier not in (frontend,backend), partition"
+//   - "topic in (topic/one, topic/two), name:prefix=/my/journal/prefix"
+//   - "env in (production, qa), tier not in (frontend,backend), partition"
 //
 // ParseLabelSelector is invariant to _reasonable_ spacing: eg, "not in" and
 // "notin" may be used interchangeably, as may "==" and "=", with or without
@@ -398,60 +438,46 @@ func ParseLabelSelector(s string) (LabelSelector, error) {
 	for len(s) != 0 {
 		var m []string
 		if m = reSelectorEqual.FindStringSubmatch(s); m != nil {
-			out.Include.Labels = append(out.Include.Labels, Label{Name: m[1], Value: m[2]})
+			out.Include.AddValue(m[1], m[2])
 		} else if m = reSelectorNotEqual.FindStringSubmatch(s); m != nil {
-			out.Exclude.Labels = append(out.Exclude.Labels, Label{Name: m[1], Value: m[2]})
+			out.Exclude.AddValue(m[1], m[2])
 		} else if m = reSelectorSetIn.FindStringSubmatch(s); m != nil {
-			if parts, err := parseSetParts(m[1], m[2]); err != nil {
+			if err := parseSetParts(&out.Include, m[1], m[2]); err != nil {
 				return LabelSelector{}, ExtendContext(err, "parsing %q", s)
-			} else {
-				out.Include.Labels = append(out.Include.Labels, parts...)
 			}
 		} else if m = reSelectorSetNotIn.FindStringSubmatch(s); m != nil {
-			if parts, err := parseSetParts(m[1], m[2]); err != nil {
+			if err := parseSetParts(&out.Exclude, m[1], m[2]); err != nil {
 				return LabelSelector{}, ExtendContext(err, "parsing %q", s)
-			} else {
-				out.Exclude.Labels = append(out.Exclude.Labels, parts...)
 			}
 		} else if m = reSelectorSetExists.FindStringSubmatch(s); m != nil {
-			out.Include.Labels = append(out.Include.Labels, Label{Name: m[1]})
+			out.Include.AddValue(m[1], "")
 		} else if m = reSelectorSetNotExists.FindStringSubmatch(s); m != nil {
-			out.Exclude.Labels = append(out.Exclude.Labels, Label{Name: m[1]})
+			out.Exclude.AddValue(m[1], "")
 		} else {
 			return LabelSelector{}, NewValidationError("could not match %q to a label selector expression", s)
 		}
 		s = s[len(m[0]):]
 	}
 
-	for _, l := range [][]Label{out.Include.Labels, out.Exclude.Labels} {
-		sort.Slice(l, func(i, j int) bool {
-			if l[i].Name != l[j].Name {
-				return l[i].Name < l[j].Name
-			}
-			return l[i].Value < l[j].Value
-		})
-	}
 	return out, out.Validate()
 }
 
-func parseSetParts(name, s string) ([]Label, error) {
-	var out []Label
-
+func parseSetParts(set *LabelSet, name, s string) error {
 	for len(s) != 0 {
 		var m []string
 
 		if m = reSelectorSetValue.FindStringSubmatch(s); m != nil {
-			out = append(out, Label{Name: name, Value: m[1]})
+			set.AddValue(name, m[1])
 		} else {
-			return nil, NewValidationError("could not match %q to a label selector set expression", s)
+			return NewValidationError("could not match %q to a label selector set expression", s)
 		}
 		s = s[len(m[0]):]
 	}
-	return out, nil
+	return nil
 }
 
 var (
-	reToken         = ` ?([\pL\pN\` + regexp.QuoteMeta(TokenSymbols) + `]{2,})`
+	reToken         = ` ?([\pL\pN\` + regexp.QuoteMeta(TokenSymbols) + `]{2,}(?:\:prefix)?)`
 	rePath          = ` ?([\pL\pN\` + regexp.QuoteMeta(pathSymbols) + `]{0,})`
 	reCommaOrEnd    = ` ?(?:,|$)`
 	reParenthetical = ` ?\(([^)]+)\)`

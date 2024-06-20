@@ -179,12 +179,7 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 
 func (s *JournalSuite) TestMetaLabelExtraction(c *gc.C) {
 	c.Check(ExtractJournalSpecMetaLabels(&JournalSpec{Name: "path/to/my/journal"}, MustLabelSet("label", "buffer")),
-		gc.DeepEquals, MustLabelSet(
-			"name", "path/to/my/journal",
-			"prefix", "path/",
-			"prefix", "path/to/",
-			"prefix", "path/to/my/",
-		))
+		gc.DeepEquals, MustLabelSet("name", "path/to/my/journal"))
 }
 
 func (s *JournalSuite) TestFlagYAMLRoundTrip(c *gc.C) {
