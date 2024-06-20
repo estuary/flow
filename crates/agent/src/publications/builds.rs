@@ -5,6 +5,7 @@ use models::Id;
 use proto_flow::ops::log::Level as LogLevel;
 use sqlx::types::Uuid;
 use std::path;
+use tables::BuiltRow;
 
 pub async fn build_catalog(
     allow_local: bool,
@@ -142,58 +143,75 @@ pub async fn data_plane(
 }
 
 pub async fn test_catalog(
-    connector_network: &str,
     bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     build_id: Id,
     tmpdir: &path::Path,
+    catalog: &build::Output,
 ) -> anyhow::Result<Vec<tables::Error>> {
     let mut errors = Vec::new();
 
-    let broker_sock = format!(
-        "unix://localhost/{}/gazette.sock",
-        tmpdir.as_os_str().to_string_lossy()
-    );
-    let consumer_sock = format!(
-        "unix://localhost/{}/consumer.sock",
-        tmpdir.as_os_str().to_string_lossy()
-    );
+    // The tmpdir path will always begin with a /, so we don't need to add one
+    let broker_socket_path = tmpdir.join("gazette.sock");
+    let broker_sock = format!("unix://localhost{}", broker_socket_path.display());
+    let consumer_socket_path = tmpdir.join("consumer.sock");
+    let consumer_sock = format!("unix://localhost{}", consumer_socket_path.display());
+
     let build_id = format!("{build_id}");
 
     // Activate all derivations.
-    let job = jobs::run(
-        "setup",
-        &logs_tx,
-        logs_token,
-        async_process::Command::new(format!("{bindir}/flowctl-go"))
-            .arg("api")
-            .arg("activate")
-            .arg("--all-derivations")
-            .arg("--build-id")
-            .arg(&build_id)
-            // Use >1 splits to catch logic failures of shuffle configuration.
-            .arg("--initial-splits=3")
-            .arg("--network")
-            .arg(connector_network)
-            .arg("--broker.address")
-            .arg(&broker_sock)
-            .arg("--consumer.address")
-            .arg(&consumer_sock)
-            .arg("--log.level=warn")
-            .arg("--log.format=color"),
-    )
-    .await
-    .context("starting test setup")?;
+    let journal_router =
+        gazette::journal::Router::new(&broker_sock, gazette::Auth::new(None)?, "local")?;
+    let journal_client = gazette::journal::Client::new(reqwest::Client::default(), journal_router);
+    let shard_router =
+        gazette::shard::Router::new(&consumer_sock, gazette::Auth::new(None)?, "local")?;
+    let shard_client = gazette::shard::Client::new(shard_router);
 
-    if !job.success() {
-        errors.push(tables::Error {
-            error: anyhow::anyhow!(
-                "Test setup failed. View logs for details and reach out to support@estuary.dev"
-            ),
-            scope: url::Url::parse("flow://publication/test/api/activate").unwrap(),
-        });
-        return Ok(errors);
+    for built in catalog
+        .built
+        .built_collections
+        .iter()
+        .filter(|c| c.model().is_some_and(|m| m.derive.is_some()))
+    {
+        let mut spec = built.spec().cloned().unwrap();
+        let shards = spec
+            .derivation
+            .as_mut()
+            .unwrap()
+            .shard_template
+            .as_mut()
+            .unwrap();
+        let build_label = shards
+            .labels
+            .as_mut()
+            .unwrap()
+            .labels
+            .iter_mut()
+            .find(|l| l.name == labels::BUILD)
+            .unwrap();
+        build_label.value = build_id.clone();
+
+        if let Err(err) = activate::activate_collection(
+            &journal_client,
+            &shard_client,
+            &built.collection,
+            Some(&spec),
+            3, // use 3 splits to try to catch shuffle errors
+        )
+        .await
+        .context("activating derivation for test")
+        {
+            tracing::error!(error = ?err, derivation = %built.catalog_name(), "failed to activate derivation in temp-data-plane");
+            errors.push(tables::Error {
+                error: anyhow::anyhow!(
+                    "Test setup failed. View logs for details and reach out to support@estuary.dev"
+                ),
+                scope: url::Url::parse("flow://publication/test/activate").unwrap(),
+            });
+            // Fail fast on first activation error
+            return Ok(errors);
+        };
     }
 
     // Run test cases.
@@ -224,34 +242,30 @@ pub async fn test_catalog(
     }
 
     // Clean up derivations.
-    let job = jobs::run(
-        "cleanup",
-        logs_tx,
-        logs_token,
-        async_process::Command::new(format!("{bindir}/flowctl-go"))
-            .arg("api")
-            .arg("delete")
-            .arg("--all-derivations")
-            .arg("--build-id")
-            .arg(&build_id)
-            .arg("--network")
-            .arg(connector_network)
-            .arg("--broker.address")
-            .arg(&broker_sock)
-            .arg("--consumer.address")
-            .arg(&consumer_sock)
-            .arg("--log.level=warn")
-            .arg("--log.format=color"),
-    )
-    .await?;
-
-    if !job.success() {
-        errors.push(tables::Error {
-            error: anyhow::anyhow!(
-                "Test cleanup failed. View logs for details and reach out to support@estuary.dev"
-            ),
-            scope: url::Url::parse("flow://publication/test/api/delete").unwrap(),
-        });
+    for built in catalog
+        .built
+        .built_collections
+        .iter()
+        .filter(|c| c.model().is_some_and(|m| m.derive.is_some()))
+    {
+        if let Err(error) = activate::activate_collection(
+            &journal_client,
+            &shard_client,
+            &built.collection,
+            None,
+            1,
+        )
+        .await
+        .context("cleaning up derivation after test")
+        {
+            tracing::error!(?error, derivation = %built.catalog_name(), "failed to delete derivation from temp-data-plane");
+            errors.push(tables::Error {
+                error: anyhow::anyhow!(
+                    "Test cleanup failed. View logs for details and reach out to support@estuary.dev"
+                ),
+                scope: url::Url::parse("flow://publication/test/api/delete").unwrap(),
+            });
+        }
     }
 
     Ok(errors)
