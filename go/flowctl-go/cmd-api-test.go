@@ -18,6 +18,8 @@ import (
 	"github.com/estuary/flow/go/testing"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/consumer"
+	pc "go.gazette.dev/core/consumer/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
@@ -78,6 +80,49 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	sort.Slice(tests, func(i, j int) bool {
 		return tests[i].Steps[0].StepScope < tests[j].Steps[0].StepScope
 	})
+
+	// Wait for all shards to be ready
+	var ready bool
+	for attempt := 0; !ready; attempt++ {
+		// Poll task shards with a back-off.
+		switch attempt {
+		case 0: // No-op.
+		case 1, 2:
+			time.Sleep(time.Millisecond * 50)
+		case 3, 4, 5:
+			time.Sleep(time.Second)
+		default:
+			return fmt.Errorf("timed out waiting for test shards to become ready")
+		}
+
+		var req = pc.ListRequest{
+			Selector: pb.LabelSelector{},
+		}
+		resp, err := consumer.ListShards(ctx, sc, &req)
+		if err != nil {
+			return fmt.Errorf("listing shards: %w", err)
+		}
+		ready = true
+		for _, shard := range resp.Shards {
+			if shard.Route.Primary == -1 {
+				log.WithFields(log.Fields{
+					"shard": shard.Spec.Id,
+				}).Info("waiting for shard to be assigned")
+
+				ready = false
+				break
+			} else if code := shard.Status[shard.Route.Primary].Code; code < pc.ReplicaStatus_PRIMARY {
+				log.WithFields(log.Fields{
+					"shard":  shard.Spec.Id,
+					"status": code,
+				}).Info("waiting for shard to become ready")
+
+				ready = false
+				break
+			}
+		}
+	}
+	log.Info("all shards are ready")
 
 	// Build a testing graph and driver to track and drive test execution.
 	driver, err := testing.NewClusterDriver(ctx, sc, rjc, tc, cmd.BuildID, collections)

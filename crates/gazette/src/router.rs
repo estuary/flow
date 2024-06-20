@@ -123,6 +123,24 @@ where
     }
 }
 
+pub(crate) async fn connect_unix(
+    uri: tonic::transport::Uri,
+) -> std::io::Result<tokio::net::UnixStream> {
+    let path = uri.path();
+    // Wait until the filesystem path exists, because it's hard to tell from
+    // the error so that we can re-try. This is expected to be cut short by the
+    // connection timeout if the path never appears.
+    for i in 1.. {
+        if let Ok(meta) = tokio::fs::metadata(path).await {
+            tracing::debug!(?path, ?meta, "UDS path now exists");
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20 * i)).await;
+    }
+
+    tokio::net::UnixStream::connect(path).await
+}
+
 fn pick<Client>(
     route: Option<&broker::Route>,
     primary: bool,
