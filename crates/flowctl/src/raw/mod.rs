@@ -125,9 +125,6 @@ pub struct Build {
     /// Source file or URL from which to load the draft catalog.
     #[clap(long)]
     source: String,
-    /// Resolve current specification state from the control plane?
-    #[clap(long)]
-    resolve: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -249,7 +246,6 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         connector_network,
         file_root,
         source,
-        resolve,
     } = build.clone();
 
     let source_url = build::arg_source_to_url(&source, false)?;
@@ -258,20 +254,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let draft = build::load(&source_url, std::path::Path::new(&file_root)).await;
     let draft = local_specs::surface_errors(draft.into_result())?;
 
-    let live = if resolve {
-        resolver.resolve(draft.all_catalog_names()).await
-    } else {
-        let mut live = tables::LiveCatalog::default();
-        live.storage_mappings.insert_row(
-            models::Prefix::new(""),
-            url::Url::parse("flow://control").unwrap(),
-            vec![models::Store::Gcs(models::GcsBucketAndPrefix {
-                bucket: "example-bucket".to_string(),
-                prefix: None,
-            })],
-        );
-        live
-    };
+    let live = resolver.resolve(draft.all_catalog_names()).await;
     let live = local_specs::surface_errors(live.into_result())?;
 
     let output = build::validate(
