@@ -11,7 +11,7 @@ pub(crate) async fn load_and_validate(
 ) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, _live, built) = validate(client, true, false, true, draft, "").await;
+    let (draft, built) = validate(client, true, false, true, draft, "").await;
     Ok((draft, surface_errors(built.into_result())?))
 }
 
@@ -23,7 +23,7 @@ pub(crate) async fn load_and_validate_full(
 ) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (draft, _live, built) = validate(client, false, false, false, sources, network).await;
+    let (draft, built) = validate(client, false, false, false, sources, network).await;
     Ok((draft, surface_errors(built.into_result())?))
 }
 
@@ -32,7 +32,7 @@ pub(crate) async fn generate_files(
     client: crate::controlplane::Client,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let (mut draft, _live, built) = validate(client, true, false, true, sources, "").await;
+    let (mut draft, built) = validate(client, true, false, true, sources, "").await;
 
     let project_root = build::project_root(&draft.fetches[0].resource);
     build::generate_files(&project_root, &built)?;
@@ -73,31 +73,35 @@ async fn validate(
     noop_materializations: bool,
     draft: tables::DraftCatalog,
     network: &str,
-) -> (
-    tables::DraftCatalog,
-    tables::LiveCatalog,
-    tables::Validations,
-) {
+) -> (tables::DraftCatalog, tables::Validations) {
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
-    let live = Resolver { client }.resolve(draft.all_catalog_names()).await;
+    let mut live = Resolver { client }.resolve(draft.all_catalog_names()).await;
 
-    let output = build::validate(
-        models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
-        models::Id::new([1; 8]),
-        true, // Allow local connectors.
-        network,
-        false, // Don't generate ops collections.
-        ops::tracing_log_handler,
-        noop_captures,
-        noop_derivations,
-        noop_materializations,
-        &project_root,
-        draft,
-        live,
-    )
-    .await;
+    let output = if !live.errors.is_empty() {
+        // If there's a live catalog resolution error, surface it through built tables.
+        // For historical reasons we don't return the LiveCatalog from this routine.
+        let mut built = tables::Validations::default();
+        built.errors = std::mem::take(&mut live.errors);
+        build::Output { draft, live, built }
+    } else {
+        build::validate(
+            models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
+            models::Id::new([1; 8]),
+            true, // Allow local connectors.
+            network,
+            false, // Don't generate ops collections.
+            ops::tracing_log_handler,
+            noop_captures,
+            noop_derivations,
+            noop_materializations,
+            &project_root,
+            draft,
+            live,
+        )
+        .await
+    };
 
     // If DEBUG tracing is enabled, then write sources and validations to a
     // debugging database that can be inspected or shipped to Estuary for support.
@@ -112,7 +116,8 @@ async fn validate(
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    output.into_parts()
+    let (draft, _live, built) = output.into_parts();
+    (draft, built)
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
@@ -235,6 +240,11 @@ impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
+        // If we're unauthenticated then return an empty LiveCatalog rather than an error.
+        if !self.client.is_authenticated() {
+            return Ok(Default::default());
+        }
+
         #[derive(serde::Deserialize)]
         struct LiveSpec {
             catalog_name: String,
@@ -314,6 +324,11 @@ impl Resolver {
         &self,
         catalog_names: &[&str],
     ) -> anyhow::Result<tables::InferredSchemas> {
+        // If we're unauthenticated then return empty InferredSchemas rather than an error.
+        if !self.client.is_authenticated() {
+            return Ok(Default::default());
+        }
+
         #[derive(serde::Deserialize, Clone)]
         struct Row {
             pub collection_name: models::Collection,
