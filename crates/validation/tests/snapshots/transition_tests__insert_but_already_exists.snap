@@ -5,22 +5,22 @@ expression: errors
 [
     Error {
         scope: test://example/catalog.yaml#/collections/the~1collection,
-        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010),
+        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/the~1derivation,
-        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010),
+        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.,
     },
     Error {
         scope: test://example/catalog.yaml#/tests/the~1test,
-        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010),
+        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.,
     },
     Error {
         scope: test://example/catalog.yaml#/captures/the~1capture,
-        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010),
+        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/the~1materialization,
-        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010),
+        error: expected publication ID 0000000000000000 was not matched (it's actually 1010101010101010): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.,
     },
 ]
