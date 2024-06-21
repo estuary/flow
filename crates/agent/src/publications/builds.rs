@@ -149,8 +149,8 @@ pub async fn test_catalog(
     build_id: Id,
     tmpdir: &path::Path,
     catalog: &build::Output,
-) -> anyhow::Result<Vec<tables::Error>> {
-    let mut errors = Vec::new();
+) -> anyhow::Result<tables::Errors> {
+    let mut errors = tables::Errors::default();
 
     // The tmpdir path will always begin with a /, so we don't need to add one
     let broker_socket_path = tmpdir.join("gazette.sock");
@@ -203,7 +203,7 @@ pub async fn test_catalog(
         .context("activating derivation for test")
         {
             tracing::error!(error = ?err, derivation = %built.catalog_name(), "failed to activate derivation in temp-data-plane");
-            errors.push(tables::Error {
+            errors.insert(tables::Error {
                 error: anyhow::anyhow!(
                     "Test setup failed. View logs for details and reach out to support@estuary.dev"
                 ),
@@ -235,7 +235,7 @@ pub async fn test_catalog(
     .context("starting test runner")?;
 
     if !job.success() {
-        errors.push(tables::Error {
+        errors.insert(tables::Error {
             error: anyhow::anyhow!("One or more test cases failed. View logs for details."),
             scope: url::Url::parse("flow://publication/test/api/test").unwrap(),
         });
@@ -259,7 +259,7 @@ pub async fn test_catalog(
         .context("cleaning up derivation after test")
         {
             tracing::error!(?error, derivation = %built.catalog_name(), "failed to delete derivation from temp-data-plane");
-            errors.push(tables::Error {
+            errors.insert(tables::Error {
                 error: anyhow::anyhow!(
                     "Test cleanup failed. View logs for details and reach out to support@estuary.dev"
                 ),
