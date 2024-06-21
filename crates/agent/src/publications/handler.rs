@@ -97,6 +97,7 @@ impl Publisher {
                         draft,
                         ..Default::default()
                     },
+                    Vec::new(),
                     JobStatus::BuildFailed {
                         incompatible_collections: Vec::new(),
                         evolution_id: None,
@@ -178,6 +179,7 @@ impl Publisher {
                     draft,
                     ..Default::default()
                 },
+                Vec::new(),
                 JobStatus::BuildFailed {
                     incompatible_collections: Vec::new(),
                     evolution_id: None,
