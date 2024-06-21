@@ -30,8 +30,11 @@ pub struct PublicationResult {
     /// The state of any related live_specs, prior to the draft being published
     pub live: tables::LiveCatalog,
     /// The build specifications that were output from a successful publication.
-    /// Will be empty if the publication was not successful.
+    /// May be empty if the build failed prior to validation. Contains any validation
+    /// errors.
     pub built: tables::Validations,
+    /// Errors that occurred while running tests.
+    pub test_errors: tables::Errors,
     /// The final status of the publication. Note that this is not neccessarily `Success`,
     /// even if there are no `errors`.
     pub status: JobStatus,
@@ -44,6 +47,7 @@ impl PublicationResult {
         detail: Option<String>,
         start_time: DateTime<Utc>,
         built: build::Output,
+        test_errors: tables::Errors,
         status: JobStatus,
     ) -> Self {
         Self {
@@ -55,6 +59,7 @@ impl PublicationResult {
             draft: built.draft,
             live: built.live,
             built: built.built,
+            test_errors,
             status,
         }
     }
@@ -80,6 +85,7 @@ impl PublicationResult {
                     .iter()
                     .map(draft::Error::from_tables_error),
             )
+            .chain(self.test_errors.iter().map(draft::Error::from_tables_error))
             .collect()
     }
 }
@@ -125,6 +131,7 @@ pub struct UncommittedBuild {
     pub(crate) started_at: DateTime<Utc>,
     pub(crate) output: build::Output,
     pub(crate) live_spec_ids: BTreeMap<String, models::Id>,
+    pub(crate) test_errors: tables::Errors,
 }
 impl UncommittedBuild {
     pub fn start_time(&self) -> DateTime<Utc> {
@@ -140,8 +147,13 @@ impl UncommittedBuild {
     }
 
     pub fn build_failed(self) -> PublicationResult {
-        let naughty_collections = status::get_incompatible_collections(&self.output.built);
-        self.into_result(Utc::now(), JobStatus::build_failed(naughty_collections))
+        let status = if self.test_errors.is_empty() {
+            let naughty_collections = status::get_incompatible_collections(&self.output.built);
+            JobStatus::build_failed(naughty_collections)
+        } else {
+            JobStatus::TestFailed
+        };
+        self.into_result(Utc::now(), status)
     }
 
     pub fn into_result(self, completed_at: DateTime<Utc>, status: JobStatus) -> PublicationResult {
@@ -152,6 +164,7 @@ impl UncommittedBuild {
             started_at,
             output,
             live_spec_ids: _,
+            test_errors,
         } = self;
         let build::Output { draft, live, built } = output;
         PublicationResult {
@@ -163,6 +176,7 @@ impl UncommittedBuild {
             draft,
             live,
             built,
+            test_errors,
             status,
         }
     }
@@ -211,6 +225,7 @@ impl Publisher {
                 started_at: start_time,
                 output,
                 live_spec_ids: BTreeMap::new(),
+                test_errors: tables::Errors::default(),
             });
         }
 
@@ -228,6 +243,7 @@ impl Publisher {
                     built: Default::default(),
                 },
                 live_spec_ids,
+                test_errors: tables::Errors::default(),
             });
         }
 
@@ -247,7 +263,7 @@ impl Publisher {
 
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
         let tmpdir = tmpdir_handle.path();
-        let mut built = builds::build_catalog(
+        let built = builds::build_catalog(
             self.allow_local,
             &self.builds_root,
             draft,
@@ -262,44 +278,42 @@ impl Publisher {
         .await?;
 
         // If there are any tests, run them now as long as there's no build errors
-        if built.built.built_tests.len() > 0 && !cfg!(test) && built.errors().next().is_none() {
+        let test_errors = if built.built.built_tests.len() > 0
+            && !cfg!(test)
+            && built.errors().next().is_none()
+        {
             tracing::info!(%build_id, %publication_id, tmpdir = %tmpdir.display(), "running tests");
-            let errors = {
-                let data_plane_job = builds::data_plane(
-                    &self.connector_network,
-                    &self.bindir,
-                    logs_token,
-                    &self.logs_tx,
-                    tmpdir,
-                );
-                let test_jobs = builds::test_catalog(
-                    &self.bindir,
-                    logs_token,
-                    &self.logs_tx,
-                    build_id,
-                    tmpdir,
-                    &built,
-                );
+            let data_plane_job = builds::data_plane(
+                &self.connector_network,
+                &self.bindir,
+                logs_token,
+                &self.logs_tx,
+                tmpdir,
+            );
+            let test_jobs = builds::test_catalog(
+                &self.bindir,
+                logs_token,
+                &self.logs_tx,
+                build_id,
+                tmpdir,
+                &built,
+            );
 
-                // Drive the data-plane and test jobs, until test jobs complete.
-                tokio::pin!(test_jobs);
-                let errors: Vec<tables::Error> = tokio::select! {
-                    r = data_plane_job => {
-                        tracing::error!(?r, "test data-plane exited unexpectedly");
-                        test_jobs.await // Wait for test jobs to finish.
-                    }
-                    r = &mut test_jobs => r,
-                }?;
-                errors
-            };
+            // Drive the data-plane and test jobs, until test jobs complete.
+            tokio::pin!(test_jobs);
+            let errors: tables::Errors = tokio::select! {
+                r = data_plane_job => {
+                    tracing::error!(?r, "test data-plane exited unexpectedly");
+                    test_jobs.await // Wait for test jobs to finish.
+                }
+                r = &mut test_jobs => r,
+            }?;
+
             tracing::debug!(test_count = %built.live.tests.len(), test_errors = %errors.len(), "finished running tests");
-
-            // TODO(phil): we don't thread through test failures properly, so we
-            // never set the `TestFailed` job status.
-            if !errors.is_empty() {
-                built.built.errors.extend(errors.into_iter());
-            }
-        }
+            errors
+        } else {
+            tables::Errors::default()
+        };
 
         Ok(UncommittedBuild {
             publication_id,
@@ -308,6 +322,7 @@ impl Publisher {
             started_at: start_time,
             output: built,
             live_spec_ids,
+            test_errors,
         })
     }
 
@@ -376,4 +391,28 @@ fn is_empty_draft(build: &UncommittedBuild) -> bool {
             .iter()
             .all(BuiltRow::is_unchanged)
         && built.built_tests.iter().all(BuiltRow::is_unchanged)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_errors_result_in_test_failed_status() {
+        let build = UncommittedBuild {
+            publication_id: models::Id::zero(),
+            user_id: Uuid::new_v4(),
+            detail: None,
+            started_at: Utc::now(),
+            output: Default::default(),
+            live_spec_ids: Default::default(),
+            test_errors: std::iter::once(tables::Error {
+                scope: tables::synthetic_scope("test", "test/of/a/test"),
+                error: anyhow::anyhow!("test error"),
+            })
+            .collect(),
+        };
+        let result = build.build_failed();
+        assert_eq!(JobStatus::TestFailed, result.status);
+    }
 }
