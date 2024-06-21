@@ -6,6 +6,7 @@ use crate::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use models::{AnySpec, Id, ModelDef};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
@@ -67,8 +68,13 @@ impl Dependencies {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Status of the activation of the task in the data-plane
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct ActivationStatus {
+    /// The publication id that was last activated in the data plane.
+    /// If this is less than the `last_pub_id` of the controlled spec,
+    /// then an activation is still pending.
+    #[serde(default = "Id::zero", skip_serializing_if = "Id::is_zero")]
     pub last_activated: Id,
 }
 
@@ -102,17 +108,24 @@ impl ActivationStatus {
 }
 
 /// Summary of a publication that was attempted by a controller.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct PublicationInfo {
     pub id: Id,
+    /// Time at which the publication was initiated
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "super::datetime_schema")]
     pub created: Option<DateTime<Utc>>,
+    /// Time at which the publication was completed
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "super::datetime_schema")]
     pub completed: Option<DateTime<Utc>>,
+    /// A brief description of the reason for the publication
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The final result of the publication
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<publications::JobStatus>,
+    /// Errors will be non-empty for publications that were not successful
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<crate::draft::Error>,
 }
@@ -152,12 +165,28 @@ impl PartialEq for PendingPublication {
 
 impl PendingPublication {}
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+/// Information on the publications performed by the controller.
+/// This does not include any information on user-initiated publications.
+#[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct PublicationStatus {
+    /// The largest `last_pub_id` among all of this spec's dependencies.
+    /// For example, for materializations the dependencies are all of
+    /// the collections of all enabled binding `source`s, as well as the
+    /// `sourceCapture`. If any of these are published, it will increase
+    /// the `target_pub_id` and the materialization will be published at
+    /// `target_pub_id` in turn.
     #[serde(default = "Id::zero", skip_serializing_if = "Id::is_zero")]
     pub target_pub_id: Id,
+    /// The publication id at which the controller has last notified dependent
+    /// specs. A publication of the controlled spec will cause the controller to
+    /// notify the controllers of all dependent specs. When it does so, it sets
+    /// `max_observed_pub_id` to the current `last_pub_id`, so that it can avoid
+    /// notifying dependent controllers unnecessarily.
+    #[serde(default = "Id::zero", skip_serializing_if = "Id::is_zero")]
     pub max_observed_pub_id: Id,
+    /// A limited history of publications performed by this controller
     pub history: VecDeque<PublicationInfo>,
+    // TODO(phil): move `PendingPublication` out of this struct
     #[serde(default, skip)]
     pub pending: Option<PendingPublication>,
 }
@@ -185,7 +214,7 @@ impl Default for PublicationStatus {
 }
 
 impl PublicationStatus {
-    const MAX_HISTORY: usize = 3;
+    const MAX_HISTORY: usize = 5;
 
     pub fn update_pending_draft<'a, 'c, C: ControlPlane>(
         &'a mut self,

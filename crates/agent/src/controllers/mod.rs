@@ -10,6 +10,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use models::{AnySpec, CatalogType, Id};
 use proto_flow::{flow, AnyBuiltSpec};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use std::fmt::Debug;
@@ -255,13 +256,14 @@ impl NextRun {
 }
 
 /// Represents the internal state of a controller.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(tag = "type")]
 pub enum Status {
     Capture(CaptureStatus),
     Collection(CollectionStatus),
     Materialization(MaterializationStatus),
     Test(TestStatus),
+    #[schemars(skip)]
     #[serde(other, untagged)]
     Uninitialized,
 }
@@ -278,6 +280,14 @@ fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
 }
 
 impl Status {
+    pub fn json_schema() -> schemars::schema::RootSchema {
+        let mut settings = schemars::gen::SchemaSettings::draft2019_09();
+        //settings.option_add_null_type = false;
+        //settings.inline_subschemas = true;
+        let generator = schemars::gen::SchemaGenerator::new(settings);
+        generator.into_root_schema_for::<Status>()
+    }
+
     fn catalog_type(&self) -> Option<CatalogType> {
         match self {
             Status::Capture(_) => Some(CatalogType::Capture),
@@ -433,6 +443,14 @@ fn reduce_next_run(next_runs: &[Option<NextRun>]) -> Option<NextRun> {
     min
 }
 
+fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": "string",
+        "format": "date-time",
+    }))
+    .unwrap()
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::{BTreeSet, VecDeque};
@@ -513,5 +531,11 @@ mod test {
                 parsed: round_tripped,
             }
         );
+    }
+
+    #[test]
+    fn test_status_json_schema() {
+        let schema = serde_json::to_value(Status::json_schema()).unwrap();
+        insta::assert_json_snapshot!(schema);
     }
 }
