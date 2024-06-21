@@ -1,6 +1,8 @@
+use crate::router::connect_unix;
 use futures::FutureExt;
 use proto_gazette::consumer;
 use std::sync::Arc;
+use tonic::transport::Uri;
 
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::consumer::shard_client::ShardClient<
@@ -73,10 +75,16 @@ impl crate::Router<SubClient> {
                 let interceptor = interceptor.clone();
 
                 async move {
-                    let channel = endpoint
-                        .connect_timeout(std::time::Duration::from_secs(5))
-                        .connect()
-                        .await?;
+                    let endpoint = &endpoint.connect_timeout(std::time::Duration::from_secs(5));
+                    let channel = if endpoint.uri().scheme_str() == Some("unix") {
+                        endpoint
+                            .connect_with_connector(tower::service_fn(move |uri: Uri| {
+                                connect_unix(uri)
+                            }))
+                            .await?
+                    } else {
+                        endpoint.connect().await?
+                    };
                     Ok(
                         proto_grpc::consumer::shard_client::ShardClient::with_interceptor(
                             channel,

@@ -18,6 +18,7 @@ build = { path = "../build" }
 doc = { path = "../doc" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
+labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 runtime = { path = "../runtime" }

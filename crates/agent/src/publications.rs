@@ -263,31 +263,35 @@ impl Publisher {
 
         // If there are any tests, run them now as long as there's no build errors
         if built.built.built_tests.len() > 0 && !cfg!(test) && built.errors().next().is_none() {
-            let data_plane_job = builds::data_plane(
-                &self.connector_network,
-                &self.bindir,
-                logs_token,
-                &self.logs_tx,
-                tmpdir,
-            );
-            let test_jobs = builds::test_catalog(
-                &self.connector_network,
-                &self.bindir,
-                logs_token,
-                &self.logs_tx,
-                build_id,
-                tmpdir,
-            );
+            tracing::info!(%build_id, %publication_id, tmpdir = %tmpdir.display(), "running tests");
+            let errors = {
+                let data_plane_job = builds::data_plane(
+                    &self.connector_network,
+                    &self.bindir,
+                    logs_token,
+                    &self.logs_tx,
+                    tmpdir,
+                );
+                let test_jobs = builds::test_catalog(
+                    &self.bindir,
+                    logs_token,
+                    &self.logs_tx,
+                    build_id,
+                    tmpdir,
+                    &built,
+                );
 
-            // Drive the data-plane and test jobs, until test jobs complete.
-            tokio::pin!(test_jobs);
-            let errors: Vec<tables::Error> = tokio::select! {
-                r = data_plane_job => {
-                    tracing::error!(?r, "test data-plane exited unexpectedly");
-                    test_jobs.await // Wait for test jobs to finish.
-                }
-                r = &mut test_jobs => r,
-            }?;
+                // Drive the data-plane and test jobs, until test jobs complete.
+                tokio::pin!(test_jobs);
+                let errors: Vec<tables::Error> = tokio::select! {
+                    r = data_plane_job => {
+                        tracing::error!(?r, "test data-plane exited unexpectedly");
+                        test_jobs.await // Wait for test jobs to finish.
+                    }
+                    r = &mut test_jobs => r,
+                }?;
+                errors
+            };
             tracing::debug!(test_count = %built.live.tests.len(), test_errors = %errors.len(), "finished running tests");
 
             // TODO(phil): we don't thread through test failures properly, so we
