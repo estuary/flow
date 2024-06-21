@@ -5,9 +5,10 @@ use crate::publications::LockFailure;
 use super::Id;
 use agent_sql::{drafts as drafts_sql, CatalogType};
 use anyhow::Context;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct Error {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub catalog_name: String,
