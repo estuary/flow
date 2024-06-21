@@ -111,14 +111,6 @@ const config = {
     ],
   ],
 
-  scripts: [
-    {
-      src:
-        '/js/loadReoDotDev.js',
-      async: false,
-    },
-  ],
-
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
