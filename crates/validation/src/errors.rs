@@ -200,7 +200,7 @@ pub enum Error {
         pub_id: models::Id,
         larger_id: models::Id,
     },
-    #[error("expected publication ID {expect_id} was not matched (it's actually {actual_id})")]
+    #[error("expected publication ID {expect_id} was not matched (it's actually {actual_id}): this usually means another publication has modified the resources included in this publication; to avoid conflicts, please refresh the resources and try again.")]
     ExpectPubIdNotMatched {
         expect_id: models::Id,
         actual_id: models::Id,
