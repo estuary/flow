@@ -46,7 +46,7 @@ async fn test_publication_optimistic_locking_failures() {
         vec![
             (
             "flow://collection/mice/does-not-exist".to_string(),
-            "expected publication ID 0102030405060708 was not matched (it's actually 0000000000000000)".to_string()
+            "expected publication ID 0102030405060708 was not matched (it's actually 0000000000000000): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.".to_string()
             )
         ],
         errors);
