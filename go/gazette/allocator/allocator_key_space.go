@@ -16,7 +16,7 @@ const (
 	ItemsPrefix = "/items/"
 	// MembersPrefix prefixes Member keys, eg "root/members/zone#suffix"
 	MembersPrefix = "/members/"
-	// AssignmentsPrefix prefixes Assignment keys, eg "prefix/assign/item-id#zone#member-suffix#slot"
+	// AssignmentsPrefix prefixes Assignment keys, eg "root/assign/item-id#zone#member-suffix#slot"
 	AssignmentsPrefix = "/assign/"
 	// '#' is selected as separator, because it's the first visual ASCII character
 	// which is not interpreted by shells (preceding visual characters are " and !).

@@ -578,9 +578,14 @@ message ListRequest {
   //   * prefix=examples/ will match any JournalSpec having prefix "examples/".
   //     The prefix Label value must end in '/'.
   LabelSelector selector = 1 [ (gogoproto.nullable) = false ];
+  // Watch the requested selector and send an updated snapshot upon every
+  // change to matched journal specifications.
+  bool watch = 4;
+  // Header of the last ListResponse processed by a resumed watch of a listing.
+  Header watch_resume = 5;
 }
 
-// ListResponse is the unary response message of the broker List RPC.
+// ListResponse is the streamed response message of the broker List RPC.
 message ListResponse {
   // Tag used for unimplemented, removed next_page_token.
   reserved 4;
@@ -731,7 +736,7 @@ message Header {
 // Journal is the Gazette broker service API for interacting with Journals.
 service Journal {
   // List Journals, their JournalSpecs and current Routes.
-  rpc List(ListRequest) returns (ListResponse);
+  rpc List(ListRequest) returns (stream ListResponse);
   // Apply changes to the collection of Journals managed by the brokers.
   rpc Apply(ApplyRequest) returns (ApplyResponse);
   // Read from a specific Journal.

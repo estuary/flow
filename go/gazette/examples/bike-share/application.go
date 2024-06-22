@@ -203,16 +203,19 @@ func (app *Application) ConsumeMessage(shard consumer.Shard, store consumer.Stor
 // them out.
 func (Application) FinalizeTxn(consumer.Shard, consumer.Store, *message.Publisher) error { return nil }
 
-// buildMapping starts a long-lived polling watch of journals labeled with the
+// buildMapping starts a long-lived watch of journals labeled with the
 // given message type, and returns a mapping to journals using modulo arithmetic
 // over the provided MappingKeyFunc.
 func buildMapping(msgType string, fn message.MappingKeyFunc, args runconsumer.InitArgs) message.MappingFunc {
-	var parts, err = client.NewPolledList(args.Context, args.Service.Journals, time.Second*30,
+	var parts = client.NewWatchedList(args.Context, args.Service.Journals,
 		pb.ListRequest{
 			Selector: pb.LabelSelector{
 				Include: pb.MustLabelSet(labels.MessageType, msgType),
-			}})
-	mbp.Must(err, "failed to fetch partitions")
+			},
+		},
+		nil,
+	)
+	mbp.Must(<-parts.UpdateCh(), "failed to fetch partitions")
 
 	for len(parts.List().Journals) == 0 {
 		log.WithField("msg", msgType).Info("waiting for partitions to be created")

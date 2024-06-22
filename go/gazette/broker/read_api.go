@@ -1,20 +1,15 @@
 package broker
 
 import (
-	"context"
 	"io"
-	"io/ioutil"
 	"net"
 
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
 )
 
 // Read dispatches the JournalServer.Read API.
@@ -56,19 +51,7 @@ func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) (err
 		return proxyRead(stream, req, svc.jc, svc.stopProxyReadsCh)
 	}
 
-	err = serveRead(stream, req, &resolved.Header, resolved.replica.index)
-
-	// Blocking Read RPCs live indefinitely, until cancelled by the caller or
-	// due to journal reassignment. Interpret local or remote cancellation as
-	// a graceful closure of the RPC and not an error.
-	if ec, sc := errors.Cause(err), status.Code(err); ec == context.Canceled ||
-		ec == context.DeadlineExceeded ||
-		sc == codes.Canceled ||
-		sc == codes.DeadlineExceeded {
-
-		err = nil
-	}
-	return err
+	return pb.SuppressCancellationError(serveRead(stream, req, &resolved.Header, resolved.replica.index))
 }
 
 // proxyRead forwards a ReadRequest to a resolved peer broker.
@@ -158,7 +141,7 @@ func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, in
 		req.Offset = resp.Offset
 
 		if file != nil {
-			reader = ioutil.NopCloser(io.NewSectionReader(
+			reader = io.NopCloser(io.NewSectionReader(
 				file, req.Offset-resp.Fragment.Begin, resp.Fragment.End-req.Offset))
 		} else {
 			if reader, err = fragment.Open(stream.Context(), *resp.Fragment); err != nil {

@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"sort"
-	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -103,11 +102,10 @@ func (cmd *cmdJournalAppend) Execute([]string) error {
 	listRequest.Selector, err = pb.ParseLabelSelector(cmd.Selector)
 	mbp.Must(err, "failed to parse label selector", "selector", cmd.Selector)
 
-	// Perform an initial load and thereafter periodically poll for journals
-	// matching the --selector.
+	// List and watch journals matching the --selector.
 	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
-	list, err := client.NewPolledList(ctx, rjc, time.Minute, listRequest)
-	mbp.Must(err, "failed to resolve label selector to journals")
+	var list = client.NewWatchedList(ctx, rjc, listRequest, nil)
+	mbp.Must(<-list.UpdateCh(), "failed to resolve label selector to journals")
 
 	var fin = os.Stdin
 	if cmd.Input != "-" {

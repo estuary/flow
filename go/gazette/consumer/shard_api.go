@@ -49,18 +49,18 @@ func ShardStat(ctx context.Context, srv *Service, req *pc.StatRequest) (*pc.Stat
 func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.ListResponse, error) {
 	var s = srv.Resolver.state
 
-	var resp = &pc.ListResponse{
-		Status: pc.Status_OK,
-		Header: pbx.NewUnroutedHeader(s),
-	}
 	if err := req.Validate(); err != nil {
-		return resp, err
+		return nil, err
 	}
 
 	defer s.KS.Mu.RUnlock()
 	s.KS.Mu.RLock()
 
-	var metaLabels, allLabels pb.LabelSet
+	var resp = &pc.ListResponse{
+		Status: pc.Status_OK,
+		Header: pbx.NewUnroutedHeader(s),
+	}
+	var scratch pb.LabelSet
 
 	var it = allocator.LeftJoin{
 		LenL: len(s.Items),
@@ -75,10 +75,10 @@ func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.List
 		var shard = pc.ListResponse_Shard{
 			Spec: *s.Items[cur.Left].Decoded.(allocator.Item).ItemValue.(*pc.ShardSpec)}
 
-		metaLabels = pc.ExtractShardSpecMetaLabels(&shard.Spec, metaLabels)
-		allLabels = pb.UnionLabelSets(metaLabels, shard.Spec.LabelSet, allLabels)
+		// LabelSetExt() truncates `scratch` while re-using its storage.
+		scratch = shard.Spec.LabelSetExt(scratch)
 
-		if !req.Selector.Matches(allLabels) {
+		if !req.Selector.Matches(scratch) {
 			continue
 		}
 		shard.ModRevision = s.Items[cur.Left].Raw.ModRevision
@@ -100,12 +100,8 @@ func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.List
 func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
 	var s = srv.Resolver.state
 
-	var resp = &pc.ApplyResponse{
-		Status: pc.Status_OK,
-		Header: pbx.NewUnroutedHeader(s),
-	}
 	if err := req.Validate(); err != nil {
-		return resp, err
+		return nil, err
 	}
 
 	var cmp []clientv3.Cmp
@@ -128,6 +124,13 @@ func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.Ap
 		}
 	}
 
+	s.KS.Mu.RLock()
+	var resp = &pc.ApplyResponse{
+		Status: pc.Status_OK,
+		Header: pbx.NewUnroutedHeader(s),
+	}
+	s.KS.Mu.RUnlock()
+
 	var txnResp, err = srv.Etcd.Do(ctx, clientv3.OpTxn(cmp, ops, nil))
 	if err != nil {
 		// Pass.
@@ -145,23 +148,20 @@ func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.Ap
 
 // ShardGetHints is the default implementation of the ShardServer.Hints API.
 func ShardGetHints(ctx context.Context, srv *Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
-	var (
-		resp = &pc.GetHintsResponse{
-			Status: pc.Status_OK,
-			Header: pbx.NewUnroutedHeader(srv.State),
-		}
-		ks   = srv.State.KS
-		spec *pc.ShardSpec
-	)
 
-	ks.Mu.RLock()
-	var item, ok = allocator.LookupItem(ks, req.Shard.String())
-	ks.Mu.RUnlock()
+	srv.State.KS.Mu.RLock()
+	var resp = &pc.GetHintsResponse{
+		Status: pc.Status_OK,
+		Header: pbx.NewUnroutedHeader(srv.State),
+	}
+	var item, ok = allocator.LookupItem(srv.State.KS, req.Shard.String())
+	srv.State.KS.Mu.RUnlock()
+
 	if !ok {
 		resp.Status = pc.Status_SHARD_NOT_FOUND
 		return resp, nil
 	}
-	spec = item.ItemValue.(*pc.ShardSpec)
+	var spec = item.ItemValue.(*pc.ShardSpec)
 
 	var h, err = fetchHints(ctx, spec, srv.Etcd)
 	if err != nil {

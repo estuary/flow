@@ -1,8 +1,13 @@
 package protocol
 
 import (
+	"context"
 	"net/url"
 	"strings"
+
+	"github.com/pkg/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // RoutedJournalClient composes a JournalClient and DispatchRouter.
@@ -20,6 +25,21 @@ func NewRoutedJournalClient(jc JournalClient, dr DispatchRouter) RoutedJournalCl
 		JournalClient:  jc,
 		DispatchRouter: dr,
 	}
+}
+
+// SuppressCancellationErrors filters errors which are common to long-lived
+// blocking RPCs which are eventually cancelled by the caller or the server.
+// It interprets local or remote cancellation as a graceful closure
+// of the RPC and not an error.
+func SuppressCancellationError(err error) error {
+	if ec, sc := errors.Cause(err), status.Code(err); ec == context.Canceled ||
+		ec == context.DeadlineExceeded ||
+		sc == codes.Canceled ||
+		sc == codes.DeadlineExceeded {
+
+		return nil
+	}
+	return err
 }
 
 // Validate returns an error if the ReadRequest is not well-formed.

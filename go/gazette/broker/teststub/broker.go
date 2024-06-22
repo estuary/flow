@@ -179,9 +179,35 @@ func (b *Broker) Append(srv pb.Journal_AppendServer) error {
 	}
 }
 
-// List implements the JournalServer interface by proxying through ListFunc.
-func (b *Broker) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
-	return b.ListFunc(ctx, req)
+// List implements the JournalServer interface by proxy-ing through ListFunc.
+func (b *Broker) List(req *pb.ListRequest, stream pb.Journal_ListServer) error {
+	var resp, err = b.ListFunc(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+	// Don't directly mutate ListFunc's returned `resp`.
+	resp = &pb.ListResponse{
+		Status:   resp.Status,
+		Header:   resp.Header,
+		Journals: resp.Journals,
+	}
+
+	for len(resp.Journals) > 2 {
+		var tail = resp.Journals[2:]
+		resp.Journals = resp.Journals[:2]
+
+		_ = stream.Send(resp)
+		*resp = pb.ListResponse{Journals: tail}
+	}
+	_ = stream.Send(resp)
+
+	if !req.Watch {
+		return nil
+	}
+	_ = stream.Send(&pb.ListResponse{})
+
+	// Simulate server cancellation of watch after single response snapshot.
+	return context.Canceled
 }
 
 // Apply implements the JournalServer interface by proxying through ApplyFunc.

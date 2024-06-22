@@ -253,10 +253,15 @@ func SubtractShardSpecs(a, b ShardSpec) ShardSpec {
 	return a
 }
 
-// ExtractShardSpecMetaLabels returns meta-labels of the ShardSpec, using |out| as a buffer.
-func ExtractShardSpecMetaLabels(spec *ShardSpec, out pb.LabelSet) pb.LabelSet {
-	out.Labels = append(out.Labels[:0], pb.Label{Name: "id", Value: spec.Id.String()})
-	return out
+// LabelSetExt adds additional metadata labels to the LabelSet of the ShardSpec,
+// returning the result. The result is built by truncating `buf` and then appending
+// the merged LabelSet.
+func (m *ShardSpec) LabelSetExt(buf pb.LabelSet) pb.LabelSet {
+	return pb.UnionLabelSets(pb.LabelSet{
+		Labels: []pb.Label{
+			{Name: "id", Value: m.Id.String()},
+		},
+	}, m.LabelSet, buf)
 }
 
 // Validate returns an error if the ConsumerSpec is not well-formed.

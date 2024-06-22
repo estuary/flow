@@ -358,11 +358,15 @@ func SubtractJournalSpecs(a, b JournalSpec) JournalSpec {
 	return a
 }
 
-// ExtractJournalSpecMetaLabels adds to the LabelSet a singular label "name",
-// with value of the JournalSpec Name.
-func ExtractJournalSpecMetaLabels(spec *JournalSpec, out LabelSet) LabelSet {
-	out.Labels = append(out.Labels[:0], Label{Name: "name", Value: spec.Name.String()})
-	return out
+// LabelSetExt adds additional metadata labels to the LabelSet of the JournalSpec,
+// returning the result. The result is built by truncating `buf` and then appending
+// the merged LabelSet.
+func (m *JournalSpec) LabelSetExt(buf LabelSet) LabelSet {
+	return UnionLabelSets(LabelSet{
+		Labels: []Label{
+			{Name: "name", Value: m.Name.String()},
+		},
+	}, m.LabelSet, buf)
 }
 
 // validateJournalLabelConstraints asserts expected invariants of MessageType,

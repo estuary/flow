@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -14,6 +15,9 @@ import (
 func TestListCases(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+
+	defer func(v int) { maxJournalsPerListResponse = v }(maxJournalsPerListResponse)
+	maxJournalsPerListResponse = 2
 
 	// Create a fixture of JournalSpecs which we'll list.
 	var fragSpec = pb.JournalSpec_Fragment{
@@ -67,8 +71,20 @@ func TestListCases(t *testing.T) {
 	require.NoError(t, broker.ks.WaitForRevision(ctx, rev))
 	broker.ks.Mu.RUnlock()
 
-	var verify = func(resp *pb.ListResponse, expect ...*pb.JournalSpec) {
+	var verify = func(stream pb.Journal_ListClient, expect ...*pb.JournalSpec) {
+		var resp, err = stream.Recv()
+		require.NoError(t, err)
 		require.Equal(t, pb.Status_OK, resp.Status)
+
+		// Accumulate all streamed responses.
+		for {
+			var next, err = stream.Recv()
+			if err == io.EOF || err == nil && len(next.Journals) == 0 {
+				break // End of stream or snapshot.
+			}
+			require.NoError(t, err)
+			resp.Journals = append(resp.Journals, next.Journals...)
+		}
 		require.Len(t, resp.Journals, len(expect))
 
 		for i, exp := range expect {
@@ -89,46 +105,102 @@ func TestListCases(t *testing.T) {
 		}
 	}
 
-	// Case: Empty selector returns all shards.
-	var resp, err = broker.client().List(ctx, &pb.ListRequest{
+	// Case: Empty selector returns all journals.
+	var stream, err = broker.client().List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{},
 	})
 	require.NoError(t, err)
-	verify(resp, specA, specC, specB)
+	verify(stream, specA, specC, specB)
+
+	// Case: Unmatched include selector returns no journals.
+	stream, err = broker.client().List(ctx, &pb.ListRequest{
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet("missing", "label")},
+	})
+	require.NoError(t, err)
+	verify(stream)
 
 	// Case: Exclude on label.
-	resp, err = broker.client().List(ctx, &pb.ListRequest{
+	stream, err = broker.client().List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Exclude: pb.MustLabelSet("foo", "")},
 	})
 	require.NoError(t, err)
-	verify(resp, specC, specB)
+	verify(stream, specC, specB)
 
 	// Case: Meta-label "name" selects journals by name.
-	resp, err = broker.client().List(ctx, &pb.ListRequest{
+	stream, err = broker.client().List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", "journal/2/B")},
 	})
 	require.NoError(t, err)
-	verify(resp, specB)
+	verify(stream, specB)
 
 	// Case: Meta-label "name:prefix" selects journals by name prefix.
-	resp, err = broker.client().List(ctx, &pb.ListRequest{
+	stream, err = broker.client().List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name:prefix", "journal/1")},
 	})
 	require.NoError(t, err)
-	verify(resp, specA, specC)
+	verify(stream, specA, specC)
 
 	// Case: legacy meta-label "prefix" also selects journals by name prefix.
-	resp, err = broker.client().List(ctx, &pb.ListRequest{
+	stream, err = broker.client().List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("prefix", "journal/1/")},
 	})
 	require.NoError(t, err)
-	verify(resp, specA, specC)
+	verify(stream, specA, specC)
 
 	// Case: Errors on request validation error.
-	_, err = broker.client().List(ctx, &pb.ListRequest{
+	stream, err = broker.client().List(ctx, &pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("prefix", "invalid/because/missing/trailing/slash")},
 	})
+	require.NoError(t, err)
+	_, err = stream.Recv()
 	require.Regexp(t, `.* Selector.Include.Labels\["prefix"\]: expected trailing '/' (.*)`, err)
+
+	// Case: streaming watch of a prefix.
+	var cancelCtx, cancel = context.WithCancel(ctx)
+	stream, err = broker.client().List(cancelCtx, &pb.ListRequest{
+		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name:prefix", "journal/1/")},
+		Watch:    true,
+	})
+	require.NoError(t, err)
+	verify(stream, specA, specC)
+
+	// Delete a journal that's not part of the listing.
+	resp, err := broker.client().Apply(ctx, &pb.ApplyRequest{
+		Changes: []pb.ApplyRequest_Change{
+			{Delete: specB.Name, ExpectModRevision: fixtureRevision},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
+
+	// Delete a journal that IS part of the listing.
+	resp, err = broker.client().Apply(ctx, &pb.ApplyRequest{
+		Changes: []pb.ApplyRequest_Change{
+			{Delete: specA.Name, ExpectModRevision: fixtureRevision},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
+
+	// Expect we see a new snapshot, this time having only C.
+	verify(stream, specC)
+
+	// Delete final listed journal.
+	resp, err = broker.client().Apply(ctx, &pb.ApplyRequest{
+		Changes: []pb.ApplyRequest_Change{
+			{Delete: specC.Name, ExpectModRevision: fixtureRevision},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_OK, resp.Status)
+
+	// Expect we see an empty snapshot.
+	verify(stream)
+
+	// Expect to read no further responses upon cancellation.
+	cancel()
+	_, err = stream.Recv()
+	require.Equal(t, "rpc error: code = Canceled desc = context canceled", err.Error())
 
 	broker.cleanup()
 }
@@ -156,10 +228,13 @@ func TestApplyCases(t *testing.T) {
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 
 	var verifyAndFetchRev = func(name pb.Journal, expect pb.JournalSpec) int64 {
-		var resp, err = broker.client().List(ctx, &pb.ListRequest{
+		var stream, err = broker.client().List(ctx, &pb.ListRequest{
 			Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", name.String())},
 		})
 		require.NoError(t, err)
+		resp, err := stream.Recv()
+		require.NoError(t, err)
+
 		require.Equal(t, pb.Status_OK, resp.Status)
 		require.Equal(t, expect, resp.Journals[0].Spec)
 		return resp.Journals[0].ModRevision

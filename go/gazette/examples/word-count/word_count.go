@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/pkg/errors"
@@ -20,7 +19,7 @@ import (
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
-	"go.gazette.dev/core/consumer/store-rocksdb"
+	store_rocksdb "go.gazette.dev/core/consumer/store-rocksdb"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
@@ -65,11 +64,13 @@ func (counter *Counter) InitApplication(args runconsumer.InitArgs) error {
 	}
 
 	// Build a "deltas" MappingFunc over "app.gazette.dev/message-type=NGramCount" partitions.
-	var parts, err = client.NewPolledList(args.Context, args.Service.Journals, time.Second*30,
+	var parts = client.NewWatchedList(args.Context, args.Service.Journals,
 		pb.ListRequest{
 			Selector: pb.LabelSelector{Include: pb.MustLabelSet(labels.MessageType, "word_count.NGramCount")},
-		})
-	if err != nil {
+		},
+		nil,
+	)
+	if err := <-parts.UpdateCh(); err != nil {
 		return errors.Wrap(err, "building NGramDeltaMapping")
 	}
 

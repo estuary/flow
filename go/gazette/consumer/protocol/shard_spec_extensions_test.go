@@ -88,6 +88,7 @@ func (s *SpecSuite) TestShardSpecRoutines(c *gc.C) {
 	var spec = ShardSpec{
 		Id:          "shard-id",
 		HotStandbys: 4,
+		LabelSet:    pb.MustLabelSet("hello", "world"),
 		Disable:     false,
 		HintPrefix:  "/a/path",
 		HintBackups: 2,
@@ -104,8 +105,8 @@ func (s *SpecSuite) TestShardSpecRoutines(c *gc.C) {
 	spec.Disable, spec.HotStandbys = false, 0
 	c.Check(spec.DesiredReplication(), gc.Equals, 1)
 
-	c.Check(ExtractShardSpecMetaLabels(&spec, pb.MustLabelSet("label", "buffer")),
-		gc.DeepEquals, pb.MustLabelSet("id", "shard-id"))
+	c.Check(spec.LabelSetExt(pb.MustLabelSet("label", "buffer")),
+		gc.DeepEquals, pb.MustLabelSet("id", "shard-id", "hello", "world"))
 
 	c.Check(spec.HintPrimaryKey(), gc.Equals, "/a/path/shard-id.primary")
 	c.Check(spec.HintBackupKeys(), gc.DeepEquals, []string{

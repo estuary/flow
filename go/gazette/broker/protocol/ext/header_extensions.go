@@ -20,10 +20,9 @@ func FromEtcdResponseHeader(h epb.ResponseHeader) pb.Header_Etcd {
 // from the v3_allocator.State, and Route left as zero-valued. It is a helper for
 // APIs which do not utilize item resolution but still return Headers (eg, List
 // and Update).
+//
+// You MUST hold a lock over State.KS.Mu when calling this function!
 func NewUnroutedHeader(s *allocator.State) (hdr pb.Header) {
-	defer s.KS.Mu.RUnlock()
-	s.KS.Mu.RLock()
-
 	if s.LocalMemberInd != -1 {
 		var member = s.Members[s.LocalMemberInd].Decoded.(allocator.Member)
 		hdr.ProcessId = pb.ProcessSpec_ID{Zone: member.Zone, Suffix: member.Suffix}

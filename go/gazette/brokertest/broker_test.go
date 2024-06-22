@@ -215,8 +215,35 @@ func TestGracefulStopTimeout(t *testing.T) {
 	require.NoError(t, bkA.Tasks.Wait())
 }
 
+func TestWatchedListing(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var bk = NewBroker(t, etcd, "local", "broker")
+
+	var conn, rjc = newDialedClient(t, bk)
+	defer conn.Close()
+
+	var ctx, cancel = context.WithCancel(pb.WithDispatchDefault(context.Background()))
+	defer cancel()
+
+	// Initial listing is empty.
+	var list = client.NewWatchedList(ctx, rjc, pb.ListRequest{Watch: true}, nil)
+	require.NoError(t, <-list.UpdateCh())
+	require.Empty(t, list.List().Journals)
+
+	// Listing reacts to a created journal.
+	CreateJournals(t, bk, Journal(pb.JournalSpec{Name: "foo/bar"}))
+	require.NoError(t, <-list.UpdateCh())
+	require.Len(t, list.List().Journals, 1)
+
+	cancel()
+	bk.Tasks.Cancel()
+	require.NoError(t, bk.Tasks.Wait())
+}
+
 func updateReplication(t require.TestingT, ctx context.Context, bk pb.JournalClient, journal pb.Journal, r int32) {
-	var lResp, err = bk.List(ctx, &pb.ListRequest{
+	var lResp, err = client.ListAllJournals(ctx, bk, pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", journal.String())},
 	})
 	require.NoError(t, err)

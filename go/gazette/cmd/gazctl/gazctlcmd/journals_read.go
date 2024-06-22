@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -149,11 +148,10 @@ func (cmd *cmdJournalRead) Execute([]string) error {
 		cancel()
 	}()
 
-	// Perform an initial load and thereafter periodically poll for journals
-	// matching the --selector.
+	// List and watch journals matching the --selector.
 	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
-	list, err := client.NewPolledList(ctx, rjc, time.Minute, listRequest)
-	mbp.Must(err, "failed to resolve label selector to journals")
+	var list = client.NewWatchedList(ctx, rjc, listRequest, nil)
+	mbp.Must(<-list.UpdateCh(), "failed to resolve label selector to journals")
 
 	if len(list.List().Journals) == 0 {
 		log.Warn("no journals were matched by the selector")
@@ -189,7 +187,7 @@ func (cmd *cmdJournalRead) Execute([]string) error {
 	return nil
 }
 
-func (cmd *cmdJournalRead) listRefreshed(ctx context.Context, rjc pb.RoutedJournalClient, list *client.PolledList) {
+func (cmd *cmdJournalRead) listRefreshed(ctx context.Context, rjc pb.RoutedJournalClient, list *client.WatchedList) {
 	var (
 		// Construct a new map of CancelFunc, to enable detection of
 		// journals which were but are are no longer in |list|.

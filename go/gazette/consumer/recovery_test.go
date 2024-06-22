@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -126,7 +127,7 @@ func TestRecoveryFailsFromWrongContentType(t *testing.T) {
 	var ctx = pb.WithDispatchDefault(context.Background())
 
 	// Fetch current log spec, set an incorrect ContentType, and re-apply.
-	var lr, err = shard.ajc.List(ctx, &pb.ListRequest{
+	lr, err := client.ListAllJournals(ctx, shard.ajc, pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", shard.Spec().RecoveryLog().String())},
 	})
 	require.NoError(t, err)
