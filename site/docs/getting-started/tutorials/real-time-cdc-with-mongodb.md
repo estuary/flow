@@ -3,6 +3,7 @@ id: real_time_cdc_with_mongodb
 title: Real-time CDC with MongoDB
 sidebar_position: 2
 ---
+import ReactPlayer from "react-player"
 
 <head>
     <meta property="og:image" content="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//image4_5c651b17d6/image4_5c651b17d6.png" />
@@ -20,6 +21,9 @@ Because it’s the centerpiece of so many applications, it’s a common data eng
 
 This tutorial will guide you through using Estuary Flow to capture data from MongoDB using change data capture (CDC), requiring minimal configuration. By following these steps, you can empower your organization to leverage its application data in just a few minutes.
 
+## Video tutorial
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=kpF-YCxtArk" />
 
 ## What is CDC?<a id="what-is-cdc"></a>
 

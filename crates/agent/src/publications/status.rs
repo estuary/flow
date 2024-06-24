@@ -1,11 +1,12 @@
 use models::Id;
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tables::BuiltRow;
 
 /// JobStatus is the possible outcomes of a handled publication.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
     Queued,
@@ -63,7 +64,7 @@ impl JobStatus {
 }
 
 /// Represents an optimistic lock failure when trying to update live specs.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct LockFailure {
     pub catalog_name: String,
     pub expect_pub_id: models::Id,
@@ -71,7 +72,7 @@ pub struct LockFailure {
 }
 
 /// Reasons why a draft collection spec would need to be published under a new name.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum ReCreateReason {
     /// The collection key in the draft differs from that of the live spec.
@@ -80,7 +81,7 @@ pub enum ReCreateReason {
     PartitionChange,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct IncompatibleCollection {
     pub collection: String,
@@ -91,13 +92,13 @@ pub struct IncompatibleCollection {
     pub affected_materializations: Vec<AffectedConsumer>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 pub struct AffectedConsumer {
     pub name: String,
     pub fields: Vec<RejectedField>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 pub struct RejectedField {
     pub field: String,
     pub reason: String,

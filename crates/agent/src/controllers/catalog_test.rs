@@ -1,8 +1,9 @@
 use super::{publication_status::Dependencies, ControlPlane, ControllerState, NextRun};
 use crate::controllers::publication_status::PublicationStatus;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
 pub struct TestStatus {
     pub passing: bool,
     #[serde(default)]

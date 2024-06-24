@@ -4,16 +4,17 @@ use super::{
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
-use chrono::{DateTime, Utc};
 use itertools::Itertools;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Status of a capture
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+/// Status of a capture controller
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
 pub struct CaptureStatus {
     // TODO: auto discovers are not yet implemented as controllers, but they should be soon.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_auto_discover: Option<DateTime<Utc>>,
+    // #[serde(default, skip_serializing_if = "Option::is_none")]
+    // #[schemars(schema_with = "super::datetime_schema")]
+    // pub next_auto_discover: Option<DateTime<Utc>>,
     #[serde(default)]
     pub publications: PublicationStatus,
     #[serde(default)]

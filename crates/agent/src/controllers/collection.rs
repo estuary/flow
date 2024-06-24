@@ -6,9 +6,11 @@ use super::{
 use crate::controllers::publication_status::PublicationStatus;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+/// The status of a collection controller
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
 pub struct CollectionStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inferred_schema: Option<InferredSchemaStatus>,
@@ -117,10 +119,15 @@ fn handle_deleted_dependencies(
     )
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+/// Status of the inferred schema
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, JsonSchema)]
 pub struct InferredSchemaStatus {
+    /// The time at which the inferred schema was last published. This will only
+    /// be present if the inferred schema was published at least once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "super::datetime_schema")]
     pub schema_last_updated: Option<DateTime<Utc>>,
+    /// The md5 sum of the inferred schema that was last published
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_md5: Option<String>,
 }
