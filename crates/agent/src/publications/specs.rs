@@ -693,7 +693,7 @@ pub async fn resolve_live_specs(
             let catalog_type: models::CatalogType = spec_row.spec_type.unwrap().into();
             let scope = tables::synthetic_scope(catalog_type, &spec_row.catalog_name);
             live.add_spec(
-                spec_row.spec_type.unwrap().into(),
+                catalog_type,
                 &spec_row.catalog_name,
                 scope,
                 spec_row.last_pub_id.into(),
@@ -701,7 +701,9 @@ pub async fn resolve_live_specs(
                 &spec_row
                     .built_spec
                     .as_ref()
-                    .expect("must have built spec if spec exists"),
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("row has non-null spec, but null built_spec: catalog_name: {:?}, live_spec_id: {}", &spec_row.catalog_name, spec_row.id)
+                    })?,
             )
             .with_context(|| format!("adding live spec for {:?}", spec_row.catalog_name))?;
         }

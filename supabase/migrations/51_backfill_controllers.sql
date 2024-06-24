@@ -8,7 +8,11 @@ with insert_controller_jobs(live_spec_id) as (
 	insert into controller_jobs (live_spec_id)
 	select id from live_specs
 	where id not in (select live_spec_id from controller_jobs)
-	limit 1000
+	and (
+		(built_spec is not null and spec is not null)
+		or (built_spec is null and spec is null)
+	)
+	limit 100
 	-- on conflict can't hurt anything and I just can't be bothered to go through
 	-- the read-committed docs right now to prove to myself that it isn't necessary.
 	on conflict(live_spec_id) do nothing
