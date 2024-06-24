@@ -29,6 +29,10 @@ Today, Flow enables you to write derivations using either
 [SQLite](#sqlite) or [TypeScript](#typescript).
 Additional language support is in the works.
 
+:::note
+If you would like a a more hands-on approach to learn derivations, check out [this](../getting-started/tutorials/derivations_acmebank.md) tutorial!
+:::
+
 ## Specification
 
 A derivation is specified as a regular [collection](../#collections)
