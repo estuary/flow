@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
-use super::{backoff_data_plane_activate, ControllerState};
+use super::{backoff_data_plane_activate, ControllerState, NextRun};
 
 /// Information about the dependencies of a live spec.
 pub struct Dependencies {
@@ -41,7 +41,10 @@ impl Dependencies {
             });
         };
         let all_deps = model.all_dependencies();
-        let live = control_plane.get_live_specs(all_deps.clone()).await?;
+        let live = control_plane
+            .get_live_specs(all_deps.clone())
+            .await
+            .with_retry(NextRun::after_minutes(60))?;
         let mut deleted = all_deps;
         for name in live.all_spec_names() {
             deleted.remove(name);
