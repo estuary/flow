@@ -274,7 +274,10 @@ impl ControlPlane for PGControlPlane {
                 continue;
             };
             let scope = tables::synthetic_scope(catalog_type, &row.catalog_name);
-            let built_spec_json = row.built_spec.as_ref().unwrap().deref();
+            let built_spec_json = row.built_spec.as_ref().ok_or_else(|| {
+                tracing::warn!(catalog_name = %row.catalog_name, id = %row.id, "got row with spec but not built_spec");
+                anyhow::anyhow!("missing built_spec for {:?}, but spec is non-null", row.catalog_name)
+            })?.deref();
 
             live.add_spec(
                 catalog_type,
