@@ -7,6 +7,7 @@ import (
 	"time"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"go.gazette.dev/core/auth"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -21,6 +22,7 @@ type AddressConfig struct {
 	CertFile      string      `long:"cert-file" env:"CERT_FILE" default:"" description:"Path to the client TLS certificate"`
 	CertKeyFile   string      `long:"cert-key-file" env:"CERT_KEY_FILE" default:"" description:"Path to the client TLS private key"`
 	TrustedCAFile string      `long:"trusted-ca-file" env:"TRUSTED_CA_FILE" default:"" description:"Path to the trusted CA for client verification of server certificates"`
+	AuthKeys      string      `long:"auth-keys" env:"AUTH_KEYS" description:"Whitespace or comma separated, base64-encoded keys. The first key is used to sign Authorization tokens." json:"-"`
 }
 
 // MustDial dials the server address using a protocol.Dispatcher balancer, and panics on error.
@@ -56,7 +58,18 @@ func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
 
 // MustJournalClient dials and returns a new JournalClient.
 func (c *AddressConfig) MustJournalClient(ctx context.Context) pb.JournalClient {
-	return pb.NewJournalClient(c.MustDial(ctx))
+	var authorizer pb.Authorizer
+	var err error
+
+	if c.AuthKeys != "" {
+		authorizer, err = auth.NewKeyedAuth(c.AuthKeys)
+		Must(err, "parsing authorization keys")
+	} else {
+		authorizer = auth.NewNoopAuth()
+	}
+
+	var jc = pb.NewJournalClient(c.MustDial(ctx))
+	return pb.NewAuthJournalClient(jc, authorizer)
 }
 
 // MustShardClient dials and returns a new ShardClient.

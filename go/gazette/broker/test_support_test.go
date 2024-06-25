@@ -5,8 +5,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/auth"
 	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
@@ -21,11 +22,11 @@ import (
 // * Presenting the broker Service over a gRPC loopback server.
 //
 // A few bits are deliberately left out:
-// * It doesn't run an allocator or obtain a lease. It simply reacts to manual
-//   KeySpace changes as they are made.
-// * pulseDeamon() and fragmentRefreshDaemon() loops are not started with
-//   each assigned replica. Unit tests should perform (or test) these functions
-//   as needed.
+//   - It doesn't run an allocator or obtain a lease. It simply reacts to manual
+//     KeySpace changes as they are made.
+//   - pulseDeamon() and fragmentRefreshDaemon() loops are not started with
+//     each assigned replica. Unit tests should perform (or test) these functions
+//     as needed.
 type testBroker struct {
 	t     require.TestingT
 	id    pb.ProcessSpec_ID
@@ -33,6 +34,7 @@ type testBroker struct {
 	ks    *keyspace.KeySpace
 	svc   *Service
 	srv   *server.Server
+	auth  pb.Authorizer
 }
 
 // mockBroker pairs a teststub.Broker with that broker's announcement to Etcd.
@@ -44,11 +46,15 @@ type mockBroker struct {
 // newTestBroker returns a local testBroker of |id|. |newReplicaFn| should be
 // either |newReadyReplica| or |newReplica|.
 func newTestBroker(t require.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_ID) *testBroker {
+	var auth, err = auth.NewKeyedAuth("c3VwZXIgc2VjcmV0")
+	require.NoError(t, err)
+
 	var bk = &testBroker{
 		t:     t,
 		id:    id,
 		tasks: task.NewGroup(context.Background()),
 		ks:    NewKeySpace("/broker.test"),
+		auth:  auth,
 	}
 	var state = allocator.NewObservedState(bk.ks,
 		allocator.MemberKey(bk.ks, bk.id.Zone, bk.id.Suffix), JournalIsConsistent)
@@ -56,7 +62,7 @@ func newTestBroker(t require.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_
 	// Initialize server.
 	bk.srv = server.MustLoopback()
 	bk.svc = &Service{
-		jc:               pb.NewJournalClient(bk.srv.GRPCLoopback),
+		jc:               pb.NewAuthJournalClient(pb.NewJournalClient(bk.srv.GRPCLoopback), auth),
 		etcd:             etcd,
 		resolver:         newResolver(state, newReplica),
 		stopProxyReadsCh: make(chan struct{}),
@@ -73,7 +79,7 @@ func newTestBroker(t require.TestingT, etcd *clientv3.Client, id pb.ProcessSpec_
 
 	// Set, but don't start a Persister for the test.
 	SetSharedPersister(fragment.NewPersister(bk.ks))
-	pb.RegisterJournalServer(bk.srv.GRPCServer, bk.svc)
+	pb.RegisterJournalServer(bk.srv.GRPCServer, pb.NewVerifiedJournalServer(bk.svc, auth))
 
 	bk.srv.QueueTasks(bk.tasks)
 	bk.svc.QueueTasks(bk.tasks, bk.srv, nil)
@@ -102,9 +108,7 @@ func (bk *testBroker) cleanup() {
 
 // resolve returns the resolution of |journal| against the testBroker.
 func (bk *testBroker) resolve(journal pb.Journal) *resolution {
-	var res, err = bk.svc.resolver.resolve(resolveArgs{
-		ctx:      context.Background(),
-		journal:  journal,
+	var res, err = bk.svc.resolver.resolve(context.Background(), allClaims, journal, resolveOpts{
 		mayProxy: true,
 	})
 	require.NoError(bk.t, err)

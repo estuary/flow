@@ -25,7 +25,7 @@ func TestReplicaShutdown(t *testing.T) {
 	broker.initialFragmentLoad()
 
 	// Start the journal's replication pipeline.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateAwaitDesiredReplicas))
 	fsm.returnPipeline()
 
@@ -57,7 +57,7 @@ func TestReplicaAssignmentUpdateCases(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2},
 		broker.id, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
-	var res, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	var res, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{})
 	require.NoError(t, err)
 
 	// Case: assignments have been modified since resolution.
@@ -74,8 +74,7 @@ func TestReplicaAssignmentUpdateCases(t *testing.T) {
 	}
 
 	// Case: assignments haven't been modified since resolution.
-	res, err = broker.svc.resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "a/journal", minEtcdRevision: rev})
+	res, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{minEtcdRevision: rev})
 	require.NoError(t, err)
 
 	rev, err = updateAssignments(ctx, res.assignments, etcd)
@@ -83,8 +82,7 @@ func TestReplicaAssignmentUpdateCases(t *testing.T) {
 
 	// Expect that, after resolving at the returned Etcd revision,
 	// Etcd assignment routes match the expectation.
-	res, err = broker.svc.resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "a/journal", minEtcdRevision: rev})
+	res, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{minEtcdRevision: rev})
 	require.NoError(t, err)
 
 	for _, a := range res.assignments {
@@ -94,9 +92,9 @@ func TestReplicaAssignmentUpdateCases(t *testing.T) {
 	}
 
 	// Case: Perform a second assignment update. Expect assignments are not modified.
-	rev, err = updateAssignments(ctx, res.assignments, etcd)
+	_, err = updateAssignments(ctx, res.assignments, etcd)
 	require.NoError(t, err)
-	res2, err := broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	res2, err := broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{})
 	require.NoError(t, err)
 
 	// Assignments were not modified, as they were already equivalent.

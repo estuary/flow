@@ -2,7 +2,7 @@ package gazctlcmd
 
 import (
 	"errors"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"go.gazette.dev/core/broker/protocol"
@@ -76,9 +76,9 @@ func (cfg ApplyConfig) decode(into interface{}) error {
 	var err error
 
 	if cfg.SpecsPath == "-" {
-		buffer, err = ioutil.ReadAll(os.Stdin)
+		buffer, err = io.ReadAll(os.Stdin)
 	} else {
-		buffer, err = ioutil.ReadFile(cfg.SpecsPath)
+		buffer, err = os.ReadFile(cfg.SpecsPath)
 	}
 	mbp.Must(err, "failed to read YAML input")
 

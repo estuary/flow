@@ -14,7 +14,7 @@ import (
 var defaultPageLimit = int32(1000)
 
 // ListFragments dispatches the JournalServer.ListFragments API.
-func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest) (resp *pb.FragmentsResponse, err error) {
+func (svc *Service) ListFragments(ctx context.Context, claims pb.Claims, req *pb.FragmentsRequest) (resp *pb.FragmentsResponse, err error) {
 	var res *resolution
 	defer instrumentJournalServerRPC("ListFragments", &err, &res)()
 
@@ -36,9 +36,7 @@ func (svc *Service) ListFragments(ctx context.Context, req *pb.FragmentsRequest)
 		req.PageLimit = defaultPageLimit
 	}
 
-	res, err = svc.resolver.resolve(resolveArgs{
-		ctx:            ctx,
-		journal:        req.Journal,
+	res, err = svc.resolver.resolve(ctx, claims, req.Journal, resolveOpts{
 		mayProxy:       !req.DoNotProxy,
 		requirePrimary: false,
 		proxyHeader:    req.Header,

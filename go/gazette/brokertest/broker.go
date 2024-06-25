@@ -3,14 +3,17 @@ package brokertest
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/auth"
 	"go.gazette.dev/core/broker"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/broker/fragment"
@@ -25,9 +28,10 @@ import (
 // Broker is a lightweight, embedded Gazette broker suitable for testing client
 // functionality which depends on the availability of the Gazette service.
 type Broker struct {
-	ID     pb.ProcessSpec_ID
-	Tasks  *task.Group
-	Server *server.Server
+	ID         pb.ProcessSpec_ID
+	Authorizer pb.Authorizer
+	Tasks      *task.Group
+	Server     *server.Server
 
 	etcd  *clientv3.Client
 	sigCh chan os.Signal
@@ -36,6 +40,17 @@ type Broker struct {
 
 // NewBroker builds and returns an in-process Broker identified by |zone| and |suffix|.
 func NewBroker(t require.TestingT, etcd *clientv3.Client, zone, suffix string) *Broker {
+	var key = make([]uint8, 12)
+	var _, err = rand.Read(key)
+	require.NoError(t, err)
+	return NewBrokerWithKeys(t, etcd, zone, suffix, base64.StdEncoding.EncodeToString(key))
+}
+
+// NewBroker builds and returns an in-process Broker identified by |zone| and |suffix|.
+func NewBrokerWithKeys(t require.TestingT, etcd *clientv3.Client, zone, suffix, encodedKeys string) *Broker {
+	var auth, err = auth.NewKeyedAuth(encodedKeys)
+	require.NoError(t, err)
+
 	var (
 		id    = pb.ProcessSpec_ID{Zone: zone, Suffix: suffix}
 		ks    = broker.NewKeySpace("/broker.test")
@@ -43,9 +58,8 @@ func NewBroker(t require.TestingT, etcd *clientv3.Client, zone, suffix string) *
 			allocator.MemberKey(ks, id.Zone, id.Suffix),
 			broker.JournalIsConsistent)
 		srv       = server.MustLoopback()
-		lo        = pb.NewJournalClient(srv.GRPCLoopback)
+		lo        = pb.NewAuthJournalClient(pb.NewJournalClient(srv.GRPCLoopback), auth)
 		service   = broker.NewService(state, lo, etcd)
-		rjc       = pb.NewRoutedJournalClient(lo, service)
 		tasks     = task.NewGroup(context.Background())
 		sigCh     = make(chan os.Signal, 1)
 		allocArgs = allocator.SessionArgs{
@@ -62,10 +76,10 @@ func NewBroker(t require.TestingT, etcd *clientv3.Client, zone, suffix string) *
 	)
 
 	require.NoError(t, allocator.StartSession(allocArgs))
-	pb.RegisterJournalServer(srv.GRPCServer, service)
+	pb.RegisterJournalServer(srv.GRPCServer, pb.NewVerifiedJournalServer(service, auth))
 
 	srv.HTTPMux = http.NewServeMux()
-	srv.HTTPMux.Handle("/", http_gateway.NewGateway(rjc))
+	srv.HTTPMux.Handle("/", http_gateway.NewGateway(pb.NewRoutedJournalClient(lo, pb.NoopDispatchRouter{})))
 
 	// Set, but don't start a Persister for the test.
 	broker.SetSharedPersister(fragment.NewPersister(ks))
@@ -76,18 +90,21 @@ func NewBroker(t require.TestingT, etcd *clientv3.Client, zone, suffix string) *
 	tasks.GoRun()
 
 	return &Broker{
-		ID:     id,
-		Tasks:  tasks,
-		Server: srv,
-		etcd:   etcd,
-		sigCh:  sigCh,
-		state:  state,
+		ID:         id,
+		Authorizer: auth,
+		Tasks:      tasks,
+		Server:     srv,
+		etcd:       etcd,
+		sigCh:      sigCh,
+		state:      state,
 	}
 }
 
 // Client returns a RoutedJournalClient wrapping the GRPCLoopback.
 func (b *Broker) Client() pb.RoutedJournalClient {
-	return pb.NewRoutedJournalClient(pb.NewJournalClient(b.Server.GRPCLoopback), pb.NoopDispatchRouter{})
+	var jc = pb.NewJournalClient(b.Server.GRPCLoopback)
+	jc = pb.NewAuthJournalClient(jc, b.Authorizer)
+	return pb.NewRoutedJournalClient(jc, pb.NoopDispatchRouter{})
 }
 
 // Endpoint of the test Broker.

@@ -155,6 +155,25 @@ func TestListCases(t *testing.T) {
 	_, err = stream.Recv()
 	require.Regexp(t, `.* Selector.Include.Labels\["prefix"\]: expected trailing '/' (.*)`, err)
 
+	// Case: Insufficient claimed capability.
+	stream, err = broker.client().List(
+		pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND}),
+		&pb.ListRequest{Selector: pb.LabelSelector{}})
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.ErrorContains(t, err, "authorization is missing required LIST capability")
+
+	// Case: Insufficient claimed selector.
+	stream, err = broker.client().List(
+		pb.WithClaims(ctx,
+			pb.Claims{
+				Capability: pb.Capability_LIST,
+				Selector:   pb.MustLabelSelector("name=something/else"),
+			}),
+		&pb.ListRequest{Selector: pb.LabelSelector{}})
+	require.NoError(t, err)
+	verify(stream) // All journals filtered by the claims selector.
+
 	// Case: streaming watch of a prefix.
 	var cancelCtx, cancel = context.WithCancel(ctx)
 	stream, err = broker.client().List(cancelCtx, &pb.ListRequest{
@@ -306,10 +325,45 @@ func TestApplyCases(t *testing.T) {
 		})).Status)
 
 	// Case: Invalid requests fail with an error.
-	var _, err = broker.client().Apply(ctx, &pb.ApplyRequest{
+	var _, err = broker.client().Apply(pb.WithClaims(ctx, allClaims), &pb.ApplyRequest{
 		Changes: []pb.ApplyRequest_Change{{Delete: "invalid journal name"}},
 	})
 	require.Regexp(t, `.* Changes\[0\].Delete: not a valid token \(invalid journal name\)`, err)
 
+	// Case: Insufficient claimed capability.
+	_, err = broker.client().Apply(
+		pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_READ}),
+		&pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{{Delete: "journal/A"}},
+		})
+	require.ErrorContains(t, err, "authorization is missing required APPLY capability")
+
+	var ctxNarrowClaims = pb.WithClaims(ctx,
+		pb.Claims{
+			Capability: pb.Capability_APPLY,
+			Selector:   pb.MustLabelSelector("name=something/else"),
+		})
+
+	// Case: Insufficient claimed selector on delete.
+	_, err = broker.client().Apply(
+		ctxNarrowClaims,
+		&pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{{Delete: "journal/A", ExpectModRevision: -1}},
+		})
+	require.ErrorContains(t, err, "not authorized to journal/A")
+
+	// Case: Insufficient claimed selector on upsert.
+	_, err = broker.client().Apply(
+		ctxNarrowClaims,
+		&pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{{Upsert: &specB}},
+		})
+	require.ErrorContains(t, err, "not authorized to journal/B")
+
 	broker.cleanup()
+}
+
+var allClaims = pb.Claims{
+	Capability: pb.Capability_ALL,  // All APIs.
+	Selector:   pb.LabelSelector{}, // Match anything.
 }

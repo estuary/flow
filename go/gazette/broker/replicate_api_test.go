@@ -14,6 +14,7 @@ import (
 func TestReplicateStreamAndCommit(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_REPLICATE})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2},
@@ -71,6 +72,7 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 func TestReplicateRequestErrorCases(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_REPLICATE})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 
@@ -177,12 +179,46 @@ func TestReplicateRequestErrorCases(t *testing.T) {
 	_, err = stream.Recv()
 	require.Regexp(t, `.* no ack requested but status != OK: status:PROPOSAL_MISMATCH .*`, err)
 
+	// Case: Insufficient claimed capability.
+	stream, _ = broker.client().Replicate(
+		pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND}),
+	)
+	_, err = stream.Recv()
+	require.ErrorContains(t, err, "authorization is missing required REPLICATE capability")
+
+	// Case: Insufficient claimed selector.
+	stream, _ = broker.client().Replicate(
+		pb.WithClaims(ctx,
+			pb.Claims{
+				Capability: pb.Capability_REPLICATE,
+				Selector:   pb.MustLabelSelector("name=something/else"),
+			}),
+	)
+	require.NoError(t, stream.Send(&pb.ReplicateRequest{
+		Header: broker.header("a/journal"),
+		Proposal: &pb.Fragment{
+			Journal:          "a/journal",
+			CompressionCodec: pb.CompressionCodec_NONE,
+		},
+		Registers:   boxLabels(),
+		Acknowledge: true,
+	}))
+	resp, err := stream.Recv()
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, resp.Status) // Journal not visible to these claims.
+	require.Len(t, resp.Header.Route.Endpoints, 0)
+
+	// Expect broker closes.
+	_, err = stream.Recv()
+	require.Equal(t, io.EOF, err)
+
 	broker.cleanup()
 }
 
 func TestReplicateBlockingRestart(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_REPLICATE})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 3},

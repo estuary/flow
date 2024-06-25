@@ -462,6 +462,16 @@ func ParseLabelSelector(s string) (LabelSelector, error) {
 	return out, out.Validate()
 }
 
+// MustLabelSelector is a convenience for constructing a parsed LabelSelector.
+// The LabelSelector must parse and Validate or MustLabelSelector panics.
+func MustLabelSelector(selector string) LabelSelector {
+	if out, err := ParseLabelSelector(selector); err != nil {
+		panic(err.Error())
+	} else {
+		return out
+	}
+}
+
 func parseSetParts(set *LabelSet, name, s string) error {
 	for len(s) != 0 {
 		var m []string

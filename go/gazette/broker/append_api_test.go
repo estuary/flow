@@ -15,6 +15,7 @@ import (
 func TestAppendSingle(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
@@ -52,14 +53,14 @@ func TestAppendSingle(t *testing.T) {
 func TestAppendRegisterCheckAndUpdateSequence(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 	broker.initialFragmentLoad()
 
 	var selector = func(s string) *pb.LabelSelector {
-		var sel, err = pb.ParseLabelSelector(s)
-		require.NoError(t, err)
+		var sel = pb.MustLabelSelector(s)
 		return &sel
 	}
 	// Run a sequence of appends, where each confirms and modifies registers.
@@ -125,6 +126,7 @@ func TestAppendRegisterCheckAndUpdateSequence(t *testing.T) {
 func TestAppendBadlyBehavedClientCases(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
@@ -192,6 +194,7 @@ func TestAppendBadlyBehavedClientCases(t *testing.T) {
 func TestAppendRequestErrorCases(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 
@@ -268,12 +271,30 @@ func TestAppendRequestErrorCases(t *testing.T) {
 		Header: *broker.header("read/only"),
 	}, resp)
 
+	// Case: Insufficient claimed capability.
+	stream, _ = broker.client().Append(pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_READ}))
+	_, err = stream.CloseAndRecv()
+	require.ErrorContains(t, err, "authorization is missing required APPEND capability")
+
+	// Case: Insufficient claimed selector.
+	stream, _ = broker.client().Append(pb.WithClaims(ctx, pb.Claims{
+		Capability: pb.Capability_APPEND,
+		Selector:   pb.MustLabelSelector("name=something/else"),
+	}))
+	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "valid/journal", Offset: 1024}))
+
+	resp, err = stream.CloseAndRecv()
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, resp.Status) // Journal not visible to these claims.
+	require.Len(t, resp.Header.Route.Endpoints, 0)
+
 	broker.cleanup()
 }
 
 func TestAppendProxyCases(t *testing.T) {
 	var ctx, etcd = pb.WithDispatchDefault(context.Background()), etcdtest.TestClient()
 	defer etcdtest.Cleanup()
+	ctx = pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
 	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})

@@ -62,8 +62,8 @@ func TestReplicatedReadAndWrite(t *testing.T) {
 	defer etcdtest.Cleanup()
 
 	var ctx = pb.WithDispatchDefault(context.Background())
-	var bkA = NewBroker(t, etcd, "A", "broker-one")
-	var bkB = NewBroker(t, etcd, "B", "broker-two")
+	var bkA = NewBrokerWithKeys(t, etcd, "A", "broker-one", "b25l, dHdv")
+	var bkB = NewBrokerWithKeys(t, etcd, "B", "broker-two", "dHdv, b25l")
 
 	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 2}))
 
@@ -110,8 +110,8 @@ func TestReassignment(t *testing.T) {
 	defer etcdtest.Cleanup()
 
 	var ctx = pb.WithDispatchDefault(context.Background())
-	var bkA = NewBroker(t, etcd, "zone", "broker-A")
-	var bkB = NewBroker(t, etcd, "zone", "broker-B")
+	var bkA = NewBrokerWithKeys(t, etcd, "zone", "broker-A", "c2VjcmV0")
+	var bkB = NewBrokerWithKeys(t, etcd, "zone", "broker-B", "c2VjcmV0")
 
 	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 2}))
 
@@ -127,7 +127,7 @@ func TestReassignment(t *testing.T) {
 	})
 
 	// Broker C starts, and A signals for exit.
-	var bkC = NewBroker(t, etcd, "zone", "broker-C")
+	var bkC = NewBrokerWithKeys(t, etcd, "zone", "broker-C", "c2VjcmV0")
 
 	bkA.Signal()
 	require.NoError(t, bkA.Tasks.Wait()) // Exits gracefully.
@@ -156,8 +156,8 @@ func TestGracefulStopTimeout(t *testing.T) {
 	defer etcdtest.Cleanup()
 
 	var ctx = pb.WithDispatchDefault(context.Background())
-	var bkA = NewBroker(t, etcd, "zone", "broker-A")
-	var bkB = NewBroker(t, etcd, "zone", "broker-B")
+	var bkA = NewBrokerWithKeys(t, etcd, "zone", "broker-A", "c2VjcmV0")
+	var bkB = NewBrokerWithKeys(t, etcd, "zone", "broker-B", "c2VjcmV0")
 
 	// Journal is owned by either |bkA| or |bkB| (they race).
 	CreateJournals(t, bkA, Journal(pb.JournalSpec{Name: "foo/bar", Replication: 1}))
@@ -180,8 +180,7 @@ func TestGracefulStopTimeout(t *testing.T) {
 
 	// Begin a blocking read over |bkB|'s gRPC service.
 	// This request is proxied to |bkA|. Then, don't make progress.
-	var r = client.NewReader(ctx, rjcB,
-		pb.ReadRequest{Journal: "foo/bar", Block: true})
+	var r = client.NewReader(ctx, rjcB, pb.ReadRequest{Journal: "foo/bar", Block: true})
 	var _, err = r.Read(nil)
 	require.NoError(t, err)
 
@@ -282,7 +281,10 @@ func newDialedClient(t *testing.T, bk *Broker) (*grpc.ClientConn, pb.RoutedJourn
 		grpc.WithTransportCredentials(pb.NewDispatchedCredentials(tlsConfig, bk.Endpoint())),
 	)
 	require.NoError(t, err)
-	return conn, pb.NewRoutedJournalClient(pb.NewJournalClient(conn), pb.NoopDispatchRouter{})
+
+	var jc = pb.NewJournalClient(conn)
+	jc = pb.NewAuthJournalClient(jc, bk.Authorizer)
+	return conn, pb.NewRoutedJournalClient(jc, pb.NoopDispatchRouter{})
 }
 
 func TestMain(m *testing.M) { etcdtest.TestMainWithEtcd(m) }

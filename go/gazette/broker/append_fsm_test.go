@@ -21,16 +21,16 @@ func TestFSMResolve(t *testing.T) {
 	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
 	// Case: A resolution status error is returned.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "does/not/exist"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "does/not/exist"})
 	fsm.onResolve()
 	require.Equal(t, stateError, fsm.state)
 	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, fsm.resolved.status)
 
 	// Case: Context canceled and resolution is aborted.
-	fsm = appendFSM{svc: broker.svc, ctx: newCanceledCtx(), req: pb.AppendRequest{
+	fsm = newFSM(broker, newCanceledCtx(), pb.AppendRequest{
 		Journal: "a/journal",
 		Header:  &pb.Header{Etcd: fsm.resolved.Header.Etcd},
-	}}
+	})
 	fsm.req.Header.Etcd.Revision += 1e10 // Future revision blocks indefinitely.
 	fsm.onResolve()
 	require.Equal(t, stateError, fsm.state)
@@ -38,19 +38,19 @@ func TestFSMResolve(t *testing.T) {
 
 	// Case: Resolution success, but we don't own the pipeline.
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 3}, broker.id)
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 	require.Equal(t, stateAcquirePipeline, fsm.state)
 
 	// Case: Resolution success, and we own the pipeline.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.plnReturnCh = make(chan *pipeline)
 	fsm.onResolve()
 	require.Equal(t, stateStartPipeline, fsm.state)
 
 	// Case: We're not journal primary, but own the pipeline.
 	setTestJournal(broker, pb.JournalSpec{Name: "other/journal", Replication: 3}, peer.id)
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "other/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "other/journal"})
 	fsm.plnReturnCh = make(chan *pipeline, 1)
 	fsm.onResolve()
 	require.Equal(t, peer.id, fsm.resolved.ProcessId)
@@ -69,7 +69,7 @@ func TestFSMAcquirePipeline(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 
 	// Case: success.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateStartPipeline))
 	require.NotNil(t, fsm.plnReturnCh)
 	fsm.returnPipeline()
@@ -79,7 +79,7 @@ func TestFSMAcquirePipeline(t *testing.T) {
 	// immediately select-able.
 
 	// Case: replica route is invalidated while we wait.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 	fsm.resolved.invalidateCh = newClosedCh()
 	fsm.onAcquirePipeline()
@@ -88,7 +88,7 @@ func TestFSMAcquirePipeline(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: request is cancelled while we wait.
-	fsm = appendFSM{svc: broker.svc, ctx: newCanceledCtx(), req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, newCanceledCtx(), pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 	fsm.onAcquirePipeline()
 	require.Equal(t, stateError, fsm.state)
@@ -110,7 +110,7 @@ func TestFSMStartAndSync(t *testing.T) {
 	// - PROPOSAL_MISMATCH error
 	// - WRONG_ROUTE error
 	// - An unexpected, terminal error.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateRecvPipelineSync))
 
 	// Expect peer reads initial fragment proposal for the journal.
@@ -190,10 +190,10 @@ func TestFSMStartAndSync(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: New pipeline from scratch, and sync is successful.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateRecvPipelineSync))
 
-	_ = <-peer.ReplReqCh
+	<-peer.ReplReqCh
 	peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 
 	fsm.onRecvPipelineSync()
@@ -202,14 +202,14 @@ func TestFSMStartAndSync(t *testing.T) {
 
 	// Case: As the pipeline is intact and of the correct route,
 	// expect it's not synchronized again.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateStartPipeline))
 	fsm.onStartPipeline()
 	require.Equal(t, stateUpdateAssignments, fsm.state)
 	fsm.returnPipeline()
 
 	// Case: A synced pipeline of non-equivalent route is torn down and restarted.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 	fsm.onAcquirePipeline()
 	fsm.pln.Route = wrongRouteHeader.Route
@@ -231,7 +231,7 @@ func TestFSMStartAndSync(t *testing.T) {
 	}(fsm.resolved.replica.pipelineCh, fsm.pln)
 
 	// Case: context error while awaiting the spool.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateStartPipeline))
 	fsm.ctx = newCanceledCtx()
 	fsm.onStartPipeline()
@@ -240,7 +240,7 @@ func TestFSMStartAndSync(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: route invalidation while awaiting the spool.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateStartPipeline))
 	fsm.resolved.invalidateCh = newClosedCh()
 	fsm.onStartPipeline()
@@ -265,9 +265,9 @@ func TestFSMUpdateAssignments(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 2}, broker.id, peer.id)
 
 	// Case: error while updating assignments.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateRecvPipelineSync))
-	_ = <-peer.ReplReqCh
+	<-peer.ReplReqCh
 	peer.ReplRespCh <- pb.ReplicateResponse{Status: pb.Status_OK}
 	fsm.onRecvPipelineSync()
 	fsm.ctx = newCanceledCtx() // Cause updateAssignments to fail.
@@ -277,7 +277,7 @@ func TestFSMUpdateAssignments(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: assignments must be updated in Etcd.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateUpdateAssignments))
 	fsm.onUpdateAssignments()
 	require.Equal(t, stateResolve, fsm.state)
@@ -310,25 +310,25 @@ func TestFSMDesiredReplicas(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "too/few", Replication: 3}, peer.id, broker.id)
 
 	// Case: local primary with correct number of replicas.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.returnPipeline()
 
 	// Case: remote primary with correct number of replicas.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "remote/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "remote/journal"})
 	fsm.onResolve()
 	fsm.onAwaitDesiredReplicas()
 	require.Equal(t, stateProxy, fsm.state)
 
 	// Case: journal with too many replicas.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "too/many"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "too/many"})
 	fsm.onResolve()
 	fsm.onAwaitDesiredReplicas()
 	require.Equal(t, stateResolve, fsm.state)
 	require.Equal(t, fsm.resolved.Etcd.Revision+1, fsm.readThroughRev)
 
 	// Case: journal with too few replicas.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "too/few"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "too/few"})
 	fsm.onResolve()
 	fsm.onAwaitDesiredReplicas()
 	require.Equal(t, stateError, fsm.state)
@@ -346,7 +346,7 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 
 	// Case: We're canceled while awaiting the first remote fragment refresh.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.ctx = newCanceledCtx()
 	fsm.onValidatePreconditions()
@@ -355,7 +355,7 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: Route is invalidated while awaiting first remote fragment refresh.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.resolved.invalidateCh = newClosedCh()
 	fsm.onValidatePreconditions()
@@ -363,7 +363,7 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: Spool & fragment index agree on non-zero end offset. Success.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 	fsm.onAcquirePipeline()
 	fsm.resolved.replica.index.ReplaceRemote(fragment.CoverSet{
@@ -374,10 +374,10 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: Register selector is not matched, but journal has no registers.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
 		Journal:        "a/journal",
 		CheckRegisters: &pb.LabelSelector{Include: pb.MustLabelSet("not", "matched")},
-	}}
+	})
 	require.True(t, fsm.runTo(stateStreamContent))
 
 	// Set fixture for next run.
@@ -385,10 +385,10 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: Register selector doesn't match non-empty journal registers.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
 		Journal:        "a/journal",
 		CheckRegisters: &pb.LabelSelector{Include: pb.MustLabelSet("not", "matched")},
-	}}
+	})
 	require.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.onValidatePreconditions()
 	require.Equal(t, stateError, fsm.state)
@@ -396,15 +396,15 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: Register selector _is_ matched.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
 		Journal:        "a/journal",
 		CheckRegisters: &pb.LabelSelector{Exclude: pb.MustLabelSet("is", "matched")},
-	}}
+	})
 	require.True(t, fsm.runTo(stateStreamContent))
 	fsm.returnPipeline()
 
 	// Case: remote index contains a greater offset than the pipeline, and request omits offset.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 	fsm.resolved.replica.index.ReplaceRemote(fragment.CoverSet{
 		{Fragment: pb.Fragment{End: 456}},
@@ -416,14 +416,14 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: remote index contains a greater offset, request omits offset, but journal is not writable.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 	fsm.resolved.journalSpec.Flags = pb.JournalSpec_O_RDONLY
 	require.True(t, fsm.runTo(stateStreamContent))
 	fsm.returnPipeline()
 
 	// Case: request offset doesn't match the max journal offset.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal", Offset: 455}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal", Offset: 455})
 	require.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.onValidatePreconditions()
 	require.Equal(t, stateError, fsm.state)
@@ -431,7 +431,7 @@ func TestFSMValidatePreconditions(t *testing.T) {
 	fsm.returnPipeline()
 
 	// Case: request offset does match the max journal offset.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal", Offset: 456}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal", Offset: 456})
 	require.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.onValidatePreconditions()
 	require.Equal(t, stateSendPipelineSync, fsm.state)
@@ -466,12 +466,12 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 
 	// Case: successful append is streamed from the client, and verifies & updates
 	// registers which are initially known only to peers (and not this appendFSM).
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{
 		Journal:           "a/journal",
 		CheckRegisters:    &pb.LabelSelector{Include: pb.MustLabelSet("before", "")},
 		UnionRegisters:    boxLabels("after", ""),
 		SubtractRegisters: boxLabels("before", ""),
-	}}
+	})
 	fsm.onResolve()
 
 	// Asynchronously run the expected peer message flow.
@@ -570,10 +570,10 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	require.Nil(t, fsm.plnReturnCh)
 
 	// Case: A request with register modifications which writes no bytes is an error.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
 		Journal:        "a/journal",
 		UnionRegisters: boxLabels("foo", ""),
-	}}
+	})
 	fsm.runTo(stateStreamContent)
 
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Intent to commit.
@@ -605,7 +605,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	// Case: Expect a non-validating AppendRequest is treated as a client error,
 	// and triggers rollback. Note that an updating proposal is not required and
 	// is not sent this time.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil) // Valid 1st chunk.
@@ -620,7 +620,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	require.EqualError(t, fsm.err, `append stream: Journal: cannot begin with '/' (/invalid)`)
 
 	// Case: Valid but unexpected non-content chunk.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil)   // Valid 1st chunk.
@@ -638,7 +638,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	// and triggers a rollback. Also change the compression spec but expect an
 	// updated proposal is still not sent, as the spool is non-empty and not
 	// over the Fragment Length.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.resolved.journalSpec.Fragment.CompressionCodec = pb.CompressionCodec_GZIP
@@ -656,7 +656,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	require.EqualError(t, fsm.err, `append stream: unexpected EOF`)
 
 	// Case: Expect any other client read error triggers a rollback.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil) // 1st chunk.
@@ -671,7 +671,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	require.EqualError(t, fsm.err, `append stream: some error`)
 
 	// Case: Expect *not* reading an EOF after a commit chunk triggers an error and rollback.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("baz")}, nil) // 1st chunk.
@@ -688,7 +688,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	require.EqualError(t, fsm.err, `append stream: expected EOF after empty Content chunk`)
 
 	// Case: journal writes are disallowed.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.resolved.journalSpec.Flags = pb.JournalSpec_O_RDONLY
@@ -704,7 +704,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	require.Equal(t, pb.Status_NOT_ALLOWED, fsm.resolved.status)
 
 	// Case: journal writes are still disallowed, but append is zero-length.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Intent to commit.
@@ -719,7 +719,7 @@ func TestFSMStreamAndReadAcknowledgements(t *testing.T) {
 	require.Equal(t, pb.Status_OK, fsm.resolved.status)
 
 	// Case: Writes are allowed again, but pipeline is broken.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.runTo(stateStreamContent)
 
 	fsm.resolved.journalSpec.Flags = pb.JournalSpec_O_RDWR // Reset.
@@ -785,7 +785,7 @@ func TestFSMRunBasicCases(t *testing.T) {
 	}
 
 	// Case: successful append is streamed from the client.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.run(makeRecv([]appendChunk{
 		{req: &pb.AppendRequest{Content: []byte("bar")}},
 		{req: &pb.AppendRequest{Content: []byte("bing")}},
@@ -807,7 +807,7 @@ func TestFSMRunBasicCases(t *testing.T) {
 	// Case: client timeout triggers a context.DeadlineExceeded.
 	var uninstall = installAppendTimeoutFixture()
 
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.run(makeRecv([]appendChunk{
 		{req: &pb.AppendRequest{Content: []byte("bar")}},
 		// Wait indefinitely for next chunk.
@@ -818,7 +818,7 @@ func TestFSMRunBasicCases(t *testing.T) {
 	uninstall()
 
 	// Case: client read error.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.run(makeRecv([]appendChunk{
 		{req: &pb.AppendRequest{Content: []byte("bar")}},
 		{err: errors.New("foobar")},
@@ -828,7 +828,7 @@ func TestFSMRunBasicCases(t *testing.T) {
 	require.EqualError(t, fsm.err, "append stream: foobar")
 
 	// Case: terminal error prior to content streaming.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "does/not/exist"}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "does/not/exist"})
 	fsm.run(nil) // |recv| not called.
 
 	require.Equal(t, stateError, fsm.state)
@@ -847,8 +847,8 @@ func TestFSMPipelineRace(t *testing.T) {
 	broker.initialFragmentLoad()
 
 	// Start two raced requests.
-	var fsm1 = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
-	var fsm2 = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm1 = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
+	var fsm2 = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm1.onResolve()
 	fsm2.onResolve()
 	fsm1.onAcquirePipeline() // Wins race to acquire the pipeline.
@@ -952,7 +952,7 @@ func TestFSMOffsetResetFlow(t *testing.T) {
 	broker.initialFragmentLoad()
 
 	// Add a remote Fragment fixture which ends at offset 1024.
-	var res, _ = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	var res, _ = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{})
 	res.replica.index.ReplaceRemote(fragment.CoverSet{fragment.Fragment{
 		Fragment: pb.Fragment{Journal: "a/journal", Begin: 0, End: 1024}}})
 
@@ -972,13 +972,13 @@ func TestFSMOffsetResetFlow(t *testing.T) {
 	}()
 
 	// Part 1: Offset is not provided, and remote index has a fragment with larger offset.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.run(nil)
 	require.Equal(t, stateError, fsm.state)
 	require.Equal(t, pb.Status_INDEX_HAS_GREATER_OFFSET, fsm.resolved.status)
 
 	// Part 2: We now submit a request offset which matches the remote fragment offset.
-	fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal", Offset: 1024}}
+	fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal", Offset: 1024})
 	require.True(t, fsm.runTo(stateValidatePreconditions))
 	fsm.onValidatePreconditions()
 	fsm.onSendPipelineSync()
@@ -1036,4 +1036,8 @@ func newCanceledCtx() context.Context {
 	var ctx, cancel = context.WithCancel(context.Background())
 	cancel()
 	return ctx
+}
+
+func newFSM(b *testBroker, ctx context.Context, req pb.AppendRequest) appendFSM {
+	return appendFSM{svc: b.svc, ctx: ctx, claims: allClaims, req: req}
 }

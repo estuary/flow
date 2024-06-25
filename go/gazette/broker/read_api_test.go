@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -465,6 +464,30 @@ func TestReadRequestErrorCases(t *testing.T) {
 		Header: broker.header("write/only"),
 	}, resp)
 
+	setTestJournal(broker, pb.JournalSpec{Name: "valid/journal", Replication: 1}, broker.id)
+
+	// Case: Insufficient claimed capability.
+	stream, err = broker.client().Read(
+		pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND}),
+		&pb.ReadRequest{Journal: "valid/journal"})
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.ErrorContains(t, err, "authorization is missing required READ capability")
+
+	// Case: Insufficient claimed selector.
+	stream, err = broker.client().Read(
+		pb.WithClaims(ctx,
+			pb.Claims{
+				Capability: pb.Capability_READ,
+				Selector:   pb.MustLabelSelector("name=something/else"),
+			}),
+		&pb.ReadRequest{Journal: "valid/journal"})
+	require.NoError(t, err)
+	resp, err = stream.Recv()
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, resp.Status) // Journal not visible to these claims.
+	require.Len(t, resp.Header.Route.Endpoints, 0)
+
 	broker.cleanup()
 }
 
@@ -472,7 +495,7 @@ func buildRemoteFragmentFixture(t require.TestingT) (frag pb.Fragment, dir strin
 	const data = "XXXXXremote fragment data"
 
 	var err error
-	dir, err = ioutil.TempDir("", "BrokerSuite")
+	dir, err = os.MkdirTemp("", "BrokerSuite")
 	require.NoError(t, err)
 
 	frag = pb.Fragment{

@@ -136,8 +136,14 @@ func (a *Appender) lazyInit() (err error) {
 			return pb.ExtendContext(err, "Request")
 		}
 
+		var ctx = pb.WithClaims(a.ctx, pb.Claims{
+			Capability: pb.Capability_APPEND,
+			Selector: pb.LabelSelector{
+				Include: pb.MustLabelSet("name", a.Request.Journal.StripMeta().String()),
+			},
+		})
 		a.stream, err = a.client.Append(
-			pb.WithDispatchItemRoute(a.ctx, a.client, a.Request.Journal.String(), true))
+			pb.WithDispatchItemRoute(ctx, a.client, a.Request.Journal.String(), true))
 
 		if err == nil {
 			// Send request preamble metadata prior to append content chunks.

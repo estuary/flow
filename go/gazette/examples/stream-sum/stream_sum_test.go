@@ -141,7 +141,7 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 	var testJournals, testShards = buildSpecFixtures(4)
 
 	// Start a broker & create journal fixtures.
-	var broker = brokertest.NewBroker(c, etcd, "local", "broker")
+	var broker = brokertest.NewBrokerWithKeys(c, etcd, "local", "broker", "c2VjcmV0")
 	var rjc = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
 	brokertest.CreateJournals(c, broker, testJournals...)
 
@@ -158,6 +158,7 @@ func (s *StreamSumSuite) TestEndToEnd(c *gc.C) {
 
 	var cfg ChunkerConfig
 	cfg.Broker.Address = broker.Endpoint()
+	cfg.Broker.AuthKeys = "c2VjcmV0"
 	cfg.Chunker.Streams = 10
 	cfg.Chunker.Chunks = 10
 	cfg.Chunker.Workers = 4

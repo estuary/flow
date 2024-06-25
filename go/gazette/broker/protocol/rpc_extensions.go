@@ -16,12 +16,16 @@ type RoutedJournalClient interface {
 	DispatchRouter
 }
 
+// ComposedRoutedJournalClient implements the RoutedJournalClient interface
+// by composing separate implementations of its constituent interfaces.
+type ComposedRoutedJournalClient struct {
+	JournalClient
+	DispatchRouter
+}
+
 // NewRoutedJournalClient composes a JournalClient and DispatchRouter.
-func NewRoutedJournalClient(jc JournalClient, dr DispatchRouter) RoutedJournalClient {
-	return struct {
-		JournalClient
-		DispatchRouter
-	}{
+func NewRoutedJournalClient(jc JournalClient, dr DispatchRouter) *ComposedRoutedJournalClient {
+	return &ComposedRoutedJournalClient{
 		JournalClient:  jc,
 		DispatchRouter: dr,
 	}

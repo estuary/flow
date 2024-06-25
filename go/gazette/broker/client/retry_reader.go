@@ -53,12 +53,13 @@ func (rr *RetryReader) Offset() int64 {
 
 // Read returns the next bytes of journal content. It will return a non-nil
 // error in the following cases:
-//  * Cancel is called, or the RetryReader context is cancelled.
-//  * The broker returns OFFSET_NOT_YET_AVAILABLE (ErrOffsetNotYetAvailable)
-//    for a non-blocking ReadRequest.
-//  * An offset jump occurred (ErrOffsetJump), in which case the client
-//    should inspect the new Offset and may continue reading if desired.
-//  * The broker returns io.EOF upon reaching the requested EndOffset.
+//   - Cancel is called, or the RetryReader context is cancelled.
+//   - The broker returns OFFSET_NOT_YET_AVAILABLE (ErrOffsetNotYetAvailable)
+//     for a non-blocking ReadRequest.
+//   - An offset jump occurred (ErrOffsetJump), in which case the client
+//     should inspect the new Offset and may continue reading if desired.
+//   - The broker returns io.EOF upon reaching the requested EndOffset.
+//
 // All other errors are retried.
 func (rr *RetryReader) Read(p []byte) (n int, err error) {
 	for attempt := 0; true; attempt++ {
@@ -99,10 +100,14 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 			} else {
 				return // Surface to caller.
 			}
-		case io.EOF, ErrInsufficientJournalBrokers, ErrNotJournalBroker, ErrJournalNotFound:
+		case ErrInsufficientJournalBrokers, ErrNotJournalBroker, ErrJournalNotFound:
 			// Suppress logging for expected errors on first read attempt.
 			// We may be racing a concurrent Etcd watch and assignment of the broker cluster.
 			squelch = attempt == 0
+		case io.EOF:
+			// Repeated EOF is common if topology changes or authorizations
+			// expire on a journal with no active appends.
+			squelch = true
 		default:
 		}
 

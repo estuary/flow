@@ -109,11 +109,11 @@ func pulseDaemon(svc *Service, r *replica) {
 	var invalidateCh <-chan struct{}
 	for {
 		select {
-		case _ = <-r.ctx.Done():
+		case <-r.ctx.Done():
 			return
-		case _ = <-timer.C:
+		case <-timer.C:
 			timer.Reset(healthCheckInterval)
-		case _ = <-invalidateCh:
+		case <-invalidateCh:
 			invalidateCh = nil
 		}
 
@@ -121,6 +121,12 @@ func pulseDaemon(svc *Service, r *replica) {
 		var fsm = appendFSM{
 			svc: svc,
 			ctx: ctx,
+			claims: pb.Claims{
+				Selector: pb.LabelSelector{
+					Include: pb.MustLabelSet("name", r.journal.String()),
+				},
+				Capability: pb.Capability_APPEND,
+			},
 			req: pb.AppendRequest{
 				Journal:    r.journal,
 				DoNotProxy: true,

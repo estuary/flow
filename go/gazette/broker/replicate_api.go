@@ -12,8 +12,9 @@ import (
 )
 
 // Replicate dispatches the JournalServer.Replicate API.
-func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
+func (svc *Service) Replicate(claims pb.Claims, stream pb.Journal_ReplicateServer) (err error) {
 	var (
+		ctx      = stream.Context()
 		req      *pb.ReplicateRequest
 		resolved *resolution
 	)
@@ -22,7 +23,7 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 	defer func() {
 		if err != nil {
 			var addr net.Addr
-			if p, ok := peer.FromContext(stream.Context()); ok {
+			if p, ok := peer.FromContext(ctx); ok {
 				addr = p.Addr
 			}
 			log.WithFields(log.Fields{"err": err, "req": req, "client": addr}).
@@ -40,9 +41,7 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 
 	var spool fragment.Spool
 	for done := false; !done; {
-		resolved, err = svc.resolver.resolve(resolveArgs{
-			ctx:            stream.Context(),
-			journal:        req.Proposal.Journal,
+		resolved, err = svc.resolver.resolve(ctx, claims, req.Proposal.Journal, resolveOpts{
 			mayProxy:       false,
 			requirePrimary: false,
 			proxyHeader:    req.Header,
@@ -59,12 +58,12 @@ func (svc *Service) Replicate(stream pb.Journal_ReplicateServer) (err error) {
 		// Attempt to obtain exclusive ownership of the replica's Spool.
 		select {
 		case spool = <-resolved.replica.spoolCh:
-			addTrace(stream.Context(), "<-replica.spoolCh => %s", spool)
+			addTrace(ctx, "<-replica.spoolCh => %s", spool)
 			done = true
-		case <-stream.Context().Done(): // Request was cancelled.
-			return stream.Context().Err()
+		case <-ctx.Done(): // Request was cancelled.
+			return ctx.Err()
 		case <-resolved.invalidateCh: // Replica assignments changed.
-			addTrace(stream.Context(), " ... resolution was invalidated")
+			addTrace(ctx, " ... resolution was invalidated")
 			// Loop to retry.
 		}
 	}

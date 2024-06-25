@@ -52,7 +52,7 @@ func TestResolveCases(t *testing.T) {
 	require.Len(t, resolver.replicas, 3)
 
 	// Case: simple resolution of local replica.
-	var r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "replica/journal;ignored/meta"})
+	var r, _ = resolver.resolve(ctx, allClaims, "replica/journal;ignored/meta", resolveOpts{})
 	require.Equal(t, pb.Status_OK, r.status)
 	// Expect the local replica is attached.
 	require.Equal(t, resolver.replicas["replica/journal"].replica, r.replica)
@@ -68,13 +68,13 @@ func TestResolveCases(t *testing.T) {
 	require.Equal(t, broker.id, r.localID)
 
 	// Case: primary is required, and we are primary.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "primary/journal", requirePrimary: true})
+	r, _ = resolver.resolve(ctx, allClaims, "primary/journal", resolveOpts{requirePrimary: true})
 	require.Equal(t, pb.Status_OK, r.status)
 	require.Equal(t, broker.id, r.Header.ProcessId)
 	require.Equal(t, mkRoute(0, broker.id, peer.id), r.Header.Route)
 
 	// Case: primary is required, we are not primary, and may not proxy.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "replica/journal", requirePrimary: true})
+	r, _ = resolver.resolve(ctx, allClaims, "replica/journal", resolveOpts{requirePrimary: true})
 	require.Equal(t, pb.Status_NOT_JOURNAL_PRIMARY_BROKER, r.status)
 	// As status != OK and we authored the resolution, ProcessId is still |broker|.
 	require.Equal(t, broker.id, r.Header.ProcessId)
@@ -84,8 +84,7 @@ func TestResolveCases(t *testing.T) {
 	require.NotNil(t, r.replica)
 
 	// Case: primary is required, and we may proxy.
-	r, _ = resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "replica/journal", requirePrimary: true, mayProxy: true})
+	r, _ = resolver.resolve(ctx, allClaims, "replica/journal", resolveOpts{requirePrimary: true, mayProxy: true})
 	require.Equal(t, pb.Status_OK, r.status)
 	// The resolution is specifically to |peer|.
 	require.Equal(t, peer.id, r.Header.ProcessId)
@@ -94,22 +93,21 @@ func TestResolveCases(t *testing.T) {
 	require.NotNil(t, r.replica)
 
 	// Case: primary is required, we may proxy, but there is no primary.
-	r, _ = resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "no/primary/journal", requirePrimary: true, mayProxy: true})
+	r, _ = resolver.resolve(ctx, allClaims, "no/primary/journal", resolveOpts{requirePrimary: true, mayProxy: true})
 	require.Equal(t, pb.Status_NO_JOURNAL_PRIMARY_BROKER, r.status)
 	require.Equal(t, broker.id, r.Header.ProcessId) // We authored the error.
 	require.Equal(t, mkRoute(-1, broker.id, peer.id), r.Header.Route)
 	require.NotNil(t, r.replica)
 
 	// Case: we may not proxy, and are not a replica.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal"})
+	r, _ = resolver.resolve(ctx, allClaims, "peer/only/journal", resolveOpts{})
 	require.Equal(t, pb.Status_NOT_JOURNAL_BROKER, r.status)
 	require.Equal(t, broker.id, r.Header.ProcessId) // We authored the error.
 	require.Equal(t, mkRoute(0, peer.id), r.Header.Route)
 	require.Nil(t, r.replica)
 
 	// Case: we may proxy, and are not a replica.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal", mayProxy: true})
+	r, _ = resolver.resolve(ctx, allClaims, "peer/only/journal", resolveOpts{mayProxy: true})
 	require.Equal(t, pb.Status_OK, r.status)
 	// ProcessId is left empty as we could proxy to any of multiple peers.
 	require.Equal(t, pb.ProcessSpec_ID{}, r.Header.ProcessId)
@@ -117,13 +115,13 @@ func TestResolveCases(t *testing.T) {
 	require.Nil(t, r.replica)
 
 	// Case: the journal has no brokers.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "no/brokers/journal", mayProxy: true})
+	r, _ = resolver.resolve(ctx, allClaims, "no/brokers/journal", resolveOpts{mayProxy: true})
 	require.Equal(t, pb.Status_INSUFFICIENT_JOURNAL_BROKERS, r.status)
 	require.Equal(t, broker.id, r.Header.ProcessId)
 	require.Equal(t, mkRoute(-1), r.Header.Route)
 
 	// Case: the journal doesn't exist.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "does/not/exist"})
+	r, _ = resolver.resolve(ctx, allClaims, "does/not/exist", resolveOpts{})
 	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, r.status)
 	require.Equal(t, broker.id, r.Header.ProcessId)
 	require.Equal(t, mkRoute(-1), r.Header.Route)
@@ -137,14 +135,14 @@ func TestResolveCases(t *testing.T) {
 	broker.ks.Mu.RUnlock()
 
 	// Subcase 1: We can still resolve for peer journals.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal", mayProxy: true})
+	r, _ = resolver.resolve(ctx, allClaims, "peer/only/journal", resolveOpts{mayProxy: true})
 	require.Equal(t, pb.Status_OK, r.status)
 	require.Equal(t, pb.ProcessSpec_ID{}, r.Header.ProcessId)
 	require.Equal(t, mkRoute(0, peer.id), r.Header.Route)
 	require.Nil(t, r.replica)
 
 	// Subcase 2: We use a placeholder ProcessId.
-	r, _ = resolver.resolve(resolveArgs{ctx: ctx, journal: "peer/only/journal"})
+	r, _ = resolver.resolve(ctx, allClaims, "peer/only/journal", resolveOpts{})
 	require.Equal(t, pb.Status_NOT_JOURNAL_BROKER, r.status)
 	require.Equal(t, pb.ProcessSpec_ID{Zone: "local-BrokerSpec", Suffix: "missing-from-Etcd"}, r.Header.ProcessId)
 	require.Equal(t, mkRoute(0, peer.id), r.Header.Route)
@@ -163,7 +161,7 @@ func TestResolverLocalReplicaStopping(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "peer/journal", Replication: 1}, peer.id)
 
 	// Precondition: journal & replica resolve as per expectation.
-	var r, _ = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	var r, _ = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{})
 	require.Equal(t, pb.Status_OK, r.status)
 	require.Equal(t, broker.id, r.Header.ProcessId)
 	require.NotNil(t, r.replica)
@@ -177,11 +175,10 @@ func TestResolverLocalReplicaStopping(t *testing.T) {
 	<-r.replica.ctx.Done()
 
 	// Attempts to resolve a local journal fail.
-	var _, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	var _, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{})
 	require.Equal(t, errResolverStopped, err)
 	// However we'll still return proxy resolutions to peers.
-	r, _ = broker.svc.resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "peer/journal", requirePrimary: true, mayProxy: true})
+	r, _ = broker.svc.resolver.resolve(ctx, allClaims, "peer/journal", resolveOpts{requirePrimary: true, mayProxy: true})
 	require.Equal(t, pb.Status_OK, r.status)
 	require.Equal(t, peer.id, r.Header.ProcessId)
 
@@ -190,11 +187,10 @@ func TestResolverLocalReplicaStopping(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "new/peer/journal", Replication: 1}, peer.id)
 
 	// An attempt for this new local journal still fails.
-	_, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal"})
+	_, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{})
 	require.Equal(t, errResolverStopped, err)
 	// But we successfully resolve to a peer.
-	r, _ = broker.svc.resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "peer/journal", requirePrimary: true, mayProxy: true})
+	r, _ = broker.svc.resolver.resolve(ctx, allClaims, "peer/journal", resolveOpts{requirePrimary: true, mayProxy: true})
 	require.Equal(t, pb.Status_OK, r.status)
 	require.Equal(t, peer.id, r.Header.ProcessId)
 
@@ -228,7 +224,7 @@ func TestResolveFutureRevisionCasesWithProxyHeader(t *testing.T) {
 	})
 
 	// Expect the resolution succeeds, despite the journal not yet existing.
-	var r, _ = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "journal/one", proxyHeader: &hdr})
+	var r, _ = broker.svc.resolver.resolve(ctx, allClaims, "journal/one", resolveOpts{proxyHeader: &hdr})
 	require.Equal(t, pb.Status_OK, r.status)
 	require.Equal(t, hdr, r.Header)
 
@@ -238,16 +234,14 @@ func TestResolveFutureRevisionCasesWithProxyHeader(t *testing.T) {
 	time.AfterFunc(time.Millisecond, func() {
 		setTestJournal(broker, pb.JournalSpec{Name: "journal/two", Replication: 1}, broker.id)
 	})
-	r, _ = broker.svc.resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "journal/two", minEtcdRevision: futureRevision})
+	r, _ = broker.svc.resolver.resolve(ctx, allClaims, "journal/two", resolveOpts{minEtcdRevision: futureRevision})
 	require.Equal(t, pb.Status_OK, r.status)
 
 	// Case: finally, specify a future revision which doesn't come about and cancel the context.
 	ctx, cancel := context.WithCancel(ctx)
 	time.AfterFunc(time.Millisecond, cancel)
 
-	var _, err = broker.svc.resolver.resolve(
-		resolveArgs{ctx: ctx, journal: "journal/three", minEtcdRevision: futureRevision + 1e10})
+	var _, err = broker.svc.resolver.resolve(ctx, allClaims, "journal/three", resolveOpts{minEtcdRevision: futureRevision + 1e10})
 	require.Equal(t, context.Canceled, err)
 
 	broker.cleanup()
@@ -266,13 +260,13 @@ func TestResolveProxyHeaderErrorCases(t *testing.T) {
 	}
 
 	// Case: proxy header references a broker other than this one.
-	var _, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal", proxyHeader: &proxy})
+	var _, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{proxyHeader: &proxy})
 	require.Regexp(t, `proxied request ProcessId doesn't match our own \(zone.*`, err)
 	proxy.ProcessId = broker.id
 
 	// Case: proxy header references a ClusterId other than our own.
 	proxy.Etcd.ClusterId = 8675309
-	_, err = broker.svc.resolver.resolve(resolveArgs{ctx: ctx, journal: "a/journal", proxyHeader: &proxy})
+	_, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{proxyHeader: &proxy})
 	require.Regexp(t, `proxied request Etcd ClusterId doesn't match our own \(\d+.*`, err)
 
 	broker.cleanup()

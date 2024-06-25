@@ -13,7 +13,7 @@ import (
 )
 
 // Append dispatches the JournalServer.Append API.
-func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
+func (svc *Service) Append(claims pb.Claims, stream pb.Journal_AppendServer) (err error) {
 	var (
 		fsm appendFSM
 		req *pb.AppendRequest
@@ -38,9 +38,10 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 	}
 
 	fsm = appendFSM{
-		svc: svc,
-		ctx: stream.Context(),
-		req: *req,
+		svc:    svc,
+		ctx:    stream.Context(),
+		claims: claims,
+		req:    *req,
 	}
 	fsm.run(stream.Recv)
 
@@ -84,7 +85,15 @@ func (svc *Service) Append(stream pb.Journal_AppendServer) (err error) {
 // proxyAppend forwards an AppendRequest to a resolved peer broker.
 // Pass request by value as we'll later mutate it (via RecvMsg).
 func proxyAppend(stream grpc.ServerStream, req pb.AppendRequest, jc pb.JournalClient) error {
-	var ctx = pb.WithDispatchRoute(stream.Context(), req.Header.Route, req.Header.ProcessId)
+	// We verified the client's authorization & claims and are running under its context.
+	// pb.AuthJournalClient will self-sign claims to proxy this journal on the client's behalf.
+	var ctx = pb.WithClaims(stream.Context(), pb.Claims{
+		Capability: pb.Capability_APPEND,
+		Selector: pb.LabelSelector{
+			Include: pb.MustLabelSet("name", req.Journal.String()),
+		},
+	})
+	ctx = pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId)
 
 	var client, err = jc.Append(ctx)
 	if err != nil {

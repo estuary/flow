@@ -13,7 +13,7 @@ import (
 )
 
 // Read dispatches the JournalServer.Read API.
-func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) (err error) {
+func (svc *Service) Read(claims pb.Claims, req *pb.ReadRequest, stream pb.Journal_ReadServer) (err error) {
 	var resolved *resolution
 	defer instrumentJournalServerRPC("Read", &err, &resolved)()
 
@@ -32,9 +32,7 @@ func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) (err
 		return err
 	}
 
-	resolved, err = svc.resolver.resolve(resolveArgs{
-		ctx:            stream.Context(),
-		journal:        req.Journal,
+	resolved, err = svc.resolver.resolve(stream.Context(), claims, req.Journal, resolveOpts{
 		mayProxy:       !req.DoNotProxy,
 		requirePrimary: false,
 		proxyHeader:    req.Header,
@@ -56,6 +54,8 @@ func (svc *Service) Read(req *pb.ReadRequest, stream pb.Journal_ReadServer) (err
 
 // proxyRead forwards a ReadRequest to a resolved peer broker.
 func proxyRead(stream grpc.ServerStream, req *pb.ReadRequest, jc pb.JournalClient, stopCh <-chan struct{}) error {
+	// We verified the client's authorization and are running under its context.
+	// pb.AuthJournalClient will self-sign claims to proxy this journal on the client's behalf.
 	var ctx = pb.WithDispatchRoute(stream.Context(), req.Header.Route, req.Header.ProcessId)
 
 	// We use the |stream| context for this RPC, which means a cancellation from
@@ -109,11 +109,14 @@ type proxyChunk struct {
 
 // serveRead evaluates a client's Read RPC against the local replica index.
 func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, index *fragment.Index) error {
-	var buffer = make([]byte, chunkSize)
-	var reader io.ReadCloser
+	var (
+		buffer = make([]byte, chunkSize)
+		ctx    = stream.Context()
+		reader io.ReadCloser
+	)
 
 	for i := 0; true; i++ {
-		var resp, file, err = index.Query(stream.Context(), req)
+		var resp, file, err = index.Query(ctx, req)
 		if err != nil {
 			return err
 		}
@@ -144,7 +147,7 @@ func serveRead(stream grpc.ServerStream, req *pb.ReadRequest, hdr *pb.Header, in
 			reader = io.NopCloser(io.NewSectionReader(
 				file, req.Offset-resp.Fragment.Begin, resp.Fragment.End-req.Offset))
 		} else {
-			if reader, err = fragment.Open(stream.Context(), *resp.Fragment); err != nil {
+			if reader, err = fragment.Open(ctx, *resp.Fragment); err != nil {
 				return err
 			} else if reader, err = client.NewFragmentReader(reader, *resp.Fragment, req.Offset); err != nil {
 				return err

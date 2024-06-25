@@ -71,6 +71,24 @@ func TestFragmentsResolutionCases(t *testing.T) {
 		NextPageToken: fragments[5].Spec.End,
 	}, resp)
 
+	// Case: Insufficient claimed capability.
+	_, err = broker.client().ListFragments(
+		pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND}),
+		&pb.FragmentsRequest{Journal: "proxy/journal"})
+	require.ErrorContains(t, err, "authorization is missing required READ capability")
+
+	// Case: Insufficient claimed selector.
+	resp, err = broker.client().ListFragments(
+		pb.WithClaims(ctx,
+			pb.Claims{
+				Capability: pb.Capability_READ,
+				Selector:   pb.MustLabelSelector("name=something/else"),
+			}),
+		&pb.FragmentsRequest{Journal: "proxy/journal"})
+	require.NoError(t, err)
+	require.Equal(t, pb.Status_JOURNAL_NOT_FOUND, resp.Status) // Journal not visible to these claims.
+	require.Len(t, resp.Header.Route.Endpoints, 0)
+
 	broker.cleanup()
 }
 

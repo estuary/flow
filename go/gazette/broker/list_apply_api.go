@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 
@@ -11,11 +12,13 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/keyspace"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 )
 
 // List dispatches the JournalServer.List API.
-func (svc *Service) List(req *pb.ListRequest, stream pb.Journal_ListServer) (err error) {
+func (svc *Service) List(claims pb.Claims, req *pb.ListRequest, stream pb.Journal_ListServer) (err error) {
 	defer instrumentJournalServerRPC("List", &err, nil)()
 
 	defer func() {
@@ -36,7 +39,12 @@ func (svc *Service) List(req *pb.ListRequest, stream pb.Journal_ListServer) (err
 	// Gazette has historically offered a special "prefix" label which matches
 	// slash-terminated prefixes of a journal name. Today, it's implemented in
 	// terms of a LabelSelector prefix match.
-	for _, set := range []*pb.LabelSet{&req.Selector.Include, &req.Selector.Exclude} {
+	for _, set := range []*pb.LabelSet{
+		&req.Selector.Include,
+		&req.Selector.Exclude,
+		&claims.Selector.Include,
+		&claims.Selector.Exclude,
+	} {
 		if prefix := set.ValuesOf("prefix"); len(prefix) != 0 {
 			for _, val := range prefix {
 				set.AddValue("name:prefix", val)
@@ -61,6 +69,7 @@ func (svc *Service) List(req *pb.ListRequest, stream pb.Journal_ListServer) (err
 	for {
 		var resp, err = listRound(
 			stream.Context(),
+			&claims,
 			&req.Selector,
 			svc.resolver.state,
 			&minEtcdRevision,
@@ -101,6 +110,7 @@ func (svc *Service) List(req *pb.ListRequest, stream pb.Journal_ListServer) (err
 
 func listRound(
 	ctx context.Context,
+	claims *pb.Claims,
 	selector *pb.LabelSelector,
 	state *allocator.State,
 	minEtcdRevision *int64,
@@ -145,7 +155,7 @@ func listRound(
 		// LabelSetExt() truncates `scratch` while re-using its storage.
 		scratch = spec.LabelSetExt(scratch)
 
-		if selector.Matches(scratch) {
+		if selector.Matches(scratch) && claims.Selector.Matches(scratch) {
 			if item.Raw.ModRevision > maxModRevision {
 				maxModRevision = item.Raw.ModRevision
 			}
@@ -191,7 +201,7 @@ func listRound(
 }
 
 // Apply dispatches the JournalServer.Apply API.
-func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.ApplyResponse, err error) {
+func (svc *Service) Apply(ctx context.Context, claims pb.Claims, req *pb.ApplyRequest) (resp *pb.ApplyResponse, err error) {
 	defer instrumentJournalServerRPC("Apply", &err, nil)()
 
 	defer func() {
@@ -206,7 +216,15 @@ func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.A
 	}()
 
 	if err = req.Validate(); err != nil {
-		return new(pb.ApplyResponse), err
+		return nil, err
+	}
+
+	// The Apply API is authorized exclusively through the "name" label.
+	var authorizeJournal = func(claims *pb.Claims, journal pb.Journal) error {
+		if !claims.Selector.Matches(pb.MustLabelSet("name", journal.String())) {
+			return status.Error(codes.Unauthenticated, fmt.Sprintf("not authorized to %s", journal))
+		}
+		return nil
 	}
 
 	var cmp []clientv3.Cmp
@@ -217,9 +235,15 @@ func (svc *Service) Apply(ctx context.Context, req *pb.ApplyRequest) (resp *pb.A
 		var key string
 
 		if change.Upsert != nil {
+			if err = authorizeJournal(&claims, change.Upsert.Name); err != nil {
+				return nil, err
+			}
 			key = allocator.ItemKey(s.KS, change.Upsert.Name.String())
 			ops = append(ops, clientv3.OpPut(key, change.Upsert.MarshalString()))
 		} else {
+			if err = authorizeJournal(&claims, change.Delete); err != nil {
+				return nil, err
+			}
 			key = allocator.ItemKey(s.KS, change.Delete.String())
 			ops = append(ops, clientv3.OpDelete(key))
 		}

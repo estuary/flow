@@ -19,9 +19,10 @@ import (
 // typically awaiting a future KeySpace state, as it converges towards the
 // distributed consistency required for the execution of appends.
 type appendFSM struct {
-	svc *Service
-	ctx context.Context
-	req pb.AppendRequest
+	svc    *Service
+	ctx    context.Context
+	claims pb.Claims
+	req    pb.AppendRequest
 
 	resolved            *resolution      // Current journal resolution.
 	pln                 *pipeline        // Current replication pipeline.
@@ -128,16 +129,14 @@ func (b *appendFSM) returnPipeline() {
 func (b *appendFSM) onResolve() {
 	b.mustState(stateResolve)
 
-	var args = resolveArgs{
-		ctx:             b.ctx,
-		journal:         b.req.Journal,
+	var opts = resolveOpts{
 		mayProxy:        !b.req.DoNotProxy,
 		requirePrimary:  true,
 		minEtcdRevision: b.readThroughRev,
 		proxyHeader:     b.req.Header,
 	}
 
-	if b.resolved, b.err = b.svc.resolver.resolve(args); b.err != nil {
+	if b.resolved, b.err = b.svc.resolver.resolve(b.ctx, b.claims, b.req.Journal, opts); b.err != nil {
 		b.state = stateError
 		b.err = errors.WithMessage(b.err, "resolve")
 	} else if b.resolved.status != pb.Status_OK {
@@ -236,9 +235,17 @@ func (b *appendFSM) onStartPipeline() {
 	}
 	b.registers.Assign(&spool.Registers)
 
-	// Build a pipeline around |spool|. Note the pipeline Context is bound
-	// to the replica (rather than our |b.args.ctx|).
-	b.pln = newPipeline(b.resolved.replica.ctx, b.resolved.Header, spool, b.resolved.replica.spoolCh, b.svc.jc)
+	// The pipeline Context is bound to the replica (rather than our `b.args.ctx`).
+	// It will self-sign Claims to allow replication to the journal.
+	var plnCtx = pb.WithClaims(b.resolved.replica.ctx, pb.Claims{
+		Selector: pb.LabelSelector{
+			Include: pb.MustLabelSet("name", b.req.Journal.StripMeta().String()),
+		},
+		Capability: pb.Capability_REPLICATE,
+	})
+
+	// Build a pipeline around `spool`.
+	b.pln = newPipeline(plnCtx, b.resolved.Header, spool, b.resolved.replica.spoolCh, b.svc.jc)
 	b.state = stateSendPipelineSync
 }
 

@@ -3,7 +3,7 @@ package broker
 import (
 	"context"
 
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/server"
@@ -92,33 +92,6 @@ func (svc *Service) QueueTasks(tasks *task.Group, server *server.Server, finishF
 		return err
 	})
 }
-
-// Route an item using the Service resolver. Route implements the
-// protocol.DispatchRouter interface, and enables usages of
-// protocol.WithDispatchItemRoute (eg, `client` & `http_gateway` packages) to
-// resolve items via the Service resolver.
-func (svc *Service) Route(ctx context.Context, item string) pb.Route {
-	var res, err = svc.resolver.resolve(resolveArgs{
-		ctx:      ctx,
-		journal:  pb.Journal(item),
-		mayProxy: true,
-	})
-	if err == errResolverStopped {
-		return pb.Route{Primary: -1} // We're shutting down.
-	} else if err != nil {
-		// Otherwise cannot err because we use neither minEtcdRevision nor proxyHeader.
-		panic(err)
-	}
-	// If Status != OK, Route will be zero-valued, which directs dispatcher
-	// to use the default service address (localhost), which will then re-run
-	// resolution and generate a proper error message for the client.
-	return res.Route
-}
-
-// UpdateRoute is a no-op implementation of protocol.DispatchRouter.
-func (svc *Service) UpdateRoute(string, *pb.Route) {} // No-op.
-// IsNoopRouter returns false.
-func (svc *Service) IsNoopRouter() bool { return false }
 
 func addTrace(ctx context.Context, format string, args ...interface{}) {
 	if tr, ok := trace.FromContext(ctx); ok {

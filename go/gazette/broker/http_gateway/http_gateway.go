@@ -18,6 +18,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	"google.golang.org/grpc/metadata"
 )
 
 // Gateway presents an HTTP gateway to Gazette brokers, by mapping GET, HEAD,
@@ -39,6 +40,14 @@ func NewGateway(client pb.RoutedJournalClient) *Gateway {
 }
 
 func (h *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	const AUTHORIZATION = "authorization"
+
+	// Expose an HTTP Authorization header for the gRPC handler.
+	if token := r.Header.Get(AUTHORIZATION); token != "" {
+		r = r.WithContext(metadata.NewIncomingContext(
+			r.Context(), metadata.Pairs(AUTHORIZATION, token)))
+	}
+
 	switch r.Method {
 	case "GET", "HEAD":
 		h.serveRead(w, r)

@@ -33,14 +33,14 @@ func TestE2EAppendAndReplicatedRead(t *testing.T) {
 	var rTwo, _ = broker.client().Read(ctx, &pb.ReadRequest{Journal: "journal/two", Block: true})
 
 	// First Append is served by |broker|, with its Read served by |peer|.
-	var stream, _ = broker.client().Append(ctx)
+	var stream, _ = broker.client().Append(pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "journal/one"}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("hello")}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{}))
 	_, _ = stream.CloseAndRecv()
 
 	// Second Append is served by |peer| (through |broker|), with its Read served by |broker|.
-	stream, _ = broker.client().Append(ctx)
+	stream, _ = broker.client().Append(pb.WithClaims(ctx, pb.Claims{Capability: pb.Capability_APPEND}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{Journal: "journal/two"}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{Content: []byte("world!")}))
 	require.NoError(t, stream.Send(&pb.AppendRequest{}))
@@ -76,7 +76,7 @@ func TestE2EShutdownWithOngoingAppend(t *testing.T) {
 	// the required knobs to ensure the Append wins required races vs replica
 	// shutdown (eg, after updating assignments it must complete re-resolution
 	// and begin streaming content _before_ this test aborts the journal).
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateStreamContent))
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("woot!")}, nil)
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Commit intent.
@@ -112,7 +112,7 @@ func TestE2EShutdownWithOngoingAppendWhichLosesRace(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 	broker.initialFragmentLoad()
 
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	fsm.onResolve()
 
 	require.Equal(t, pb.Status_OK, fsm.resolved.status)
@@ -139,7 +139,7 @@ func TestE2EReassignmentWithOngoingAppend(t *testing.T) {
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
 	broker.initialFragmentLoad()
 
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateStreamContent))
 	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("woot!")}, nil)
 	fsm.onStreamContent(&pb.AppendRequest{}, nil) // Commit intent.
@@ -178,14 +178,14 @@ func TestE2EShutdownWithProxyAppend(t *testing.T) {
 	broker.initialFragmentLoad()
 
 	// Start a long-lived appendFSM, which builds and holds the pipeline.
-	var fsm = appendFSM{svc: broker.svc, ctx: ctx, req: pb.AppendRequest{Journal: "a/journal"}}
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{Journal: "a/journal"})
 	require.True(t, fsm.runTo(stateStreamContent))
 
 	var conn, client = newDialedClient(t, broker)
 	defer conn.Close()
 
 	// Start an Append RPC which will queue behind appendFSM.
-	var app, err = client.Append(ctx)
+	var app, err = client.Append(pb.WithClaims(ctx, allClaims))
 	require.NoError(t, err)
 	require.NoError(t, app.Send(&pb.AppendRequest{Journal: "a/journal"}))
 	require.NoError(t, app.Send(&pb.AppendRequest{Content: []byte("world!")}))
@@ -341,7 +341,8 @@ func newDialedClient(t *testing.T, bk *testBroker) (*grpc.ClientConn, pb.Journal
 		grpc.WithTransportCredentials(pb.NewDispatchedCredentials(tlsConfig, bk.srv.Endpoint())),
 	)
 	require.NoError(t, err)
-	return conn, pb.NewJournalClient(conn)
+
+	return conn, pb.NewAuthJournalClient(pb.NewJournalClient(conn), bk.auth)
 }
 
 // ensureStreamsAreStarted completes a no-op RPC, the purpose of which is to
