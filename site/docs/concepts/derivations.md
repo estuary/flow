@@ -1,8 +1,7 @@
 ---
 sidebar_position: 6
 ---
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
+
 import Mermaid from '@theme/Mermaid';
 
 # Derivations
@@ -30,306 +29,9 @@ Today, Flow enables you to write derivations using either
 [SQLite](#sqlite) or [TypeScript](#typescript).
 Additional language support is in the works.
 
-## Tutorial
-
-### Introducing AcmeBank
-
-The following tutorial sections use an illustrative example
-to introduce you to derivations, how you might use them, and their common components.
-We'll discuss each component in depth in subsequent sections of this page,
-but we recommend you start here to get your bearings.
-
-Suppose you have an application through which users send one another
-some amount of currency, like in-game tokens or dollars or digital kittens.
-You have a `transfers` collection of user-requested transfers,
-each sending funds from one account to another:
-
-<Tabs>
-<TabItem value="transfers.flow.yaml" default>
-
-```yaml file=./bank/transfers.flow.yaml
-```
-
-</TabItem>
-<TabItem value="transfers.schema.yaml" default>
-
-```yaml file=./bank/transfers.schema.yaml
-```
-
-</TabItem>
-</Tabs>
-
-There are many views over this data that you might require,
-such as summaries of sender or receiver activity,
-or current account balances within your application.
-
-### Filtering Large Transfers
-
 :::note
-This section introduces SQLite derivations, SQL lambda blocks and `$parameters`.
+If you would like a a more hands-on approach to learn derivations, check out [this](../getting-started/tutorials/derivations_acmebank.md) tutorial!
 :::
-
-Your compliance department has reached out, and they require an understanding
-of the last large transfer (if any) made by each user account.
-
-You create a SQL derivation to help them out.
-The `transfers` collection is keyed on the transfer `/id`,
-so you'll need to re-key your derivation on the `/sender` account.
-You also need to filter out transfers that aren't large enough.
-
-Putting this all together:
-
-<Tabs>
-<TabItem value="last-large-send.flow.yaml" default>
-
-```yaml file=./bank/last-large-send.flow.yaml
-```
-
-</TabItem>
-<TabItem value="last-large-send-test.flow.yaml" default>
-
-```yaml file=./bank/last-large-send-test.flow.yaml
-```
-
-</TabItem>
-</Tabs>
-
-`derive: using: sqlite: {}` tells Flow that collection
-`acmeBank/last-large-send` is derived using Flow's SQLite derivation connector.
-
-This derivation has just one transform, which sources from the `transfers` collection.
-As source documents become available, they're evaluated by the SQL `lambda`
-and its `SELECT` output is published to the derived collection.
-Your SQL queries access locations of source documents through [$parameter](#parameters) bindings.
-
-The compliance department then materializes this collection to their preferred destination,
-for an always up-to-date view indexed by each account.
-
-### Finding New Account Pairs
-
-:::note
-This section introduces SQLite migrations and internal task tables.
-:::
-
-The fraud team needs your help: they have a new process they must run
-the first time some sending account sends funds to a receiving account.
-They would like to see only those transfers which reflect a new account pair of (sender, recipient).
-To tackle this you need to know which account pairs have been seen before.
-
-SQLite derivations run within the context of a persistent, managed SQLite database.
-You can apply database [migrations](#migrations) that create whatever tables, triggers, or views you might need.
-Then, the statements of your SQL lambda code can `INSERT`, `UPDATE`, or `DELETE`
-from those tables, query from them, or any other operation supported by SQLite.
-The tables and other schema you create through your migrations
-are the [internal state](#internal-state) of your task.
-
-<Tabs>
-<TabItem value="first-send.flow.yaml" default>
-
-```yaml file=./bank/first-send.flow.yaml
-```
-
-</TabItem>
-<TabItem value="first-send-test.flow.yaml" default>
-
-```yaml file=./bank/first-send-test.flow.yaml
-```
-
-</TabItem>
-</Tabs>
-
-This time, the derivation attempts to `INSERT` into the `seen_pairs` table,
-and uses SQLite's [RETURNING](https://www.sqlite.org/lang_returning.html)
-syntax to only publish documents for rows which were successfully inserted.
-
-You can evolve the internal SQLite tables of your derivation as needed,
-by appending SQL blocks which perform a database migration to the `migrations` array.
-Any migrations appended to the list are automatically applied by Flow.
-
-### Grouped Windows of Transfers
-
-:::note
-This section introduces delayed reads, and applies them to implement a custom window policy.
-:::
-
-The fraud team is back, and now needs to know the _other_
-transfers which an account has made in the last day.
-They want you to enrich each transfer with the grouping of all
-transfers initiated by that account in the prior 24 hours.
-
-You may have encountered "windowing" in other tools for stream processing.
-Some systems even require that you define a window policy in order to function.
-Flow does not use windows, but sometimes you do want a time-bound grouping of recent events.
-
-All collection documents contain a wall-clock timestamp of when they were published.
-The transforms of a derivation will generally process source documents in ascending wall-time order.
-You can augment this behavior by using a [read delay](#read-delay) to refine the relative order in which
-source documents are read, which is useful for implementing arbitrary window policies:
-
-
-<Tabs>
-<TabItem value="grouped.flow.yaml" default>
-
-```yaml file=./bank/grouped.flow.yaml title=grouped.flow.yaml
-```
-
-</TabItem>
-<TabItem value="enrichAndAddToWindow.sql" default>
-
-```sql file=./bank/enrichAndAddToWindow.sql title=enrichAndAddToWindow.sql
-```
-
-</TabItem>
-<TabItem value="grouped-test.flow.yaml" default>
-
-```yaml file=./bank/grouped-test.flow.yaml title=grouped-test.flow.yaml
-```
-
-</TabItem>
-</Tabs>
-
-### Approving Transfers
-
-:::note
-This section expands usage of SQLite task tables and introduces a recursive data flow.
-:::
-
-Your users don't always check if they have sufficient funds before starting a transfer,
-and account overdrafts are becoming common.
-The product team has tapped you to fix this
-by enriching each transfer with an **approve** or **deny** outcome
-based on the account balance of the sender.
-
-To do this, you first need to track the sender's current account balance.
-Clearly an account balance is debited when it's used to sends funds.
-It's also credited when it receives funds.
-
-*But there's a catch*:
-an account can only be credited for funds received from **approved** transfers!
-This implies you need a collection of transfer outcomes
-in order to derive your collection of transfer outcomes 🤯.
-
-This is an example of a self-referential, recursive data-flow.
-You may have used tools which require that data flow in a Directed Acyclic Graph (DAG).
-Flow does *not* require that your data flows are acyclic,
-and it also supports a derivation that reads from itself,
-which lets you tackle this task:
-
-<Tabs>
-<TabItem value="outcomes.flow.yaml" default>
-
-```yaml file=./bank/outcomes.flow.yaml title=outcomes.flow.yaml
-```
-
-</TabItem>
-<TabItem value="debitSender.sql" default>
-
-```sql file=./bank/debitSender.sql title=debitSender.sql
-```
-
-</TabItem>
-<TabItem value="outcomes-test.flow.yaml" default>
-
-```yaml file=./bank/outcomes-test.flow.yaml title=outcomes-test.flow.yaml
-```
-
-</TabItem>
-</Tabs>
-
-
-### Current Account Balances
-
-:::note
-This section introduces TypeScript derivations and reduction annotations.
-:::
-
-Your product team is back, and they want a database table
-keyed by account that contains its up-to-date current balance.
-
-As shown in the previous section, you could create
-a task table which aggregates each account balance,
-and then `SELECT` the current balance after every transfer.
-For most use cases, this is a **great** place to start.
-For interest and variety, you'll solve this problem using TypeScript.
-
-TypeScript derivations require a `module` which you write.
-You don't know how to write that module yet,
-so first implement the derivation specification in `balances.flow.yaml`.
-Next run the `flowctl generate` command, which generates two files:
-* A module stub for you to fill out.
-* A file of TypeScript interfaces which are used by your module.
-
-<Tabs>
-<TabItem value="balances.flow.yaml" default>
-
-```yaml title=balances.flow.yaml file=./bank/balances.flow.yaml
-```
-
-</TabItem>
-<TabItem value="Module Stub" default>
-
-```typescript title=balances.ts file=./bank/balances-stub.ts
-```
-
-</TabItem>
-<TabItem value="Interfaces" default>
-
-```typescript file=./bank/flow_generated/typescript/acmeBank/balances.ts title=flow/acmeBank/balances.ts
-```
-
-</TabItem>
-</Tabs>
-
-Next fill out the body of your TypeScript module and write a test:
-
-
-<Tabs>
-<TabItem value="balances.ts" default>
-
-```typescript title=balances.ts file=./bank/balances.ts
-```
-
-</TabItem>
-<TabItem value="balances-test.flow.yaml" default>
-
-```yaml title=balances-test.flow.yaml file=./bank/balances-test.flow.yaml
-```
-
-</TabItem>
-</Tabs>
-
-One piece is still missing.
-Your TypeScript module is publishing the **change** in account balance for each transfer.
-That's not the same thing as the **current** balance for each account.
-
-You can ask Flow to sum up the balance changes into a current account balance
-through [reduction annotations](./schemas.md#reductions).
-Here's the balances schema, with `reduce` annotations for summing the account balance:
-
-```yaml title=balances.schema.yaml file=./bank/balances.schema.yaml
-```
-
-This section has more moving parts that the previous SQL-based examples.
-You might be wondering, why bother? Fair question!
-This is just an illustrative example, after all.
-
-While they're more verbose, TypeScript derivations do have certain advantages:
-
-* TypeScript derivations are strongly typed, and those checks often catch meaningful bugs and defects **before** they're deployed.
-  Your derivation modules also play nicely with VSCode and other developer tooling.
-* TypeScript derivations can use third-party libraries, as well as your native code compiled to WASM.
-* TypeScript can be easier when working with nested or complex document structures.
-
-Reduction annotations also have some benefits over task state (like SQLite tables):
-
-* Internal task state is managed by Flow.
-  If it grows to be large (say, you have **a lot** of accounts),
-  then your task must be scaled and could require performance tuning.
-  Reduction annotations, on the other hand, require *no* internal state and are extremely efficient.
-* Certain aggregations, such as recursive merging of tree-like structures,
-  are much simpler to express through reduction annotations vs implementing yourself.
-
-[See "Where to Accumulate?" for more discussion](#where-to-accumulate).
 
 ## Specification
 
@@ -383,7 +85,7 @@ collections:
             # Partition selector of the source collection.
             # Optional. Default is to read all partitions.
             partitions: {}
-            # Lower bound date-time for documents which should be processed. 
+            # Lower bound date-time for documents which should be processed.
             # Source collection documents published before this date-time are filtered.
             # `notBefore` is *only* a filter. Updating its value will not cause Flow
             # to re-process documents that have already been read.
@@ -723,7 +425,7 @@ source document, in order to co-locate that processing with other
 documents it may need to know about.
 
 For example, transforms of the
-[Approving Transfers example](#approving-transfers)
+[Approving Transfers example](../getting-started/tutorials/derivations_acmebank.md#approving-transfers)
 shuffle on either `/sender` or `/recipient` in order to
 process documents that debit or credit accounts on the specific shard
 that is uniquely responsible for maintaining the balance of a given account.
@@ -983,12 +685,12 @@ or query it to publish derived documents.
 
 For example, consider a collection that’s summing a value:
 
-| Time | State | Lambdas                             | Derived Document |
-| ---- | ----- | ----------------------------------- | ---------------- |
-| T0   | **0** | UPDATE val = val + 5; SELECT val;   | **5**            |
-| T1   | **5** | UPDATE val = val - 1; SELECT val;   | **4**            |
-| T2   | **4** | UPDATE val = val + 2; SELECT val;   | **6**            |
-| T3   | **6** |                                     |                  |
+| Time | State | Lambdas                           | Derived Document |
+| ---- | ----- | --------------------------------- | ---------------- |
+| T0   | **0** | UPDATE val = val + 5; SELECT val; | **5**            |
+| T1   | **5** | UPDATE val = val - 1; SELECT val; | **4**            |
+| T2   | **4** | UPDATE val = val + 2; SELECT val; | **6**            |
+| T3   | **6** |                                   |                  |
 
 Using a derivation's internal state is a great solution if you expect to
 materialize the derived collection into a non-transactional store.
@@ -1018,12 +720,12 @@ which is typically extremely performant.
 
 Returning to our summing example:
 
-| Time | DB    | Lambdas     | Derived Document |
-| ---- | ----- | ----------- | ---------------- |
-| T0   | **0** | SELECT 5;   | **5**            |
-| T1   | **5** | SELECT -1;  | **-1**           |
-| T2   | **4** | SELECT 2;   | **2**            |
-| T3   | **6** |             |                  |
+| Time | DB    | Lambdas    | Derived Document |
+| ---- | ----- | ---------- | ---------------- |
+| T0   | **0** | SELECT 5;  | **5**            |
+| T1   | **5** | SELECT -1; | **-1**           |
+| T2   | **4** | SELECT 2;  | **2**            |
+| T3   | **6** |            |                  |
 
 This works especially well when materializing into a transactional database.
 Flow couples its processing transactions with corresponding database transactions,
