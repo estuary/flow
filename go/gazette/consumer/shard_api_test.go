@@ -23,10 +23,11 @@ func TestAPIStatCases(t *testing.T) {
 	<-aa.Done()
 
 	// Case: Stat local shard. Expect it to have read-through our publish.
-	resp, err := tf.service.Stat(context.Background(), &pc.StatRequest{
-		Shard:       shardA,
-		ReadThrough: pb.Offsets{sourceB.Name: aa.Response().Commit.End},
-	})
+	resp, err := tf.service.Stat(context.Background(), allClaims,
+		&pc.StatRequest{
+			Shard:       shardA,
+			ReadThrough: pb.Offsets{sourceB.Name: aa.Response().Commit.End},
+		})
 	require.NoError(t, err)
 	require.Equal(t, pc.Status_OK, resp.Status)
 	require.Equal(t, map[pb.Journal]int64{
@@ -36,9 +37,17 @@ func TestAPIStatCases(t *testing.T) {
 	require.Equal(t, localID, resp.Header.ProcessId)
 
 	// Case: Stat of non-existent Shard.
-	resp, err = tf.service.Stat(context.Background(), &pc.StatRequest{Shard: "missing-shard"})
+	resp, err = tf.service.Stat(context.Background(), allClaims,
+		&pc.StatRequest{Shard: "missing-shard"})
 	require.NoError(t, err)
 	require.Equal(t, pc.Status_SHARD_NOT_FOUND, resp.Status)
+
+	// Case: Insufficient claimed selector.
+	resp, err = tf.service.Stat(context.Background(), noClaims,
+		&pc.StatRequest{Shard: shardA})
+	require.NoError(t, err)
+	require.Equal(t, pc.Status_SHARD_NOT_FOUND, resp.Status) // Shard not visible to these claims.
+	require.Len(t, resp.Header.Route.Endpoints, 0)
 
 	// TODO(johnny): Proxy case ought to be unit-tested here.
 	// Adding it is currently low-value because it's covered by other E2E tests
@@ -84,7 +93,7 @@ func TestAPIListCases(t *testing.T) {
 	}
 
 	// Case: Empty selector returns all shards.
-	var resp, err = tf.service.List(context.Background(), &pc.ListRequest{
+	var resp, err = tf.service.List(context.Background(), allClaims, &pc.ListRequest{
 		Selector: pb.LabelSelector{},
 	})
 	require.NoError(t, err)
@@ -94,21 +103,36 @@ func TestAPIListCases(t *testing.T) {
 	require.Equal(t, pc.ReplicaStatus_PRIMARY, resp.Shards[2].Status[0].Code)
 
 	// Case: Exclude on label.
-	resp, err = tf.service.List(context.Background(), &pc.ListRequest{
+	resp, err = tf.service.List(context.Background(), allClaims, &pc.ListRequest{
 		Selector: pb.LabelSelector{Exclude: pb.MustLabelSet("foo", "")},
 	})
 	require.NoError(t, err)
 	verify(resp, specB, specC)
 
 	// Case: Meta-label "id" selects specific shards.
-	resp, err = tf.service.List(context.Background(), &pc.ListRequest{
+	resp, err = tf.service.List(context.Background(), allClaims, &pc.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", shardC)},
 	})
 	require.NoError(t, err)
 	verify(resp, specC)
 
+	// Case: Claims scope the visibile shards.
+	resp, err = tf.service.List(context.Background(),
+		pb.Claims{
+			Capability: pb.Capability_LIST,
+			Selector:   pb.MustLabelSelector("foo"),
+		},
+		&pc.ListRequest{Selector: pb.LabelSelector{}})
+	require.NoError(t, err)
+	verify(resp, specA)
+
+	resp, err = tf.service.List(context.Background(), noClaims,
+		&pc.ListRequest{Selector: pb.LabelSelector{}})
+	require.NoError(t, err)
+	verify(resp)
+
 	// Case: Errors on request validation error.
-	_, err = tf.service.List(context.Background(), &pc.ListRequest{
+	_, err = tf.service.List(context.Background(), allClaims, &pc.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.LabelSet{Labels: []pb.Label{{Name: "invalid label"}}}},
 	})
 	require.EqualError(t, err, `Selector.Include.Labels[0].Name: not a valid token (invalid label)`)
@@ -125,7 +149,7 @@ func TestAPIApplyCases(t *testing.T) {
 	var specB = makeShard(shardB)
 
 	var verifyAndFetchRev = func(id pc.ShardID, expect pc.ShardSpec) int64 {
-		var resp, err = tf.service.List(context.Background(), &pc.ListRequest{
+		var resp, err = tf.service.List(context.Background(), allClaims, &pc.ListRequest{
 			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
 		})
 		require.NoError(t, err)
@@ -134,7 +158,7 @@ func TestAPIApplyCases(t *testing.T) {
 		return resp.Shards[0].ModRevision
 	}
 	var apply = func(req *pc.ApplyRequest) *pc.ApplyResponse {
-		var resp, err = tf.service.Apply(context.Background(), req)
+		var resp, err = tf.service.Apply(context.Background(), allClaims, req)
 		require.NoError(t, err)
 		return resp
 	}
@@ -192,8 +216,20 @@ func TestAPIApplyCases(t *testing.T) {
 		},
 	}).Status)
 
+	// Case: Insufficient claimed selector on delete.
+	var _, err = tf.service.Apply(context.Background(), noClaims, &pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{{Delete: "shard-A", ExpectModRevision: -1}},
+	})
+	require.EqualError(t, err, `rpc error: code = Unauthenticated desc = not authorized to shard-A`)
+
+	// Case: Insufficient claimed selector on upsert.
+	_, err = tf.service.Apply(context.Background(), noClaims, &pc.ApplyRequest{
+		Changes: []pc.ApplyRequest_Change{{Upsert: specB}},
+	})
+	require.EqualError(t, err, `rpc error: code = Unauthenticated desc = not authorized to shard-B`)
+
 	// Case: Invalid requests fail with an error.
-	var _, err = tf.service.Apply(context.Background(), &pc.ApplyRequest{
+	_, err = tf.service.Apply(context.Background(), allClaims, &pc.ApplyRequest{
 		Changes: []pc.ApplyRequest_Change{{Delete: "invalid shard id"}},
 	})
 	require.EqualError(t, err, `Changes[0].Delete: not a valid token (invalid shard id)`)
@@ -265,7 +301,7 @@ func TestAPIHintsCases(t *testing.T) {
 	tf.allocateShard(spec)
 
 	// Case: No hints exist.
-	var resp, err = tf.service.GetHints(context.Background(), &pc.GetHintsRequest{Shard: shardA})
+	var resp, err = tf.service.GetHints(context.Background(), allClaims, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
@@ -305,7 +341,7 @@ func TestAPIHintsCases(t *testing.T) {
 	require.NoError(t, storeRecoveredHints(shard, mkHints(333)))
 
 	// Case: Correctly fetch hints
-	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	resp, err = tf.service.GetHints(shard.ctx, allClaims, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
@@ -317,7 +353,7 @@ func TestAPIHintsCases(t *testing.T) {
 
 	// Case: No primary hints
 	_, _ = tf.etcd.Delete(shard.ctx, spec.HintPrimaryKey())
-	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	resp, err = tf.service.GetHints(shard.ctx, allClaims, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
@@ -334,7 +370,7 @@ func TestAPIHintsCases(t *testing.T) {
 		tf.resolver.shards[shardA].resolved.spec.HintBackups = tf.resolver.shards[shardA].resolved.spec.HintBackups + 1
 		tf.ks.Mu.RUnlock()
 	}
-	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	resp, err = tf.service.GetHints(shard.ctx, allClaims, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
@@ -349,7 +385,7 @@ func TestAPIHintsCases(t *testing.T) {
 		tf.resolver.shards[shardA].resolved.spec.HintBackups = 0
 		tf.ks.Mu.RUnlock()
 	}
-	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	resp, err = tf.service.GetHints(shard.ctx, allClaims, &pc.GetHintsRequest{Shard: shardA})
 	require.NoError(t, err)
 	require.Equal(t, &pc.GetHintsResponse{
 		Status:       pc.Status_OK,
@@ -358,7 +394,7 @@ func TestAPIHintsCases(t *testing.T) {
 	}, resp)
 
 	// Case: Fetch hints for a non-existent shard
-	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: "missing-shard"})
+	resp, err = tf.service.GetHints(shard.ctx, allClaims, &pc.GetHintsRequest{Shard: "missing-shard"})
 	require.NoError(t, err)
 	require.Equal(t, pc.Status_SHARD_NOT_FOUND, resp.Status)
 
@@ -366,7 +402,7 @@ func TestAPIHintsCases(t *testing.T) {
 	var hints = mkHints(444)
 	hints.Log = "incorrect/log"
 	require.NoError(t, storeRecordedHints(shard, hints))
-	resp, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	resp, err = tf.service.GetHints(shard.ctx, allClaims, &pc.GetHintsRequest{Shard: shardA})
 	require.Nil(t, resp)
 	require.EqualError(t, err, "hints.Log incorrect/log != ShardSpec.RecoveryLog recovery/logs/shard-A")
 
@@ -374,8 +410,13 @@ func TestAPIHintsCases(t *testing.T) {
 	hints = mkHints(555)
 	hints.Log = ""
 	require.NoError(t, storeRecordedHints(shard, hints))
-	_, err = tf.service.GetHints(shard.ctx, &pc.GetHintsRequest{Shard: shardA})
+	_, err = tf.service.GetHints(shard.ctx, allClaims, &pc.GetHintsRequest{Shard: shardA})
 	require.EqualError(t, err, "validating FSMHints: hinted log not provided")
+
+	// Case: Insufficient claimed selector.
+	resp, err = tf.service.GetHints(shard.ctx, noClaims, &pc.GetHintsRequest{Shard: shardA})
+	require.NoError(t, err)
+	require.Equal(t, pc.Status_SHARD_NOT_FOUND, resp.Status)
 
 	tf.allocateShard(spec) // Cleanup.
 }
@@ -451,9 +492,10 @@ func TestAPIUnassignCases(t *testing.T) {
 		require.Equal(t, pc.Status_OK, resp.Status)
 		require.Equal(t, affectedShards, resp.Shards)
 		// Immediately query for remaining shard replicas.
-		listResp, err := tf.service.List(context.Background(), &pc.ListRequest{
-			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", expectedSpec.Id.String())},
-		})
+		listResp, err := tf.service.List(context.Background(), allClaims,
+			&pc.ListRequest{
+				Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", expectedSpec.Id.String())},
+			})
 		require.NoError(t, err)
 		require.Equal(t, 1, len(listResp.Shards))
 		if len(expectedStatuses) > 0 {
@@ -463,29 +505,34 @@ func TestAPIUnassignCases(t *testing.T) {
 	}
 
 	// Case: A shard with no assignments
-	resp, err := tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}})
+	resp, err := tf.service.Unassign(context.Background(), allClaims,
+		&pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}})
 	require.NoError(t, err)
 	check(resp, specA, []pc.ShardID{}, []pc.ReplicaStatus{})
 
 	// Case: A shard with a single PRIMARY assignment
-	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specB.Id}})
+	resp, err = tf.service.Unassign(context.Background(), allClaims,
+		&pc.UnassignRequest{Shards: []pc.ShardID{specB.Id}})
 	require.NoError(t, err)
 	check(resp, specB, []pc.ShardID{specB.Id}, []pc.ReplicaStatus{})
 
 	// Case: A shard with multiple assignments. PRIMARY is removed, FAILED is removed, STANDBY remains.
-	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specC.Id}})
+	resp, err = tf.service.Unassign(context.Background(), allClaims,
+		&pc.UnassignRequest{Shards: []pc.ShardID{specC.Id}})
 	require.NoError(t, err)
 	check(resp, specC, []pc.ShardID{specC.Id}, []pc.ReplicaStatus{{Code: pc.ReplicaStatus_STANDBY}})
 
 	// Case: Only unassign failed shards
 	tf.allocateShard(specA, localID)
 	tf.setReplicaStatus(specA, localID, 0, pc.ReplicaStatus_PRIMARY)
-	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}, OnlyFailed: true})
+	resp, err = tf.service.Unassign(context.Background(), allClaims,
+		&pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}, OnlyFailed: true})
 	require.NoError(t, err)
 	check(resp, specA, []pc.ShardID{}, []pc.ReplicaStatus{{Code: pc.ReplicaStatus_PRIMARY}})
 
 	tf.setReplicaStatus(specA, localID, 0, pc.ReplicaStatus_FAILED)
-	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}, OnlyFailed: true})
+	resp, err = tf.service.Unassign(context.Background(), allClaims,
+		&pc.UnassignRequest{Shards: []pc.ShardID{specA.Id}, OnlyFailed: true})
 	require.NoError(t, err)
 	check(resp, specA, []pc.ShardID{specA.Id}, []pc.ReplicaStatus{})
 
@@ -496,14 +543,30 @@ func TestAPIUnassignCases(t *testing.T) {
 	tf.setReplicaStatus(specB, localID, 0, pc.ReplicaStatus_FAILED)
 	tf.allocateShard(specC, localID)
 	tf.setReplicaStatus(specC, localID, 0, pc.ReplicaStatus_PRIMARY)
-	resp, err = tf.service.Unassign(context.Background(), &pc.UnassignRequest{Shards: []pc.ShardID{specA.Id, specB.Id, specC.Id}, OnlyFailed: true})
+	resp, err = tf.service.Unassign(context.Background(), allClaims,
+		&pc.UnassignRequest{Shards: []pc.ShardID{specA.Id, specB.Id, specC.Id}, OnlyFailed: true})
 	require.NoError(t, err)
 	check(resp, specA, []pc.ShardID{specA.Id, specB.Id}, []pc.ReplicaStatus{})
 	check(resp, specB, []pc.ShardID{specA.Id, specB.Id}, []pc.ReplicaStatus{})
 	check(resp, specC, []pc.ShardID{specA.Id, specB.Id}, []pc.ReplicaStatus{{Code: pc.ReplicaStatus_PRIMARY}})
+
+	// Case: Insufficient claimed capability
+	_, err = tf.service.Unassign(context.Background(), noClaims,
+		&pc.UnassignRequest{Shards: []pc.ShardID{specB.Id}})
+	require.EqualError(t, err, `rpc error: code = Unauthenticated desc = not authorized to shard-B`)
 
 	// Cleanup.
 	tf.allocateShard(specA)
 	tf.allocateShard(specB)
 	tf.allocateShard(specC)
 }
+
+var (
+	allClaims = pb.Claims{
+		Capability: pb.Capability_ALL,
+	}
+	noClaims = pb.Claims{
+		Capability: pb.Capability_APPLY,
+		Selector:   pb.MustLabelSelector("this-does=not-match"),
+	}
+)

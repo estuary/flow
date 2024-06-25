@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/auth"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
@@ -17,7 +18,6 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
-	"google.golang.org/grpc"
 )
 
 // Consumer is a lightweight, embedded Gazette consumer runtime suitable for
@@ -43,6 +43,7 @@ type Args struct {
 	Root     string                 // Consumer root in Etcd. Defaults to "/consumertest".
 	Zone     string                 // Zone of the consumer. Defaults to "local".
 	Suffix   string                 // ID Suffix of the consumer. Defaults to "consumer".
+	AuthKeys string                 // Authentication keys. Defaults to base64("secret") ("c2VjcmV0").
 }
 
 // NewConsumer builds and returns a Consumer.
@@ -56,13 +57,18 @@ func NewConsumer(args Args) *Consumer {
 	if args.Suffix == "" {
 		args.Suffix = "consumer"
 	}
+	if args.AuthKeys == "" {
+		args.AuthKeys = "c2VjcmV0"
+	}
+	var auth, err = auth.NewKeyedAuth(args.AuthKeys)
+	require.NoError(args.C, err)
 
 	var (
 		id        = pb.ProcessSpec_ID{Zone: args.Zone, Suffix: args.Suffix}
 		ks        = consumer.NewKeySpace(args.Root)
 		state     = allocator.NewObservedState(ks, allocator.MemberKey(ks, id.Zone, id.Suffix), consumer.ShardIsConsistent)
 		srv       = server.MustLoopback()
-		svc       = consumer.NewService(args.App, state, args.Journals, srv.GRPCLoopback, args.Etcd)
+		svc       = consumer.NewService(args.App, auth, auth, state, args.Journals, srv.GRPCLoopback, args.Etcd)
 		tasks     = task.NewGroup(context.Background())
 		sigCh     = make(chan os.Signal, 1)
 		allocArgs = allocator.SessionArgs{
@@ -79,7 +85,7 @@ func NewConsumer(args Args) *Consumer {
 	)
 
 	require.NoError(args.C, allocator.StartSession(allocArgs))
-	pc.RegisterShardServer(srv.GRPCServer, svc)
+	pc.RegisterShardServer(srv.GRPCServer, pc.NewVerifiedShardServer(svc, auth))
 	ks.WatchApplyDelay = 0 // Speedup test execution.
 
 	srv.QueueTasks(tasks)
@@ -142,8 +148,11 @@ func CreateShards(t require.TestingT, cmr *Consumer, specs ...*pc.ShardSpec) {
 	for _, spec := range specs {
 		req.Changes = append(req.Changes, pc.ApplyRequest_Change{Upsert: spec})
 	}
-	var resp, err = consumer.ApplyShards(context.Background(),
-		pc.NewShardClient(cmr.Service.Loopback), req)
+
+	var sc = pc.NewShardClient(cmr.Service.Loopback)
+	sc = pc.NewAuthShardClient(sc, cmr.Service.Authorizer)
+
+	var resp, err = consumer.ApplyShards(context.Background(), sc, req)
 	require.NoError(t, err)
 	require.Equal(t, pc.Status_OK, resp.Status)
 
@@ -156,14 +165,15 @@ func CreateShards(t require.TestingT, cmr *Consumer, specs ...*pc.ShardSpec) {
 // the current write-heads of journals being consumed by matched shards, and
 // polls shards until each has caught up to the determined write-heads of its
 // consumed journals.
-func WaitForShards(ctx context.Context, rjc pb.RoutedJournalClient, conn *grpc.ClientConn, sel pb.LabelSelector) error {
-	var sc = pc.NewShardClient(conn)
-	ctx = pb.WithDispatchDefault(ctx)
+func WaitForShards(t require.TestingT, cmr *Consumer, sel pb.LabelSelector) {
+	var sc = pc.NewShardClient(cmr.Service.Loopback)
+	sc = pc.NewAuthShardClient(sc, cmr.Service.Authorizer)
+
+	var ctx = pb.WithDispatchDefault(context.Background())
 
 	var shards, err = consumer.ListShards(ctx, sc, &pc.ListRequest{Selector: sel})
-	if err != nil {
-		return err
-	}
+	require.NoError(t, err)
+
 	// Collect the set of journals being read by shards.
 	var expect = make(map[pb.Journal]int64)
 	for _, shard := range shards.Shards {
@@ -173,25 +183,23 @@ func WaitForShards(ctx context.Context, rjc pb.RoutedJournalClient, conn *grpc.C
 	}
 	// Determine the write-head of each journal.
 	for journal := range expect {
-		var r = client.NewReader(ctx, rjc, pb.ReadRequest{
+		var r = client.NewReader(ctx, cmr.Service.Journals, pb.ReadRequest{
 			Journal: journal,
 			Offset:  -1,
 			Block:   false,
 		})
 		if _, err = r.Read(nil); err != client.ErrOffsetNotYetAvailable {
-			return err
+			require.NoError(t, err)
 		}
 		expect[journal] = r.Response.WriteHead
 	}
 	// Stat each shard, blocking until it reads through journal write-heads.
 	for len(shards.Shards) != 0 {
-		if _, err = sc.Stat(ctx, &pc.StatRequest{
+		_, err = sc.Stat(ctx, &pc.StatRequest{
 			Shard:       shards.Shards[0].Spec.Id,
 			ReadThrough: expect,
-		}); err != nil {
-			return err
-		}
+		})
+		require.NoError(t, err)
 		shards.Shards = shards.Shards[1:]
 	}
-	return nil
 }

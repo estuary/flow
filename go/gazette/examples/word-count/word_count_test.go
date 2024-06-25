@@ -62,7 +62,7 @@ func (s *WordCountSuite) TestPublishAndQuery(c *gc.C) {
 	c.Assert(err, gc.IsNil)
 
 	// Wait for consumer shards to catch up to written topic content.
-	c.Assert(consumertest.WaitForShards(ctx, rjc, cmr.Service.Loopback, pb.LabelSelector{}), gc.IsNil)
+	consumertest.WaitForShards(c, cmr, pb.LabelSelector{})
 
 	var queryCases = []struct {
 		prefix NGram

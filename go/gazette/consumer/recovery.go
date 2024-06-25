@@ -198,9 +198,9 @@ func beginRecovery(s *shard) error {
 	var err error
 	var spec = s.Spec()
 
-	s.recovery.hints, err = s.svc.GetHints(s.ctx, &pc.GetHintsRequest{
-		Shard: spec.Id,
-	})
+	s.recovery.hints, err = s.svc.GetHints(s.ctx,
+		pb.Claims{Capability: pb.Capability_READ},
+		&pc.GetHintsRequest{Shard: spec.Id})
 
 	if err == nil && s.recovery.hints.Status != pc.Status_OK {
 		err = fmt.Errorf(s.recovery.hints.Status.String())

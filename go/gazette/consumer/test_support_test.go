@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -211,11 +210,11 @@ func newTestFixture(t require.TestingT) (*testFixture, func()) {
 	var state = allocator.NewObservedState(ks,
 		allocator.MemberKey(ks, localID.Zone, localID.Suffix), ShardIsConsistent)
 
-	var tmpSqlite, err = ioutil.TempFile("", "consumer-test")
+	var tmpSqlite, err = os.CreateTemp("", "consumer-test")
 	require.NoError(t, err)
 	var app = newTestApplication(t, tmpSqlite.Name())
 
-	var svc = NewService(app, state, bk.Client(), nil, etcd)
+	var svc = NewService(app, nil, nil, state, bk.Client(), nil, etcd)
 
 	var tasks = task.NewGroup(context.Background())
 	require.NoError(t, ks.Load(tasks.Context(), etcd, 0))
@@ -526,7 +525,7 @@ func runTransaction(tf *testFixture, s Shard, in map[string]string) {
 	}
 
 	// Block until ACKs have been read through, or an error occurred.
-	var _, err = ShardStat(tf.tasks.Context(), tf.service, &pc.StatRequest{
+	var _, err = ShardStat(tf.tasks.Context(), pb.Claims{}, tf.service, &pc.StatRequest{
 		Shard:       s.Spec().Id,
 		ReadThrough: offsets,
 	})

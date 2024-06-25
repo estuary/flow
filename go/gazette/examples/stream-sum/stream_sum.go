@@ -110,8 +110,7 @@ func (s *Sum) Update(chunk Chunk) (done bool, err error) {
 // GenerateAndVerifyStreams is the main routine of the `chunker` job. It
 // generates and verifies streams based on the ChunkerConfig.
 func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
-	var conn = cfg.Broker.MustDial(ctx)
-	var rjc = pb.NewRoutedJournalClient(pb.NewJournalClient(conn), cfg.Broker.BuildRouter())
+	var rjc = cfg.Broker.MustRoutedJournalClient(ctx)
 	var as = client.NewAppendService(ctx, rjc)
 
 	var chunksMapping, err = newChunkMapping(ctx, rjc)
@@ -170,7 +169,7 @@ func GenerateAndVerifyStreams(ctx context.Context, cfg *ChunkerConfig) error {
 			w++ // Worker finished.
 		}
 	}
-	return conn.Close()
+	return nil
 }
 
 // Summer consumes stream chunks, aggregates chunk data, and emits final sums.

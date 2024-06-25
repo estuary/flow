@@ -23,6 +23,14 @@ import (
 type Service struct {
 	// Application served by the Service.
 	App Application
+	// Authorizer of peer-to-peer requests.
+	// Consumer applications may want to use pc.NewAuthShardClient() to build
+	// clients with self-signed Authorizations using the Loopback connection.
+	Authorizer pb.Authorizer
+	// Verifier of requests.
+	// Custom consumer application APIs should secure themselves by verifying
+	// authorizations using this Verifier. See pc.NewVerifiedShardServer() as a model.
+	Verifier pb.Verifier
 	// Resolver of Service shards.
 	Resolver *Resolver
 	// Distributed allocator state of the service.
@@ -47,11 +55,11 @@ type Service struct {
 	// ShardAPI holds function delegates which power the ShardServer API.
 	// They're exposed to allow consumer applications to wrap or alter their behavior.
 	ShardAPI struct {
-		Stat     func(context.Context, *Service, *pc.StatRequest) (*pc.StatResponse, error)
-		List     func(context.Context, *Service, *pc.ListRequest) (*pc.ListResponse, error)
-		Apply    func(context.Context, *Service, *pc.ApplyRequest) (*pc.ApplyResponse, error)
-		GetHints func(context.Context, *Service, *pc.GetHintsRequest) (*pc.GetHintsResponse, error)
-		Unassign func(context.Context, *Service, *pc.UnassignRequest) (*pc.UnassignResponse, error)
+		Stat     func(context.Context, pb.Claims, *Service, *pc.StatRequest) (*pc.StatResponse, error)
+		List     func(context.Context, pb.Claims, *Service, *pc.ListRequest) (*pc.ListResponse, error)
+		Apply    func(context.Context, pb.Claims, *Service, *pc.ApplyRequest) (*pc.ApplyResponse, error)
+		GetHints func(context.Context, pb.Claims, *Service, *pc.GetHintsRequest) (*pc.GetHintsResponse, error)
+		Unassign func(context.Context, pb.Claims, *Service, *pc.UnassignRequest) (*pc.UnassignResponse, error)
 	}
 
 	// stoppingCh is closed when the Service is in the process of shutting down.
@@ -59,9 +67,11 @@ type Service struct {
 }
 
 // NewService constructs a new Service of the Application, driven by allocator.State.
-func NewService(app Application, state *allocator.State, rjc pb.RoutedJournalClient, lo *grpc.ClientConn, etcd *clientv3.Client) *Service {
+func NewService(app Application, authorizer pb.Authorizer, verifier pb.Verifier, state *allocator.State, rjc pb.RoutedJournalClient, lo *grpc.ClientConn, etcd *clientv3.Client) *Service {
 	var svc = &Service{
 		App:        app,
+		Authorizer: authorizer,
+		Verifier:   verifier,
 		State:      state,
 		Loopback:   lo,
 		Journals:   rjc,
@@ -137,29 +147,29 @@ func addTrace(ctx context.Context, format string, args ...interface{}) {
 }
 
 // Stat calls its ShardAPI delegate.
-func (svc *Service) Stat(ctx context.Context, req *pc.StatRequest) (*pc.StatResponse, error) {
-	return svc.ShardAPI.Stat(ctx, svc, req)
+func (svc *Service) Stat(ctx context.Context, claims pb.Claims, req *pc.StatRequest) (*pc.StatResponse, error) {
+	return svc.ShardAPI.Stat(ctx, claims, svc, req)
 }
 
 // List calls its ShardAPI delegate.
-func (svc *Service) List(ctx context.Context, req *pc.ListRequest) (*pc.ListResponse, error) {
-	return svc.ShardAPI.List(ctx, svc, req)
+func (svc *Service) List(ctx context.Context, claims pb.Claims, req *pc.ListRequest) (*pc.ListResponse, error) {
+	return svc.ShardAPI.List(ctx, claims, svc, req)
 }
 
 // Apply calls its ShardAPI delegate.
-func (svc *Service) Apply(ctx context.Context, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
-	return svc.ShardAPI.Apply(ctx, svc, req)
+func (svc *Service) Apply(ctx context.Context, claims pb.Claims, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+	return svc.ShardAPI.Apply(ctx, claims, svc, req)
 }
 
 // GetHints calls its ShardAPI delegate.
-func (svc *Service) GetHints(ctx context.Context, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
-	return svc.ShardAPI.GetHints(ctx, svc, req)
+func (svc *Service) GetHints(ctx context.Context, claims pb.Claims, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+	return svc.ShardAPI.GetHints(ctx, claims, svc, req)
 }
 
 // Unassign calls its ShardAPI delegate.
-func (svc *Service) Unassign(ctx context.Context, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
-	return svc.ShardAPI.Unassign(ctx, svc, req)
+func (svc *Service) Unassign(ctx context.Context, claims pb.Claims, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
+	return svc.ShardAPI.Unassign(ctx, claims, svc, req)
 }
 
-// Service implements the ShardServer interface.
-var _ pc.ShardServer = (*Service)(nil)
+// Service implements the AuthShardServer interface.
+var _ pc.AuthShardServer = (*Service)(nil)

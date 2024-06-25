@@ -15,14 +15,17 @@ import (
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ShardStat is the default implementation of the ShardServer.Stat API.
-func ShardStat(ctx context.Context, srv *Service, req *pc.StatRequest) (*pc.StatResponse, error) {
+func ShardStat(ctx context.Context, claims pb.Claims, srv *Service, req *pc.StatRequest) (*pc.StatResponse, error) {
 	var (
 		resp     = new(pc.StatResponse)
 		res, err = srv.Resolver.Resolve(ResolveArgs{
 			Context:     ctx,
+			Claims:      claims,
 			ShardID:     req.Shard,
 			MayProxy:    req.Header == nil, // MayProxy if request hasn't already been proxied.
 			ProxyHeader: req.Header,
@@ -46,7 +49,7 @@ func ShardStat(ctx context.Context, srv *Service, req *pc.StatRequest) (*pc.Stat
 }
 
 // ShardList is the default implementation of the ShardServer.List API.
-func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.ListResponse, error) {
+func ShardList(ctx context.Context, claims pb.Claims, srv *Service, req *pc.ListRequest) (*pc.ListResponse, error) {
 	var s = srv.Resolver.state
 
 	if err := req.Validate(); err != nil {
@@ -78,7 +81,7 @@ func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.List
 		// LabelSetExt() truncates `scratch` while re-using its storage.
 		scratch = shard.Spec.LabelSetExt(scratch)
 
-		if !req.Selector.Matches(scratch) {
+		if !req.Selector.Matches(scratch) || !claims.Selector.Matches(scratch) {
 			continue
 		}
 		shard.ModRevision = s.Items[cur.Left].Raw.ModRevision
@@ -97,30 +100,43 @@ func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.List
 }
 
 // ShardApply is the default implementation of the ShardServer.Apply API.
-func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+func ShardApply(ctx context.Context, claims pb.Claims, srv *Service, req *pc.ApplyRequest) (*pc.ApplyResponse, error) {
 	var s = srv.Resolver.state
 
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 
+	// The Apply API is authorized exclusively through the "id" label.
+	var authorizeShard = func(claims *pb.Claims, shard pc.ShardID) error {
+		if !claims.Selector.Matches(pb.MustLabelSet("id", shard.String())) {
+			return status.Error(codes.Unauthenticated, fmt.Sprintf("not authorized to %s", shard))
+		}
+		return nil
+	}
 	var cmp []clientv3.Cmp
 	var ops []clientv3.Op
 
-	for _, changes := range req.Changes {
+	for _, change := range req.Changes {
 		var key string
 
-		if changes.Upsert != nil {
-			key = allocator.ItemKey(s.KS, changes.Upsert.Id.String())
-			ops = append(ops, clientv3.OpPut(key, changes.Upsert.MarshalString()))
+		if change.Upsert != nil {
+			if err := authorizeShard(&claims, change.Upsert.Id); err != nil {
+				return nil, err
+			}
+			key = allocator.ItemKey(s.KS, change.Upsert.Id.String())
+			ops = append(ops, clientv3.OpPut(key, change.Upsert.MarshalString()))
 		} else {
-			key = allocator.ItemKey(s.KS, changes.Delete.String())
+			if err := authorizeShard(&claims, change.Delete); err != nil {
+				return nil, err
+			}
+			key = allocator.ItemKey(s.KS, change.Delete.String())
 			ops = append(ops, clientv3.OpDelete(key))
 		}
 		// Allow caller to explicitly ignore revision comparison
 		// by passing a value of -1 for revision.
-		if changes.ExpectModRevision != -1 {
-			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", changes.ExpectModRevision))
+		if change.ExpectModRevision != -1 {
+			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", change.ExpectModRevision))
 		}
 	}
 
@@ -147,7 +163,7 @@ func ShardApply(ctx context.Context, srv *Service, req *pc.ApplyRequest) (*pc.Ap
 }
 
 // ShardGetHints is the default implementation of the ShardServer.Hints API.
-func ShardGetHints(ctx context.Context, srv *Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+func ShardGetHints(ctx context.Context, claims pb.Claims, srv *Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 
 	srv.State.KS.Mu.RLock()
 	var resp = &pc.GetHintsResponse{
@@ -162,6 +178,11 @@ func ShardGetHints(ctx context.Context, srv *Service, req *pc.GetHintsRequest) (
 		return resp, nil
 	}
 	var spec = item.ItemValue.(*pc.ShardSpec)
+
+	if !claims.Selector.Matches(spec.LabelSetExt(pb.LabelSet{})) {
+		resp.Status = pc.Status_SHARD_NOT_FOUND
+		return resp, nil
+	}
 
 	var h, err = fetchHints(ctx, spec, srv.Etcd)
 	if err != nil {
@@ -184,7 +205,7 @@ func ShardGetHints(ctx context.Context, srv *Service, req *pc.GetHintsRequest) (
 	return resp, nil
 }
 
-func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
+func ShardUnassign(ctx context.Context, claims pb.Claims, srv *Service, req *pc.UnassignRequest) (*pc.UnassignResponse, error) {
 	var resp = &pc.UnassignResponse{
 		Status: pc.Status_OK,
 		Shards: make([]pc.ShardID, 0),
@@ -202,6 +223,10 @@ func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (
 	var ops []clientv3.Op
 
 	for _, shard := range req.Shards {
+		// Like Apply, the Unassign API is authorized exclusively through the "id" label.
+		if !claims.Selector.Matches(pb.MustLabelSet("id", shard.String())) {
+			return nil, status.Error(codes.Unauthenticated, fmt.Sprintf("not authorized to %s", shard))
+		}
 		var assignments = state.Assignments.Prefixed(allocator.ItemAssignmentsPrefix(state.KS, shard.String()))
 
 		for _, kv := range assignments {

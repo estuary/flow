@@ -68,13 +68,36 @@ func (c *AddressConfig) MustJournalClient(ctx context.Context) pb.JournalClient 
 		authorizer = auth.NewNoopAuth()
 	}
 
-	var jc = pb.NewJournalClient(c.MustDial(ctx))
+	var conn = c.MustDial(ctx)
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	var jc = pb.NewJournalClient(conn)
 	return pb.NewAuthJournalClient(jc, authorizer)
 }
 
 // MustShardClient dials and returns a new ShardClient.
 func (c *AddressConfig) MustShardClient(ctx context.Context) pc.ShardClient {
-	return pc.NewShardClient(c.MustDial(ctx))
+	var authorizer pb.Authorizer
+	var err error
+
+	if c.AuthKeys != "" {
+		authorizer, err = auth.NewKeyedAuth(c.AuthKeys)
+		Must(err, "parsing authorization keys")
+	} else {
+		authorizer = auth.NewNoopAuth()
+	}
+
+	var conn = c.MustDial(ctx)
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	var sc = pc.NewShardClient(conn)
+	return pc.NewAuthShardClient(sc, authorizer)
 }
 
 // ClientConfig configures the client of a remote Gazette service.

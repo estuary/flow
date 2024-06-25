@@ -51,6 +51,8 @@ func NewResolver(state *allocator.State, newShard func(keyspace.KeyValue) *shard
 // responsible consumer process.
 type ResolveArgs struct {
 	Context context.Context
+	// Authorized Claims under which we're resolving.
+	Claims pb.Claims
 	// ShardID to be resolved.
 	ShardID pc.ShardID
 	// Whether we may resolve to another consumer peer. If false and this
@@ -144,14 +146,24 @@ func (r *Resolver) Resolve(args ResolveArgs) (res Resolution, err error) {
 	}
 	res.Header.Etcd = pbx.FromEtcdResponseHeader(ks.Header)
 
-	// Extract ShardSpec.
-	if item, ok := allocator.LookupItem(ks, args.ShardID.String()); ok {
-		res.Spec = item.ItemValue.(*pc.ShardSpec)
-	}
-	// Extract Route.
+	// Extract Assignments.
 	var assignments = ks.KeyValues.Prefixed(
 		allocator.ItemAssignmentsPrefix(ks, args.ShardID.String()))
 
+	// Extract ShardSpec.
+	if item, ok := allocator.LookupItem(ks, args.ShardID.String()); ok {
+		var spec = item.ItemValue.(*pc.ShardSpec)
+
+		// Is the caller authorized to the shard?
+		if args.Claims.Selector.Matches(spec.LabelSetExt(pb.LabelSet{})) {
+			res.Spec = spec
+		} else {
+			// Clear to act as if the shard doesn't exist.
+			assignments = keyspace.KeyValues{}
+		}
+	}
+
+	// Build Route from extracted assignments.
 	pbx.Init(&res.Header.Route, assignments)
 	pbx.AttachEndpoints(&res.Header.Route, ks)
 
@@ -337,23 +349,22 @@ func (r *Resolver) updateLocalShards() {
 // application must make an appropriate selection from among the returned
 // ShardSpecs for its use case.
 //
-//      var mapping message.MappingFunc = ...
-//      var mappedID pc.ShardID
+//	var mapping message.MappingFunc = ...
+//	var mappedID pc.ShardID
 //
-//      if journal, _, err := mapping(key); err != nil {
-//          // Handle error.
-//      } else if specs := resolver.ShardsWithSource(journal); len(specs) == 0 {
-//          err = fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
-//          // Handle error.
-//      } else {
-//          mappedID = specs[0].Id
-//      }
+//	if journal, _, err := mapping(key); err != nil {
+//	    // Handle error.
+//	} else if specs := resolver.ShardsWithSource(journal); len(specs) == 0 {
+//	    err = fmt.Errorf("no ShardSpec is consuming mapped journal %s", journal)
+//	    // Handle error.
+//	} else {
+//	    mappedID = specs[0].Id
+//	}
 //
-//      var resolution, err = svc.Resolver.Resolve(consumer.ResolveArgs{
-//          ShardID:     specs[0].Id,
-//          ...
-//      })
-//
+//	var resolution, err = svc.Resolver.Resolve(consumer.ResolveArgs{
+//	    ShardID:     specs[0].Id,
+//	    ...
+//	})
 func (r *Resolver) ShardsWithSource(journal pb.Journal) []*pc.ShardSpec {
 	r.state.KS.Mu.RLock()
 	var specs = r.journals[journal]

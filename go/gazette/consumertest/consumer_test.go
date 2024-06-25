@@ -70,8 +70,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	c.Check(wc.Close(), gc.IsNil)
 
 	// Wait for the consumer shard to catch up to written journal content.
-	c.Assert(WaitForShards(ctx, rjc, cmr1.Service.Loopback,
-		pb.LabelSelector{Include: pb.MustLabelSet("id", "a-shard")}), gc.IsNil)
+	WaitForShards(c, cmr1, pb.LabelSelector{Include: pb.MustLabelSet("id", "a-shard")})
 
 	// Expect the shard store reflects consumed messages.
 	var res, err = cmr1.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: "a-shard"})
@@ -102,7 +101,7 @@ func (s *ConsumerSuite) TestConsumeWithHandoff(c *gc.C) {
 	c.Check(enc.Encode(testMsg{Key: "the", Value: "replaced value"}), gc.IsNil)
 	c.Check(enc.Encode(testMsg{Key: "added", Value: "key"}), gc.IsNil)
 	c.Check(wc.Close(), gc.IsNil)
-	c.Check(WaitForShards(ctx, rjc, cmr2.Service.Loopback, pb.LabelSelector{}), gc.IsNil)
+	WaitForShards(c, cmr2, pb.LabelSelector{})
 
 	// Expect the shard store reflects all consumed messages.
 	res, err = cmr2.Service.Resolver.Resolve(consumer.ResolveArgs{Context: ctx, ShardID: "a-shard"})
@@ -179,7 +178,7 @@ func (s *ConsumerSuite) TestConsumeWithHotStandby(c *gc.C) {
 	c.Check(enc.Encode(testMsg{Key: "brown", Value: "fox"}), gc.IsNil)
 	c.Check(wc.Close(), gc.IsNil)
 
-	c.Check(WaitForShards(ctx, rjc, cmr1.Service.Loopback, pb.LabelSelector{}), gc.IsNil)
+	WaitForShards(c, cmr1, pb.LabelSelector{})
 
 	// Crash |cmr1|.
 	cmr1.Tasks.Cancel()
