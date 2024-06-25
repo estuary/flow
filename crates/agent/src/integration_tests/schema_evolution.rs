@@ -344,6 +344,126 @@ async fn test_schema_evolution() {
     insta::assert_yaml_snapshot!("after-materializeMixed-retry", mixed_state.live_spec);
 }
 
+#[tokio::test]
+#[serial_test::serial]
+async fn test_collection_key_changes() {
+    let mut harness = TestHarness::init("test_dependencies_and_controllers").await;
+
+    let user_id = harness.setup_tenant("camels").await;
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "camels/water": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id1": { "type": "string" },
+                        "id2": { "type": "string" }
+                    },
+                    "required": ["id1", "id2"]
+                },
+                "key": ["/id1"]
+            },
+        },
+        // A capture is necessary, otherwise the collection would get pruned
+        "captures": {
+            "camels/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": { "thing": "water" },
+                        "target": "camels/water"
+                    },
+                ]
+            },
+        }
+    }));
+
+    let initial_result = harness
+        .user_publication(user_id, "initial publication", draft)
+        .await;
+    assert!(initial_result.status.is_success());
+    harness.run_pending_controllers(None).await;
+
+    let key_change_draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "camels/water": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id1": { "type": "string" },
+                        "id2": { "type": "string" }
+                    },
+                    "required": ["id1", "id2"]
+                },
+                "key": ["/id2"]
+            },
+        },
+    }));
+
+    let update_result = harness
+        .user_publication(user_id, "update to id2", key_change_draft)
+        .await;
+    insta::assert_debug_snapshot!(update_result.status, @r###"
+    BuildFailed {
+        incompatible_collections: [
+            IncompatibleCollection {
+                collection: "camels/water",
+                requires_recreation: [
+                    KeyChange,
+                ],
+                affected_materializations: [],
+            },
+        ],
+        evolution_id: None,
+    }
+    "###);
+
+    let partition_change_draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "camels/water": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id1": { "type": "string" },
+                        "id2": { "type": "string" }
+                    },
+                    "required": ["id1", "id2"]
+                },
+                "key": ["/id1"],
+                "projections": {
+                    "naughty": {
+                        "location": "/id2",
+                        "partition": true
+                    }
+                }
+            },
+        },
+    }));
+
+    let update_result = harness
+        .user_publication(user_id, "update partitions", partition_change_draft)
+        .await;
+    insta::assert_debug_snapshot!(update_result.status, @r###"
+    BuildFailed {
+        incompatible_collections: [
+            IncompatibleCollection {
+                collection: "camels/water",
+                requires_recreation: [
+                    PartitionChange,
+                ],
+                affected_materializations: [],
+            },
+        ],
+        evolution_id: None,
+    }
+    "###);
+}
+
 #[derive(Debug)]
 struct UnsatisfiableConstraints {
     binding: usize,
