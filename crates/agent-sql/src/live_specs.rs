@@ -31,7 +31,7 @@ pub struct LiveSpec {
     pub catalog_name: String,
     pub spec_type: Option<CatalogType>,
     pub spec: Option<TextJson<Box<RawValue>>>,
-    pub built_spec: Option<Json<Box<RawValue>>>,
+    pub built_spec: Option<TextJson<Box<RawValue>>>,
     pub inferred_schema_md5: Option<String>,
     // User's capability to the specification `catalog_name`.
     pub user_capability: Option<Capability>,
@@ -56,7 +56,7 @@ pub async fn fetch_live_specs(
             names as "catalog_name!: String",
             ls.spec_type as "spec_type?: CatalogType",
             ls.spec as "spec: TextJson<Box<RawValue>>",
-            ls.built_spec as "built_spec: Json<Box<RawValue>>",
+            ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
             (
                 select max(capability) from internal.user_roles($1) r
@@ -135,7 +135,7 @@ pub async fn fetch_expanded_live_specs(
             ls.catalog_name,
             ls.spec_type as "spec_type?: CatalogType",
             ls.spec as "spec: TextJson<Box<RawValue>>",
-            ls.built_spec as "built_spec: Json<Box<RawValue>>",
+            ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
             (
                 select max(capability) from internal.user_roles($1) r
