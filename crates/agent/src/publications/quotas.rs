@@ -83,6 +83,7 @@ pub async fn check_resource_quotas(
     let deltas = get_deltas(built);
 
     let tenant_names = deltas.keys().map(|k| *k).collect::<Vec<_>>();
+    tracing::info!(?tenant_names, "checking resource quotas");
 
     let errors = agent_sql::publications::find_tenant_quotas(&tenant_names, txn)
         .await?
