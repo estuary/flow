@@ -227,18 +227,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -300,42 +304,52 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "567",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "789",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
                                         value: "d7f4a9d02b48c1a",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-proto/789",
                                         value: "h2",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-public/567",
                                         value: "true",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-cdc",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -355,22 +369,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-cdc",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -640,18 +659,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -846,18 +869,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string.v2",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -919,42 +946,52 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "567",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "789",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
                                         value: "d4b08a40cd6dda6d",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-proto/789",
                                         value: "h2",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-public/567",
                                         value: "true",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/s3-source",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -974,22 +1011,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/s3-source",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1196,18 +1238,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/array-key",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1406,18 +1452,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/from-array-key",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1601,18 +1651,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/array-key",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -1650,6 +1704,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/array-key",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -1826,18 +1881,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/array-key",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -1875,6 +1934,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/array-key",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -1930,22 +1990,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
                                                 value: "info",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/from-array-key",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -1965,22 +2030,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "content-type",
                                                 value: "application/x-gazette-recoverylog",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/from-array-key",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -2392,18 +2462,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-halve",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -2735,18 +2809,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/int-string-rw",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -2784,10 +2862,12 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string-rw",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/field/bit",
                                                         value: "%_true",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -2798,6 +2878,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/field/bit",
                                                         value: "%_false",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -3119,18 +3200,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/int-halve",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -3173,6 +3258,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-halve",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -3230,22 +3316,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
                                                 value: "info",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-halve",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -3265,22 +3356,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "content-type",
                                                 value: "application/x-gazette-recoverylog",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-halve",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -3506,18 +3602,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-reverse",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -3730,18 +3830,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/int-string",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -3779,6 +3883,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -3830,22 +3935,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
                                                 value: "info",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-reverse",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -3865,22 +3975,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "content-type",
                                                 value: "application/x-gazette-recoverylog",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-reverse",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -4109,18 +4224,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -4339,18 +4458,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string-inferred",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -4601,18 +4724,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string-inferred-not-found",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -4956,18 +5083,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string-rw",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -5170,18 +5301,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string.v2",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -5444,18 +5579,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -5493,6 +5632,7 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -5549,22 +5689,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "warn",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-views",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -5584,22 +5729,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-views",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -5928,18 +6078,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -5977,10 +6131,12 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/field/bit",
                                                 value: "%_true",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -6320,18 +6476,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-halve",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -6374,6 +6534,7 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-halve",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -6437,42 +6598,52 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "567",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "789",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
                                         value: "7c018f7d92537c75",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-proto/789",
                                         value: "h2",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-public/567",
                                         value: "true",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/webhook/deliveries",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -6492,22 +6663,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/webhook/deliveries",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -6603,6 +6779,7 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -6633,10 +6810,12 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/field/bit",
                                                 value: "%_true",
+                                                prefix: false,
                                             },
                                         ],
                                     },

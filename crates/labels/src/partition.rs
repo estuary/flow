@@ -51,7 +51,7 @@ pub fn decode_field_range(set: &LabelSet) -> Result<((u32, u32), Vec<Value>), Er
     let key_range = decode_key_range(set)?;
     let mut values = Vec::new();
 
-    for Label { name, value } in &set.labels {
+    for Label { name, value, .. } in &set.labels {
         if name.starts_with(FIELD_PREFIX) {
             values.push(decode_field_value(value)?);
         }

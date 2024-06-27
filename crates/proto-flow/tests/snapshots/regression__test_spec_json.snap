@@ -36,6 +36,15 @@ expression: json_test(msg)
               "value": "other-value"
             }
           ]
+        },
+        "exclude": {
+          "labels": [
+            {
+              "name": "my-label",
+              "value": "prefix/",
+              "prefix": true
+            }
+          ]
         }
       }
     }

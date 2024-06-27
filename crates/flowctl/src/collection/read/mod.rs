@@ -1,21 +1,11 @@
 use crate::dataplane::{self};
 use crate::{collection::CollectionJournalSelector, output::OutputType};
 use anyhow::Context;
-use journal_client::{
-    broker,
-    fragments::FragmentIter,
-    list::list_journals,
-    read::uncommitted::{ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader},
-    Client,
-};
+use futures::StreamExt;
+use gazette::journal::ReadJsonLine;
+use proto_gazette::broker;
 use time::OffsetDateTime;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-
-#[derive(clap::Args, Debug, Clone)]
-pub struct SchemaInferenceArgs {
-    #[clap(flatten)]
-    pub selector: CollectionJournalSelector,
-}
+use tokio::io::AsyncWriteExt;
 
 #[derive(clap::Args, Default, Debug, Clone)]
 pub struct ReadArgs {
@@ -47,63 +37,6 @@ pub struct ReadBounds {
     pub since: Option<humantime::Duration>,
 }
 
-pub async fn journal_reader(
-    ctx: &mut crate::CliContext,
-    args: &ReadArgs,
-) -> anyhow::Result<Reader<ExponentialBackoff>> {
-    let auth_prefixes = if args.auth_prefixes.is_empty() {
-        vec![args.selector.collection.clone()]
-    } else {
-        args.auth_prefixes.clone()
-    };
-    let cp_client = ctx.controlplane_client().await?;
-    let mut data_plane_client = dataplane::journal_client_for(cp_client, auth_prefixes).await?;
-
-    let selector = args.selector.build_label_selector();
-    tracing::debug!(?selector, "build label selector");
-
-    let mut journals = list_journals(&mut data_plane_client, &selector)
-        .await
-        .context("listing journals for collection read")?;
-    tracing::debug!(journal_count = journals.len(), collection = %args.selector.collection, "listed journals");
-    let maybe_journal = journals.pop();
-    if !journals.is_empty() {
-        // TODO: implement a sequencer and allow reading from multiple journals
-        anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
-    }
-
-    let journal = maybe_journal.ok_or_else(|| {
-        anyhow::anyhow!(
-            "collection '{}' does not exist or has never been written to (it has no journals)",
-            args.selector.collection
-        )
-    })?;
-
-    let start = if let Some(since) = args.bounds.since {
-        let start_time = OffsetDateTime::now_utc() - *since;
-        tracing::debug!(%since, begin_mod_time = %start_time, "resolved --since to begin_mod_time");
-        find_start_offset(data_plane_client.clone(), journal.name.clone(), start_time).await?
-    } else {
-        ReadStart::Offset(0)
-    };
-    let end = if args.bounds.follow {
-        ReadUntil::Forever
-    } else {
-        ReadUntil::WriteHead
-    };
-    let read = JournalRead::new(journal.name.clone())
-        .starting_at(start)
-        .read_until(end);
-
-    tracing::debug!(journal = %journal.name, "starting read of journal");
-
-    // It would seem unusual for a CLI to retry indefinitely, so limit the number of retries.
-    let backoff = ExponentialBackoff::new(5);
-    let reader = Reader::start_read(data_plane_client.clone(), read, backoff);
-
-    Ok(reader)
-}
-
 /// Reads collection data and prints it to stdout. This function has a number of limitations at present:
 /// - The provided `CollectionJournalSelector` must select a single journal.
 /// - Only uncommitted reads are supported
@@ -129,39 +62,82 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         );
     }
 
-    let reader = journal_reader(ctx, args).await?;
-
-    tokio::io::copy(&mut reader.compat(), &mut tokio::io::stdout()).await?;
-    Ok(())
-}
-
-async fn find_start_offset(
-    client: Client,
-    journal: String,
-    start_time: OffsetDateTime,
-) -> anyhow::Result<ReadStart> {
-    let frag_req = broker::FragmentsRequest {
-        journal,
-        header: None,
-        begin_mod_time: start_time.unix_timestamp(),
-        end_mod_time: 0,
-        next_page_token: 0,
-        page_limit: 1,
-        signature_ttl: None,
-        do_not_proxy: false,
+    let auth_prefixes = if args.auth_prefixes.is_empty() {
+        vec![args.selector.collection.clone()]
+    } else {
+        args.auth_prefixes.clone()
     };
-    let mut iter = FragmentIter::new(client, frag_req);
-    match iter.next().await {
-        None => {
-            tracing::debug!(requested_start_time = %start_time, "no fragment found covering start time");
-            Ok(ReadStart::WriteHead)
-        }
-        Some(result) => {
-            let frag = result?
-                .spec
-                .ok_or_else(|| anyhow::anyhow!("response is missing fragment spec"))?;
-            tracing::debug!(requested_start_time = %start_time, resolved_fragment = ?frag, "resolved start time to fragment");
-            Ok(ReadStart::Offset(frag.begin as u64))
+    let cp_client = ctx.controlplane_client().await?;
+    let client = dataplane::journal_client_for(cp_client, auth_prefixes).await?;
+
+    let list_resp = client
+        .list(broker::ListRequest {
+            selector: Some(args.selector.build_label_selector()),
+            ..Default::default()
+        })
+        .await
+        .context("listing journals for collection read")?;
+
+    let mut journals = list_resp
+        .journals
+        .into_iter()
+        .map(|j| j.spec.unwrap())
+        .collect::<Vec<_>>();
+
+    tracing::debug!(journal_count = journals.len(), collection = %args.selector.collection, "listed journals");
+    let maybe_journal = journals.pop();
+    if !journals.is_empty() {
+        // TODO: implement a sequencer and allow reading from multiple journals
+        anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
+    }
+
+    let journal = maybe_journal.ok_or_else(|| {
+        anyhow::anyhow!(
+            "collection '{}' does not exist or has never been written to (it has no journals)",
+            args.selector.collection
+        )
+    })?;
+
+    let begin_mod_time = if let Some(since) = args.bounds.since {
+        let start_time = OffsetDateTime::now_utc() - *since;
+        tracing::debug!(%since, begin_mod_time = %start_time, "resolved --since to begin_mod_time");
+        (start_time - OffsetDateTime::UNIX_EPOCH).as_seconds_f64() as i64
+    } else {
+        0
+    };
+
+    let mut lines = client.read_json_lines(
+        broker::ReadRequest {
+            journal: journal.name.clone(),
+            offset: 0,
+            block: args.bounds.follow,
+            begin_mod_time,
+            ..Default::default()
+        },
+        1,
+    );
+    tracing::debug!(journal = %journal.name, "starting read of journal");
+
+    let policy = doc::SerPolicy::noop();
+
+    while let Some(line) = lines.next().await {
+        match line {
+            Err(err) if err.is_transient() => {
+                tracing::warn!(%err, "error reading collection (will retry)");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            Err(err) => anyhow::bail!(err),
+            Ok(ReadJsonLine::Meta(_)) => (),
+            Ok(ReadJsonLine::Doc {
+                root,
+                next_offset: _,
+            }) => {
+                let mut v = serde_json::to_vec(&policy.on(root.get())).unwrap();
+                v.push(b'\n');
+                tokio::io::stdout().write_all(&v).await?;
+            }
         }
     }
+
+    Ok(())
 }

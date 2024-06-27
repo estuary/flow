@@ -139,7 +139,7 @@ func (cmd cmdTempDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec.
 	out.Stdout = os.Stdout
 	out.Stderr = os.Stderr
 
-	return out, "unix://" + out.Dir + "/client.sock:0"
+	return out, "unix://localhost" + out.Dir + "/client.sock:0"
 }
 
 func (cmd cmdTempDataPlane) gazetteCmd(ctx context.Context, tempdir string, etcdAddr string) (*exec.Cmd, string) {

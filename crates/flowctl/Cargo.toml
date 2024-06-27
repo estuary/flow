@@ -18,7 +18,7 @@ connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
-journal-client = { path = "../journal-client" }
+gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 locate-bin = { path = "../locate-bin" }

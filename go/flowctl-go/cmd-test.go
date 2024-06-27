@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -35,7 +34,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Create a temporary directory which will contain the Etcd database
 	// and various unix:// sockets.
-	tempdir, err := ioutil.TempDir("", "flow-test")
+	tempdir, err := os.MkdirTemp("", "flow-test")
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
 	}

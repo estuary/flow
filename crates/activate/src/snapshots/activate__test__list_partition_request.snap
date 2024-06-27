@@ -11,6 +11,12 @@ ListRequest {
                         Label {
                             name: "estuary.dev/collection",
                             value: "the/collection",
+                            prefix: false,
+                        },
+                        Label {
+                            name: "name",
+                            value: "the/collection/",
+                            prefix: true,
                         },
                     ],
                 },
@@ -18,4 +24,6 @@ ListRequest {
             exclude: None,
         },
     ),
+    watch: false,
+    watch_resume: None,
 }

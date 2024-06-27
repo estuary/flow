@@ -205,12 +205,12 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	})
 
 	// Wrap Shard Hints RPC to support the Flow shard splitting workflow.
-	args.Service.ShardAPI.GetHints = func(c context.Context, s *consumer.Service, ghr *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
-		return shardGetHints(c, s, ghr)
+	args.Service.ShardAPI.GetHints = func(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+		return shardGetHints(ctx, claims, svc, req)
 	}
 	// Wrap Shard Stat RPC to additionally synchronize on |journals| header.
-	args.Service.ShardAPI.Stat = func(ctx context.Context, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
-		return flow.ShardStat(ctx, svc, req, journals)
+	args.Service.ShardAPI.Stat = func(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
+		return flow.ShardStat(ctx, claims, svc, req, journals)
 	}
 
 	f.LogPublisher = message.NewPublisher(client.NewAppendService(args.Context, args.Service.Journals), nil)
@@ -236,9 +236,11 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		}
 	}
 
-	pr.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
+	pr.RegisterShufflerServer(args.Server.GRPCServer,
+		pr.NewAuthShufflerServer(shuffle.NewAPI(args.Service.Resolver), f.Service.Verifier))
 
-	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, &proxyServer{resolver: args.Service.Resolver})
+	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
+		pf.NewAuthNetworkProxyServer(&proxyServer{resolver: args.Service.Resolver}, f.Service.Verifier))
 
 	return nil
 }

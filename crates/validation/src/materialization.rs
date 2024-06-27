@@ -234,21 +234,19 @@ async fn walk_materialization(
         ));
 
         // Build a partition LabelSelector for this source.
-        let (source_name, source_partitions, not_before, not_after) = match source {
-            models::Source::Collection(name) => (name, None, None, None),
+        let (source_partitions, not_before, not_after) = match source {
+            models::Source::Collection(_name) => (None, None, None),
             models::Source::Source(models::FullSource {
-                name,
+                name: _,
                 partitions,
                 not_before,
                 not_after,
-            }) => (
-                name,
-                partitions.as_ref(),
-                not_before.as_ref(),
-                not_after.as_ref(),
-            ),
+            }) => (partitions.as_ref(), not_before.as_ref(), not_after.as_ref()),
         };
-        let partition_selector = Some(assemble::journal_selector(source_name, source_partitions));
+        let partition_selector = Some(assemble::journal_selector(
+            collection.as_ref().unwrap(),
+            source_partitions,
+        ));
 
         // Build a state key and read suffix using the transform name as it's resource path.
         let state_key = assemble::encode_state_key(resource_path, backfill);
