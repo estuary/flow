@@ -151,6 +151,8 @@ impl Collection {
                 include: Some(labels::build_set([(labels::COLLECTION, collection)])),
                 exclude: None,
             }),
+            watch: false,
+            ..Default::default()
         };
         let response = journal_client.list(request).await?;
         let mut partitions = Vec::with_capacity(response.journals.len());

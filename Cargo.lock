@@ -1647,15 +1647,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
 
 [[package]]
-name = "exponential-backoff"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47f78d87d930eee4b5686a2ab032de499c72bd1e954b84262bb03492a0f932cd"
-dependencies = [
- "rand 0.8.5",
-]
-
-[[package]]
 name = "extractors"
 version = "0.0.0"
 dependencies = [
@@ -1788,9 +1779,9 @@ dependencies = [
  "doc",
  "extractors",
  "futures",
+ "gazette",
  "humantime",
  "itertools 0.10.5",
- "journal-client",
  "json",
  "labels",
  "lazy_static",
@@ -2587,29 +2578,6 @@ checksum = "43ae63fcfc45e99ab3d1b29a46782ad679e98436c3169d15a167a1108a724b69"
 dependencies = [
  "jemalloc-sys",
  "libc",
-]
-
-[[package]]
-name = "journal-client"
-version = "0.0.0"
-dependencies = [
- "assemble",
- "async-compression",
- "bytes",
- "exponential-backoff",
- "futures",
- "futures-core",
- "lazy_static",
- "proto-gazette",
- "proto-grpc",
- "reqwest",
- "serde",
- "thiserror",
- "tokio",
- "tonic",
- "tower",
- "tracing",
- "uuid 1.7.0",
 ]
 
 [[package]]

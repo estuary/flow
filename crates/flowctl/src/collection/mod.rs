@@ -2,7 +2,6 @@ pub mod read;
 
 use crate::Timestamp;
 use anyhow::Context;
-use journal_client::{fragments, list};
 use proto_gazette::broker;
 use time::OffsetDateTime;
 
@@ -171,13 +170,18 @@ async fn do_list_fragments(
     ctx: &mut crate::CliContext,
     args: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
-    let mut client = journal_client_for(
+    let client = journal_client_for(
         ctx.controlplane_client().await?,
         vec![args.selector.collection.clone()],
     )
     .await?;
 
-    let journals = list::list_journals(&mut client, &args.selector.build_label_selector()).await?;
+    let list_resp = client
+        .list(broker::ListRequest {
+            selector: Some(args.selector.build_label_selector()),
+            ..Default::default()
+        })
+        .await?;
 
     let start_time = if let Some(since) = args.since {
         let timepoint = OffsetDateTime::now_utc() - *since;
@@ -191,20 +195,17 @@ async fn do_list_fragments(
         .signature_ttl
         .map(|ttl| std::time::Duration::from(*ttl).into());
     let mut fragments = Vec::with_capacity(32);
-    for journal in journals {
+    for journal in list_resp.journals {
         let req = broker::FragmentsRequest {
-            journal: journal.name.clone(),
+            journal: journal.spec.context("missing spec")?.name.clone(),
             begin_mod_time: start_time,
             page_limit: 500,
             signature_ttl: signature_ttl.clone(),
             ..Default::default()
         };
 
-        let mut fragment_iter = fragments::FragmentIter::new(client.clone(), req);
-
-        while let Some(fragment) = fragment_iter.next().await {
-            fragments.push(fragment?);
-        }
+        let frag_resp = client.list_fragments(req).await?;
+        fragments.extend(frag_resp.fragments);
     }
 
     ctx.write_all(fragments, args.signature_ttl.is_some())
@@ -214,13 +215,24 @@ async fn do_list_journals(
     ctx: &mut crate::CliContext,
     args: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let mut client = journal_client_for(
+    let client = journal_client_for(
         ctx.controlplane_client().await?,
         vec![args.collection.clone()],
     )
     .await?;
 
-    let journals = list::list_journals(&mut client, &args.build_label_selector()).await?;
+    let list_resp = client
+        .list(broker::ListRequest {
+            selector: Some(args.build_label_selector()),
+            ..Default::default()
+        })
+        .await?;
 
-    ctx.write_all(journals, ())
+    let journals: anyhow::Result<Vec<_>> = list_resp
+        .journals
+        .into_iter()
+        .map(|j| j.spec.context("missing spec"))
+        .collect();
+
+    ctx.write_all(journals?, ())
 }

@@ -14,7 +14,7 @@ import (
 // ShardStat wraps consumer.ShardStat to provide additional synchronization
 // over a |journals| Etcd header carried as a StatRequest & StatResponse
 // extension.
-func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, journals Journals) (*pc.StatResponse, error) {
+func ShardStat(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.StatRequest, journals Journals) (*pc.StatResponse, error) {
 	var err error
 	var reqJournalEtcd pb.Header_Etcd
 
@@ -45,7 +45,7 @@ func ShardStat(ctx context.Context, svc *consumer.Service, req *pc.StatRequest, 
 	}
 
 	// Delegate to the underlying Stat implementation.
-	resp, err := consumer.ShardStat(ctx, svc, req)
+	resp, err := consumer.ShardStat(ctx, claims, svc, req)
 	if err != nil {
 		return nil, err
 	}

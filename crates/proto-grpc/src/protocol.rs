@@ -90,7 +90,9 @@ pub mod journal_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::broker::ListRequest>,
         ) -> std::result::Result<
-            tonic::Response<::proto_gazette::broker::ListResponse>,
+            tonic::Response<
+                tonic::codec::Streaming<::proto_gazette::broker::ListResponse>,
+            >,
             tonic::Status,
         > {
             self.inner
@@ -106,7 +108,7 @@ pub mod journal_client {
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/List");
             let mut req = request.into_request();
             req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "List"));
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
         /// Apply changes to the collection of Journals managed by the brokers.
         pub async fn apply(
@@ -249,14 +251,20 @@ pub mod journal_server {
     /// Generated trait containing gRPC methods that should be implemented for use with JournalServer.
     #[async_trait]
     pub trait Journal: Send + Sync + 'static {
+        /// Server streaming response type for the List method.
+        type ListStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<
+                    ::proto_gazette::broker::ListResponse,
+                    tonic::Status,
+                >,
+            >
+            + Send
+            + 'static;
         /// List Journals, their JournalSpecs and current Routes.
         async fn list(
             &self,
             request: tonic::Request<::proto_gazette::broker::ListRequest>,
-        ) -> std::result::Result<
-            tonic::Response<::proto_gazette::broker::ListResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<Self::ListStream>, tonic::Status>;
         /// Apply changes to the collection of Journals managed by the brokers.
         async fn apply(
             &self,
@@ -401,11 +409,13 @@ pub mod journal_server {
                     struct ListSvc<T: Journal>(pub Arc<T>);
                     impl<
                         T: Journal,
-                    > tonic::server::UnaryService<::proto_gazette::broker::ListRequest>
-                    for ListSvc<T> {
+                    > tonic::server::ServerStreamingService<
+                        ::proto_gazette::broker::ListRequest,
+                    > for ListSvc<T> {
                         type Response = ::proto_gazette::broker::ListResponse;
+                        type ResponseStream = T::ListStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -437,7 +447,7 @@ pub mod journal_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

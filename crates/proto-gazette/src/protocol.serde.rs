@@ -2397,12 +2397,18 @@ impl serde::Serialize for Label {
         if !self.value.is_empty() {
             len += 1;
         }
+        if self.prefix {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.Label", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
         }
         if !self.value.is_empty() {
             struct_ser.serialize_field("value", &self.value)?;
+        }
+        if self.prefix {
+            struct_ser.serialize_field("prefix", &self.prefix)?;
         }
         struct_ser.end()
     }
@@ -2416,12 +2422,14 @@ impl<'de> serde::Deserialize<'de> for Label {
         const FIELDS: &[&str] = &[
             "name",
             "value",
+            "prefix",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Name,
             Value,
+            Prefix,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2445,6 +2453,7 @@ impl<'de> serde::Deserialize<'de> for Label {
                         match value {
                             "name" => Ok(GeneratedField::Name),
                             "value" => Ok(GeneratedField::Value),
+                            "prefix" => Ok(GeneratedField::Prefix),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2466,6 +2475,7 @@ impl<'de> serde::Deserialize<'de> for Label {
             {
                 let mut name__ = None;
                 let mut value__ = None;
+                let mut prefix__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -2480,11 +2490,18 @@ impl<'de> serde::Deserialize<'de> for Label {
                             }
                             value__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Prefix => {
+                            if prefix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("prefix"));
+                            }
+                            prefix__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(Label {
                     name: name__.unwrap_or_default(),
                     value: value__.unwrap_or_default(),
+                    prefix: prefix__.unwrap_or_default(),
                 })
             }
         }
@@ -2701,9 +2718,21 @@ impl serde::Serialize for ListRequest {
         if self.selector.is_some() {
             len += 1;
         }
+        if self.watch {
+            len += 1;
+        }
+        if self.watch_resume.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.ListRequest", len)?;
         if let Some(v) = self.selector.as_ref() {
             struct_ser.serialize_field("selector", v)?;
+        }
+        if self.watch {
+            struct_ser.serialize_field("watch", &self.watch)?;
+        }
+        if let Some(v) = self.watch_resume.as_ref() {
+            struct_ser.serialize_field("watchResume", v)?;
         }
         struct_ser.end()
     }
@@ -2716,11 +2745,16 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
     {
         const FIELDS: &[&str] = &[
             "selector",
+            "watch",
+            "watch_resume",
+            "watchResume",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Selector,
+            Watch,
+            WatchResume,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2743,6 +2777,8 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
                     {
                         match value {
                             "selector" => Ok(GeneratedField::Selector),
+                            "watch" => Ok(GeneratedField::Watch),
+                            "watchResume" | "watch_resume" => Ok(GeneratedField::WatchResume),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2763,6 +2799,8 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut selector__ = None;
+                let mut watch__ = None;
+                let mut watch_resume__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Selector => {
@@ -2771,10 +2809,24 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
                             }
                             selector__ = map_.next_value()?;
                         }
+                        GeneratedField::Watch => {
+                            if watch__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("watch"));
+                            }
+                            watch__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WatchResume => {
+                            if watch_resume__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("watchResume"));
+                            }
+                            watch_resume__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(ListRequest {
                     selector: selector__,
+                    watch: watch__.unwrap_or_default(),
+                    watch_resume: watch_resume__,
                 })
             }
         }

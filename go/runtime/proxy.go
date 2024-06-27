@@ -12,6 +12,7 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"golang.org/x/net/trace"
@@ -21,10 +22,10 @@ type proxyServer struct {
 	resolver *consumer.Resolver
 }
 
-func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
-	var ctx = client.Context()
+func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServer) (_err error) {
+	var ctx = stream.Context()
 
-	var open, err = client.Recv()
+	var open, err = stream.Recv()
 	if err != nil {
 		return err
 	} else if err := validateOpen(open); err != nil {
@@ -36,6 +37,7 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 
 	resolution, err := ps.resolver.Resolve(consumer.ResolveArgs{
 		Context:     ctx,
+		Claims:      claims,
 		MayProxy:    false,
 		ProxyHeader: open.Open.Header,
 		ReadThrough: nil,
@@ -52,7 +54,7 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 		},
 	}
 	if resolution.Status != pc.Status_OK {
-		return client.Send(opened)
+		return stream.Send(opened)
 	}
 
 	// Resolve the target port to the current container.
@@ -66,10 +68,10 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 	if container == nil {
 		// Container is not currently running.
 		opened.OpenResponse.Status = pf.TaskNetworkProxyResponse_SHARD_STOPPED
-		return client.Send(opened)
+		return stream.Send(opened)
 	} else if open.Open.TargetPort == uint32(connectorInitPort) {
 		opened.OpenResponse.Status = pf.TaskNetworkProxyResponse_PORT_NOT_ALLOWED
-		return client.Send(opened)
+		return stream.Send(opened)
 	}
 
 	// Identify a proxy address to use from the container's published ports.
@@ -88,7 +90,7 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 	}
 	if address == "" {
 		opened.OpenResponse.Status = pf.TaskNetworkProxyResponse_PORT_NOT_ALLOWED
-		return client.Send(opened)
+		return stream.Send(opened)
 	}
 
 	// Dial the container.
@@ -101,7 +103,7 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 	defer delegate.Close()
 
 	// All validations were successful and we dialed the container.
-	_ = client.Send(opened)
+	_ = stream.Send(opened)
 
 	ops.PublishLog(publisher, ops.Log_debug, "started TCP proxy connection to container",
 		"clientAddr", open.Open.ClientAddr,
@@ -132,7 +134,7 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 
 		var counter = proxyConnBytesInboundCounter.WithLabelValues(labels...)
 		for {
-			if request, err := client.Recv(); err != nil {
+			if request, err := stream.Recv(); err != nil {
 				err = pf.UnwrapGRPCError(err)
 
 				if err != context.Canceled && err != io.EOF {
@@ -164,7 +166,7 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 			return nil
 		} else if err != nil {
 			return fmt.Errorf("reading from container: %w", err)
-		} else if err = client.Send(&pf.TaskNetworkProxyResponse{Data: buffer[:n]}); err != nil {
+		} else if err = stream.Send(&pf.TaskNetworkProxyResponse{Data: buffer[:n]}); err != nil {
 			// `client` reset its connection. We logged a received client error
 			// in the forwarding loop, and don't consider this reset to be an error.
 			return nil

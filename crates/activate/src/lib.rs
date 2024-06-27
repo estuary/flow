@@ -228,6 +228,7 @@ fn list_partitions_request(collection: &models::Collection) -> broker::ListReque
             )])),
             exclude: None,
         }),
+        ..Default::default()
     }
 }
 

@@ -289,7 +289,7 @@ mod test {
         // Expected label has too many values.
         let set = crate::add_value(model.clone(), crate::BUILD, "other");
         insta::assert_json_snapshot!(case(set),
-            @r###""expected one label for estuary.dev/build (got [Label { name: \"estuary.dev/build\", value: \"a-build\" }, Label { name: \"estuary.dev/build\", value: \"other\" }])""###);
+            @r###""expected one label for estuary.dev/build (got [Label { name: \"estuary.dev/build\", value: \"a-build\", prefix: false }, Label { name: \"estuary.dev/build\", value: \"other\", prefix: false }])""###);
 
         // Invalid log level.
         let set = crate::set_value(model.clone(), crate::LOG_LEVEL, "invalid");

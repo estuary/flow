@@ -9,54 +9,67 @@ LabelSelector {
                 Label {
                     name: "estuary.dev/collection",
                     value: "the/collection",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/bool",
                     value: "%_false",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/bool",
                     value: "%_true",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/integers",
                     value: "%_-9223372036854775808",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/integers",
                     value: "%_123",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/integers",
                     value: "%_18446744073709551615",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/integers",
                     value: "%_9223372036854775807",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/null",
                     value: "%_null",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/strings",
                     value: "Baz%21%40%22Bing%22",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/strings",
                     value: "hello%2C%20world%21",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/strings",
                     value: "http%3A%2F%2Fexample%2Fpath%3Fq1%3Dv1%26q2%3Dv2%3Bex%2520tra",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/strings",
                     value: "no.no%26no-no%40no%24yes_yes%28%29%3B",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/strings",
                     value: "simple",
+                    prefix: false,
                 },
             ],
         },
@@ -67,26 +80,32 @@ LabelSelector {
                 Label {
                     name: "estuary.dev/field/naughty-strings",
                     value: "%25_null",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
                     value: "-456",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
                     value: "123",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
                     value: "false",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
                     value: "null",
+                    prefix: false,
                 },
                 Label {
                     name: "estuary.dev/field/naughty-strings",
                     value: "true",
+                    prefix: false,
                 },
             ],
         },

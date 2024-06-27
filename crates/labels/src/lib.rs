@@ -101,33 +101,44 @@ where
     I: IntoIterator<Item = (S, S)>,
     S: AsRef<str>,
 {
-    let mut labels: Vec<Label> = it
-        .into_iter()
-        .map(|(name, value)| Label {
-            name: name.as_ref().to_string(),
-            value: value.as_ref().to_string(),
-        })
-        .collect();
+    let mut set = LabelSet { labels: Vec::new() };
 
-    labels.sort_by(|l, r| l.name.cmp(&r.name));
-
-    LabelSet { labels }
+    for (name, value) in it {
+        set = add_value(set, name.as_ref(), value.as_ref());
+    }
+    set
 }
 
 /// Update a LabelSet, replacing all labels of `name` with a single label having `value`.
+/// If `name` has the special suffix ":prefix", the Label is marked as a prefix
+/// match. It's only valid to use ":prefix" within the context of a LabelSelector.
 pub fn set_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
+    let (name, prefix) = if name.ends_with(":prefix") {
+        (&name[..name.len() - 7], true)
+    } else {
+        (name, false)
+    };
+
     set.labels.splice(
         range(&set, name),
         [Label {
             name: name.to_string(),
             value: value.to_string(),
+            prefix,
         }],
     );
     set
 }
 
-/// Update a LabelSet, adding a new label of `name` and `value`.
+/// Add a Label `name` with `value`, retaining any existing Labels of `name`.
+/// If `name` has the special suffix ":prefix", the Label is marked as a prefix
+/// match. It's only valid to use ":prefix" within the context of a LabelSelector.
 pub fn add_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
+    let (name, prefix) = if name.ends_with(":prefix") {
+        (&name[..name.len() - 7], true)
+    } else {
+        (name, false)
+    };
     let r = range(&set, name);
 
     // Within the range of labels matching `name`, find the insertion point for `value`.
@@ -143,6 +154,7 @@ pub fn add_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
         Label {
             name: name.to_string(),
             value: value.to_string(),
+            prefix,
         },
     );
     set
@@ -227,13 +239,13 @@ mod test {
     #[test]
     fn label_range_cases() {
         let set = crate::build_set([
-            ("a", ""),
-            ("b", ""),
-            ("b", ""),
-            ("d", ""),
-            ("e", ""),
-            ("e", ""),
-            ("e", ""),
+            ("a", "1"),
+            ("b", "2"),
+            ("b", "3"),
+            ("d", "4"),
+            ("e", "5"),
+            ("e", "6"),
+            ("e:prefix", "7"),
         ]);
 
         assert_eq!(range(&set, "_"), 0..0);
@@ -253,8 +265,8 @@ mod test {
         let mut set = crate::build_set([("a", "aa"), ("c", "cc"), ("d", "dd"), ("z", "")]);
 
         set = add_value(set, "a", "aa.2");
-        set = set_value(set, "d", "dd.2");
-        set = add_value(set, "b", "bb.1");
+        set = set_value(set, "d:prefix", "dd.2");
+        set = add_value(set, "b:prefix", "bb.1");
         set = remove(set, "c");
         set = remove(set, "z");
 
@@ -271,11 +283,13 @@ mod test {
             },
             {
               "name": "b",
-              "value": "bb.1"
+              "value": "bb.1",
+              "prefix": true
             },
             {
               "name": "d",
-              "value": "dd.2"
+              "value": "dd.2",
+              "prefix": true
             }
           ]
         }
@@ -315,11 +329,13 @@ mod test {
             },
             {
               "name": "b",
-              "value": "bb.1"
+              "value": "bb.1",
+              "prefix": true
             },
             {
               "name": "d",
-              "value": "dd.2"
+              "value": "dd.2",
+              "prefix": true
             }
           ]
         }

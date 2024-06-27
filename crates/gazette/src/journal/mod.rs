@@ -4,6 +4,7 @@ use proto_gazette::broker;
 use std::sync::Arc;
 use tonic::transport::Uri;
 
+mod list;
 mod read;
 
 mod read_json_lines;
@@ -29,25 +30,7 @@ impl Client {
         }
     }
 
-    pub async fn list(
-        &self,
-        req: broker::ListRequest,
-    ) -> Result<broker::ListResponse, crate::Error> {
-        let mut client = self.router.route(None, false).await?;
-
-        let resp = client
-            .list(req)
-            .await
-            .map_err(crate::Error::Grpc)?
-            .into_inner();
-
-        check_ok(resp.status(), resp)
-    }
-
-    pub async fn apply(
-        &self,
-        req: broker::ApplyRequest,
-    ) -> Result<broker::ApplyResponse, crate::Error> {
+    pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
         let mut client = self.router.route(None, false).await?;
 
         let resp = client
@@ -62,7 +45,7 @@ impl Client {
     pub async fn list_fragments(
         &self,
         req: broker::FragmentsRequest,
-    ) -> Result<broker::FragmentsResponse, crate::Error> {
+    ) -> crate::Result<broker::FragmentsResponse> {
         let mut client = self.router.route(None, false).await?;
 
         let resp = client
@@ -113,19 +96,4 @@ fn check_ok<R>(status: broker::Status, r: R) -> Result<R, crate::Error> {
     } else {
         Err(crate::Error::BrokerStatus(status))
     }
-}
-
-async fn backoff(attempt: u32) {
-    use std::time::Duration;
-
-    if attempt == 0 {
-        return;
-    }
-    let dur = match attempt {
-        1 | 2 => Duration::from_millis(50),
-        3 | 4 => Duration::from_millis(100),
-        5 | 6 => Duration::from_secs(1),
-        _ => Duration::from_secs(5),
-    };
-    tokio::time::sleep(dur).await;
 }
