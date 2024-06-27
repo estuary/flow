@@ -220,17 +220,31 @@ func (a *azureBackend) Remove(ctx context.Context, fragment pb.Fragment) error {
 // credentials that can be used with `azblob` Pipelines.
 func getAzureStorageCredential(coreCredential azcore.TokenCredential, tenant string) (azblob.TokenCredential, error) {
 	var tokenRefresher = func(credential azblob.TokenCredential) time.Duration {
-		accessToken, err := coreCredential.GetToken(context.Background(), policy.TokenRequestOptions{TenantID: tenant, Scopes: []string{"https://storage.azure.com/.default"}})
-		if err != nil {
-			panic(err)
-		}
-		credential.SetToken(accessToken.Token)
+		var backoff_duration = time.Second
+		for {
+			accessToken, err := coreCredential.GetToken(context.Background(), policy.TokenRequestOptions{TenantID: tenant, Scopes: []string{"https://storage.azure.com/.default"}})
+			if err != nil {
+				log.WithFields(log.Fields{
+					"tenant":           tenant,
+					"backoff_duration": backoff_duration,
+				}).Errorf("Error refreshing credential, will retry: %v", err)
+				time.Sleep(backoff_duration)
+				if backoff_duration*2 > (time.Minute * 5) {
+					backoff_duration = time.Minute * 5
+				} else {
+					backoff_duration = backoff_duration * 2
+				}
+				continue
+			} else {
+				credential.SetToken(accessToken.Token)
 
-		// Give 60s of padding in order to make sure we always have a non-expired token.
-		// If we didn't do this, we would *begin* the refresh process as the token expires,
-		// potentially leaving any consumer with an expired token while we fetch a new one.
-		exp := accessToken.ExpiresOn.Sub(time.Now().Add(time.Minute))
-		return exp
+				// Give 60s of padding in order to make sure we always have a non-expired token.
+				// If we didn't do this, we would *begin* the refresh process as the token expires,
+				// potentially leaving any consumer with an expired token while we fetch a new one.
+				exp := accessToken.ExpiresOn.Sub(time.Now().Add(time.Minute))
+				return exp
+			}
+		}
 	}
 
 	credential := azblob.NewTokenCredential("", tokenRefresher)
