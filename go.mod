@@ -1,6 +1,8 @@
 module github.com/estuary/flow
 
-go 1.18
+go 1.22
+
+toolchain go1.22.2
 
 require (
 	cloud.google.com/go/storage v1.30.1
@@ -19,11 +21,10 @@ require (
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
-	go.gazette.dev/core v0.89.1-0.20240418133910-d612fdcfd24a
+	go.gazette.dev/core v0.99.1-0.20240627214207-86bb27786a89
 	golang.org/x/net v0.26.0
 	google.golang.org/api v0.126.0
 	google.golang.org/grpc v1.59.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -97,4 +98,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

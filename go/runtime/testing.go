@@ -62,7 +62,7 @@ func NewFlowTesting(inner *FlowConsumer, ajc *client.AppendService) (*FlowTestin
 
 // ResetState is a testing API that clears registers of derivation shards.
 func (f *FlowTesting) ResetState(ctx context.Context, _ *pf.ResetStateRequest) (*pf.ResetStateResponse, error) {
-	var listing, err = consumer.ShardList(ctx, f.Service, &pc.ListRequest{
+	var listing, err = consumer.ShardList(ctx, pb.Claims{}, f.Service, &pc.ListRequest{
 		Selector: pb.LabelSelector{
 			Include: pb.MustLabelSet(labels.TaskType, ops.TaskType_derivation.String()),
 		},

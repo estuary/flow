@@ -48,15 +48,20 @@ pub async fn fetch_data_plane_access_token(
 pub async fn journal_client_for(
     cp_client: controlplane::Client,
     prefixes: Vec<String>,
-) -> anyhow::Result<journal_client::Client> {
+) -> anyhow::Result<gazette::journal::Client> {
     let DataPlaneAccess {
         auth_token,
         gateway_url,
     } = fetch_data_plane_access_token(cp_client, prefixes).await?;
     tracing::debug!(%gateway_url, "acquired data-plane-gateway access token");
 
-    let client =
-        journal_client::connect_journal_client(gateway_url.clone(), Some(auth_token)).await?;
+    let router = gazette::journal::Router::new(
+        &gateway_url,
+        gazette::Auth::new(Some(auth_token)).context("failed to build gazette router")?,
+        "local",
+    )?;
+    let client = gazette::journal::Client::new(Default::default(), router);
+
     tracing::debug!(%gateway_url, "connected data-plane client");
     Ok(client)
 }

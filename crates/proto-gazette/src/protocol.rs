@@ -5,10 +5,16 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Label {
+    /// Name of this label.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
+    /// Value of this label.
     #[prost(string, tag = "2")]
     pub value: ::prost::alloc::string::String,
+    /// Does this label match on value prefix?
+    /// May only be set true within a LabelSelector.
+    #[prost(bool, tag = "3")]
+    pub prefix: bool,
 }
 /// LabelSet is a collection of labels and their values.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -539,8 +545,15 @@ pub struct ListRequest {
     ///      The prefix Label value must end in '/'.
     #[prost(message, optional, tag = "1")]
     pub selector: ::core::option::Option<LabelSelector>,
+    /// Watch the requested selector and send an updated snapshot upon every
+    /// change to matched journal specifications.
+    #[prost(bool, tag = "4")]
+    pub watch: bool,
+    /// Header of the last ListResponse processed by a resumed watch of a listing.
+    #[prost(message, optional, tag = "5")]
+    pub watch_resume: ::core::option::Option<Header>,
 }
-/// ListResponse is the unary response message of the broker List RPC.
+/// ListResponse is the streamed response message of the broker List RPC.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListResponse {
