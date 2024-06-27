@@ -222,12 +222,13 @@ fn list_task_request(
 fn list_partitions_request(collection: &models::Collection) -> broker::ListRequest {
     broker::ListRequest {
         selector: Some(LabelSelector {
-            include: Some(labels::build_set([(
-                labels::COLLECTION,
-                collection.as_str(),
-            )])),
+            include: Some(labels::build_set([
+                ("name:prefix", format!("{collection}/").as_str()),
+                (labels::COLLECTION, collection.as_str()),
+            ])),
             exclude: None,
         }),
+        ..Default::default()
     }
 }
 
@@ -527,7 +528,7 @@ mod test {
     fn test_list_partition_request() {
         insta::assert_debug_snapshot!(list_partitions_request(&models::Collection::new(
             "the/collection"
-        )),)
+        )))
     }
 
     #[test]

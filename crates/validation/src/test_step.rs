@@ -180,7 +180,7 @@ pub fn walk_test_step<'a>(
         step_scope: scope.flatten().to_string(),
         collection: collection.to_string(),
         docs_json_vec: documents.into_iter().map(|d| d.to_string()).collect(),
-        partitions: Some(assemble::journal_selector(collection, selector)),
+        partitions: Some(assemble::journal_selector(&spec, selector)),
         description: description.clone(),
     })
 }

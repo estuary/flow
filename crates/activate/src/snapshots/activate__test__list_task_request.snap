@@ -12,10 +12,12 @@ expression: "list_task_request(ops::TaskType::Derivation, \"the/derivation\")"
                             Label {
                                 name: "estuary.dev/task-name",
                                 value: "the/derivation",
+                                prefix: false,
                             },
                             Label {
                                 name: "estuary.dev/task-type",
                                 value: "derivation",
+                                prefix: false,
                             },
                         ],
                     },
@@ -34,14 +36,17 @@ expression: "list_task_request(ops::TaskType::Derivation, \"the/derivation\")"
                             Label {
                                 name: "content-type",
                                 value: "application/x-gazette-recoverylog",
+                                prefix: false,
                             },
                             Label {
                                 name: "estuary.dev/task-name",
                                 value: "the/derivation",
+                                prefix: false,
                             },
                             Label {
                                 name: "estuary.dev/task-type",
                                 value: "derivation",
+                                prefix: false,
                             },
                         ],
                     },
@@ -49,5 +54,7 @@ expression: "list_task_request(ops::TaskType::Derivation, \"the/derivation\")"
                 exclude: None,
             },
         ),
+        watch: false,
+        watch_resume: None,
     },
 )

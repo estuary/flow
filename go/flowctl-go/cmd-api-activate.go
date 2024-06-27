@@ -171,12 +171,9 @@ func (cmd apiActivate) Execute(_ []string) error {
 }
 
 func newJournalClient(ctx context.Context, broker mbp.ClientConfig) (pb.RoutedJournalClient, *pb.Header_Etcd, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-
 	var jc = broker.MustRoutedJournalClient(ctx)
 
-	resp, err := jc.List(ctx, &pb.ListRequest{
+	var resp, err = client.ListAllJournals(ctx, jc, pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", "this/collection/does/not/exist")},
 	})
 	if err != nil {
@@ -186,9 +183,6 @@ func newJournalClient(ctx context.Context, broker mbp.ClientConfig) (pb.RoutedJo
 }
 
 func newShardClient(ctx context.Context, consumer mbp.ClientConfig) (pc.ShardClient, *pb.Header_Etcd, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-
 	var sc = consumer.MustShardClient(ctx)
 
 	resp, err := sc.List(ctx, &pc.ListRequest{

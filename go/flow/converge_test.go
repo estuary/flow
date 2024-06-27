@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"google.golang.org/grpc"
 )
 
 func TestConvergence(t *testing.T) {
@@ -317,69 +316,75 @@ func TestConvergence(t *testing.T) {
 			"duplicate desired shard derivation/example/derivation/ffffffffffffffff/10000000-60000000")
 	})
 
-	t.Run("activate-empty-cluster", func(t *testing.T) {
-		var ctx = context.Background()
-		var jc = &mockJournals{}
-		var sc = &mockShards{}
+	// TODO(johnny): Commenting because this code is being replaced by the Rust `activate` crate
+	// and is only used within end-to-end tests and flowctl-go journals split / shard split
+	// at this point.
+	/*
+		t.Run("activate-empty-cluster", func(t *testing.T) {
+			var ctx = context.Background()
+			var jc = &mockJournals{}
+			var sc = &mockShards{}
 
-		var shards, journals, err = ActivationChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, 2)
-		require.NoError(t, err)
-		cupaloy.SnapshotT(t, shards, journals)
-	})
+			var shards, journals, err = ActivationChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, 2)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, shards, journals)
+		})
 
-	t.Run("activate-has-no-changes", func(t *testing.T) {
-		var ctx = context.Background()
-		var jc = &mockJournals{
-			collections: map[string]*pb.ListResponse{
-				collection.Name.String(): {Journals: allPartitions},
-			},
-			logs: map[string]*pb.ListResponse{
-				derivation.TaskName(): {Journals: allLogs},
-			},
-		}
-		var sc = &mockShards{
-			tasks: map[string]*pc.ListResponse{
-				derivation.TaskName(): {Shards: allShards},
-			},
-		}
+		t.Run("activate-has-no-changes", func(t *testing.T) {
+			var ctx = context.Background()
+			var jc = &mockJournals{
+				collections: map[string]*pb.ListResponse{
+					collection.Name.String(): {Journals: allPartitions},
+				},
+				logs: map[string]*pb.ListResponse{
+					derivation.TaskName(): {Journals: allLogs},
+				},
+			}
+			var sc = &mockShards{
+				tasks: map[string]*pc.ListResponse{
+					derivation.TaskName(): {Shards: allShards},
+				},
+			}
 
-		var shards, journals, err = ActivationChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, 2)
-		require.NoError(t, err)
-		cupaloy.SnapshotT(t, shards, journals)
-	})
+			var shards, journals, err = ActivationChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation}, 2)
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, shards, journals)
+		})
 
-	t.Run("deletion-empty-cluster", func(t *testing.T) {
-		var ctx = context.Background()
-		var jc = &mockJournals{}
-		var sc = &mockShards{}
+		t.Run("deletion-empty-cluster", func(t *testing.T) {
+			var ctx = context.Background()
+			var jc = &mockJournals{}
+			var sc = &mockShards{}
 
-		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation})
-		require.NoError(t, err)
-		cupaloy.SnapshotT(t, shards, journals)
-	})
+			var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation})
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, shards, journals)
+		})
 
-	t.Run("deletion-full-cluster", func(t *testing.T) {
-		var ctx = context.Background()
-		var jc = &mockJournals{
-			collections: map[string]*pb.ListResponse{
-				collection.Name.String(): {Journals: allPartitions},
-			},
-			logs: map[string]*pb.ListResponse{
-				derivation.TaskName(): {Journals: allLogs},
-			},
-		}
-		var sc = &mockShards{
-			tasks: map[string]*pc.ListResponse{
-				derivation.TaskName(): {Shards: allShards},
-			},
-		}
+		t.Run("deletion-full-cluster", func(t *testing.T) {
+			var ctx = context.Background()
+			var jc = &mockJournals{
+				collections: map[string]*pb.ListResponse{
+					collection.Name.String(): {Journals: allPartitions},
+				},
+				logs: map[string]*pb.ListResponse{
+					derivation.TaskName(): {Journals: allLogs},
+				},
+			}
+			var sc = &mockShards{
+				tasks: map[string]*pc.ListResponse{
+					derivation.TaskName(): {Shards: allShards},
+				},
+			}
 
-		var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation})
-		require.NoError(t, err)
-		cupaloy.SnapshotT(t, shards, journals)
-	})
+			var shards, journals, err = DeletionChanges(ctx, jc, sc, []*pf.CollectionSpec{collection}, []pf.Task{derivation})
+			require.NoError(t, err)
+			cupaloy.SnapshotT(t, shards, journals)
+		})
+	*/
 }
 
+/*
 type mockJournals struct {
 	collections map[string]*pb.ListResponse
 	logs        map[string]*pb.ListResponse
@@ -479,3 +484,4 @@ func (sc *mockShards) GetHints(ctx context.Context, in *pc.GetHintsRequest, opts
 func (sc *mockShards) Unassign(ctx context.Context, in *pc.UnassignRequest, opts ...grpc.CallOption) (*pc.UnassignResponse, error) {
 	panic("not implemented")
 }
+*/

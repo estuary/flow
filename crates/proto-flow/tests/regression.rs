@@ -70,10 +70,12 @@ fn ex_label_set() -> broker::LabelSet {
             broker::Label {
                 name: "estuary.dev/foo".to_string(),
                 value: "label-value".to_string(),
+                prefix: false,
             },
             broker::Label {
                 name: "estuary.dev/bar".to_string(),
                 value: "other-value".to_string(),
+                prefix: false,
             },
         ],
     }
@@ -81,7 +83,13 @@ fn ex_label_set() -> broker::LabelSet {
 fn ex_label_selector() -> broker::LabelSelector {
     broker::LabelSelector {
         include: Some(ex_label_set()),
-        exclude: None,
+        exclude: Some(broker::LabelSet {
+            labels: vec![broker::Label {
+                name: "my-label".to_string(),
+                value: "prefix/".to_string(),
+                prefix: true,
+            }],
+        }),
     }
 }
 

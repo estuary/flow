@@ -47,6 +47,7 @@ func TestStuffedMessageChannel(t *testing.T) {
 					labels.RClockEnd, labels.RClockEndMax)},
 			}
 		},
+		service: &consumer.Service{},
 	}
 	var g = newGovernor(rb, pc.Checkpoint{}, flow.NewTimepoint(time.Now()))
 
@@ -171,9 +172,11 @@ func TestConsumerIntegration(t *testing.T) {
 				task:     derivation,
 				buildID:  "a-build-id",
 			},
+			AuthKeys: "c2VjcmV0",
 		})
 		cmr.Service.App.(*testApp).service = cmr.Service
-		pr.RegisterShufflerServer(cmr.Server.GRPCServer, &API{resolve: cmr.Service.Resolver.Resolve})
+		pr.RegisterShufflerServer(cmr.Server.GRPCServer,
+			pr.NewAuthShufflerServer(&API{resolve: cmr.Service.Resolver.Resolve}, cmr.Service.Verifier))
 		cmr.Tasks.GoRun()
 		return cmr
 

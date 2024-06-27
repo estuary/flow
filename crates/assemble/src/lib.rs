@@ -147,25 +147,12 @@ pub fn partition_template(
     // aggregation per-transaction, and may stall until there's quota.
     let max_append_rate = 1 << 22; // 4MB.
 
-    // Labels must be in alphabetical order.
-    let labels = vec![
-        broker::Label {
-            name: labels::MANAGED_BY.to_string(),
-            value: labels::MANAGED_BY_FLOW.to_string(),
-        },
-        broker::Label {
-            name: labels::CONTENT_TYPE.to_string(),
-            value: labels::CONTENT_TYPE_JSON_LINES.to_string(),
-        },
-        broker::Label {
-            name: labels::BUILD.to_string(),
-            value: build_id.to_string(),
-        },
-        broker::Label {
-            name: labels::COLLECTION.to_string(),
-            value: collection.to_string(),
-        },
-    ];
+    let labels = labels::build_set([
+        (labels::BUILD, build_id.to_string().as_str()),
+        (labels::COLLECTION, &collection),
+        (labels::CONTENT_TYPE, labels::CONTENT_TYPE_JSON_LINES),
+        (labels::MANAGED_BY, labels::MANAGED_BY_FLOW),
+    ]);
 
     broker::JournalSpec {
         name: journal_name_prefix.to_string(),
@@ -183,7 +170,7 @@ pub fn partition_template(
                 .collect(),
         }),
         flags,
-        labels: Some(broker::LabelSet { labels }),
+        labels: Some(labels),
         max_append_rate,
     }
 }
@@ -231,29 +218,13 @@ pub fn recovery_log_template(
     // aggregation per-transaction, and may stall until there's quota.
     let max_append_rate = 1 << 22; // 4MB.
 
-    // Labels must be in alphabetical order.
-    let labels = vec![
-        broker::Label {
-            name: labels::MANAGED_BY.to_string(),
-            value: labels::MANAGED_BY_FLOW.to_string(),
-        },
-        broker::Label {
-            name: labels::CONTENT_TYPE.to_string(),
-            value: labels::CONTENT_TYPE_RECOVERY_LOG.to_string(),
-        },
-        broker::Label {
-            name: labels::BUILD.to_string(),
-            value: build_id.to_string(),
-        },
-        broker::Label {
-            name: labels::TASK_NAME.to_string(),
-            value: task_name.to_string(),
-        },
-        broker::Label {
-            name: labels::TASK_TYPE.to_string(),
-            value: task_type.to_string(),
-        },
-    ];
+    let labels = labels::build_set([
+        (labels::BUILD, build_id.to_string().as_str()),
+        (labels::CONTENT_TYPE, labels::CONTENT_TYPE_RECOVERY_LOG),
+        (labels::MANAGED_BY, labels::MANAGED_BY_FLOW),
+        (labels::TASK_NAME, task_name),
+        (labels::TASK_TYPE, &task_type.to_string()),
+    ]);
 
     broker::JournalSpec {
         name: format!("recovery/{shard_id_prefix}"),
@@ -268,7 +239,7 @@ pub fn recovery_log_template(
             stores: stores.iter().map(|s| s.to_url(task_name).into()).collect(),
         }),
         flags,
-        labels: Some(broker::LabelSet { labels }),
+        labels: Some(labels),
         max_append_rate,
     }
 }
@@ -341,35 +312,20 @@ pub fn shard_template(
     // If not set, the default read channel size is 4,096.
     let read_channel_size = read_channel_size.unwrap_or(1 << 12);
 
-    let mut labels = vec![
-        broker::Label {
-            name: labels::MANAGED_BY.to_string(),
-            value: labels::MANAGED_BY_FLOW.to_string(),
-        },
-        broker::Label {
-            name: labels::BUILD.to_string(),
-            value: build_id.to_string(),
-        },
-        broker::Label {
-            name: labels::LOG_LEVEL.to_string(),
-            value: log_level.clone().unwrap_or_else(|| "info".to_string()),
-        },
-        broker::Label {
-            name: labels::TASK_NAME.to_string(),
-            value: task_name.to_string(),
-        },
-        broker::Label {
-            name: labels::TASK_TYPE.to_string(),
-            value: task_type.to_string(),
-        },
-    ];
+    let mut labels = labels::build_set([
+        (labels::BUILD, build_id.to_string().as_str()),
+        (
+            labels::LOG_LEVEL,
+            log_level.as_ref().map(String::as_str).unwrap_or("info"),
+        ),
+        (labels::MANAGED_BY, labels::MANAGED_BY_FLOW),
+        (labels::TASK_NAME, task_name),
+        (labels::TASK_TYPE, &task_type.to_string()),
+    ]);
 
     // Only add a hostname if the task actually exposes any ports.
     if !ports.is_empty() {
-        labels.push(broker::Label {
-            name: labels::HOSTNAME.to_string(),
-            value: shard_hostname_label(task_name),
-        });
+        labels = labels::add_value(labels, labels::HOSTNAME, &shard_hostname_label(task_name));
     }
     for flow::NetworkPort {
         number,
@@ -378,27 +334,24 @@ pub fn shard_template(
     } in ports
     {
         // labels are a multiset, so we use the same label for all exposed port numbers.
-        labels.push(broker::Label {
-            name: labels::EXPOSE_PORT.to_string(),
-            value: number.to_string(),
-        });
+        labels = labels::add_value(labels, labels::EXPOSE_PORT, &number.to_string());
 
         // Only add these labels if they differ from the defaults
         if *public {
-            labels.push(broker::Label {
-                name: format!("{}{number}", labels::PORT_PUBLIC_PREFIX),
-                value: "true".to_string(),
-            });
+            labels = labels::add_value(
+                labels,
+                &format!("{}{number}", labels::PORT_PUBLIC_PREFIX),
+                "true",
+            );
         }
         if !protocol.is_empty() {
-            labels.push(broker::Label {
-                name: format!("{}{number}", labels::PORT_PROTO_PREFIX),
-                value: protocol.clone(),
-            });
+            labels = labels::add_value(
+                labels,
+                &format!("{}{number}", labels::PORT_PROTO_PREFIX),
+                &protocol,
+            );
         }
     }
-    // Labels must be in lexicographic order.
-    labels.sort_by(|l, r| l.name.cmp(&r.name));
 
     consumer::ShardSpec {
         id: shard_id_prefix.to_string(),
@@ -407,7 +360,7 @@ pub fn shard_template(
         hint_backups,
         hint_prefix,
         hot_standbys,
-        labels: Some(broker::LabelSet { labels }),
+        labels: Some(labels),
         max_txn_duration: Some(max_txn_duration.into()),
         min_txn_duration: Some(min_txn_duration.into()),
         read_channel_size,
@@ -428,12 +381,21 @@ fn shard_hostname_label(task_name: &str) -> String {
     format!("{:x}", hash)
 }
 
-// TODO(johnny): This should return a Result, but I'm punting on that refactor right now.
 pub fn journal_selector(
-    collection: &models::Collection,
+    collection: &flow::CollectionSpec,
     selector: Option<&models::PartitionSelector>,
 ) -> broker::LabelSelector {
-    let mut include = labels::build_set([(labels::COLLECTION, collection.as_str())]);
+    let mut include = labels::build_set([
+        (labels::COLLECTION, collection.name.as_ref()),
+        // TODO(johnny): Enable this as soon as the label prefix change has propagated
+        // to all connectors, such as derive-typescript.
+        /*
+        (
+            "name:prefix",
+            format!("{}/", collection.partition_template.as_ref().unwrap().name).as_ref(),
+        ),
+        */
+    ]);
     let mut exclude = broker::LabelSet::default();
 
     if let Some(selector) = selector {
@@ -509,44 +471,6 @@ pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCode
         models::CompressionCodec::GzipOffloadDecompression => {
             broker::CompressionCodec::GzipOffloadDecompression
         }
-    }
-}
-
-pub fn label(t: models::Label) -> broker::Label {
-    let models::Label { name, value } = t;
-    broker::Label { name, value }
-}
-
-pub fn label_set(t: models::LabelSet) -> broker::LabelSet {
-    let models::LabelSet { mut labels } = t;
-
-    // broker::LabelSet requires that labels be ordered on (name, value).
-    // Establish this invariant.
-    labels.sort_by(|lhs, rhs| (&lhs.name, &lhs.value).cmp(&(&rhs.name, &rhs.value)));
-
-    broker::LabelSet {
-        labels: labels.into_iter().map(label).collect(),
-    }
-}
-
-pub fn label_selector(t: models::LabelSelector) -> broker::LabelSelector {
-    let models::LabelSelector { include, exclude } = t;
-
-    let include = if include.labels.is_empty() {
-        None
-    } else {
-        Some(include)
-    };
-
-    let exclude = if exclude.labels.is_empty() {
-        None
-    } else {
-        Some(exclude)
-    };
-
-    broker::LabelSelector {
-        include: include.map(label_set),
-        exclude: exclude.map(label_set),
     }
 }
 
@@ -662,7 +586,14 @@ mod test {
         );
 
         let selector = models::PartitionSelector { include, exclude };
-        let collection = models::Collection::new("the/collection");
+        let collection = flow::CollectionSpec {
+            name: "the/collection".to_string(),
+            partition_template: Some(broker::JournalSpec {
+                name: "data-plane/the/collection/xyz".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let labels = journal_selector(&collection, Some(&selector));
         insta::assert_debug_snapshot!(labels);
     }
