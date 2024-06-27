@@ -136,18 +136,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/collection-with-flow-document",
+                                        prefix: false,
                                     },
                                 ],
                             },
