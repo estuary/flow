@@ -107,11 +107,8 @@ impl Handler for ControllerHandler {
     async fn handle(
         &mut self,
         pg_pool: &sqlx::PgPool,
-        allow_background: bool,
+        _allow_background: bool,
     ) -> anyhow::Result<HandleResult> {
-        if !allow_background {
-            return Ok(HandleResult::NoJobs);
-        }
         let prev_state = self.try_run_next(pg_pool).await?;
         let result = if prev_state.is_some() {
             HandleResult::HadJob
