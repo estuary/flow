@@ -1,42 +1,36 @@
+# NetSuite SuiteTalk REST
 
-# NetSuite
+This connector captures data from Oracle NetSuite into Flow collections. It connects to the NetSuite Analytics Data Warehouse using the SuiteQL REST endpoint and a custom role.
 
-This connector captures data from Oracle NetSuite into Flow collections.
-
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-netsuite:dev`](https://ghcr.io/estuary/source-netsuite:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
-This connector can be used in two different modes:
-
-* Connect to the NetSuite Analytics Data Warehouse using the SuiteQL REST endpoint and a custom role.
-* Connect to the NetSuite Analytics Data Warehouse using the ODBC Connector and the bundled Data Warehouse role
+It is available for use in the Flow web application.
 
 ## SuiteAnalytics vs SuiteQL via REST API
 
 These two different connection modes have some key differences:
 
-### SuiteAnalytics Connect
+### [SuiteAnalytics Connect](../netsuite-suiteanalytics)
 
-* Requires the SuiteAnalytics Connect feature to be purchased on your NetSuite account
-* Can inspect which tables (standard & custom) exist in your account
-* Can inspect the exact data types specified on these table columns
-* This means you can connect to any table in your account and all fields (booleans, date, and datetimes) are properly formatted in Estuary
+- Requires the SuiteAnalytics Connect feature to be purchased on your NetSuite account
+- Can inspect which tables (standard & custom) exist in your account
+- Can inspect the exact data types specified on these table columns
+- This means you can connect to any table in your account and all fields (booleans, date, and datetimes) are properly formatted in Estuary
 
 ### SuiteQL via REST API
 
-* Custom tables are not supported without manual work
-* Some standard tables may not yet be supported and will require additional work from the Estuary team
-* Datetime values are represented as dates without the time specification (this is a limitation of the REST API)
-* Data types on custom columns may not be properly represented
-* You are repsonsible for determining the right set of permissions to grant the connector, which can often be complicated and unintuitive
+- Custom tables are not supported without manual work
+- Some standard tables may not yet be supported and will require additional work from the Estuary team
+- Datetime values are represented as dates without the time specification (this is a limitation of the REST API)
+- Data types on custom columns may not be properly represented
+- You are repsonsible for determining the right set of permissions to grant the connector, which can often be complicated and unintuitive
 
 ## Prerequisites
 
-* Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
-* Allowed access to all Account permissions options
-* A new integration with token-based authentication
-* A custom role with access to objects you want to capture _or_ a purchased SuiteAnalytics Module. See [setup](#setup).
-* A new user assigned to the custom role
-* Access token generated for the custom role
+- Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
+- Allowed access to all Account permissions options
+- A new integration with token-based authentication
+- A custom role with access to objects you want to capture _or_ a purchased SuiteAnalytics Module. See [setup](#setup).
+- A new user assigned to the custom role
+- Access token generated for the custom role
 
 ## General Setup
 
@@ -66,7 +60,7 @@ These two different connection modes have some key differences:
 
    7. Save your changes.
 
-3. Create a NetSuite *integration* to obtain a Consumer Key and Consumer Secret.
+3. Create a NetSuite _integration_ to obtain a Consumer Key and Consumer Secret.
 
    1. Navigate to **Setup** > **Integration** > **Manage Integrations** > **New**.
 
@@ -93,13 +87,13 @@ These two different connection modes have some key differences:
 
    5. (IMPORTANT) Click **Transactions** and add all the dropdown entities with either **full** or **view** access level.
 
-    * Find Transaction
+   - Find Transaction
 
    6. (IMPORTANT) Click **Setup** an add the following entities with either **full** or **view** access level.
 
-     * Log in using Access Tokens
-     * REST Web Services
-     * User Access Tokens
+   - Log in using Access Tokens
+   - REST Web Services
+   - User Access Tokens
 
    To allow your custom role to reflect future changes, be sure to edit these parameters again when you rename or customize any NetSuite object.
 
@@ -127,7 +121,7 @@ These two different connection modes have some key differences:
 
    4. Under **Role**, select the role you assigned to the user previously.
 
-   5. Under **Token Name**,  give a descriptive name to the token you are creating, for example `estuary-rest-integration-token`.
+   5. Under **Token Name**, give a descriptive name to the token you are creating, for example `estuary-rest-integration-token`.
 
    6. Save your changes.
 
@@ -135,11 +129,11 @@ These two different connection modes have some key differences:
 
 You now have a properly configured account with the correct permissions and all the information you need to connect with Flow:
 
-* Account ID (Realm)
-* Consumer Key
-* Consumer Secret
-* Token ID
-* Token Secret
+- Account ID (Realm)
+- Consumer Key
+- Consumer Secret
+- Token ID
+- Token Secret
 
 ## Configuration
 
@@ -150,21 +144,21 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 #### Endpoint
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| `/account_id` | Realm | Netsuite realm e.g. 2344535, as for `production` or 2344535_SB1, as for the `sandbox` | string | Required |
-| `/start_date` | Token Secret | The date to start collecting data from | date | Required |
-| `/consumer_key` | Consumer Key | Consumer key associated with your integration. | string | Required |
-| `/consumer_secret` | Consumer Secret | Consumer secret associated with your integration. | string | Required |
-| `/token_key` | Token Key | Access token key | string | Required |
-| `/token_secret` | Token Secret | Access token secret | string | Required |
+| Property           | Title           | Description                                                                           | Type   | Required/Default |
+| ------------------ | --------------- | ------------------------------------------------------------------------------------- | ------ | ---------------- |
+| `/account_id`      | Realm           | Netsuite realm e.g. 2344535, as for `production` or 2344535_SB1, as for the `sandbox` | string | Required         |
+| `/start_date`      | Token Secret    | The date to start collecting data from                                                | date   | Required         |
+| `/consumer_key`    | Consumer Key    | Consumer key associated with your integration.                                        | string | Required         |
+| `/consumer_secret` | Consumer Secret | Consumer secret associated with your integration.                                     | string | Required         |
+| `/token_key`       | Token Key       | Access token key                                                                      | string | Required         |
+| `/token_secret`    | Token Secret    | Access token secret                                                                   | string | Required         |
 
 #### Bindings
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| **`/stream`** | Stream | Resource of your NetSuite project from which collections are captured. | string | Required |
-| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| Property        | Title     | Description                                                            | Type   | Required/Default |
+| --------------- | --------- | ---------------------------------------------------------------------- | ------ | ---------------- |
+| **`/stream`**   | Stream    | Resource of your NetSuite project from which collections are captured. | string | Required         |
+| **`/syncMode`** | Sync Mode | Connection method.                                                     | string | Required         |
 
 ### Sample
 
