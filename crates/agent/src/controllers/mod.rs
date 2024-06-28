@@ -146,8 +146,7 @@ impl ControllerState {
 }
 
 /// A wrapper around an `anyhow::Error` that also contains retry information.
-/// All other types of errors are terminal, but `ControllerError`s may contain
-/// a backoff, in which case the controller will be re-tried.
+/// Allows marking an error as non-retryable by setting `retry` to `None`.
 #[derive(Debug)]
 pub struct RetryableError {
     pub inner: anyhow::Error,
@@ -157,11 +156,11 @@ pub struct RetryableError {
 impl std::fmt::Display for RetryableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let maybe_retry = if self.retry.is_some() {
-            " (will retry)"
+            "(will retry)"
         } else {
-            ""
+            "(terminal error)"
         };
-        write!(f, "{}{}", self.inner, maybe_retry)
+        write!(f, "{} {}", self.inner, maybe_retry)
     }
 }
 
@@ -187,6 +186,13 @@ trait ControllerErrorExt {
         Self: Sized,
     {
         self.with_maybe_retry(Some(after))
+    }
+
+    fn do_not_retry(self) -> Result<Self::Success, RetryableError>
+    where
+        Self: Sized,
+    {
+        self.with_maybe_retry(None)
     }
 }
 

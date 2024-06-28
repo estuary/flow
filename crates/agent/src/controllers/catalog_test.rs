@@ -1,5 +1,7 @@
 use super::{publication_status::Dependencies, ControlPlane, ControllerState, NextRun};
 use crate::controllers::publication_status::PublicationStatus;
+use crate::controllers::ControllerErrorExt;
+use anyhow::Context;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -31,10 +33,10 @@ impl TestStatus {
                 .publications
                 .finish_pending_publication(state, control_plane)
                 .await
-                .expect("failed to execute publication");
+                .context("failed to execute publication")?;
             self.passing = result.status.is_success();
-            // return a (terminal) error if the publication failed
-            result.error_for_status()?;
+            // return a terminal error if the publication failed
+            result.error_for_status().do_not_retry()?;
             // TODO(phil): This would be a great place to trigger an alert if the publication failed
         } else {
             // We're up-to-date with our dependencies, which means the test has been published successfully

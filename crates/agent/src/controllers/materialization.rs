@@ -85,7 +85,7 @@ impl MaterializationStatus {
                 .publications
                 .finish_pending_publication(state, control_plane)
                 .await
-                .expect("failed to execute publication");
+                .context("failed to execute publication")?;
 
             if result.status.has_incompatible_collections() {
                 let PublicationResult {
@@ -106,7 +106,7 @@ impl MaterializationStatus {
                 let new_result = control_plane
                     .publish(publication_id, detail, state.logs_token, draft)
                     .await
-                    .expect("failed to execute publication");
+                    .context("failed to execute publication")?;
                 self.publications
                     .record_result(PublicationInfo::observed(&new_result));
                 if !new_result.status.is_success() {
@@ -327,7 +327,7 @@ impl SourceCaptureStatus {
         let connector_spec = control_plane
             .get_connector_spec(config.image.clone())
             .await
-            .expect("failed to fetch connector spec");
+            .context("failed to fetch connector spec")?;
         let collection_name_pointer = crate::resource_configs::pointer_for_schema(
             connector_spec.resource_config_schema.get(),
         )?;

@@ -35,19 +35,34 @@ impl Handler for Publisher {
                 .context("clearing old errors")?;
 
             let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-            let result = self.process(row).await?;
 
-            draft::insert_errors(draft_id, result.draft_errors(), &mut txn).await?;
+            let (status, draft_errors) = match self.process(row).await {
+                Ok(result) => {
+                    let errors = result.draft_errors();
+                    (result.status, errors)
+                }
+                Err(error) => {
+                    tracing::warn!(?error, pub_id = %id, "build finished with error");
+                    let errors = vec![draft::Error {
+                        catalog_name: String::new(),
+                        scope: None,
+                        detail: format!("{error:#}"),
+                    }];
+                    (JobStatus::PublishFailed, errors)
+                }
+            };
 
-            info!(%id, %time_queued, %background, status = ?result.status, "build finished");
-            agent_sql::publications::resolve(id, &result.status, &mut txn).await?;
+            draft::insert_errors(draft_id, draft_errors, &mut txn).await?;
+
+            info!(%id, %time_queued, %background, ?status, "build finished");
+            agent_sql::publications::resolve(id, &status, &mut txn).await?;
 
             txn.commit().await?;
 
             // As a separate transaction, delete the draft. Note that the user technically could
             // have inserted or updated draft specs after we started the publication, and those
             // would still be removed by this.
-            if (result.status.is_success() || result.status.is_empty_draft()) && !dry_run {
+            if (status.is_success() || status.is_empty_draft()) && !dry_run {
                 agent_sql::publications::delete_draft(draft_id, pg_pool).await?;
             }
             return Ok(HandleResult::HadJob);
