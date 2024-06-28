@@ -47,8 +47,6 @@ type FlowConsumer struct {
 	Config *FlowConsumerConfig
 	// Running consumer.Service.
 	Service *consumer.Service
-	// Watched broker journals.
-	Journals flow.Journals
 	// Shared catalog builds.
 	Builds *flow.BuildService
 	// Timepoint that regulates shuffled reads of started shards.
@@ -197,12 +195,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	if err != nil {
 		return fmt.Errorf("loading journals keyspace: %w", err)
 	}
-	args.Tasks.Queue("journals.Watch", func() error {
-		if err := f.Journals.Watch(args.Tasks.Context(), args.Service.Etcd); err != context.Canceled {
-			return err
-		}
-		return nil
-	})
 
 	// Wrap Shard Hints RPC to support the Flow shard splitting workflow.
 	args.Service.ShardAPI.GetHints = func(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
@@ -217,7 +209,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	f.Config = &config
 	f.Service = args.Service
 	f.Builds = builds
-	f.Journals = journals
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
 
 	// Start a ticker of the shared *Timepoint.

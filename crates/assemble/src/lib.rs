@@ -373,10 +373,21 @@ fn shard_hostname_label(task_name: &str) -> String {
 
 // TODO(johnny): This should return a Result, but I'm punting on that refactor right now.
 pub fn journal_selector(
-    collection: &models::Collection,
+    collection: &flow::CollectionSpec,
     selector: Option<&models::PartitionSelector>,
 ) -> broker::LabelSelector {
-    let mut include = labels::build_set([(labels::COLLECTION, collection.as_str())]);
+    let mut include = labels::build_set([
+        (labels::COLLECTION, collection.name.as_ref()),
+        (
+            "name:prefix",
+            collection
+                .partition_template
+                .as_ref()
+                .unwrap()
+                .name
+                .as_ref(),
+        ),
+    ]);
     let mut exclude = broker::LabelSet::default();
 
     if let Some(selector) = selector {
@@ -561,7 +572,14 @@ mod test {
         );
 
         let selector = models::PartitionSelector { include, exclude };
-        let collection = models::Collection::new("the/collection");
+        let collection = flow::CollectionSpec {
+            name: "the/collection".to_string(),
+            partition_template: Some(broker::JournalSpec {
+                name: "data-plane/the/collection/xyz".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let labels = journal_selector(&collection, Some(&selector));
         insta::assert_debug_snapshot!(labels);
     }

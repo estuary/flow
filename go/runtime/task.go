@@ -70,7 +70,7 @@ func newTaskBase[TaskSpec pf.Task](
 ) (*taskBase[TaskSpec], error) {
 	var publisher = NewOpsPublisher(
 		host.LogPublisher,
-		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
+		flow.NewMapper(shard.Context(), shard.JournalClient()),
 	)
 	var legacyCheckpoint, legacyState, err = parseLegacyState(recorder)
 	if err != nil {

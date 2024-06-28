@@ -417,7 +417,10 @@ async fn walk_derivation(
                 not_after.as_ref(),
             ),
         };
-        let partition_selector = Some(assemble::journal_selector(source_name, source_partitions));
+        let partition_selector = Some(assemble::journal_selector(
+            source_collection.as_ref().unwrap(),
+            source_partitions,
+        ));
 
         // Build a state key and read suffix using the transform name as it's resource path.
         let state_key = assemble::encode_state_key(&[&transform_name], backfill);

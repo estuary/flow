@@ -171,7 +171,7 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	f.pubClock.Update(time.Now().Add(delta))
 	// Drain the combiner, mapping documents to logical partitions and writing
 	// them as uncommitted messages.
-	var mapper = flow.NewMapper(ctx, f.Service.Etcd, f.Journals, f.Service.State.LocalKey)
+	var mapper = flow.NewMapper(ctx, f.Service.Journals)
 
 	for {
 		var response, err = combiner.Recv()
