@@ -209,8 +209,8 @@ async fn update_live_specs(
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Capture);
-        models.push(to_raw_value(r.model(), agent_sql::TextJson));
-        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson));
+        models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
+        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
         expect_pub_ids.push(r.expect_pub_id().into());
         reads_froms.push(None);
         writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
@@ -226,8 +226,8 @@ async fn update_live_specs(
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Collection);
-        models.push(to_raw_value(r.model(), agent_sql::TextJson));
-        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson));
+        models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
+        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
         expect_pub_ids.push(r.expect_pub_id().into());
         reads_froms.push(get_dependencies(
             // reads_from should be null for regular collections
@@ -247,8 +247,8 @@ async fn update_live_specs(
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Materialization);
-        models.push(to_raw_value(r.model(), agent_sql::TextJson));
-        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson));
+        models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
+        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
         expect_pub_ids.push(r.expect_pub_id().into());
         reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
         writes_tos.push(None);
@@ -264,8 +264,8 @@ async fn update_live_specs(
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Test);
-        models.push(to_raw_value(r.model(), agent_sql::TextJson));
-        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson));
+        models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
+        built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
         expect_pub_ids.push(r.expect_pub_id().into());
         reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
         writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
@@ -394,7 +394,7 @@ async fn insert_publication_specs(
         let spec_id = *live_spec_ids
             .get(r.catalog_name().as_str())
             .expect("live_spec_id must be Some if spec is changed");
-        let spec = to_raw_value(r.model(), agent_sql::TextJson);
+        let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
             spec_id.into(),
             publication_id.into(),
@@ -416,7 +416,7 @@ async fn insert_publication_specs(
         let spec_id = *live_spec_ids
             .get(r.catalog_name().as_str())
             .expect("live_spec_id must be Some if spec is changed");
-        let spec = to_raw_value(r.model(), agent_sql::TextJson);
+        let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
             spec_id.into(),
             publication_id.into(),
@@ -438,7 +438,7 @@ async fn insert_publication_specs(
         let spec_id = *live_spec_ids
             .get(r.catalog_name().as_str())
             .expect("live_spec_id must be Some if spec is changed");
-        let spec = to_raw_value(r.model(), agent_sql::TextJson);
+        let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
             spec_id.into(),
             publication_id.into(),
@@ -455,7 +455,7 @@ async fn insert_publication_specs(
         let spec_id = *live_spec_ids
             .get(r.catalog_name().as_str())
             .expect("live_spec_id must be Some if spec is changed");
-        let spec = to_raw_value(r.model(), agent_sql::TextJson);
+        let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
             spec_id.into(),
             publication_id.into(),
@@ -545,16 +545,56 @@ async fn verify_unchanged_revisions(
     Ok(errors)
 }
 
-fn to_raw_value<T: serde::Serialize, W, F>(maybe_spec: Option<&T>, wrap: F) -> Option<W>
+fn to_raw_value<T: serde::Serialize, W, F>(
+    maybe_spec: Option<&T>,
+    wrap: F,
+) -> anyhow::Result<Option<W>>
 where
     F: Fn(Box<RawValue>) -> W,
 {
     if let Some(value) = maybe_spec {
         let json = serde_json::value::to_raw_value(value).expect("must serialize spec to json");
-        Some(wrap(json))
+        if includes_escaped_null(&json) {
+            anyhow::bail!(
+                "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)"
+            );
+        }
+        Ok(Some(wrap(json)))
     } else {
-        None
+        Ok(None)
     }
+}
+
+/// Checks the given `RawValue` to see if any of the string values contain
+/// escape sequences for null bytes (\u0000). Nulls are valid in any keys or
+/// strings in JSON, and Postgres will accept them as part of a JSON (but not
+/// JSONB) column. But Postgres will error if a query ever needs to parse such
+/// a JSON column, for example to evaluate a filter that reaches into the JSON
+/// using `->`. So, even though `\u0000` is technically valid JSON, we disallow
+/// any live specs to contain the null escape sequence, since it causes many of
+/// our queries to error.
+///
+/// In order to properly identify such escape sequences, we need to also handle
+/// the case where the backslash itself is escaped, for example `"\\u0000"`.
+/// There can be arbitrarily many backslashes in front of the `u0000`, so we
+/// look for an odd number of them, which indicates that the final `\` is not
+/// itself escaped.
+fn includes_escaped_null(json: &RawValue) -> bool {
+    lazy_static::lazy_static! {
+        static ref ESCAPE_RE: regex::Regex = regex::Regex::new(r#"\\+u0000"#).unwrap();
+    }
+
+    for maybe_escape in ESCAPE_RE.find_iter(json.get()) {
+        let preceeding_backslash_count = maybe_escape
+            .as_str()
+            .chars()
+            .take_while(|c| *c == '\\')
+            .count();
+        if preceeding_backslash_count % 2 == 1 {
+            return true;
+        }
+    }
+    false
 }
 
 /// This is a temporary standin for a function that will lookup the ops collection names based on
@@ -906,4 +946,38 @@ pub async fn add_built_specs_to_draft_specs(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_null_bytes_in_json() {
+        let bad = vec![
+            r##"{"naughty\u0000Key": "1st val"}"##,
+            r##"{"naughty\\\u0000Key": "2nd val"}"##,
+            r##"{"ok\\u0000Key": "val\\\u0000"}"##,
+        ];
+        for example in bad {
+            let rv = serde_json::value::RawValue::from_string(example.to_string()).unwrap();
+            let Err(error) = to_raw_value(Some(&rv), |x| x) else {
+                panic!("expected error for example: {example} but was success");
+            };
+            assert!(error
+                .to_string()
+                .contains("a string in the spec contains a disallowed unicode null escape"));
+        }
+
+        let good = vec![
+            r##"{"ok\\u0000Key": "ok val\\\\u0000"}"##,
+            r##"{"ok\u0051Key": "ok val\u0072"}"##,
+        ];
+        for example in good {
+            if let Err(error) = to_raw_value(Some(&example), |x| x) {
+                panic!("expected success for example: {example}, but got error: {error:?}");
+            }
+        }
+    }
 }
