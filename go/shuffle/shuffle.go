@@ -9,6 +9,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/types"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
 
@@ -47,6 +48,8 @@ type shuffle struct {
 	validateSchema json.RawMessage
 	// Non-ACK documents before or after these Clocks are filtered.
 	notBefore, notAfter message.Clock
+	// Returns the most-recent journal listing snapshot for this shuffle.
+	listing func() *pb.ListResponse
 }
 
 func derivationShuffles(task *pf.CollectionSpec) []shuffle {

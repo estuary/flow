@@ -235,9 +235,9 @@ func (t *taskReader[TaskSpec]) initTerm(shard consumer.Shard) error {
 		return err
 	}
 	var readBuilder, err = shuffle.NewReadBuilder(
+		t.term.ctx,
+		shard.JournalClient(),
 		t.term.labels.Build,
-		t.term.ctx.Done(), // Drain reads upon term cancellation.
-		t.host.Journals,
 		t.publisher,
 		t.host.Service,
 		t.term.shardSpec.Id,
