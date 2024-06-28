@@ -4,6 +4,7 @@ use super::{
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
+use anyhow::Context;
 use itertools::Itertools;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -67,7 +68,7 @@ impl CaptureStatus {
                 .publications
                 .finish_pending_publication(state, control_plane)
                 .await
-                .expect("failed to execute publish")
+                .context("failed to execute publish")?
                 .error_for_status()
                 .with_maybe_retry(backoff_publication_failure(state.failures))?;
         } else {
@@ -80,7 +81,7 @@ impl CaptureStatus {
             self.publications
                 .notify_dependents(state, control_plane)
                 .await
-                .expect("failed to notify dependents");
+                .context("failed to notify dependents")?;
         }
 
         Ok(None)
