@@ -4,6 +4,7 @@ use super::{
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use schemars::JsonSchema;
@@ -150,7 +151,7 @@ impl InferredSchemaStatus {
         let maybe_inferred_schema = control_plane
             .get_inferred_schema(collection_name.clone())
             .await
-            .expect("failed to fetch inferred schema");
+            .context("fetching inferred schema")?;
 
         if let Some(inferred_schema) = maybe_inferred_schema {
             let tables::InferredSchema {
@@ -186,8 +187,7 @@ impl InferredSchemaStatus {
                 // Don't retry publications, since they're unlikely to succeed.
                 let pub_result = publication_status
                     .finish_pending_publication(state, control_plane)
-                    .await
-                    .expect("failed to execute publication")
+                    .await?
                     .error_for_status()?;
 
                 self.schema_md5 = Some(md5);

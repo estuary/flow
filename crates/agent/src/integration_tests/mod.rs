@@ -5,6 +5,7 @@
 mod dependencies_and_activations;
 pub mod harness;
 mod locking_retries;
+mod null_bytes;
 mod quotas;
 mod schema_evolution;
 mod source_captures;

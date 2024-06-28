@@ -68,15 +68,13 @@ impl<C: ControlPlane> ControllerHandler<C> {
             }
             Err(error) => {
                 let failures = job.failures + 1;
-                // All errors are considered terminal unless the controller
-                // specifically opts into retrying them (by wrapping them in a
-                // `ControllerError`).
-                let next_run = error
-                    .downcast_ref::<RetryableError>()
-                    .and_then(|ce| ce.retry)
-                    .map(|next| next.compute_time());
-                tracing::warn!(%failures, ?error, ?job, ?next_run, "controller job update failed with a terminal error");
-                let err_str = format!("{:?}", error);
+                // All errors are retryable unless explicitly marked as terminal
+                let next_run = match error.downcast_ref::<RetryableError>() {
+                    Some(retryable) => retryable.retry.map(|next| next.compute_time()),
+                    None => Some(fallback_backoff_next_run(failures).compute_time()),
+                };
+                tracing::warn!(%failures, ?error, ?job, ?next_run, "controller job update failed");
+                let err_str = format!("{:#}", error);
                 agent_sql::controllers::update(
                     &mut txn,
                     job.live_spec_id,
@@ -93,6 +91,15 @@ impl<C: ControlPlane> ControllerHandler<C> {
         txn.commit().await.context("committing transaction")?;
         Ok(Some(state))
     }
+}
+
+fn fallback_backoff_next_run(failures: i32) -> NextRun {
+    let minutes = match failures.max(1).min(8) as u32 {
+        1 => 1,
+        2 => 10,
+        more => more * 45,
+    };
+    NextRun::after_minutes(minutes).with_jitter_percent(50)
 }
 
 #[async_trait::async_trait]
