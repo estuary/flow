@@ -8,7 +8,7 @@ async fn test_quota_single_task() {
     let user_id = harness.setup_tenant("seaTurtles").await;
 
     sqlx::query(
-        "update tenants set tasks_quota = 2, collections_quota = 2 where tenant = 'seaTurtles/';",
+        "update tenants set tasks_quota = 2, collections_quota = 3 where tenant = 'seaTurtles/';",
     )
     .execute(&harness.pool)
     .await
@@ -17,12 +17,13 @@ async fn test_quota_single_task() {
     let draft = draft_catalog(serde_json::json!({
         "captures": {
             "seaTurtles/CaptureA": minimal_capture(false, &["seaTurtles/CollectionA"]),
-            "seaTurtles/CaptureB": minimal_capture(false, &["seaTurtles/CollectionB"]),
+            "seaTurtles/CaptureB": minimal_capture(false, &["seaTurtles/CollectionB", "seaTurtles/CollectionC"]),
             "seaTurtles/CaptureDisabled": minimal_capture(true, &[]),
         },
         "collections": {
             "seaTurtles/CollectionA": minimal_collection(),
             "seaTurtles/CollectionB": minimal_collection(),
+            "seaTurtles/CollectionC": minimal_collection(),
         }
     }));
     let result = harness
@@ -66,7 +67,7 @@ async fn test_quota_derivations() {
     let user_id = harness.setup_tenant("seagulls").await;
 
     sqlx::query(
-        "update tenants set tasks_quota = 2, collections_quota = 2 where tenant = 'seagulls/';",
+        "update tenants set tasks_quota = 2, collections_quota = 3 where tenant = 'seagulls/';",
     )
     .execute(&harness.pool)
     .await
@@ -75,12 +76,13 @@ async fn test_quota_derivations() {
     let setup_draft = draft_catalog(serde_json::json!({
         "captures": {
             "seagulls/CaptureA": minimal_capture(false, &["seagulls/CollectionA"]),
-            "seagulls/CaptureB": minimal_capture(false, &["seagulls/CollectionB"]),
+            "seagulls/CaptureB": minimal_capture(false, &["seagulls/CollectionB", "seagulls/CollectionC"]),
             "seagulls/CaptureDisabled": minimal_capture(true, &[]),
         },
         "collections": {
             "seagulls/CollectionA": minimal_collection(),
             "seagulls/CollectionB": minimal_collection(),
+            "seagulls/CollectionC": minimal_collection(),
         },
     }));
     let setup_result = harness
@@ -121,7 +123,7 @@ async fn test_quota_derivations() {
             ),
             (
                 "flow://tenant-quotas/seagulls/collections",
-                "Request to add 1 collections(s) would exceed tenant 'seagulls/' quota of 2. 2 are currently in use.",
+                "Request to add 1 collections(s) would exceed tenant 'seagulls/' quota of 3. 3 are currently in use.",
             ),
         ],
         live_specs: [],

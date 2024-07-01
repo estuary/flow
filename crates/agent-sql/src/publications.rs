@@ -444,7 +444,7 @@ pub async fn find_tenant_quotas(
                     where live_specs.spec_type = 'collection'
                 ))::integer as collections_used
             from tenant_names
-            join live_specs on
+            left outer join live_specs on
                 starts_with(live_specs.catalog_name, tenant_names.tenant_name) and
                 (live_specs.spec->'shards'->>'disable')::boolean is not true
             group by tenant_names.tenant_name
