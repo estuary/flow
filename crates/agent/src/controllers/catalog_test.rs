@@ -1,4 +1,4 @@
-use super::{publication_status::Dependencies, ControlPlane, ControllerState, NextRun};
+use super::{publication_status::PendingPublication, ControlPlane, ControllerState, NextRun};
 use crate::controllers::publication_status::PublicationStatus;
 use crate::controllers::ControllerErrorExt;
 use anyhow::Context;
@@ -19,19 +19,20 @@ impl TestStatus {
         control_plane: &mut C,
         _model: &models::TestDef,
     ) -> anyhow::Result<Option<NextRun>> {
-        let dependencies = Dependencies::resolve(&state.live_spec, control_plane).await?;
-        if dependencies.is_publication_required(state) {
-            self.publications
-                .start_spec_update(
-                    dependencies.next_pub_id(control_plane),
-                    state,
-                    format!("in response to publication of one or more depencencies"),
-                )
-                .await;
+        let mut pending_pub = PendingPublication::new();
+        let dependencies = self
+            .publications
+            .resolve_dependencies(state, control_plane)
+            .await?;
+        if let Some(pub_id) = dependencies.next_pub_id {
+            pending_pub.start_spec_update(
+                pub_id,
+                state,
+                format!("in response to publication of one or more depencencies"),
+            );
 
-            let result = self
-                .publications
-                .finish_pending_publication(state, control_plane)
+            let result = pending_pub
+                .finish(state, &mut self.publications, control_plane)
                 .await
                 .context("failed to execute publication")?;
             self.passing = result.status.is_success();

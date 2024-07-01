@@ -21,54 +21,10 @@ pub struct Dependencies {
     /// Dependencies that have been deleted. If this is non-empty, then the dependent needs to be
     /// published.
     pub deleted: BTreeSet<String>,
-}
-
-impl Dependencies {
-    pub fn is_publication_required(&self, state: &ControllerState) -> bool {
-        self.max_last_pub_id()
-            .is_some_and(|id| id > state.last_pub_id)
-            || !self.deleted.is_empty()
-    }
-
-    pub async fn resolve<C: ControlPlane>(
-        live_spec: &Option<AnySpec>,
-        control_plane: &mut C,
-    ) -> anyhow::Result<Dependencies> {
-        let Some(model) = live_spec.as_ref() else {
-            return Ok(Dependencies {
-                live: Default::default(),
-                deleted: Default::default(),
-            });
-        };
-        let all_deps = model.all_dependencies();
-        let live = control_plane
-            .get_live_specs(all_deps.clone())
-            .await
-            .with_retry(NextRun::after_minutes(60))?;
-        let mut deleted = all_deps;
-        for name in live.all_spec_names() {
-            deleted.remove(name);
-        }
-        Ok(Dependencies { live, deleted })
-    }
-
-    /// Returns an id for the next publication in response to a publication of one or more
-    /// dependencies. Generally, this is just the largest `last_pub_id` from among the
-    /// dependencies, but there's a notable edge case regarding deletions. We cannot know
-    /// the `last_pub_id` of any deleted dependencies. Even if we tried to query the soft-deleted
-    /// `live_specs` row, we'd be racing against that spec's controller, which will be trying
-    /// to hard-delete it. So, if any dependencies have been deleted, we generate a new publication
-    /// id. Note that this won't pose a problem for cyclic dependencies because you can only delete
-    /// something once.
-    pub fn next_pub_id<C: ControlPlane>(&self, control_plane: &mut C) -> models::Id {
-        self.max_last_pub_id()
-            .filter(|_| self.deleted.is_empty())
-            .unwrap_or_else(|| control_plane.next_pub_id())
-    }
-
-    fn max_last_pub_id(&self) -> Option<models::Id> {
-        self.live.last_pub_ids().max()
-    }
+    /// If a publication is required, then this will be Some non-zero publication id.
+    /// If `next_pub_id` is `None`, then no publication in order to stay up to date with
+    /// respect to dependencies.
+    pub next_pub_id: Option<Id>,
 }
 
 /// Status of the activation of the task in the data-plane
@@ -151,10 +107,15 @@ impl PublicationInfo {
     }
 }
 
+/// Represents a draft that is pending publication
 #[derive(Debug)]
 pub struct PendingPublication {
+    /// The publication id, or 0 if none has yet been determined
     pub id: Id,
+    /// The draft to be published
     pub draft: tables::DraftCatalog,
+    /// Reasons for updating the draft, which will be joined together to become
+    /// the `detail` of the publication.
     pub details: Vec<String>,
 }
 
@@ -166,7 +127,88 @@ impl PartialEq for PendingPublication {
     }
 }
 
-impl PendingPublication {}
+impl PendingPublication {
+    pub fn new() -> Self {
+        PendingPublication {
+            id: Id::zero(),
+            draft: tables::DraftCatalog::default(),
+            details: Vec::new(),
+        }
+    }
+
+    pub fn has_pending(&self) -> bool {
+        self.draft.spec_count() > 0
+    }
+
+    pub fn start_spec_update(
+        &mut self,
+        pub_id: models::Id,
+        state: &ControllerState,
+        detail: impl Into<String>,
+    ) -> &mut tables::DraftCatalog {
+        //self.pub_id = self.target_pub_id.max(pub_id);
+        self.id = pub_id;
+        let model = state
+            .live_spec
+            .as_ref()
+            .expect("cannot state spec update after live spec has been deleted");
+        self.draft = draft_publication(state, model);
+
+        self.update_pending_draft(detail)
+    }
+
+    pub fn update_pending_draft(&mut self, detail: impl Into<String>) -> &mut tables::DraftCatalog {
+        self.details.push(detail.into());
+        &mut self.draft
+    }
+
+    pub async fn finish<C: ControlPlane>(
+        &mut self,
+        state: &ControllerState,
+        status: &mut PublicationStatus,
+        control_plane: &mut C,
+    ) -> anyhow::Result<PublicationResult> {
+        // If no publication id has been assigned, do so now
+        if self.id.is_zero() {
+            self.id = control_plane.next_pub_id();
+            status.target_pub_id = self.id;
+        }
+        let PendingPublication { id, draft, details } =
+            std::mem::replace(self, PendingPublication::new());
+
+        let detail = details.join(", ");
+        let result = control_plane
+            .publish(id, Some(detail), state.logs_token, draft)
+            .await;
+        match result.as_ref() {
+            Ok(r) => {
+                status.record_result(PublicationInfo::observed(r));
+                if r.status.is_success() {
+                    control_plane
+                        .notify_dependents(state.catalog_name.clone())
+                        .await
+                        .context("notifying dependents after successful publication")?;
+                    status.max_observed_pub_id = id;
+                }
+            }
+            Err(err) => {
+                let info = PublicationInfo {
+                    id,
+                    completed: Some(control_plane.current_time()),
+                    detail: Some(details.join(", ")),
+                    errors: vec![crate::draft::Error {
+                        detail: format!("{err:#}"),
+                        ..Default::default()
+                    }],
+                    created: None,
+                    result: None,
+                };
+                status.record_result(info);
+            }
+        }
+        result
+    }
+}
 
 /// Information on the publications performed by the controller.
 /// This does not include any information on user-initiated publications.
@@ -189,9 +231,6 @@ pub struct PublicationStatus {
     pub max_observed_pub_id: Id,
     /// A limited history of publications performed by this controller
     pub history: VecDeque<PublicationInfo>,
-    // TODO(phil): move `PendingPublication` out of this struct
-    #[serde(default, skip)]
-    pub pending: Option<PendingPublication>,
 }
 
 impl Clone for PublicationStatus {
@@ -200,7 +239,6 @@ impl Clone for PublicationStatus {
             target_pub_id: self.target_pub_id,
             max_observed_pub_id: self.max_observed_pub_id,
             history: self.history.clone(),
-            pending: None,
         }
     }
 }
@@ -211,7 +249,6 @@ impl Default for PublicationStatus {
             target_pub_id: Id::zero(),
             max_observed_pub_id: Id::zero(),
             history: VecDeque::new(),
-            pending: None,
         }
     }
 }
@@ -219,48 +256,46 @@ impl Default for PublicationStatus {
 impl PublicationStatus {
     const MAX_HISTORY: usize = 5;
 
-    pub fn update_pending_draft<'a, 'c, C: ControlPlane>(
-        &'a mut self,
-        add_detail: String,
-        cp: &'c mut C,
-    ) -> &mut PendingPublication {
-        if self.pending.is_none() {
-            let id = cp.next_pub_id();
-            tracing::debug!(publication_id = ?id, "creating new publication");
-            self.pending = Some(PendingPublication {
-                id,
-                draft: tables::DraftCatalog::default(),
-                details: Vec::new(),
-            });
-        }
-        let pending = self.pending.as_mut().unwrap();
-        pending.details.push(add_detail);
-        pending
-    }
-
-    pub fn has_pending(&self) -> bool {
-        self.pending.is_some()
-    }
-
-    pub async fn start_spec_update<'a>(
-        &'a mut self,
-        pub_id: models::Id,
+    pub async fn resolve_dependencies<C: ControlPlane>(
+        &mut self,
         state: &ControllerState,
-        detail: String,
-    ) -> &'a mut tables::DraftCatalog {
-        self.target_pub_id = self.target_pub_id.max(pub_id);
-        let model = state
-            .live_spec
-            .as_ref()
-            .expect("cannot state spec update after live spec has been deleted");
-        let draft = draft_publication(state, model);
-        self.pending = Some(PendingPublication {
-            id: pub_id,
-            draft,
-            details: vec![detail],
-        });
+        control_plane: &mut C,
+    ) -> anyhow::Result<Dependencies> {
+        let Some(model) = state.live_spec.as_ref() else {
+            return Ok(Dependencies {
+                live: Default::default(),
+                deleted: Default::default(),
+                next_pub_id: None,
+            });
+        };
+        let all_deps = model.all_dependencies();
+        let live = control_plane
+            .get_live_specs(all_deps.clone())
+            .await
+            .context("fetching live_specs dependencies")?;
+        let mut deleted = all_deps;
+        for name in live.all_spec_names() {
+            deleted.remove(name);
+        }
 
-        &mut self.pending.as_mut().unwrap().draft
+        let next_pub_id = if deleted.is_empty() {
+            live.last_pub_ids()
+                .max()
+                .filter(|id| id > &state.last_pub_id)
+        } else {
+            // If any dependencies have been deleted, then we'll need to publish
+            // at a new pub_id, since we cannot know the `last_pub_id` of
+            // deleted specs.
+            Some(control_plane.next_pub_id())
+        };
+        if let Some(next) = next_pub_id {
+            self.target_pub_id = next;
+        }
+        Ok(Dependencies {
+            live,
+            deleted,
+            next_pub_id,
+        })
     }
 
     pub async fn notify_dependents<C: ControlPlane>(
@@ -283,30 +318,6 @@ impl PublicationStatus {
         while self.history.len() > PublicationStatus::MAX_HISTORY {
             self.history.pop_back();
         }
-    }
-
-    #[tracing::instrument(skip_all, err)]
-    pub async fn finish_pending_publication<C: ControlPlane>(
-        &mut self,
-        state: &ControllerState,
-        cp: &mut C,
-    ) -> anyhow::Result<PublicationResult> {
-        let pending = self
-            .pending
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("no pending publication to finish"))?;
-        let detail = pending.details.join(", ");
-        let result = cp
-            .publish(pending.id, Some(detail), state.logs_token, pending.draft)
-            .await?;
-
-        self.record_result(PublicationInfo::observed(&result));
-        if result.status.is_success() {
-            self.max_observed_pub_id = result.pub_id;
-            cp.notify_dependents(state.catalog_name.clone()).await?;
-        }
-
-        Ok(result)
     }
 }
 

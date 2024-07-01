@@ -1,9 +1,9 @@
 use super::{
-    publication_status::{ActivationStatus, PublicationInfo},
+    publication_status::{ActivationStatus, PendingPublication, PublicationInfo},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::{
-    controllers::publication_status::{Dependencies, PublicationStatus},
+    controllers::publication_status::PublicationStatus,
     publications::{PublicationResult, RejectedField},
 };
 use anyhow::Context;
@@ -32,17 +32,17 @@ impl MaterializationStatus {
         control_plane: &mut C,
         model: &models::MaterializationDef,
     ) -> anyhow::Result<Option<NextRun>> {
-        let dependencies = Dependencies::resolve(&state.live_spec, control_plane).await?;
-        if dependencies.is_publication_required(state) {
-            let pub_id = dependencies.next_pub_id(control_plane);
-            let draft = self
-                .publications
-                .start_spec_update(
-                    pub_id,
-                    state,
-                    format!("in response to publication of one or more depencencies"),
-                )
-                .await;
+        let mut pending_pub = PendingPublication::new();
+        let dependencies = self
+            .publications
+            .resolve_dependencies(state, control_plane)
+            .await?;
+        if let Some(pub_id) = dependencies.next_pub_id {
+            let draft = pending_pub.start_spec_update(
+                pub_id,
+                state,
+                format!("in response to publication of one or more depencencies"),
+            );
             if !dependencies.deleted.is_empty() {
                 let mat_name = models::Materialization::new(&state.catalog_name);
                 let draft_row = draft.materializations.get_mut_by_key(&mat_name);
@@ -52,8 +52,7 @@ impl MaterializationStatus {
                     model,
                     &mut self.source_capture,
                 );
-                self.publications
-                    .update_pending_draft(add_detail, control_plane);
+                pending_pub.update_pending_draft(add_detail);
             }
         }
 
@@ -74,16 +73,15 @@ impl MaterializationStatus {
                         control_plane,
                         source_capture_model,
                         model,
-                        &mut self.publications,
+                        &mut pending_pub,
                     )
                     .await?;
             }
         }
 
-        if self.publications.has_pending() {
-            let result = self
-                .publications
-                .finish_pending_publication(state, control_plane)
+        if pending_pub.has_pending() {
+            let result = pending_pub
+                .finish(state, &mut self.publications, control_plane)
                 .await
                 .context("failed to execute publication")?;
 
@@ -308,7 +306,7 @@ impl SourceCaptureStatus {
         control_plane: &mut C,
         live_capture: &tables::LiveCapture,
         model: &models::MaterializationDef,
-        pub_status: &mut PublicationStatus,
+        pending_pub: &mut PendingPublication,
     ) -> anyhow::Result<Option<NextRun>> {
         let capture_spec = live_capture.model();
 
@@ -345,21 +343,19 @@ impl SourceCaptureStatus {
             )
         };
 
-        let draft = pub_status.update_pending_draft(detail, control_plane);
+        let draft = pending_pub.update_pending_draft(detail);
         let materialization_name = models::Materialization::new(&state.catalog_name);
-        let draft_row =
-            draft
-                .draft
-                .materializations
-                .get_or_insert_with(&materialization_name, || tables::DraftMaterialization {
-                    materialization: materialization_name.clone(),
-                    scope: tables::synthetic_scope(
-                        models::CatalogType::Materialization,
-                        &state.catalog_name,
-                    ),
-                    expect_pub_id: Some(state.last_pub_id),
-                    model: Some(model.clone()),
-                });
+        let draft_row = draft
+            .materializations
+            .get_or_insert_with(&materialization_name, || tables::DraftMaterialization {
+                materialization: materialization_name.clone(),
+                scope: tables::synthetic_scope(
+                    models::CatalogType::Materialization,
+                    &state.catalog_name,
+                ),
+                expect_pub_id: Some(state.last_pub_id),
+                model: Some(model.clone()),
+            });
 
         // Failures here are terminal
         update_linked_materialization(

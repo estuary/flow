@@ -1,6 +1,6 @@
 use super::{
     backoff_data_plane_activate,
-    publication_status::{ActivationStatus, Dependencies},
+    publication_status::{ActivationStatus, PendingPublication},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
@@ -29,16 +29,17 @@ impl CaptureStatus {
         control_plane: &mut C,
         _model: &models::CaptureDef,
     ) -> anyhow::Result<Option<NextRun>> {
-        let dependencies = Dependencies::resolve(&state.live_spec, control_plane).await?;
-        if dependencies.is_publication_required(state) {
-            let draft = self
-                .publications
-                .start_spec_update(
-                    dependencies.next_pub_id(control_plane),
-                    state,
-                    format!("in response to publication of one or more depencencies"),
-                )
-                .await;
+        let mut pending_pub = PendingPublication::new();
+        let dependencies = self
+            .publications
+            .resolve_dependencies(state, control_plane)
+            .await?;
+        if let Some(pub_id) = dependencies.next_pub_id {
+            let draft = pending_pub.start_spec_update(
+                pub_id,
+                state,
+                format!("in response to publication of one or more depencencies"),
+            );
             if !dependencies.deleted.is_empty() {
                 tracing::debug!(deleted_collections = ?dependencies.deleted, "disabling bindings for collections that have been deleted");
                 let draft_capture = draft
@@ -56,17 +57,15 @@ impl CaptureStatus {
                     "disabled {disabled_count} binding(s) in response to deleted collections: [{}]",
                     dependencies.deleted.iter().format(", ")
                 );
-                self.publications
-                    .update_pending_draft(detail, control_plane);
+                pending_pub.update_pending_draft(detail);
             }
         }
 
         // TODO: implement auto discover here
 
-        if self.publications.has_pending() {
-            let _result = self
-                .publications
-                .finish_pending_publication(state, control_plane)
+        if pending_pub.has_pending() {
+            let _result = pending_pub
+                .finish(state, &mut self.publications, control_plane)
                 .await
                 .context("failed to execute publish")?
                 .error_for_status()

@@ -55,6 +55,7 @@ async fn test_specs_with_null_bytes() {
         first_pub_result.status,
         first_pub_result.errors
     );
+    harness.run_pending_controllers(None).await;
 
     let naughty_draft = draft_catalog(serde_json::json!({
         "collections": {
@@ -108,12 +109,29 @@ async fn test_specs_with_null_bytes() {
         })
         .await;
 
-    harness.run_pending_controllers(None).await;
+    harness.run_pending_controller("possums/bugs").await;
     let state = harness.get_controller_state("possums/bugs").await;
 
     insta::assert_debug_snapshot!(state.error, @r###"
     Some(
         "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
     )
+    "###);
+
+    let history = state
+        .current_status
+        .unwrap_collection()
+        .publications
+        .history
+        .get(0)
+        .expect("missing publication error in history");
+    insta::assert_debug_snapshot!(history.errors, @r###"
+    [
+        Error {
+            catalog_name: "",
+            scope: None,
+            detail: "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
+        },
+    ]
     "###);
 }
