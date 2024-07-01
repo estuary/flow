@@ -1,6 +1,6 @@
 use super::{
     backoff_data_plane_activate,
-    publication_status::{ActivationStatus, Dependencies},
+    publication_status::{ActivationStatus, Dependencies, PendingPublication},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
@@ -28,20 +28,20 @@ impl CollectionStatus {
         control_plane: &mut C,
         model: &models::CollectionDef,
     ) -> anyhow::Result<Option<NextRun>> {
-        let dependencies = Dependencies::resolve(&state.live_spec, control_plane).await?;
-        if dependencies.is_publication_required(state) {
-            let draft = self
-                .publications
-                .start_spec_update(
-                    dependencies.next_pub_id(control_plane),
-                    state,
-                    format!("in response to publication of one or more depencencies"),
-                )
-                .await;
+        let mut pending_pub = PendingPublication::new();
+        let dependencies = self
+            .publications
+            .resolve_dependencies(state, control_plane)
+            .await?;
+        if let Some(pub_id) = dependencies.next_pub_id {
+            let draft = pending_pub.start_spec_update(
+                pub_id,
+                state,
+                format!("in response to publication of one or more depencencies"),
+            );
             if !dependencies.deleted.is_empty() {
                 let add_detail = handle_deleted_dependencies(draft, state, dependencies);
-                self.publications
-                    .update_pending_draft(add_detail, control_plane);
+                pending_pub.update_pending_draft(add_detail);
             }
         }
 
@@ -52,19 +52,24 @@ impl CollectionStatus {
             self.inferred_schema
                 .as_mut()
                 .unwrap()
-                .update(state, control_plane, model, &mut self.publications)
+                .update(
+                    state,
+                    control_plane,
+                    model,
+                    &mut self.publications,
+                    &mut pending_pub,
+                )
                 .await?
         } else {
             self.inferred_schema = None;
             None
         };
 
-        if self.publications.has_pending() {
+        if pending_pub.has_pending() {
             // If the publication fails, then it's quite unlikely to succeed if
             // we were to retry it. So consider this a terminal error.
-            let _result = self
-                .publications
-                .finish_pending_publication(state, control_plane)
+            let _result = pending_pub
+                .finish(state, &mut self.publications, control_plane)
                 .await?;
         } else {
             // Not much point in activating if we just published, since we're going to be
@@ -140,6 +145,7 @@ impl InferredSchemaStatus {
         control_plane: &mut C,
         collection_def: &models::CollectionDef,
         publication_status: &mut PublicationStatus,
+        pending_pub: &mut PendingPublication,
     ) -> anyhow::Result<Option<NextRun>> {
         let collection_name = models::Collection::new(&state.catalog_name);
 
@@ -167,28 +173,26 @@ impl InferredSchemaStatus {
                     new_md5 = ?md5,
                     "updating inferred schema"
                 );
-                let publication = publication_status
-                    .update_pending_draft("updating inferred schema".to_string(), control_plane);
-                let draft_row =
-                    publication
-                        .draft
-                        .collections
-                        .get_or_insert_with(&collection_name, || tables::DraftCollection {
-                            collection: collection_name.clone(),
-                            scope: tables::synthetic_scope(
-                                models::CatalogType::Collection,
-                                &collection_name,
-                            ),
-                            expect_pub_id: Some(state.last_pub_id),
-                            model: Some(collection_def.clone()),
-                        });
+                let draft =
+                    pending_pub.update_pending_draft("updating inferred schema".to_string());
+                let draft_row = draft.collections.get_or_insert_with(&collection_name, || {
+                    tables::DraftCollection {
+                        collection: collection_name.clone(),
+                        scope: tables::synthetic_scope(
+                            models::CatalogType::Collection,
+                            &collection_name,
+                        ),
+                        expect_pub_id: Some(state.last_pub_id),
+                        model: Some(collection_def.clone()),
+                    }
+                });
                 update_inferred_schema(draft_row, &schema)?;
 
-                // Don't retry publications, since they're unlikely to succeed.
-                let pub_result = publication_status
-                    .finish_pending_publication(state, control_plane)
+                let pub_result = pending_pub
+                    .finish(state, publication_status, control_plane)
                     .await?
-                    .error_for_status()?;
+                    .error_for_status()
+                    .do_not_retry()?;
 
                 self.schema_md5 = Some(md5);
                 self.schema_last_updated = Some(pub_result.started_at);
