@@ -35,12 +35,15 @@ fn get_deltas(built: &build::Output) -> BTreeMap<&str, (i32, i32)> {
         }
 
         // Derivations are counted both as collections and as tasks
-        let built_enabled = r.model().map(|s| s.is_enabled()).unwrap_or_default();
+        let built_enabled = r
+            .model()
+            .map(|s| s.derive.is_some() && s.is_enabled())
+            .unwrap_or_default();
         let prev_enabled = built
             .live
             .collections
             .get_by_key(r.catalog_name())
-            .map(|l| l.model().is_enabled())
+            .map(|l| l.model().derive.is_some() && l.model().is_enabled())
             .unwrap_or_default();
         if built_enabled && !prev_enabled {
             entry.0 += 1;
