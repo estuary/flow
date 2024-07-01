@@ -688,7 +688,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     let collected: HashMap<InvoiceResult, (i64, i32, Vec<(String, i64)>)> =
         futures::stream::iter(invoice_futures)
             // Let's run 10 `upsert_invoice()`s at a time
-            .buffer_unordered(10)
+            .buffer_unordered(5)
             .or_else(|err| async move {
                 if !cmd.fail_fast {
                     tracing::error!("{}", err.to_string());
