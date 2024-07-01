@@ -716,20 +716,26 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             status.message(),
             *subtotal_agg as f64 / 100.0
         );
-        for (tenant, subtotal) in
-            tenants
-                .iter()
-                .sorted_by(|(_, a), (_, b)| b.cmp(a))
-                .take(match status {
-                    InvoiceResult::Created(_) | InvoiceResult::Updated => 8,
-                    InvoiceResult::NoDataMoved
-                    | InvoiceResult::NoFullPipeline
-                    | InvoiceResult::LessThanMinimum
-                    | InvoiceResult::FreeTier => 0,
-                    _ => 4,
-                })
-        {
+        let limit = match status {
+            InvoiceResult::Created(_) | InvoiceResult::Updated => 30,
+            InvoiceResult::NoDataMoved
+            | InvoiceResult::NoFullPipeline
+            | InvoiceResult::LessThanMinimum
+            | InvoiceResult::FreeTier => 0,
+            _ => 4,
+        };
+        let sorted_tenants = tenants
+            .iter()
+            .sorted_by(|(_, a), (_, b)| b.cmp(a))
+            .collect_vec();
+
+        let (displayed_tenants, remainder_tenants) =
+            sorted_tenants.split_at(limit.min(tenants.len()));
+        for (tenant, subtotal) in displayed_tenants {
             tracing::info!(" - {:} ${:.2}", tenant, *subtotal as f64 / 100.0);
+        }
+        if limit > 0 && remainder_tenants.len() > 0 {
+            tracing::info!(" - ... {} Others", remainder_tenants.len(),);
         }
     }
 
