@@ -40,7 +40,7 @@ To achieve comparable capabilities to Flow you would need:
 * Custom reconciliation of historical vs streaming datasets, including onerous backfills of new streaming applications from historical data
 
 Flow dramatically simplifies this inherent complexity. It saves you time and costs, catches mistakes before they hit production, and keeps your data fresh across all the places you use it.
-With both a UI-forward web application and a powerful CLI ,
+With both a UI-forward web application and a powerful CLI,
 more types of professionals can contribute to what would otherwise require a
 highly specialized set of technical skills.
 
