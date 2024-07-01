@@ -63,7 +63,6 @@ StatusSnapshot {
                         ],
                     },
                 ],
-                pending: None,
             },
             activation: ActivationStatus {
                 last_activated: 0102030404030201,
@@ -131,7 +130,6 @@ StatusSnapshot {
                         ],
                     },
                 ],
-                pending: None,
             },
             activation: ActivationStatus {
                 last_activated: 0102030404030201,

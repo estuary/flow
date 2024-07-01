@@ -513,7 +513,6 @@ mod test {
                 target_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 history,
-                pending: None,
             },
         });
 
