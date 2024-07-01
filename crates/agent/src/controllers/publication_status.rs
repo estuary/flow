@@ -146,12 +146,11 @@ impl PendingPublication {
         state: &ControllerState,
         detail: impl Into<String>,
     ) -> &mut tables::DraftCatalog {
-        //self.pub_id = self.target_pub_id.max(pub_id);
         self.id = pub_id;
         let model = state
             .live_spec
             .as_ref()
-            .expect("cannot state spec update after live spec has been deleted");
+            .expect("cannot start spec update after live spec has been deleted");
         self.draft = draft_publication(state, model);
 
         self.update_pending_draft(detail)
