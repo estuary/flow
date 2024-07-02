@@ -14,7 +14,7 @@ pub enum JobStatus {
         #[serde(
             default,
             skip_serializing_if = "Vec::is_empty",
-            alias = "incompatible_collections"
+            rename = "incompatible_collections"
         )]
         incompatible_collections: Vec<IncompatibleCollection>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,13 +82,21 @@ pub enum ReCreateReason {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct IncompatibleCollection {
     pub collection: String,
     /// Reasons why the collection would need to be re-created in order for a publication of the draft spec to succeed.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        alias = "requiresRecreation"
+    )]
     pub requires_recreation: Vec<ReCreateReason>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        alias = "affectedMaterializations"
+    )]
     pub affected_materializations: Vec<AffectedConsumer>,
 }
 
@@ -176,5 +184,72 @@ mod test {
             starting, parsed,
             "unequal status after round-trip, json:\n{as_json}"
         );
+    }
+
+    #[test]
+    fn test_status_serde_backward_compatibility() {
+        let old_json = r##"{
+          "type": "buildFailed",
+          "incompatible_collections": [
+            {
+              "collection": "acmeCo/foo",
+              "affectedMaterializations": [
+                {
+                  "name": "acmeCo/postgres",
+                  "fields": [
+                    {
+                      "field": "some_date",
+                      "reason": "Field 'some_date' is already being materialized as endpoint type 'TIMESTAMP WITH TIME ZONE' but endpoint type 'DATE' is required by its schema '{ type: [null, string], format: date }'"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }"##;
+
+        let result: JobStatus =
+            serde_json::from_str(old_json).expect("old status json failed to deserialize");
+        insta::assert_debug_snapshot!(result, @r###"
+        BuildFailed {
+            incompatible_collections: [
+                IncompatibleCollection {
+                    collection: "acmeCo/foo",
+                    requires_recreation: [],
+                    affected_materializations: [
+                        AffectedConsumer {
+                            name: "acmeCo/postgres",
+                            fields: [
+                                RejectedField {
+                                    field: "some_date",
+                                    reason: "Field 'some_date' is already being materialized as endpoint type 'TIMESTAMP WITH TIME ZONE' but endpoint type 'DATE' is required by its schema '{ type: [null, string], format: date }'",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+            evolution_id: None,
+        }
+        "###);
+
+        let old_json = r##"{"type":"buildFailed","incompatible_collections":[{"collection":"acmeCo/bar","requiresRecreation":["keyChange"]}]}"##;
+
+        let result: JobStatus =
+            serde_json::from_str(old_json).expect("old status json failed to deserialize");
+        insta::assert_debug_snapshot!(result, @r###"
+        BuildFailed {
+            incompatible_collections: [
+                IncompatibleCollection {
+                    collection: "acmeCo/bar",
+                    requires_recreation: [
+                        KeyChange,
+                    ],
+                    affected_materializations: [],
+                },
+            ],
+            evolution_id: None,
+        }
+        "###);
     }
 }

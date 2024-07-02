@@ -66,7 +66,7 @@ expression: schema
     },
     "IncompatibleCollection": {
       "properties": {
-        "affectedMaterializations": {
+        "affected_materializations": {
           "items": {
             "$ref": "#/definitions/AffectedConsumer"
           },
@@ -75,7 +75,7 @@ expression: schema
         "collection": {
           "type": "string"
         },
-        "requiresRecreation": {
+        "requires_recreation": {
           "description": "Reasons why the collection would need to be re-created in order for a publication of the draft spec to succeed.",
           "items": {
             "$ref": "#/definitions/ReCreateReason"
