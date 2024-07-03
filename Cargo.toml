@@ -129,6 +129,8 @@ sqlx = { version = "0.6", features = [
     "uuid",
 ] }
 
+tokio-rustls = "0.26.0"
+webpki-roots = "0.26"
 tempfile = "3.3"
 portpicker = "0.1.1"
 tempdir = "0.3"
