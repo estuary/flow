@@ -201,35 +201,9 @@ impl InferredSchemaStatus {
             tracing::debug!(%collection_name, "No inferred schema available yet");
         }
 
-        let next_run = Some(self.next_run(state.updated_at, control_plane.current_time()));
-        Ok(next_run)
-    }
-
-    fn next_run(&self, last_update: DateTime<Utc>, now: DateTime<Utc>) -> NextRun {
-        // The idea here is to check frequently if there isn't an inferred schema at all yet,
-        // so we can quickly start materializing some data. But after it works at least once,
-        // then we can slow down a little.
-        let min_backoff_minutes = if self.schema_md5.is_none() {
-            1i64
-        } else {
-            10i64
-        };
-
-        // We use a simple heuristic to determine how long to wait before
-        // checking the inferred schema again: how long has it been since
-        // the last time the inferred schema was updated. Then clamp that
-        // duration into a reasonable bounds. Collections that see very
-        // frequent inferred schema updates will be checked much more
-        // frequently, while those that are updated infrequently will be
-        // checked somewhat less frequently.
-        let start_time = self.schema_last_updated.unwrap_or(last_update);
-        let after_minutes = now
-            .signed_duration_since(start_time)
-            .num_minutes()
-            .max(min_backoff_minutes)
-            .min(120);
-
-        NextRun::after_minutes(after_minutes as u32).with_jitter_percent(25)
+        // Keep an infrequent periodic check, as a fallback in case the database trigger
+        // gets disabled.
+        Ok(Some(NextRun::after_minutes(180)))
     }
 }
 
