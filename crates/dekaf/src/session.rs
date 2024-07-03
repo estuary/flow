@@ -3,7 +3,7 @@ use anyhow::Context;
 use kafka_protocol::{
     error::ResponseError,
     indexmap::IndexMap,
-    messages::{self, metadata_response::MetadataResponseTopic, TopicName},
+    messages::{self, metadata_response::MetadataResponseTopic, RequestHeader, TopicName},
     protocol::{Builder, StrBytes},
 };
 use std::collections::HashMap;
@@ -502,6 +502,46 @@ impl Session {
             .unwrap())
     }
 
+    pub async fn join_group(
+        &mut self,
+        req: messages::JoinGroupRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::JoinGroupResponse> {
+        return self.app.kafka_client.send_request(req, Some(header)).await;
+    }
+
+    pub async fn list_group(
+        &mut self,
+        req: messages::ListGroupsRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::ListGroupsResponse> {
+        return self.app.kafka_client.send_request(req, Some(header)).await;
+    }
+
+    pub async fn sync_group(
+        &mut self,
+        req: messages::SyncGroupRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::SyncGroupResponse> {
+        return self.app.kafka_client.send_request(req, Some(header)).await;
+    }
+
+    pub async fn delete_group(
+        &mut self,
+        req: messages::DeleteGroupsRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::DeleteGroupsResponse> {
+        return self.app.kafka_client.send_request(req, Some(header)).await;
+    }
+
+    pub async fn heartbeat(
+        &mut self,
+        req: messages::HeartbeatRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::HeartbeatResponse> {
+        return self.app.kafka_client.send_request(req, Some(header)).await;
+    }
+
     /// ApiVersions lists the APIs which are supported by this "broker".
     pub async fn api_versions(
         &mut self,
@@ -587,6 +627,19 @@ impl Session {
             version::<DeleteTopicsRequest>(),
         );
         */
+
+        res.api_keys
+            .insert(ApiKey::JoinGroupKey as i16, version::<JoinGroupRequest>());
+        res.api_keys
+            .insert(ApiKey::ListGroupsKey as i16, version::<ListGroupsRequest>());
+        res.api_keys
+            .insert(ApiKey::SyncGroupKey as i16, version::<SyncGroupRequest>());
+        res.api_keys.insert(
+            ApiKey::DeleteGroupsKey as i16,
+            version::<DeleteGroupsRequest>(),
+        );
+        res.api_keys
+            .insert(ApiKey::HeartbeatKey as i16, version::<HeartbeatRequest>());
 
         Ok(res)
     }
