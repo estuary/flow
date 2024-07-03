@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use dekaf::Session;
+use dekaf::{KafkaApiClient, Session};
 use futures::{FutureExt, TryStreamExt};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
@@ -39,6 +39,20 @@ pub struct Cli {
     /// The port to listen on for schema registry API requests.
     #[clap(long, default_value = "9093", env = "SCHEMA_REGISTRY_PORT")]
     schema_registry_port: u16,
+
+    /// The hostname of the default Kafka broker to use for serving group management APIs
+    #[clap(long, env = "DEFAULT_BROKER_HOSTNAME")]
+    default_broker_hostname: String,
+    /// The port of the default Kafka broker to use for serving group management APIs
+    #[clap(long, default_value = "9092", env = "DEFAULT_BROKER_PORT")]
+    default_broker_port: u16,
+    /// The username for the default Kafka broker to use for serving group management APIs.
+    /// Currently only supports SASL PLAIN username/password auth.
+    #[clap(long, env = "DEFAULT_BROKER_USERNAME")]
+    default_broker_username: String,
+    /// The password for the default Kafka broker to use for serving group management APIs
+    #[clap(long, env = "DEFAULT_BROKER_PASSWORD")]
+    default_broker_password: String,
 }
 
 #[tokio::main]
@@ -65,6 +79,15 @@ async fn main() -> anyhow::Result<()> {
         anon_client: postgrest::Postgrest::new(api_endpoint).insert_header("apikey", api_token),
         advertise_host: cli.advertise_host,
         advertise_kafka_port: cli.kafka_port,
+        kafka_client: KafkaApiClient::new(
+            format!(
+                "{}:{}",
+                cli.default_broker_hostname, cli.default_broker_port
+            )
+            .as_str(),
+            &cli.default_broker_password.as_str(),
+            &cli.default_broker_password.as_str(),
+        ),
     });
 
     // Build a server which listens and serves supported schema registry requests.
