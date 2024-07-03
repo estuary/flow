@@ -44,7 +44,9 @@ pub struct Collection {
 pub struct Partition {
     pub spec: broker::JournalSpec,
     pub create_revision: i64,
+    #[allow(unused)]
     pub mod_revision: i64,
+    #[allow(unused)]
     pub route: broker::Route,
 }
 

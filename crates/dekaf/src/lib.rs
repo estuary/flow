@@ -26,6 +26,8 @@ pub struct App {
     pub advertise_host: String,
     /// Port which is advertised for Kafka access.
     pub advertise_kafka_port: u16,
+    /// Client used when proxying group management APIs.
+    pub kafka_client: KafkaApiClient,
 }
 
 impl App {
@@ -201,6 +203,47 @@ pub async fn dispatch_request_frame(
                 out,
                 &header,
                 session.describe_configs(request).await?,
+            ))
+        }
+
+        ApiKey::JoinGroupKey => {
+            let (header, request) = dec_request(false, frame)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.join_group(request, header).await?,
+            ))
+        }
+        ApiKey::ListGroupsKey => {
+            let (header, request) = dec_request(false, frame)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.list_group(request, header).await?,
+            ))
+        }
+        ApiKey::SyncGroupKey => {
+            let (header, request) = dec_request(false, frame)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.sync_group(request, header).await?,
+            ))
+        }
+        ApiKey::DeleteGroupsKey => {
+            let (header, request) = dec_request(false, frame)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.delete_group(request, header).await?,
+            ))
+        }
+        ApiKey::HeartbeatKey => {
+            let (header, request) = dec_request(false, frame)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.heartbeat(request, header).await?,
             ))
         }
         /*
