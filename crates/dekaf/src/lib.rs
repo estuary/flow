@@ -16,6 +16,9 @@ pub use session::Session;
 
 pub mod registry;
 
+mod api_client;
+pub use api_client::KafkaApiClient;
+
 pub struct App {
     /// Anonymous API client for the Estuary control plane.
     pub anon_client: postgrest::Postgrest,
