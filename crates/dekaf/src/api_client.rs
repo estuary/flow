@@ -1,11 +1,11 @@
 use anyhow::{anyhow, bail};
 use bytes::{Buf, Bytes, BytesMut};
-use futures::lock::Mutex;
+use futures::lock::{MappedMutexGuard, Mutex, MutexGuard};
 use kafka_protocol::{
     messages::{
         sasl_authenticate_request::SaslAuthenticateRequestBuilder,
         sasl_handshake_request::SaslHandshakeRequestBuilder, ApiKey, ApiVersionsRequest,
-        RequestHeader, SaslAuthenticateRequest,
+        RequestHeader,
     },
     protocol::{Builder, Decodable, Encodable, HeaderVersion, Request, StrBytes},
 };
@@ -29,14 +29,26 @@ pub struct KafkaApiClient {
     /// A raw IO stream to the Kafka broker.
     // TODO: Do all Kafka brokers support TLS? Should this really be
     // something like `Pin<Box<dyn AsyncRead + AsyncWrite + Send>>`?
-    connection: Arc<Mutex<TlsStream<TcpStream>>>,
+    connection: Arc<Mutex<Option<TlsStream<TcpStream>>>>,
+    broker_url: String,
+    username: String,
+    password: String,
 }
 
 impl KafkaApiClient {
-    pub async fn connect(broker_url: &str) -> anyhow::Result<Self> {
+    pub fn new(broker_url: &str, username: &str, password: &str) -> Self {
+        Self {
+            connection: Default::default(),
+            broker_url: broker_url.to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
+        }
+    }
+
+    async fn connect(&self) -> anyhow::Result<TlsStream<TcpStream>> {
         // Establish a TCP connection to the Kafka broker
 
-        let parsed_url = Url::parse(broker_url)?;
+        let parsed_url = Url::parse(&self.broker_url)?;
 
         let mut root_cert_store = RootCertStore::empty();
         root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -56,20 +68,35 @@ impl KafkaApiClient {
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
         let stream = tls_connector.connect(dnsname, tcp_stream).await?;
 
-        Ok(Self {
-            connection: Arc::new(Mutex::new(stream)),
-        })
+        // TODO: Automatically close the connection after x minutes of inactivity
+
+        Ok(stream)
     }
 
-    /// Send a request and wait for the response. Per Kafka wire protocol docs:
-    /// The server guarantees that on a single TCP connection, requests will be processed in the order
-    /// they are sent and responses will return in that order as well. The broker's request processing
-    /// allows only a single in-flight request per connection in order to guarantee this ordering.
-    /// https://kafka.apache.org/protocol.html
-    pub async fn send_request<Req: Request>(
+    /// Responsible for handing out an opened, authenticated connection to the broker. Returns a locked mutex guard.
+    async fn get_connection(
+        &self,
+    ) -> anyhow::Result<MappedMutexGuard<Option<TlsStream<TcpStream>>, TlsStream<TcpStream>>> {
+        let mut maybe_conn = self.connection.lock().await;
+        if maybe_conn.is_none() {
+            let mut new_conn = self.connect().await?;
+
+            // Newly created connections need to be authenticated
+            self.sasl_auth(&mut new_conn).await?;
+
+            *maybe_conn = Some(new_conn);
+        }
+
+        let ret = MutexGuard::map(maybe_conn, |c| c.as_mut().unwrap());
+
+        Ok(ret)
+    }
+
+    async fn _send_request<Req: Request>(
         &self,
         req: Req,
         header: Option<RequestHeader>,
+        conn: &mut TlsStream<TcpStream>,
     ) -> anyhow::Result<Req::Response> {
         let mut req_buf = BytesMut::new();
 
@@ -83,10 +110,7 @@ impl KafkaApiClient {
             ApiVersionsRequest::header_version(header.request_api_version),
         )?;
 
-        req.encode(&mut req_buf, header.request_api_version);
-
-        // TODO: This could be optimized by pipelining.
-        let mut conn = self.connection.lock().await;
+        req.encode(&mut req_buf, header.request_api_version)?;
 
         // https://kafka.apache.org/protocol.html#protocol_common
         // All requests and responses originate from the following:
@@ -133,12 +157,28 @@ impl KafkaApiClient {
         Ok(resp)
     }
 
-    pub async fn sasl_auth(&self, username: &str, password: &str) -> anyhow::Result<()> {
+    /// Send a request and wait for the response. Per Kafka wire protocol docs:
+    /// The server guarantees that on a single TCP connection, requests will be processed in the order
+    /// they are sent and responses will return in that order as well. The broker's request processing
+    /// allows only a single in-flight request per connection in order to guarantee this ordering.
+    /// https://kafka.apache.org/protocol.html
+    pub async fn send_request<Req: Request>(
+        &self,
+        req: Req,
+        header: Option<RequestHeader>,
+    ) -> anyhow::Result<Req::Response> {
+        // TODO: This could be optimized by pipelining.
+        let mut conn = self.get_connection().await?;
+
+        return self._send_request(req, header, &mut conn).await;
+    }
+
+    async fn sasl_auth(&self, conn: &mut TlsStream<TcpStream>) -> anyhow::Result<()> {
         let handshake_req = SaslHandshakeRequestBuilder::default()
             .mechanism(StrBytes::from_static_str("PLAIN"))
             .build()?;
 
-        let handshake_resp = self.send_request(handshake_req, None).await?;
+        let handshake_resp = self._send_request(handshake_req, None, conn).await?;
 
         if handshake_resp.error_code > 0 {
             bail!(
@@ -148,13 +188,13 @@ impl KafkaApiClient {
             );
         }
 
-        let auth_bytes = format!("\0{}\0{}", username, password).into_bytes();
+        let auth_bytes = format!("\0{}\0{}", self.username, self.password).into_bytes();
 
         let authenticate_request = SaslAuthenticateRequestBuilder::default()
             .auth_bytes(Bytes::from(auth_bytes))
             .build()?;
 
-        let auth_resp = self.send_request(authenticate_request, None).await?;
+        let auth_resp = self._send_request(authenticate_request, None, conn).await?;
 
         if auth_resp.error_code > 0 {
             bail!(

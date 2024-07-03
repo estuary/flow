@@ -43,9 +43,10 @@ pub struct Collection {
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
 pub struct Partition {
     pub create_revision: i64,
-    pub spec: broker::JournalSpec,
-    pub _mod_revision: i64,
-    pub _route: broker::Route,
+    #[allow(unused)]
+    pub mod_revision: i64,
+    #[allow(unused)]
+    pub route: broker::Route,
 }
 
 impl Collection {
