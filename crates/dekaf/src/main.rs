@@ -2,6 +2,7 @@ use anyhow::Context;
 use clap::Parser;
 use dekaf::{KafkaApiClient, Session};
 use futures::{FutureExt, TryStreamExt};
+use rsasl::config::SASLConfig;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
@@ -75,20 +76,33 @@ async fn main() -> anyhow::Result<()> {
         (cli.api_endpoint.as_str(), cli.api_key.as_str())
     };
 
+    let upstream_kafka_host = format!(
+        "tcp://{}:{}",
+        cli.default_broker_hostname, cli.default_broker_port
+    );
+
     let app = Arc::new(dekaf::App {
         anon_client: postgrest::Postgrest::new(api_endpoint).insert_header("apikey", api_token),
         advertise_host: cli.advertise_host,
         advertise_kafka_port: cli.kafka_port,
         kafka_client: KafkaApiClient::new(
-            format!(
-                "{}:{}",
-                cli.default_broker_hostname, cli.default_broker_port
-            )
-            .as_str(),
-            &cli.default_broker_password.as_str(),
-            &cli.default_broker_password.as_str(),
+            upstream_kafka_host.as_str(),
+            SASLConfig::with_credentials(
+                None,
+                cli.default_broker_username,
+                cli.default_broker_password,
+            )?,
         ),
     });
+
+    app.kafka_client.validate_auth().await.context(
+        "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
+    )?;
+
+    tracing::info!(
+        broker_url = upstream_kafka_host,
+        "Successfully authenticated to upstream Kafka broker"
+    );
 
     // Build a server which listens and serves supported schema registry requests.
     let schema_listener = std::net::TcpListener::bind(format!("[::]:{}", cli.schema_registry_port))

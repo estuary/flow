@@ -1,15 +1,15 @@
 use anyhow::{anyhow, bail};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use futures::lock::{MappedMutexGuard, Mutex, MutexGuard};
 use kafka_protocol::{
     messages::{
         sasl_authenticate_request::SaslAuthenticateRequestBuilder,
-        sasl_handshake_request::SaslHandshakeRequestBuilder, ApiKey, ApiVersionsRequest,
-        RequestHeader,
+        sasl_handshake_request::SaslHandshakeRequestBuilder, ApiKey, RequestHeader, ResponseHeader,
     },
-    protocol::{Builder, Decodable, Encodable, HeaderVersion, Request, StrBytes},
+    protocol::{Builder, Decodable, Encodable, Request, StrBytes},
 };
-use std::sync::Arc;
+use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
+use std::{io::BufWriter, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -31,18 +31,49 @@ pub struct KafkaApiClient {
     // something like `Pin<Box<dyn AsyncRead + AsyncWrite + Send>>`?
     connection: Arc<Mutex<Option<TlsStream<TcpStream>>>>,
     broker_url: String,
-    username: String,
-    password: String,
+    sasl_config: Arc<SASLConfig>,
 }
 
 impl KafkaApiClient {
-    pub fn new(broker_url: &str, username: &str, password: &str) -> Self {
+    pub fn new(broker_url: &str, sasl_config: Arc<SASLConfig>) -> Self {
         Self {
             connection: Default::default(),
             broker_url: broker_url.to_string(),
-            username: username.to_string(),
-            password: password.to_string(),
+            sasl_config,
         }
+    }
+
+    async fn get_mechanisms(&self) -> anyhow::Result<Vec<String>> {
+        // In order to pick the best method to use, we need to know the options supported by the server.
+        // `SaslHandshakeResponse` contains this list, but you have to send a `SaslHandshakeRequest` to get it,
+        // and if you send an invalid mechanism, Kafka will close the connection. So we need to open a throw-away
+        // connection and send an invalid `SaslHandshakeRequest` all in order to discover the supported mechanisms.
+        let mut new_conn = self.connect().await?;
+
+        let discovery_handshake_req = SaslHandshakeRequestBuilder::default().build()?;
+
+        let handshake_resp = self
+            ._send_request(discovery_handshake_req, None, &mut new_conn)
+            .await?;
+
+        let offered_mechanisms: Vec<_> = handshake_resp
+            .mechanisms
+            .iter()
+            .cloned()
+            .map(|m| m.to_string())
+            .collect();
+
+        tracing::debug!(
+            mechanisms = ?offered_mechanisms,
+            "Discovered supported SASL mechanisms"
+        );
+
+        Ok(offered_mechanisms)
+    }
+
+    pub async fn validate_auth(&self) -> anyhow::Result<()> {
+        self.get_connection().await?;
+        Ok(())
     }
 
     async fn connect(&self) -> anyhow::Result<TlsStream<TcpStream>> {
@@ -65,8 +96,10 @@ impl KafkaApiClient {
         let port = parsed_url.port().unwrap_or(9092);
         let dnsname = ServerName::try_from(hostname.to_string())?;
 
+        tracing::debug!(port = port,host = ?hostname, "Attempting to connect");
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
         let stream = tls_connector.connect(dnsname, tcp_stream).await?;
+        tracing::debug!(port = port,host = ?hostname, "Connectione established");
 
         // TODO: Automatically close the connection after x minutes of inactivity
 
@@ -100,17 +133,26 @@ impl KafkaApiClient {
     ) -> anyhow::Result<Req::Response> {
         let mut req_buf = BytesMut::new();
 
-        let header = match header {
+        let req_api_key = ApiKey::try_from(Req::KEY).expect("API key should exist");
+
+        let api_version = Req::VERSIONS.max;
+
+        let request_header = match header {
             Some(h) => h,
-            None => RequestHeader::builder().request_api_key(Req::KEY).build()?,
+            None => RequestHeader::builder()
+                .request_api_key(Req::KEY)
+                .request_api_version(api_version)
+                .build()?,
         };
 
-        header.encode(
+        request_header.encode(
             &mut req_buf,
-            ApiVersionsRequest::header_version(header.request_api_version),
+            Req::header_version(request_header.request_api_version),
         )?;
 
-        req.encode(&mut req_buf, header.request_api_version)?;
+        req.encode(&mut req_buf, request_header.request_api_version)?;
+
+        tracing::debug!(api_key_name=?req_api_key, api_key=Req::KEY, api_version=request_header.request_api_version, "Sending request");
 
         // https://kafka.apache.org/protocol.html#protocol_common
         // All requests and responses originate from the following:
@@ -126,33 +168,25 @@ impl KafkaApiClient {
         // Wait until we start to get the response. It will begin with a 4 byte length
         let response_len = conn.read_i32().await?;
 
+        tracing::debug!(len_bytes = response_len, "Got response length");
+
         // Now we can read the whole message. Let's not worry about streaming this
         // for the moment. I don't think we'll get messages large enough to cause
         // issues with memory consumption... but I've been wrong about that before.
         let mut resp_buf = vec![0; usize::try_from(response_len)?];
         conn.read_exact(&mut resp_buf).await?;
 
-        let api_key = match ApiKey::try_from((&resp_buf[0..2]).get_i16()) {
-            Ok(k) => k,
-            Err(_) => bail!(
-                "Unknown API key in response: {}",
-                (&resp_buf[0..2]).get_i16()
-            ),
-        };
+        let response_header_version = req_api_key.response_header_version(api_version);
 
-        let api_version = (&resp_buf[2..4]).get_i16();
-        let header_version = api_key.request_header_version(api_version);
+        // Need to keep a single mutable slice here because `ResponseHeader::decode` will advance the slice
+        // as it parses, essentially stripping off the header and leaving the underlying response body.
+        let mut buf_slice = resp_buf.as_slice();
 
-        let header = RequestHeader::decode(&mut resp_buf.as_slice(), header_version).unwrap();
+        let resp_header = ResponseHeader::decode(&mut buf_slice, response_header_version).unwrap();
 
-        if !header.request_api_key.eq(&Req::KEY) {
-            bail!(format!(
-                "Unexpected message respose ApiKey {}",
-                header.request_api_key
-            ));
-        }
+        tracing::debug!(response_header_version, resp_header=?resp_header, "Got response header");
 
-        let resp = Req::Response::decode(&mut resp_buf.as_slice(), header.request_api_version)?;
+        let resp = Req::Response::decode(&mut buf_slice, api_version)?;
 
         Ok(resp)
     }
@@ -174,34 +208,64 @@ impl KafkaApiClient {
     }
 
     async fn sasl_auth(&self, conn: &mut TlsStream<TcpStream>) -> anyhow::Result<()> {
+        let sasl = SASLClient::new(self.sasl_config.clone());
+
+        let mechanisms = self.get_mechanisms().await?;
+
+        let maybe_offered_mechanisms: Result<Vec<_>, _> = mechanisms
+            .iter()
+            .map(|m| Mechname::parse(m.as_str().as_bytes()))
+            .collect();
+
+        let offered_mechanisms = maybe_offered_mechanisms?;
+
+        // select the best offered mechanism that the user enabled in the `config`
+        let mut session = sasl.start_suggested(offered_mechanisms.iter())?;
+
+        let selected_mechanism = session.get_mechname().as_str().to_owned();
+
+        tracing::debug!(mechamism=?selected_mechanism, "Starting SASL request with handshake");
+
+        // Now we know which mechanism we want to request
         let handshake_req = SaslHandshakeRequestBuilder::default()
-            .mechanism(StrBytes::from_static_str("PLAIN"))
+            .mechanism(StrBytes::from_utf8(Bytes::from(selected_mechanism))?)
             .build()?;
 
         let handshake_resp = self._send_request(handshake_req, None, conn).await?;
 
         if handshake_resp.error_code > 0 {
+            let err = kafka_protocol::ResponseError::try_from_code(handshake_resp.error_code)
+                .map(|code| format!("{code:?}"))
+                .unwrap_or(format!("Unknown error {}", handshake_resp.error_code));
             bail!(
-                "Error performing SASL handshake: {}. Supported mechanisms: {:?}",
-                handshake_resp.error_code,
+                "Error performing SASL handshake: {err}. Supported mechanisms: {:?}",
                 handshake_resp.mechanisms
             );
         }
 
-        let auth_bytes = format!("\0{}\0{}", self.username, self.password).into_bytes();
+        let mut state_buf = BufWriter::new(Vec::new());
+        let mut state = session.step(None, &mut state_buf)?;
 
-        let authenticate_request = SaslAuthenticateRequestBuilder::default()
-            .auth_bytes(Bytes::from(auth_bytes))
-            .build()?;
+        // SASL can happen over multiple steps
+        while state.is_running() {
+            let authenticate_request = SaslAuthenticateRequestBuilder::default()
+                .auth_bytes(Bytes::from(state_buf.into_inner()?))
+                .build()?;
 
-        let auth_resp = self._send_request(authenticate_request, None, conn).await?;
+            let auth_resp = self._send_request(authenticate_request, None, conn).await?;
 
-        if auth_resp.error_code > 0 {
-            bail!(
-                "Error performing SASL authentication: {} {:?}",
-                auth_resp.error_code,
-                auth_resp.error_message
-            )
+            if auth_resp.error_code > 0 {
+                let err = kafka_protocol::ResponseError::try_from_code(handshake_resp.error_code)
+                    .map(|code| format!("{code:?}"))
+                    .unwrap_or(format!("Unknown error {}", handshake_resp.error_code));
+                bail!(
+                    "Error performing SASL authentication: {err} {:?}",
+                    auth_resp.error_message
+                )
+            }
+            let data = Some(auth_resp.auth_bytes.to_vec());
+            state_buf = BufWriter::new(Vec::new());
+            state = session.step(data.as_deref(), &mut state_buf)?;
         }
 
         Ok(())
