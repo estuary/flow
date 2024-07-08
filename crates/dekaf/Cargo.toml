@@ -29,6 +29,7 @@ futures = { workspace = true }
 kafka-protocol = { workspace = true }
 md5 = { workspace = true }
 postgrest = { workspace = true }
+rsasl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
