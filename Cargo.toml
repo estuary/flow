@@ -107,6 +107,7 @@ rocksdb = { version = "0.22", default-features = false, features = [
     "rtti",
 ] }
 rkyv = { version = "0.7", features = ["archive_le"] }
+rsasl = { version = "2", features = ["provider"] }
 rusqlite = { version = "0.29", features = ["bundled-full"] }
 rustyline = "11.0"
 schemars = "0.8"
