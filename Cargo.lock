@@ -1386,6 +1386,7 @@ dependencies = [
  "bytes",
  "clap 3.2.25",
  "doc",
+ "flowctl",
  "futures",
  "gazette",
  "kafka-protocol",
