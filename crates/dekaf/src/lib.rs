@@ -179,7 +179,7 @@ pub async fn dispatch_request_frame(
             ))
         }
         ApiKey::ListOffsetsKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(version >= 6, frame)?;
             Ok(enc_resp(out, &header, session.list_offsets(request).await?))
         }
 
