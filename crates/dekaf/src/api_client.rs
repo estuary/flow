@@ -177,13 +177,11 @@ impl KafkaApiClient {
 
         let req_api_key = ApiKey::try_from(Req::KEY).expect("API key should exist");
 
-        let api_version = Req::VERSIONS.max;
-
         let request_header = match header {
             Some(h) => h,
             None => RequestHeader::builder()
                 .request_api_key(Req::KEY)
-                .request_api_version(api_version)
+                .request_api_version(Req::VERSIONS.max)
                 .build()?,
         };
 
@@ -208,14 +206,15 @@ impl KafkaApiClient {
             .await?
             .context("connection unexpectedly closed")?;
 
-        let response_header_version = req_api_key.response_header_version(api_version);
+        let response_header_version =
+            req_api_key.response_header_version(request_header.request_api_version);
 
         let resp_header =
             ResponseHeader::decode(&mut response_frame, response_header_version).unwrap();
 
         tracing::debug!(response_header_version, resp_header=?resp_header, "Got response header");
 
-        let resp = Req::Response::decode(&mut response_frame, api_version)?;
+        let resp = Req::Response::decode(&mut response_frame, request_header.request_api_version)?;
 
         Ok(resp)
     }
