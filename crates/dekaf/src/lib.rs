@@ -228,7 +228,7 @@ async fn handle_api(
             ))
         }
         ApiKey::ListGroupsKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(version >= 3, frame)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -236,7 +236,7 @@ async fn handle_api(
             ))
         }
         ApiKey::SyncGroupKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(version >= 4, frame)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -244,7 +244,7 @@ async fn handle_api(
             ))
         }
         ApiKey::DeleteGroupsKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(version >= 2, frame)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -252,7 +252,7 @@ async fn handle_api(
             ))
         }
         ApiKey::HeartbeatKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(version >= 4, frame)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -275,6 +275,7 @@ fn dec_request<T: kafka_protocol::protocol::Decodable + std::fmt::Debug>(
     flexver: bool,
     mut frame: bytes::BytesMut,
 ) -> anyhow::Result<(messages::RequestHeader, T)> {
+    // This can handled by ApiKey::request_header_version
     let header = messages::RequestHeader::decode(&mut frame, if flexver { 2 } else { 1 })?;
 
     let request = T::decode(&mut frame, header.request_api_version).with_context(|| {
