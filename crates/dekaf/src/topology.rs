@@ -1,4 +1,5 @@
 use anyhow::Context;
+use futures::{StreamExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
 use proto_flow::flow;
 
@@ -11,21 +12,18 @@ pub async fn fetch_all_collection_names(
     struct Row {
         catalog_name: String,
     }
-    let rows: Vec<Row> = client
+    let rows_builder = client
         .from("live_specs_ext")
         .eq("spec_type", "collection")
-        .select("catalog_name")
-        .execute()
-        .await
-        .and_then(|r| r.error_for_status())
-        .context("listing current catalog specifications")?
-        .json()
-        .await?;
+        .select("catalog_name");
 
-    Ok(rows
-        .into_iter()
-        .map(|Row { catalog_name }| catalog_name)
-        .collect())
+    let items = flowctl::pagination::into_items::<Row>(rows_builder)
+        .map(|res| res.map(|Row { catalog_name }| catalog_name))
+        .try_collect()
+        .await
+        .context("listing current catalog specifications")?;
+
+    Ok(items)
 }
 
 /// Collection is the assembled metadata of a collection being accessed as a Kafka topic.
