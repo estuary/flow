@@ -107,3 +107,17 @@ or [set a minimum retention
 period](https://www.mongodb.com/docs/manual/reference/command/replSetResizeOplog/#minimum-oplog-retention-period)
 for your oplog to be able to reliably capture data. The recommended minimum retention period is at
 least 24 hours, but we recommend higher values to improve reliability.
+
+## Change Event Pre- and Post-Images
+
+Captured documents for change events from `update` operations will always
+include a full post-image, since the change stream is configured with the [`{
+fullDocument: 'updateLookup' }`
+setting](https://www.mongodb.com/docs/manual/changeStreams/#lookup-full-document-for-update-operations).
+
+Pre-images for `update`, `replace`, and `delete` operations will be captured if
+they are available. For these pre-images to be captured, the source MongoDB
+collection must have `changeStreamPreAndPostImages` enabled. See the [official
+MongoDB
+documentation](https://www.mongodb.com/docs/manual/changeStreams/#change-streams-with-document-pre--and-post-images)
+for more information on how to enable this setting.
