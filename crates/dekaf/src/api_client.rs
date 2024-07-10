@@ -13,7 +13,7 @@ use kafka_protocol::{
     protocol::{Builder, Decodable, Encodable, Request, StrBytes},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
-use std::boxed::Box;
+use std::{boxed::Box, time::Duration};
 use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_rustls::{
@@ -104,6 +104,14 @@ impl KafkaApiClient {
 
         tracing::debug!(port = port,host = ?hostname, "Attempting to connect");
         let tcp_stream = TcpStream::connect(format!("{hostname}:{port}")).await?;
+
+        // Let's keep this stream alive
+        let sock_ref = socket2::SockRef::from(&tcp_stream);
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(20))
+            .with_interval(Duration::from_secs(20));
+        sock_ref.set_tcp_keepalive(&ka)?;
+
         let stream = tls_connector.connect(dnsname, tcp_stream).await?;
         tracing::debug!(port = port,host = ?hostname, "Connectione established");
 
