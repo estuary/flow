@@ -1,6 +1,10 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use bytes::{Bytes, BytesMut};
-use futures::lock::{MappedMutexGuard, Mutex, MutexGuard};
+use futures::{
+    lock::{MappedMutexGuard, Mutex, MutexGuard},
+    Sink,
+};
+use futures::{SinkExt, Stream, TryStreamExt};
 use kafka_protocol::{
     messages::{
         sasl_authenticate_request::SaslAuthenticateRequestBuilder,
@@ -9,11 +13,9 @@ use kafka_protocol::{
     protocol::{Builder, Decodable, Encodable, Request, StrBytes},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
-use std::{io::BufWriter, sync::Arc};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use std::boxed::Box;
+use std::{io::BufWriter, pin::Pin, sync::Arc};
+use tokio::net::TcpStream;
 use tokio_rustls::{
     client::TlsStream,
     rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
@@ -21,15 +23,18 @@ use tokio_rustls::{
 };
 use url::Url;
 
+struct BoxedDuplexConnection {
+    pub reader: Pin<Box<dyn Stream<Item = Result<BytesMut, std::io::Error>> + Send + Unpin>>,
+    pub writer: Pin<Box<dyn Sink<Bytes, Error = std::io::Error> + Send + Unpin>>,
+}
+
 /// Exposes a low level Kafka wire protocol client. Used when we need to
 /// make API calls at the wire protocol level, as opposed to higher-level producer/consumer
 /// APIs that Kafka client libraries usually expose. Currently used to serve
 /// the group management protocol requests by proxying to a real Kafka broker.
 pub struct KafkaApiClient {
     /// A raw IO stream to the Kafka broker.
-    // TODO: Do all Kafka brokers support TLS? Should this really be
-    // something like `Pin<Box<dyn AsyncRead + AsyncWrite + Send>>`?
-    connection: Arc<Mutex<Option<TlsStream<TcpStream>>>>,
+    connection: Arc<Mutex<Option<BoxedDuplexConnection>>>,
     broker_url: String,
     sasl_config: Arc<SASLConfig>,
 }
@@ -71,12 +76,13 @@ impl KafkaApiClient {
         Ok(offered_mechanisms)
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn validate_auth(&self) -> anyhow::Result<()> {
         self.get_connection().await?;
         Ok(())
     }
 
-    async fn connect(&self) -> anyhow::Result<TlsStream<TcpStream>> {
+    async fn connect(&self) -> anyhow::Result<BoxedDuplexConnection> {
         // Establish a TCP connection to the Kafka broker
 
         let parsed_url = Url::parse(&self.broker_url)?;
@@ -101,15 +107,43 @@ impl KafkaApiClient {
         let stream = tls_connector.connect(dnsname, tcp_stream).await?;
         tracing::debug!(port = port,host = ?hostname, "Connectione established");
 
+        // https://kafka.apache.org/protocol.html#protocol_common
+        // All requests and responses originate from the following:
+        // > RequestOrResponse => Size (RequestMessage | ResponseMessage)
+        // >   Size => int32
+        let (reader, writer) = tokio::io::split(stream);
+
+        let framed_reader = tokio_util::codec::FramedRead::new(
+            reader,
+            tokio_util::codec::LengthDelimitedCodec::builder()
+                .big_endian()
+                .length_field_length(4)
+                .max_frame_length(1 << 27) // 128 MiB
+                .new_codec(),
+        );
+
+        let framed_writer = tokio_util::codec::FramedWrite::new(
+            writer,
+            tokio_util::codec::LengthDelimitedCodec::builder()
+                .big_endian()
+                .length_field_length(4)
+                .max_frame_length(1 << 27) // 128 MiB
+                .new_codec(),
+        );
+
         // TODO: Automatically close the connection after x minutes of inactivity
 
-        Ok(stream)
+        Ok(BoxedDuplexConnection {
+            reader: Pin::new(Box::new(framed_reader)),
+            writer: Pin::new(Box::new(framed_writer)),
+        })
     }
 
     /// Responsible for handing out an opened, authenticated connection to the broker. Returns a locked mutex guard.
     async fn get_connection(
         &self,
-    ) -> anyhow::Result<MappedMutexGuard<Option<TlsStream<TcpStream>>, TlsStream<TcpStream>>> {
+    ) -> anyhow::Result<MappedMutexGuard<Option<BoxedDuplexConnection>, BoxedDuplexConnection>>
+    {
         let mut maybe_conn = self.connection.lock().await;
         if maybe_conn.is_none() {
             let mut new_conn = self.connect().await?;
@@ -129,7 +163,7 @@ impl KafkaApiClient {
         &self,
         req: Req,
         header: Option<RequestHeader>,
-        conn: &mut TlsStream<TcpStream>,
+        conn: &mut BoxedDuplexConnection,
     ) -> anyhow::Result<Req::Response> {
         let mut req_buf = BytesMut::new();
 
@@ -154,39 +188,26 @@ impl KafkaApiClient {
 
         tracing::debug!(api_key_name=?req_api_key, api_key=Req::KEY, api_version=request_header.request_api_version, "Sending request");
 
-        // https://kafka.apache.org/protocol.html#protocol_common
-        // All requests and responses originate from the following:
-        // > RequestOrResponse => Size (RequestMessage | ResponseMessage)
-        // >   Size => int32
-
-        // First write the size. Why this is int32 and not uint32, I do not know.
-        conn.write_i32(i32::try_from(req_buf.len())?).await?;
-
         // Then write the message
-        conn.write_all(&req_buf).await?;
-
-        // Wait until we start to get the response. It will begin with a 4 byte length
-        let response_len = conn.read_i32().await?;
-
-        tracing::debug!(len_bytes = response_len, "Got response length");
+        conn.writer.send(req_buf.freeze()).await?;
 
         // Now we can read the whole message. Let's not worry about streaming this
         // for the moment. I don't think we'll get messages large enough to cause
         // issues with memory consumption... but I've been wrong about that before.
-        let mut resp_buf = vec![0; usize::try_from(response_len)?];
-        conn.read_exact(&mut resp_buf).await?;
+        let mut response_frame = conn
+            .reader
+            .try_next()
+            .await?
+            .context("connection unexpectedly closed")?;
 
         let response_header_version = req_api_key.response_header_version(api_version);
 
-        // Need to keep a single mutable slice here because `ResponseHeader::decode` will advance the slice
-        // as it parses, essentially stripping off the header and leaving the underlying response body.
-        let mut buf_slice = resp_buf.as_slice();
-
-        let resp_header = ResponseHeader::decode(&mut buf_slice, response_header_version).unwrap();
+        let resp_header =
+            ResponseHeader::decode(&mut response_frame, response_header_version).unwrap();
 
         tracing::debug!(response_header_version, resp_header=?resp_header, "Got response header");
 
-        let resp = Req::Response::decode(&mut buf_slice, api_version)?;
+        let resp = Req::Response::decode(&mut response_frame, api_version)?;
 
         Ok(resp)
     }
@@ -207,7 +228,7 @@ impl KafkaApiClient {
         return self._send_request(req, header, &mut conn).await;
     }
 
-    async fn sasl_auth(&self, conn: &mut TlsStream<TcpStream>) -> anyhow::Result<()> {
+    async fn sasl_auth(&self, conn: &mut BoxedDuplexConnection) -> anyhow::Result<()> {
         let sasl = SASLClient::new(self.sasl_config.clone());
 
         let mechanisms = self.get_mechanisms().await?;
