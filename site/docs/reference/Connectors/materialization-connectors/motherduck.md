@@ -49,7 +49,7 @@ more of your Flow collections to your desired tables in the database.
 | Property         | Title              | Description                                                                                                   | Type    | Required/Default |
 |------------------|--------------------|---------------------------------------------------------------------------------------------------------------|---------|------------------|
 | **`/table`**     | Table              | Name of the database table.                                                                                   | string  | Required         |
-| `/delta_updates` | Delta Update       | Should updates to this table be done via delta updates. Currently this connector only supports delta updates. | boolean | `true`           |
+| `/delta_updates` | Delta Update       | Should updates to this table be done via delta updates.                                                       | boolean |                  |
 | `/schema`        | Alternative Schema | Alternative schema for this table (optional).                                                                 | string  |                  |
 
 ### Sample
@@ -75,5 +75,23 @@ materializations:
 
 ## Delta updates
 
-This connector currently supports only [delta updates](../../../../concepts/materialization/#delta-updates).
-Future support for standard updates is planned.
+This connector supports both standard (merge) and [delta
+updates](../../../concepts/materialization.md#delta-updates). The default is to
+use standard updates.
+
+Enabling delta updates will prevent Flow from querying for documents in your
+MotherDuck table, which can reduce latency and costs for large datasets. If you're
+certain that all events will have unique keys, enabling delta updates is a
+simple way to improve performance with no effect on the output. However,
+enabling delta updates is not suitable for all workflows, as the resulting table
+in MotherDuck won't be fully reduced.
+
+You can enable delta updates on a per-binding basis:
+
+```yaml
+    bindings:
+  	- resource:
+      	table: ${table_name}
+        delta_updates: true
+    source: ${PREFIX}/${COLLECTION_NAME}
+```
