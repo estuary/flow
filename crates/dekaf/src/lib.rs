@@ -1,9 +1,10 @@
 use anyhow::Context;
 use bytes::BufMut;
 use kafka_protocol::{
-    messages,
+    messages::{self, ApiKey},
     protocol::{Builder, Decodable, Encodable},
 };
+use tracing::instrument;
 
 mod topology;
 use topology::{fetch_all_collection_names, Collection, Partition};
@@ -93,16 +94,14 @@ pub async fn dispatch_request_frame(
     frame: bytes::BytesMut,
     out: &mut bytes::BytesMut,
 ) -> anyhow::Result<()> {
-    use messages::*;
-
     /*
     println!(
-        "full frame:\n{}",
-        hexdump::hexdump_iter(&frame)
-            .map(|line| format!(" {line}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
+         "full frame:\n{}",
+         hexdump::hexdump_iter(&frame)
+             .map(|line| format!(" {line}"))
+             .collect::<Vec<_>>()
+             .join("\n")
+     );
     */
 
     let (api_key, version) = if !*raw_sasl_auth {
@@ -129,7 +128,21 @@ pub async fn dispatch_request_frame(
     );
     */
 
-    match api_key {
+    handle_api(api_key, version, session, raw_sasl_auth, frame, out).await
+}
+
+#[instrument(level="debug", skip_all,fields(?api_key,v=version))]
+async fn handle_api(
+    api_key: ApiKey,
+    version: i16,
+    session: &mut Session,
+    raw_sasl_auth: &mut bool,
+    frame: bytes::BytesMut,
+    out: &mut bytes::BytesMut,
+) -> anyhow::Result<()> {
+    tracing::debug!("Handling request");
+    use messages::*;
+    let ret = match api_key {
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(version >= 3, frame)?;
@@ -251,7 +264,10 @@ pub async fn dispatch_request_frame(
         ApiKey::ListGroupsKey => Ok(K::ListGroupsRequest(ListGroupsRequest::decode(b, v)?)),
         */
         _ => anyhow::bail!("unsupported request type {api_key:?}"),
-    }
+    };
+    tracing::debug!("Response sent");
+
+    ret
 }
 
 // Easier dispatch to type-specific decoder by using result-type inference.
