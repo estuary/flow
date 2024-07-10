@@ -3,6 +3,9 @@ import:
 
 materializations:
   ops.us-central1.v1/stats-view:
+    shards:
+      # Use a minimum transaction duration to mitigate the load on the database
+      minTxnDuration: "10s"
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-postgres:v4
