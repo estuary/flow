@@ -692,25 +692,29 @@ pub struct StorageRow {
     pub spec: serde_json::Value,
 }
 
+/// Returns the storage mappings for the given set of tenants.
+/// Mappings for `recovery/{tenant}` will also be returned.
 pub async fn resolve_storage_mappings(
-    names: Vec<&str>,
+    tenant_names: Vec<&str>,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> sqlx::Result<Vec<StorageRow>> {
     sqlx::query_as!(
         StorageRow,
         r#"
+        with tenants(name) as (
+          select unnest($1::text[])
+        ),
+        prefixes as (
+          select name as prefix from tenants
+          union all select 'recovery/' || name from tenants
+        )
         select
             m.catalog_prefix,
             m.spec
-        from storage_mappings m,
-        lateral unnest($1::text[]) as n
-        where starts_with(n, m.catalog_prefix)
-           or starts_with('recovery/' || n, m.catalog_prefix)
-           -- TODO(johnny): hack until we better-integrate ops collections.
-           or m.catalog_prefix = 'ops.us-central1.v1/'
-        group by m.id;
+        from prefixes p
+        join storage_mappings m on m.catalog_prefix = p.prefix;
         "#,
-        names as Vec<&str>,
+        tenant_names as Vec<&str>,
     )
     .fetch_all(db)
     .await

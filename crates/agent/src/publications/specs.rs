@@ -750,8 +750,13 @@ pub async fn resolve_live_specs(
     }
 
     // Note that we don't need storage mappings for live specs, only the drafted ones.
-    let all_names = drafted_names.iter().map(|s| *s).collect_vec();
-    let storage_rows = agent_sql::publications::resolve_storage_mappings(all_names, db).await?;
+    let mut tenant_names = drafted_names
+        .iter()
+        .flat_map(|name| tenant(name))
+        .collect::<Vec<_>>();
+    tenant_names.sort();
+    tenant_names.dedup();
+    let storage_rows = agent_sql::publications::resolve_storage_mappings(tenant_names, db).await?;
     for row in storage_rows {
         let scope = tables::synthetic_scope("storage-mappings", &row.catalog_prefix);
         let store: models::StorageDef = match serde_json::from_value(row.spec) {
@@ -775,6 +780,15 @@ pub async fn resolve_live_specs(
     resolve_inferred_schemas(draft, &mut live, db).await?;
 
     Ok((live, spec_ids))
+}
+
+/// Returns an option because `catalog_name` is from a drafted spec, and we've yet to
+/// fully validate the name. Returns the tenant name with the trailing `/`.
+fn tenant(catalog_name: &impl AsRef<str>) -> Option<&str> {
+    let Some(idx) = catalog_name.as_ref().find('/') else {
+        return None;
+    };
+    Some(catalog_name.as_ref().split_at(idx + 1).0)
 }
 
 /// Resolves inferred schemas and adds them to the live catalog.
