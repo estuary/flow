@@ -1,13 +1,13 @@
 ([]protocol.ApplyRequest_Change) (len=3) {
-  (protocol.ApplyRequest_Change) expect_mod_revision:44 delete:"derivation/example/derivation/00ffffffffffffff/10000000-60000000" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:55 delete:"derivation/example/derivation/00ffffffffffffff/30000000-60000000" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:66 delete:"derivation/example/derivation/00ffffffffffffff/30000000-80000000" 
+  (protocol.ApplyRequest_Change) expect_mod_revision:44 delete:"derivation/example/derivation/ffffffffffffffff/10000000-60000000" ,
+  (protocol.ApplyRequest_Change) expect_mod_revision:55 delete:"derivation/example/derivation/ffffffffffffffff/30000000-60000000" ,
+  (protocol.ApplyRequest_Change) expect_mod_revision:66 delete:"derivation/example/derivation/ffffffffffffffff/30000000-80000000" 
 }
 ([]protocol.ApplyRequest_Change) (len=6) {
-  (protocol.ApplyRequest_Change) expect_mod_revision:11 delete:"example/collection/00ffffffffffffff/a_bool=%_true/a_str=a-val/pivot=10000000" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:22 delete:"example/collection/00ffffffffffffff/a_bool=%_true/a_str=a-val/pivot=40000000" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:33 delete:"example/collection/00ffffffffffffff/a_bool=%_false/a_str=other-val/pivot=00" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:77 delete:"recovery/derivation/example/derivation/00ffffffffffffff/10000000-60000000" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:88 delete:"recovery/derivation/example/derivation/00ffffffffffffff/30000000-60000000" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:99 delete:"recovery/derivation/example/derivation/00ffffffffffffff/30000000-80000000" 
+  (protocol.ApplyRequest_Change) expect_mod_revision:11 delete:"example/collection/ffffffffffffffff/a_bool=%_true/a_str=a-val/pivot=10000000" ,
+  (protocol.ApplyRequest_Change) expect_mod_revision:22 delete:"example/collection/ffffffffffffffff/a_bool=%_true/a_str=a-val/pivot=40000000" ,
+  (protocol.ApplyRequest_Change) expect_mod_revision:33 delete:"example/collection/ffffffffffffffff/a_bool=%_false/a_str=other-val/pivot=00" ,
+  (protocol.ApplyRequest_Change) expect_mod_revision:77 delete:"recovery/derivation/example/derivation/ffffffffffffffff/10000000-60000000" ,
+  (protocol.ApplyRequest_Change) expect_mod_revision:88 delete:"recovery/derivation/example/derivation/ffffffffffffffff/30000000-60000000" ,
+  (protocol.ApplyRequest_Change) expect_mod_revision:99 delete:"recovery/derivation/example/derivation/ffffffffffffffff/30000000-80000000" 
 }
