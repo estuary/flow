@@ -40,6 +40,12 @@ message ShardLabeling {
   string task_name = 8;
 	// Type of this task (capture, derivation, or materialization).
 	TaskType task_type = 9;
+  // Journal to which task logs are directed.
+  string logs_journal = 10
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  // Journal to which task stats are directed.
+  string stats_journal = 11
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
 }
 
 // Common `shard` sub-document logged by Stats and Log.

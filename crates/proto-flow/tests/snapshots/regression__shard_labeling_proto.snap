@@ -7,5 +7,10 @@ expression: proto_test(msg)
 |001d7766 554425bb aa99882d ffeeddcc| ..wfUD%....-.... 00000020
 |32127370 6c69742f 736f7572 63652f73| 2.split/source/s 00000030
 |68617264 420d7468 652f7461 736b2f6e| hardB.the/task/n 00000040
-|616d6548 02|                         ameH.            00000050
-                                                       00000055
+|616d6548 02522a6f 70732f6c 6f67732f| ameH.R*ops/logs/ 00000050
+|6f6e653d 63617074 7572652f 74776f3d| one=capture/two= 00000060
+|74686525 32467461 736b2532 466e616d| the%2Ftask%2Fnam 00000070
+|655a2b6f 70732f73 74617473 2f6f6e65| eZ+ops/stats/one 00000080
+|3d636170 74757265 2f74776f 3d746865| =capture/two=the 00000090
+|25324674 61736b25 32466e61 6d65|     %2Ftask%2Fname   000000a0
+                                                       000000ae
