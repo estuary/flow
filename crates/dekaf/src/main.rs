@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    tracing::info!(args=?ops::DebugJson(&cli), "starting");
+    tracing::info!("Starting dekaf");
 
     let (api_endpoint, api_token) = if cli.local {
         (LOCAL_API_ENDPOINT, LOCAL_API_KEY)
