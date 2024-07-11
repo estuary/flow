@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -76,6 +77,15 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Post-process shards to set logs and stats journals to `local` for this testing context.
+	for _, shard := range shards {
+		if shard.Upsert != nil {
+			shard.Upsert.LabelSet.SetValue(labels.LogsJournal, "local")
+			shard.Upsert.LabelSet.SetValue(labels.StatsJournal, "local")
+		}
+	}
+
 	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err == errNoChangesToApply {
 		log.Info("there are no changes to apply")
 	} else if err != nil {

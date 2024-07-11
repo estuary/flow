@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	flowLabels "github.com/estuary/flow/go/labels"
@@ -14,12 +13,10 @@ import (
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
 	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
 )
 
@@ -27,67 +24,81 @@ func TestPartitionPicking(t *testing.T) {
 	var fixtures = buildCombineFixtures(t)
 	var logicalPrefix, hexKey, b []byte
 
-	var m = NewMapper(context.Background(), nil, Journals{&keyspace.KeySpace{Root: "/root"}}, "")
-
 	for ind, tc := range []struct {
 		expectPrefix string
 		expectKey    string
 	}{
-		{"/root/items/a/collection/00ffffffffffffff/bar=%_32/foo=A/", "b9f08d38"},
-		{"/root/items/a/collection/00ffffffffffffff/bar=%_32/foo=A/", "1505e3cb"},
-		{"/root/items/a/collection/00ffffffffffffff/bar=%_42/foo=A%2FB/", "b9f08d38"},
+		{"a/collection/ffffffffffffffff/bar=%_32/foo=A/", "b9f08d38"},
+		{"a/collection/ffffffffffffffff/bar=%_32/foo=A/", "1505e3cb"},
+		{"a/collection/ffffffffffffffff/bar=%_42/foo=A%2FB/", "b9f08d38"},
 	} {
-		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0], fixtures[ind])
+		logicalPrefix, hexKey, b = logicalPrefixAndHexKey(b[:0], fixtures[ind])
 
 		require.Equal(t, tc.expectPrefix, string(logicalPrefix))
 		require.Equal(t, tc.expectKey, string(hexKey))
 	}
 
-	m.journals.KeyValues = keyspace.KeyValues{
-		{Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
+	var journals = []pb.ListResponse_Journal{
+		{Spec: pb.JournalSpec{
 			Name:     "a/collection/bar=32/foo=A/pivot=00",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "77"),
-		}}},
-		{Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
+		}},
+		{Spec: pb.JournalSpec{
 			Name:     "a/collection/bar=32/foo=A/pivot=77",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "78", flowLabels.KeyEnd, "dd"),
-		}}},
-		{Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
+		}},
+		{Spec: pb.JournalSpec{
 			Name:     "a/collection/bar=42/foo=A/pivot=00",
 			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "dd"),
-		}}},
-	}
-	for i, j := range m.journals.KeyValues {
-		m.journals.KeyValues[i].Raw.Key = append(
-			[]byte(m.journals.Root+allocator.ItemsPrefix),
-			j.Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).Name...)
+		}},
+		{Spec: pb.JournalSpec{
+			Name:     "b/collection/qib=abcabcabcabcabcabcabc/pivot=00",
+			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "dd"),
+		}},
+		{Spec: pb.JournalSpec{
+			Name:     "b/collection/qib=d/pivot=00",
+			LabelSet: pb.MustLabelSet(flowLabels.KeyBegin, "00", flowLabels.KeyEnd, "dd"),
+		}},
 	}
 
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=00",
-		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("23")).Name.String(),
+		pickPartition([]byte("a/collection/bar=32/foo=A/"), []byte("23"), journals).Name.String(),
 	)
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=77",
-		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("90")).Name.String(),
+		pickPartition([]byte("a/collection/bar=32/foo=A/"), []byte("90"), journals).Name.String(),
 	)
 	require.Nil(t,
-		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("ef")), // Out of range.
+		pickPartition([]byte("a/collection/bar=32/foo=A/"), []byte("ef"), journals), // Out of range.
 	)
 	require.Equal(t,
 		"a/collection/bar=42/foo=A/pivot=00",
-		m.pickPartition([]byte("/root/items/a/collection/bar=42/foo=A/"), []byte("ab")).Name.String(),
+		pickPartition([]byte("a/collection/bar=42/foo=A/"), []byte("ab"), journals).Name.String(),
 	)
-
-	// Issue #255 regression cases.
 	require.Equal(t,
 		"a/collection/bar=32/foo=A/pivot=00",
-		m.pickPartition([]byte("/root/items/a/collection/bar=32/foo=A/"), []byte("77")).Name.String(),
+		pickPartition([]byte("a/collection/bar=32/foo=A/"), []byte("77"), journals).Name.String(),
 	)
 	require.Equal(t,
 		"a/collection/bar=42/foo=A/pivot=00",
-		m.pickPartition([]byte("/root/items/a/collection/bar=42/foo=A/"), []byte("dd")).Name.String(),
+		pickPartition([]byte("a/collection/bar=42/foo=A/"), []byte("dd"), journals).Name.String(),
 	)
+	require.Nil(t,
+		pickPartition([]byte("a/collection/bar=52/foo=A/"), []byte("00"), journals),
+	)
+	require.Nil(t,
+		pickPartition([]byte("b/collection/qib=ab/"), []byte("00"), journals),
+	)
+	require.Equal(t,
+		"b/collection/qib=abcabcabcabcabcabcabc/pivot=00",
+		pickPartition([]byte("b/collection/qib=abcabcabcabcabcabcabc/"), []byte("00"), journals).Name.String(),
+	)
+	require.Equal(t,
+		"b/collection/qib=d/pivot=00",
+		pickPartition([]byte("b/collection/qib=d/"), []byte("dc"), journals).Name.String(),
+	)
+
 }
 
 func TestAppendHexEncoding(t *testing.T) {
@@ -122,18 +133,11 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	var ajc = client.NewAppendService(ctx, broker.Client())
 	var pub = message.NewPublisher(ajc, nil)
 
-	var journals, err = NewJournalsKeySpace(ctx, etcd, "/broker.test")
-	require.NoError(t, err)
-	// Use a small delay, to exercise a race with the out-of-band fixture created below.
-	journals.WatchApplyDelay = time.Millisecond * 10
-	go journals.Watch(ctx, etcd)
-
-	// Create a shard FQN fixture, which gives authority to create partitions.
-	_, err = etcd.Put(ctx, "/the.shard", "")
-	require.NoError(t, err)
-
 	var fixtures = buildCombineFixtures(t)
-	var mapper = NewMapper(ctx, etcd, journals, "/the.shard")
+	var mapper = NewMapper(ctx, broker.Client())
+
+	var list = client.NewWatchedList(ctx, broker.Client(), pb.ListRequest{}, nil)
+	require.NoError(t, <-list.UpdateCh())
 
 	// Apply one of the fixture partitions out-of-band. The Mapper initially
 	// will not see this partition, will attempt to create it, and will then
@@ -159,6 +163,7 @@ func TestPublisherMappingIntegration(t *testing.T) {
 
 	// Publish all fixtures, causing the Mapper to create partitions as required.
 	for _, fixture := range fixtures {
+		fixture.List = list
 		var _, err = pub.PublishCommitted(mapper.Map, fixture)
 		require.NoError(t, err)
 	}
@@ -167,28 +172,15 @@ func TestPublisherMappingIntegration(t *testing.T) {
 		require.NoError(t, op.Err())
 	}
 
-	journals.Mu.RLock()
-	var items = journals.KeyValues.Prefixed(journals.Root + allocator.ItemsPrefix)
-	require.Len(t, items, 2)
+	require.Len(t, list.List().Journals, 2)
 	for i, n := range []string{
-		"a/collection/00ffffffffffffff/bar=%_32/foo=A/pivot=00",
-		"a/collection/00ffffffffffffff/bar=%_42/foo=A%2FB/pivot=00",
+		"a/collection/ffffffffffffffff/bar=%_32/foo=A/pivot=00",
+		"a/collection/ffffffffffffffff/bar=%_42/foo=A%2FB/pivot=00",
 	} {
-		require.Equal(t, n, items[i].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).Name.String())
+		require.Equal(t, n, list.List().Journals[i].Spec.Name.String())
 	}
-	journals.Mu.RUnlock()
 
-	// Remove the fixture standing in as a shard FQN.
-	_, err = etcd.Delete(ctx, "/the.shard")
-	require.NoError(t, err)
-
-	// Modify |fixtures| to trigger an attempt to create a new partition.
-	fixtures[0].Partitions[0] = 52
-	// Expect an attempt to publish fails on discovering the shard FQN was removed.
-	_, err = pub.PublishCommitted(mapper.Map, fixtures[0])
-	require.EqualError(t, err,
-		"creating partition a/collection/00ffffffffffffff/bar=%_52/foo=A/pivot=00: shard spec doesn't exist")
-
+	cancel()
 	broker.Tasks.Cancel()
 	require.NoError(t, broker.Tasks.Wait())
 }

@@ -28,6 +28,12 @@ pub struct ShardLabeling {
     /// Type of this task (capture, derivation, or materialization).
     #[prost(enumeration = "TaskType", tag = "9")]
     pub task_type: i32,
+    /// Journal to which task logs are directed.
+    #[prost(string, tag = "10")]
+    pub logs_journal: ::prost::alloc::string::String,
+    /// Journal to which task stats are directed.
+    #[prost(string, tag = "11")]
+    pub stats_journal: ::prost::alloc::string::String,
 }
 /// Common `shard` sub-document logged by Stats and Log.
 #[allow(clippy::derive_partial_eq_without_eq)]

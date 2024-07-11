@@ -235,7 +235,7 @@ func (g *governor) poll(ctx context.Context) error {
 			return ctx.Err()
 		case result, ok = <-r.ch:
 			// Fall through.
-		case <-g.rb.journals.Update():
+		case <-g.rb.watchCh:
 			return g.onConverge(ctx)
 		case <-g.rb.drainCh:
 			return g.onConverge(ctx)
@@ -316,7 +316,7 @@ func (g *governor) poll(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-g.rb.journals.Update():
+	case <-g.rb.watchCh:
 		return g.onConverge(ctx)
 	case <-g.rb.drainCh:
 		return g.onConverge(ctx)

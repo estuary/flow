@@ -27,7 +27,6 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/consumertest"
 	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/keyspace"
 	gazLabels "go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 )
@@ -35,9 +34,8 @@ import (
 func TestStuffedMessageChannel(t *testing.T) {
 	// Build a no-op ReadBuilder (no journals to walk).
 	var rb = &ReadBuilder{
-		shardID:  "shard",
-		drainCh:  make(chan struct{}),
-		journals: flow.Journals{KeySpace: new(keyspace.KeySpace)},
+		shardID: "shard",
+		drainCh: make(chan struct{}),
 		members: func() []*pc.ShardSpec {
 			return []*pc.ShardSpec{
 				{Id: "shard", LabelSet: pb.MustLabelSet(
@@ -92,9 +90,9 @@ func TestConsumerIntegration(t *testing.T) {
 	// Fixtures which parameterize the test:
 	var (
 		sourcePartitions = []pb.Journal{
-			"a/collection/part=10",
-			"a/collection/part=20",
-			"a/collection/part=42",
+			"a/collection/ffffffffffffffff/part=10;derive/a/derivation/swizzle",
+			"a/collection/ffffffffffffffff/part=20;derive/a/derivation/swizzle",
+			"a/collection/ffffffffffffffff/part=42;derive/a/derivation/swizzle",
 		}
 		shards = []pc.ShardID{
 			"derive/bar/abc",
@@ -107,7 +105,7 @@ func TestConsumerIntegration(t *testing.T) {
 	var journalSpecs []*pb.JournalSpec
 	for _, name := range sourcePartitions {
 		journalSpecs = append(journalSpecs, brokertest.Journal(pb.JournalSpec{
-			Name: name,
+			Name: name.StripMeta(),
 			LabelSet: pb.MustLabelSet(
 				gazLabels.ContentType, gazLabels.ContentType_JSONLines,
 				labels.Collection, "a/collection",
@@ -156,10 +154,6 @@ func TestConsumerIntegration(t *testing.T) {
 		expect[hex.EncodeToString(k)]++
 	}
 
-	// Journals is a consumer-held KeySpace that observes broker-managed journals.
-	journals, err := flow.NewJournalsKeySpace(ctx, etcd, "/broker.test")
-	require.NoError(t, err)
-
 	// Start consumer.
 	var buildConsumer = func() *consumertest.Consumer {
 		var cmr = consumertest.NewConsumer(consumertest.Args{
@@ -167,10 +161,9 @@ func TestConsumerIntegration(t *testing.T) {
 			Etcd:     etcd,
 			Journals: broker.Client(),
 			App: &testApp{
-				service:  nil, // Filled below.
-				journals: journals,
-				task:     derivation,
-				buildID:  "a-build-id",
+				service: nil, // Filled below.
+				task:    derivation,
+				buildID: "a-build-id",
 			},
 			AuthKeys: "c2VjcmV0",
 		})
@@ -281,10 +274,9 @@ func TestConsumerIntegration(t *testing.T) {
 }
 
 type testApp struct {
-	service  *consumer.Service
-	journals flow.Journals
-	task     pf.Task
-	buildID  string
+	service *consumer.Service
+	task    pf.Task
+	buildID string
 }
 
 type testStore struct {
@@ -303,9 +295,9 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 	}
 
 	readBuilder, err := NewReadBuilder(
+		shard.Context(),
+		shard.JournalClient(),
 		a.buildID,
-		make(<-chan struct{}),
-		a.journals,
 		localPublisher,
 		a.service,
 		shard.Spec().Id,
@@ -336,8 +328,7 @@ func (a testApp) ReplayRange(shard consumer.Shard, store consumer.Store, journal
 }
 
 func (a testApp) ReadThrough(shard consumer.Shard, store consumer.Store, args consumer.ResolveArgs) (pb.Offsets, error) {
-	var testStore = store.(*testStore)
-	return testStore.readBuilder.ReadThrough(args.ReadThrough)
+	return args.ReadThrough, nil
 }
 
 func (a testApp) NewMessage(*pb.JournalSpec) (message.Message, error) { panic("never called") }

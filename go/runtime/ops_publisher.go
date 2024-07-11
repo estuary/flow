@@ -8,58 +8,37 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/types"
 	"go.gazette.dev/core/broker/client"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
 
 type OpsPublisher struct {
 	logsPublisher *message.Publisher
-	mapper        flow.Mapper
 	mu            sync.Mutex
 
 	// Fields that update with each task term:
-	labels       ops.ShardLabeling
-	opsLogsSpec  *pf.CollectionSpec
-	opsStatsSpec *pf.CollectionSpec
-	shard        *ops.ShardRef
+	labels ops.ShardLabeling
+	shard  *ops.ShardRef
 }
 
 var _ ops.Publisher = &OpsPublisher{}
 
-func NewOpsPublisher(
-	logsPublisher *message.Publisher,
-	mapper flow.Mapper,
-) *OpsPublisher {
-	return &OpsPublisher{
-		logsPublisher: logsPublisher,
-		mapper:        mapper,
-		mu:            sync.Mutex{},
-	}
+func NewOpsPublisher(logsPublisher *message.Publisher) *OpsPublisher {
+	return &OpsPublisher{logsPublisher: logsPublisher, mu: sync.Mutex{}}
 }
 
-func (p *OpsPublisher) UpdateLabels(
-	labels ops.ShardLabeling,
-	opsLogsSpec *pf.CollectionSpec,
-	opsStatsSpec *pf.CollectionSpec,
-) error {
-	// Sanity-check the shape of logs and stats collections.
-	if err := ops.ValidateLogsCollection(opsLogsSpec); err != nil {
-		return err
-	} else if err := ops.ValidateStatsCollection(opsStatsSpec); err != nil {
-		return err
-	}
-
+func (p *OpsPublisher) UpdateLabels(labels ops.ShardLabeling) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.labels = labels
-	p.opsLogsSpec = opsLogsSpec
-	p.opsStatsSpec = opsStatsSpec
 	p.shard = ops.NewShardRef(labels)
 
 	return nil
@@ -76,8 +55,6 @@ func (p *OpsPublisher) PublishStats(
 	out ops.Stats,
 	pub func(mapping message.MappingFunc, msg message.Message) (*client.AsyncAppend, error),
 ) error {
-
-	var key, partitions = shardKeyAndPartitions(out.Shard, out.Timestamp)
 	out.Meta = &ops.Meta{Uuid: string(pf.DocumentUUIDPlaceholder)}
 
 	var buf bytes.Buffer
@@ -88,19 +65,32 @@ func (p *OpsPublisher) PublishStats(
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var msg = flow.Mappable{
-		Spec:       p.opsStatsSpec,
-		Doc:        buf.Bytes(),
-		Partitions: partitions,
-		PackedKey:  key.Pack(),
+	if p.labels.StatsJournal == "local" {
+		ops.NewLocalPublisher(p.labels).PublishLog(ops.Log{
+			Level:     ops.Log_debug,
+			Shard:     out.Shard,
+			Timestamp: out.Timestamp,
+			Meta:      out.Meta,
+			Message:   "transaction stats",
+			FieldsJsonMap: map[string]json.RawMessage{
+				"stats": json.RawMessage(buf.Bytes()),
+			},
+		})
+		return nil
 	}
 
-	var _, err = pub(p.mapper.Map, msg)
+	var _, err = pub(
+		func(message.Mappable) (pb.Journal, string, error) {
+			return p.labels.StatsJournal, labels.ContentType_JSONLines, nil
+		}, flow.Mappable{
+			Spec: &opsPlaceholderSpec,
+			Doc:  buf.Bytes(),
+		},
+	)
 	return err
 }
 
 func (p *OpsPublisher) PublishLog(out ops.Log) {
-	var key, partitions = shardKeyAndPartitions(out.Shard, out.Timestamp)
 	out.Meta = &ops.Meta{Uuid: string(pf.DocumentUUIDPlaceholder)}
 
 	var buf bytes.Buffer
@@ -111,14 +101,21 @@ func (p *OpsPublisher) PublishLog(out ops.Log) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var msg = flow.Mappable{
-		Spec:       p.opsLogsSpec,
-		Doc:        json.RawMessage(buf.Bytes()),
-		Partitions: partitions,
-		PackedKey:  key.Pack(),
+	if p.labels.LogsJournal == "local" {
+		ops.NewLocalPublisher(p.labels).PublishLog(out)
+		return
 	}
+
 	// Best effort. PublishCommitted only fails if the publisher itself is cancelled.
-	_, _ = p.logsPublisher.PublishCommitted(p.mapper.Map, msg)
+	_, _ = p.logsPublisher.PublishCommitted(
+		func(message.Mappable) (pb.Journal, string, error) {
+			return p.labels.LogsJournal, labels.ContentType_JSONLines, nil
+		},
+		flow.Mappable{
+			Spec: &opsPlaceholderSpec,
+			Doc:  json.RawMessage(buf.Bytes()),
+		},
+	)
 }
 
 func shardKeyAndPartitions(shard *ops.ShardRef, ts *types.Timestamp) (tuple.Tuple, tuple.Tuple) {
@@ -133,4 +130,8 @@ func shardKeyAndPartitions(shard *ops.ShardRef, ts *types.Timestamp) (tuple.Tupl
 		shard.Name,
 	}
 	return key, partitions
+}
+
+var opsPlaceholderSpec = pf.CollectionSpec{
+	AckTemplateJson: json.RawMessage(`{"_meta": "` + string(pf.DocumentUUIDPlaceholder) + `","ack":true}`),
 }
