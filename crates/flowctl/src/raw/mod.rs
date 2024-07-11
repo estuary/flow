@@ -111,7 +111,7 @@ pub struct Build {
     #[clap(long)]
     db_path: PathBuf,
     /// Publication ID of this build.
-    #[clap(long, default_value = "ff:ff:ff:ff:ff:ff:ff")]
+    #[clap(long, default_value = "ff:ff:ff:ff:ff:ff:ff:ff")]
     pub_id: models::Id,
     /// Build ID of this build.
     #[clap(long)]
