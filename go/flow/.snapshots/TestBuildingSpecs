@@ -1,6 +1,6 @@
 PARTITION:
 
-name: "example/collection/00ffffffffffffff/a_bool=%_true/a_str=the%20str/pivot=00ab4130"
+name: "example/collection/ffffffffffffffff/a_bool=%_true/a_str=the%20str/pivot=00ab4130"
 replication: 3
 labels: <
   labels: <
@@ -54,7 +54,7 @@ max_append_rate: 4194304
 
 SHARD:
 
-id: "derivation/example/derivation/00ffffffffffffff/00ab4130-01dc4a47"
+id: "derivation/example/derivation/ffffffffffffffff/00ab4130-01dc4a47"
 recovery_log_prefix: "recovery"
 hint_prefix: "/estuary/flow/hints"
 hint_backups: 2
@@ -106,7 +106,7 @@ read_channel_size: 4096
 
 SHARD (split-source):
 
-id: "derivation/example/derivation/00ffffffffffffff/00ab4130-01dc4a47"
+id: "derivation/example/derivation/ffffffffffffffff/00ab4130-01dc4a47"
 recovery_log_prefix: "recovery"
 hint_prefix: "/estuary/flow/hints"
 hint_backups: 2
@@ -161,7 +161,7 @@ read_channel_size: 4096
 
 RECOVERY:
 
-name: "recovery/derivation/example/derivation/00ffffffffffffff/00ab4130-01dc4a47"
+name: "recovery/derivation/example/derivation/ffffffffffffffff/00ab4130-01dc4a47"
 replication: 3
 labels: <
   labels: <

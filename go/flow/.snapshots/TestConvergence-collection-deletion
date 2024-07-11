@@ -1,4 +1,4 @@
 ([]protocol.ApplyRequest_Change) (len=2) {
   (protocol.ApplyRequest_Change) delete:"journal-prelude" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:11 delete:"example/collection/00ffffffffffffff/a_bool=%_true/a_str=a-val/pivot=10000000" 
+  (protocol.ApplyRequest_Change) expect_mod_revision:11 delete:"example/collection/ffffffffffffffff/a_bool=%_true/a_str=a-val/pivot=10000000" 
 }

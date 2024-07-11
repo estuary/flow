@@ -3,5 +3,5 @@
 }
 ([]protocol.ApplyRequest_Change) (len=2) {
   (protocol.ApplyRequest_Change) delete:"journal-prelude" ,
-  (protocol.ApplyRequest_Change) expect_mod_revision:77 delete:"recovery/derivation/example/derivation/00ffffffffffffff/10000000-60000000" 
+  (protocol.ApplyRequest_Change) expect_mod_revision:77 delete:"recovery/derivation/example/derivation/ffffffffffffffff/10000000-60000000" 
 }
