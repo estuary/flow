@@ -3,5 +3,5 @@
 }
 ([]protocol.ApplyRequest_Change) (len=2) {
   (protocol.ApplyRequest_Change) delete:"journal-prelude" ,
-  (protocol.ApplyRequest_Change) upsert:<name:"recovery/derivation/example/derivation/00ffffffffffffff/10000000-60000000" replication:3 labels:<labels:<name:"app.gazette.dev/managed-by" value:"estuary.dev/flow" > labels:<name:"content-type" value:"application/x-gazette-recoverylog" > labels:<name:"estuary.dev/build" value:"5555555555555555" > labels:<name:"estuary.dev/task-name" value:"example/derivation" > labels:<name:"estuary.dev/task-type" value:"derivation" > > fragment:<length:268435456 compression_codec:SNAPPY stores:"gs://example-bucket/" refresh_interval:<seconds:300 > > flags:4 max_append_rate:4194304 > 
+  (protocol.ApplyRequest_Change) upsert:<name:"recovery/derivation/example/derivation/ffffffffffffffff/10000000-60000000" replication:3 labels:<labels:<name:"app.gazette.dev/managed-by" value:"estuary.dev/flow" > labels:<name:"content-type" value:"application/x-gazette-recoverylog" > labels:<name:"estuary.dev/build" value:"5555555555555555" > labels:<name:"estuary.dev/task-name" value:"example/derivation" > labels:<name:"estuary.dev/task-type" value:"derivation" > > fragment:<length:268435456 compression_codec:SNAPPY stores:"gs://example-bucket/" refresh_interval:<seconds:300 > > flags:4 max_append_rate:4194304 > 
 }
