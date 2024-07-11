@@ -307,7 +307,7 @@ func (a *azureBackend) getAzureServiceClient(endpoint *url.URL) (client *service
 
 		a.mu.Lock()
 		a.clients[accountName] = serviceClient
-		a.mu.Lock()
+		a.mu.Unlock()
 		return serviceClient, nil
 	} else if endpoint.Scheme == "azure-ad" {
 		// Link to the Azure docs describing what fields are required for active directory auth
