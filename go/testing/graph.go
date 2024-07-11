@@ -1,6 +1,7 @@
 package testing
 
 import (
+	"strings"
 	"time"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -27,7 +28,7 @@ type PendingStat struct {
 	// Name of the CatalogTask.
 	TaskName TaskName
 	// Clock which this stat must read through.
-	ReadThrough *Clock
+	ReadThrough pb.Offsets
 }
 
 // Graph maintains the data-flow status of a running catalog.
@@ -40,11 +41,11 @@ type Graph struct {
 	// Recall that a CatalogTask can have more than one read of a collection.
 	readers map[pf.Collection][]taskRead
 	// Index of each task to its readThrough Clock.
-	readThrough map[TaskName]*Clock
+	readThrough map[TaskName]pb.Offsets
 	// Pending reads which remain to be stat-ed.
 	pending []PendingStat
 	// Overall progress of the cluster.
-	writeClock *Clock
+	writeClock pb.Offsets
 }
 
 type taskRead struct {
@@ -65,9 +66,9 @@ func NewGraph(
 		atTime:      0,
 		outputs:     make(map[TaskName][]pf.Collection),
 		readers:     make(map[pf.Collection][]taskRead),
-		readThrough: make(map[TaskName]*Clock),
+		readThrough: make(map[TaskName]pb.Offsets),
 		pending:     nil,
-		writeClock:  new(Clock),
+		writeClock:  nil,
 	}
 
 	for _, t := range captures {
@@ -132,7 +133,7 @@ func (g *Graph) addTask(t pf.Task) {
 		}}
 	}
 
-	g.readThrough[name] = new(Clock)
+	g.readThrough[name] = nil
 }
 
 // HasPendingWrite is true if there is at least one pending task which may
@@ -207,9 +208,9 @@ func (g *Graph) PopReadyStats() ([]PendingStat, TestTime, TaskName) {
 }
 
 // CompletedIngest tells the Graph of a completed ingestion step.
-func (g *Graph) CompletedIngest(collection pf.Collection, writeClock *Clock) {
-	g.writeClock.ReduceMax(writeClock.Etcd, writeClock.Offsets)
-	g.projectWrite(collection, writeClock)
+func (g *Graph) CompletedIngest(collection pf.Collection, writeAt pb.Offsets) {
+	g.writeClock = MaxClock(g.writeClock, writeAt)
+	g.projectWrite(collection, writeAt)
 }
 
 // CompletedStat tells the Graph of a completed task stat.
@@ -217,30 +218,27 @@ func (g *Graph) CompletedIngest(collection pf.Collection, writeClock *Clock) {
 //     It's journals include group-name suffixes (as returned from Gazette's Stat).
 //   - |writeClock| is a max-reduced Clock over write progress across derivation shards.
 //     It's journals *don't* include group names (again, as returned from Gazette's Stat).
-func (g *Graph) CompletedStat(task TaskName, readClock *Clock, writeClock *Clock) {
-	g.writeClock.ReduceMax(writeClock.Etcd, writeClock.Offsets)
-	g.readThrough[task] = readClock // Track progress of this task.
+func (g *Graph) CompletedStat(task TaskName, readThrough pb.Offsets, writeAt pb.Offsets) {
+	g.writeClock = MaxClock(g.writeClock, writeAt)
+	g.readThrough[task] = readThrough // Track progress of this task.
 
 	for _, output := range g.outputs[task] {
-		g.projectWrite(output, writeClock)
+		g.projectWrite(output, writeAt)
 	}
 }
 
-func (g *Graph) projectWrite(collection pf.Collection, writeClock *Clock) {
+func (g *Graph) projectWrite(collection pf.Collection, writeAt pb.Offsets) {
 	for _, r := range g.readers[collection] {
-		// Map |writeClock| to its equivalent read |clock|, having journal suffixes
-		// specific to this transform's GroupName.
-		var clock = &Clock{
-			Etcd:    writeClock.Etcd,
-			Offsets: make(pb.Offsets, len(writeClock.Offsets)),
-		}
-		for journal, offset := range writeClock.Offsets {
-			journal = pb.Journal(journal + pb.Journal(r.suffix))
-			clock.Offsets[journal] = offset
+		// Map `writeAt` to its corresponding `readThrough`,
+		// having filtered journals and suffixes scoped to this transform.
+		var readThrough = make(pb.Offsets)
+		for journal, offset := range writeAt {
+			if strings.HasPrefix(journal.String(), collection.String()+"/") {
+				readThrough[journal+pb.Journal(r.suffix)] = offset
+			}
 		}
 
-		// Has |task| already read through the mapped read |clock| ?
-		if g.readThrough[r.task].Contains(clock) {
+		if ContainsClock(g.readThrough[r.task], readThrough) {
 			continue // Transform stat not required.
 		}
 
@@ -248,14 +246,16 @@ func (g *Graph) projectWrite(collection pf.Collection, writeClock *Clock) {
 		var add = PendingStat{
 			ReadyAt:     g.atTime + r.delay,
 			TaskName:    r.task,
-			ReadThrough: clock,
+			ReadThrough: readThrough,
 		}
 
 		// Fold |stat| into a matched PendingStat, if one exists. Otherwise add it.
 		var found bool
-		for _, pending := range g.pending {
+		for i := range g.pending {
+			var pending = &g.pending[i] // Mutate in place.
+
 			if pending.TaskName == add.TaskName && pending.ReadyAt == add.ReadyAt {
-				pending.ReadThrough.ReduceMax(add.ReadThrough.Etcd, add.ReadThrough.Offsets)
+				pending.ReadThrough = MaxClock(pending.ReadThrough, add.ReadThrough)
 				found = true
 			}
 		}

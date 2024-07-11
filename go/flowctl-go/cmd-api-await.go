@@ -25,7 +25,7 @@ type apiAwait struct {
 func (cmd apiAwait) execute(ctx context.Context) error {
 	ctx = pb.WithDispatchDefault(ctx)
 
-	rjc, brokerHeader, err := newJournalClient(ctx, cmd.Broker)
+	rjc, _, err := newJournalClient(ctx, cmd.Broker)
 	if err != nil {
 		return err
 	}
@@ -79,10 +79,7 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 	for _, capture := range captures {
 		graph.CompletedIngest(
 			pf.Collection(capture.Name),
-			&testing.Clock{
-				Etcd:    *brokerHeader,
-				Offsets: pb.Offsets{pb.Journal(fmt.Sprintf("%s/eof", capture.Name)): 1},
-			},
+			pb.Offsets{pb.Journal(fmt.Sprintf("%s/eof", capture.Name)): 1},
 		)
 	}
 	// Initialize fetches current collection offsets, and waits for the dataflow

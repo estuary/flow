@@ -47,8 +47,6 @@ type FlowConsumer struct {
 	Config *FlowConsumerConfig
 	// Running consumer.Service.
 	Service *consumer.Service
-	// Watched broker journals.
-	Journals flow.Journals
 	// Shared catalog builds.
 	Builds *flow.BuildService
 	// Timepoint that regulates shuffled reads of started shards.
@@ -192,32 +190,15 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return fmt.Errorf("catalog builds service: %w", err)
 	}
 
-	// Load journal keyspace, and queue task that watches for updates.
-	journals, err := flow.NewJournalsKeySpace(args.Tasks.Context(), args.Service.Etcd, config.Flow.BrokerRoot)
-	if err != nil {
-		return fmt.Errorf("loading journals keyspace: %w", err)
-	}
-	args.Tasks.Queue("journals.Watch", func() error {
-		if err := f.Journals.Watch(args.Tasks.Context(), args.Service.Etcd); err != context.Canceled {
-			return err
-		}
-		return nil
-	})
-
 	// Wrap Shard Hints RPC to support the Flow shard splitting workflow.
 	args.Service.ShardAPI.GetHints = func(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 		return shardGetHints(ctx, claims, svc, req)
-	}
-	// Wrap Shard Stat RPC to additionally synchronize on |journals| header.
-	args.Service.ShardAPI.Stat = func(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
-		return flow.ShardStat(ctx, claims, svc, req, journals)
 	}
 
 	f.LogPublisher = message.NewPublisher(client.NewAppendService(args.Context, args.Service.Journals), nil)
 	f.Config = &config
 	f.Service = args.Service
 	f.Builds = builds
-	f.Journals = journals
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
 
 	// Start a ticker of the shared *Timepoint.
@@ -228,8 +209,8 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	}()
 
 	if config.Flow.TestAPIs {
-		var ajc = client.NewAppendService(args.Context, args.Service.Journals)
-		if testing, err := NewFlowTesting(f, ajc); err != nil {
+		var ajc = client.NewAppendService(args.Tasks.Context(), args.Service.Journals)
+		if testing, err := NewFlowTesting(args.Tasks.Context(), f, ajc); err != nil {
 			return fmt.Errorf("creating testing service: %w", err)
 		} else {
 			pf.RegisterTestingServer(args.Server.GRPCServer, testing)

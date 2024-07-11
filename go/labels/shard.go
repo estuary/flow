@@ -5,6 +5,7 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // ParseShardLabels parses and validates ShardLabels from their defined
@@ -48,6 +49,22 @@ func ParseShardLabels(set pf.LabelSet) (ops.ShardLabeling, error) {
 		return out, err
 	}
 
+	if j, err := maybeOne(set, LogsJournal); err != nil {
+		return out, err
+	} else if j == "" {
+		out.LogsJournal = legacyLogsJournal(out.TaskType, out.TaskName)
+	} else if out.LogsJournal = pb.Journal(j); out.LogsJournal.Validate() != nil {
+		return out, fmt.Errorf("invalid logs journal: %w", out.LogsJournal.Validate())
+	}
+
+	if j, err := maybeOne(set, StatsJournal); err != nil {
+		return out, err
+	} else if j == "" {
+		out.StatsJournal = legacyStatsJournal(out.TaskType, out.TaskName)
+	} else if out.StatsJournal = pb.Journal(j); out.StatsJournal.Validate() != nil {
+		return out, fmt.Errorf("invalid stats journal: %w", out.StatsJournal.Validate())
+	}
+
 	if out.SplitSource != "" && out.SplitTarget != "" {
 		return out, fmt.Errorf(
 			"both split-source %q and split-target %q are set but shouldn't be",
@@ -79,4 +96,26 @@ func maybeOne(set pf.LabelSet, name string) (string, error) {
 	} else {
 		return v[0], nil
 	}
+}
+
+func legacyLogsJournal(tt ops.TaskType, name string) pb.Journal {
+	var b []byte
+	b = append(b, "ops.us-central1.v1/logs"...)
+	b = append(b, "/kind="...)
+	b = EncodePartitionValue(b, tt.String())
+	b = append(b, "/name="...)
+	b = EncodePartitionValue(b, name)
+	b = append(b, "/pivot=00"...)
+	return pb.Journal(b)
+}
+
+func legacyStatsJournal(tt ops.TaskType, name string) pb.Journal {
+	var b []byte
+	b = append(b, "ops.us-central1.v1/stats"...)
+	b = append(b, "/kind="...)
+	b = EncodePartitionValue(b, tt.String())
+	b = append(b, "/name="...)
+	b = EncodePartitionValue(b, name)
+	b = append(b, "/pivot=00"...)
+	return pb.Journal(b)
 }

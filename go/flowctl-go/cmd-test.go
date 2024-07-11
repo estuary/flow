@@ -46,9 +46,11 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 
 	// Start a temporary data plane bound to our context.
 	var dataPlane = cmdTempDataPlane{
-		UnixSockets: true,
+		UnixSockets:  true,
+		BrokerPort:   8080,
+		ConsumerPort: 9000,
 		Log: mbp.LogConfig{
-			Level:  "warn",
+			Level:  cmd.Log.Level,
 			Format: cmd.Log.Format,
 		},
 	}

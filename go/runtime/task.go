@@ -17,7 +17,6 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
@@ -68,10 +67,7 @@ func newTaskBase[TaskSpec pf.Task](
 	recorder *recoverylog.Recorder,
 	extractFn func(*sql.DB, string) (TaskSpec, error),
 ) (*taskBase[TaskSpec], error) {
-	var publisher = NewOpsPublisher(
-		host.LogPublisher,
-		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
-	)
+	var publisher = NewOpsPublisher(host.LogPublisher)
 	var legacyCheckpoint, legacyState, err = parseLegacyState(recorder)
 	if err != nil {
 		return nil, err
@@ -171,17 +167,12 @@ func newTaskTerm[TaskSpec pf.Task](
 		return nil, fmt.Errorf("parsing task shard labels: %w", err)
 	}
 
-	// TODO(johnny): These need to be dynamic per data-plane.
-	const opsLogsName = "ops.us-central1.v1/logs"
-	const opsStatsName = "ops.us-central1.v1/stats"
-
 	var taskSpec TaskSpec
 
 	if prev != nil && shardSpec == prev.shardSpec {
 		taskSpec = prev.taskSpec
 	} else {
 		// The ShardSpec has changed. Pull its build and extract its TaskSpec.
-		var opsLogs, opsStats *pf.CollectionSpec
 		var build = host.Builds.Open(labels.Build)
 		defer build.Close() // TODO(johnny): Remove build caching.
 
@@ -189,18 +180,12 @@ func newTaskTerm[TaskSpec pf.Task](
 			if taskSpec, err = extractFn(db, labels.TaskName); err != nil {
 				return err
 			}
-			if opsLogs, err = catalog.LoadCollection(db, opsLogsName); err != nil {
-				return fmt.Errorf("loading logs collection: %w", err)
-			}
-			if opsStats, err = catalog.LoadCollection(db, opsStatsName); err != nil {
-				return fmt.Errorf("loading stats collection: %w", err)
-			}
 			return nil
 		}); err != nil {
 			return nil, err
 		}
 
-		if err = publisher.UpdateLabels(labels, opsLogs, opsStats); err != nil {
+		if err = publisher.UpdateLabels(labels); err != nil {
 			return nil, fmt.Errorf("creating ops publisher: %w", err)
 		}
 	}
@@ -235,9 +220,9 @@ func (t *taskReader[TaskSpec]) initTerm(shard consumer.Shard) error {
 		return err
 	}
 	var readBuilder, err = shuffle.NewReadBuilder(
+		t.term.ctx,
+		shard.JournalClient(),
 		t.term.labels.Build,
-		t.term.ctx.Done(), // Drain reads upon term cancellation.
-		t.host.Journals,
 		t.publisher,
 		t.host.Service,
 		t.term.shardSpec.Id,

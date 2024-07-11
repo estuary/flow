@@ -9,28 +9,35 @@ import (
 	"testing"
 	"time"
 
-	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/api/v3/mvccpb"
-	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/brokertest"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/etcdtest"
 )
 
 func TestReadBuilding(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var allJournals, allShards, task = buildReadTestJournalsAndTransforms()
+
+	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
+	brokertest.CreateJournals(t, broker, allJournals...)
+	defer broker.Tasks.Cancel()
+
+	var ctx, drainNow = context.WithCancel(context.Background())
+	defer drainNow()
+
 	var (
-		allJournals, allShards, task = buildReadTestJournalsAndTransforms()
-		ranges                       = labels.MustParseRangeSpec(allShards[1].LabelSet)
-		shuffles                     = derivationShuffles(task)
-		drainCh                      = make(chan struct{})
-		rb, rbErr                    = NewReadBuilder(
+		ranges    = labels.MustParseRangeSpec(allShards[1].LabelSet)
+		rb, rbErr = NewReadBuilder(
+			ctx,
+			broker.Client(),
 			"build-id",
-			drainCh,
-			flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
 			localPublisher,
 			nil, // Service is not used.
 			allShards[1].Id,
@@ -40,6 +47,8 @@ func TestReadBuilding(t *testing.T) {
 	)
 	require.NoError(t, rbErr)
 	rb.members = func() []*pc.ShardSpec { return allShards }
+
+	var allShuffles = rb.shuffles
 
 	var toKeys = func(m map[pb.Journal]*read) (out []string) {
 		for j, r := range m {
@@ -52,39 +61,46 @@ func TestReadBuilding(t *testing.T) {
 	}
 
 	// Case: empty journals results in no built reads.
+	rb.shuffles = allShuffles[:0]
 	added, drain, err := rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Empty(t, drain)
 	require.Empty(t, added)
 
-	// Case: one journal & one transform => one read.
-	rb.journals.KeyValues, rb.shuffles = allJournals.KeyValues[:1], shuffles[:1]
+	// Case: one transform => three reads.
+	rb.shuffles = allShuffles[:1]
 	const aJournal = "foo/bar=1/baz=abc/part=00;transform/der/bar-one"
 
 	added, drain, err = rb.buildReads(existing, pb.Offsets{aJournal: 1122})
 	require.NoError(t, err)
 	require.Empty(t, drain)
-	require.Equal(t, map[pb.Journal]*read{
-		aJournal: {
-			publisher: localPublisher,
-			spec: pb.JournalSpec{
-				Name:     aJournal,
-				LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
-			},
-			req: pr.ShuffleRequest{
-				Journal:      aJournal,
-				Replay:       false,
-				BuildId:      "build-id",
-				Offset:       1122,
-				Range:        ranges,
-				Coordinator:  "shard/2",
-				ShuffleIndex: 0,
-				Derivation:   task,
-			},
-			resp:      pr.IndexedShuffleResponse{ShuffleIndex: 0},
-			readDelay: 60e7 << 4, // 60 seconds as a message.Clock.
+	require.Equal(t, &read{
+		publisher: localPublisher,
+		spec: pb.JournalSpec{
+			Name:        aJournal,
+			Replication: 1,
+			LabelSet:    allJournals[0].LabelSet,
+			Fragment:    allJournals[0].Fragment,
 		},
-	}, added)
+		req: pr.ShuffleRequest{
+			Journal:      aJournal,
+			Replay:       false,
+			BuildId:      "build-id",
+			Offset:       1122,
+			Range:        ranges,
+			Coordinator:  "shard/2",
+			ShuffleIndex: 0,
+			Derivation:   task,
+		},
+		resp:      pr.IndexedShuffleResponse{ShuffleIndex: 0},
+		readDelay: 60e7 << 4, // 60 seconds as a message.Clock.
+	}, added[aJournal])
+
+	require.Equal(t, []string{
+		"foo/bar=1/baz=abc/part=00;transform/der/bar-one",
+		"foo/bar=1/baz=abc/part=01;transform/der/bar-one",
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one",
+	}, toKeys(added))
 
 	// Case: once the read exists, repeat invocations are no-ops.
 	existing = added
@@ -99,8 +115,10 @@ func TestReadBuilding(t *testing.T) {
 	require.Equal(t, &read{
 		publisher: rb.publisher,
 		spec: pb.JournalSpec{
-			Name:     aJournal,
-			LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
+			Name:        aJournal,
+			Replication: 1,
+			LabelSet:    allJournals[0].LabelSet,
+			Fragment:    allJournals[0].Fragment,
 		},
 		req: pr.ShuffleRequest{
 			Journal:      aJournal,
@@ -122,13 +140,15 @@ func TestReadBuilding(t *testing.T) {
 	require.EqualError(t, err, "journal not matched for replay: not/matched")
 
 	// Case: if membership changes, we'll add and drain *reads as needed.
-	rb.journals.KeyValues, rb.shuffles = allJournals.KeyValues[1:], shuffles
+	rb.shuffles = allShuffles[1:]
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
-	require.Equal(t, []string{aJournal}, toKeys(drain))
 	require.Equal(t, []string{
+		"foo/bar=1/baz=abc/part=00;transform/der/bar-one",
 		"foo/bar=1/baz=abc/part=01;transform/der/bar-one",
 		"foo/bar=1/baz=def/part=00;transform/der/bar-one",
+	}, toKeys(drain))
+	require.Equal(t, []string{
 		"foo/bar=1/baz=def/part=00;transform/der/baz-def",
 		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover",
 		"foo/bar=2/baz=def/part=00;transform/der/baz-def",
@@ -137,34 +157,31 @@ func TestReadBuilding(t *testing.T) {
 
 	// ReadThrough filters Offsets to journals of this readBuilder.
 	offsets, err := rb.ReadThrough(pb.Offsets{
-		// Matches on journal name & metadata.
-		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
-		"foo/bar=2/baz=def/part=01;transform/der/baz-def": 34,
-		// Matches on journal name (only).
-		"foo/bar=1/baz=abc/part=01": 56,
-		"foo/bar=1/baz=def/part=00": 78,
-		"missing":                   9999,
+		"foo/bar=1/baz=abc/part=01;transform/der/unmatched":        56, // Filtered.
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def":          12,
+		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover": 78,
+		"foo/bar=1/baz=def/part=00;transform/der/unmatched":        90, // Filtered.
+		"foo/bar=2/baz=def/part=01;transform/der/baz-def":          34,
+		"novel/partition": 100, // Unknown partition, and passed through.
 	})
 	require.NoError(t, err)
 	require.Equal(t, pb.Offsets{
 		"foo/bar=1/baz=def/part=00;transform/der/baz-def":          12,
 		"foo/bar=2/baz=def/part=01;transform/der/baz-def":          34,
-		"foo/bar=1/baz=abc/part=01;transform/der/bar-one":          56,
-		"foo/bar=1/baz=def/part=00;transform/der/bar-one":          78,
 		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover": 78,
+		"novel/partition": 100,
 	}, offsets)
 	existing = added
 
 	// Begin to drain the ReadBuilder.
-	close(drainCh)
+	rb.shuffles = allShuffles
+	drainNow()
 
 	// Expect all reads now drain.
 	added, drain, err = rb.buildReads(existing, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string(nil), toKeys(added))
 	require.Equal(t, []string{
-		"foo/bar=1/baz=abc/part=01;transform/der/bar-one",
-		"foo/bar=1/baz=def/part=00;transform/der/bar-one",
 		"foo/bar=1/baz=def/part=00;transform/der/baz-def",
 		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover",
 		"foo/bar=2/baz=def/part=00;transform/der/baz-def",
@@ -178,8 +195,9 @@ func TestReadBuilding(t *testing.T) {
 
 	// It also doesn't invalidate offset filtering.
 	offsets, err = rb.ReadThrough(pb.Offsets{
-		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
-		"foo/bar=1/baz=def/part=00":                       78,
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def":          12,
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one":          78,
+		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover": 78,
 	})
 	require.NoError(t, err)
 	require.Equal(t, offsets, pb.Offsets{
@@ -342,8 +360,18 @@ func TestReadSendBackoffAndWake(t *testing.T) {
 }
 
 func TestWalkingReads(t *testing.T) {
+	var etcd = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
 	var journals, shards, task = buildReadTestJournalsAndTransforms()
+
+	var broker = brokertest.NewBroker(t, etcd, "local", "broker")
+	brokertest.CreateJournals(t, broker, journals...)
+	defer broker.Tasks.Cancel()
+
 	var shuffles = derivationShuffles(task)
+	var _, err = startWatches(broker.Tasks.Context(), broker.Client(), shuffles)
+	require.NoError(t, err)
 
 	// Expect coordinators align with physical partitions of logical groups.
 	for index := range shards {
@@ -352,38 +380,41 @@ func TestWalkingReads(t *testing.T) {
 			journal     string
 			source      string
 			coordinator pc.ShardID
+			filtered    bool
 		}
 
-		// Expect all shards see these identical reads:
 		var expect = []expectRow{
-			{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/2"}, // Honors journal range.
-			{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/1"}, // Honors journal range.
-			{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0"}, // Honors journal range.
-			{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/0"}, // Ignores journal range.
-			{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/1"}, // Ignores journal range.
-			{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2"}, // Ignores journal range.
+			// Expect all shards see these identical reads:
+			{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/2", false}, // Honors journal range.
+			{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/1", false}, // Honors journal range.
+			{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0", false}, // Honors journal range.
+			{"foo/bar=2/baz=def/part=00;transform/der/bar-one", "foo", "shard/2", true},
+			{"foo/bar=2/baz=def/part=01;transform/der/bar-one", "foo", "shard/2", true},
+			{"foo/bar=1/baz=abc/part=00;transform/der/baz-def", "foo", "shard/1", true},
+			{"foo/bar=1/baz=abc/part=01;transform/der/baz-def", "foo", "shard/2", true},
+			{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/0", false}, // Ignores journal range.
+			{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/1", false}, // Ignores journal range.
+			{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2", false}, // Ignores journal range.
+			{"foo/bar=1/baz=abc/part=00;transform/der/unmatched", "foo", "shard/2", true},
+			{"foo/bar=1/baz=abc/part=01;transform/der/unmatched", "foo", "shard/2", true},
+			{"foo/bar=1/baz=def/part=00;transform/der/unmatched", "foo", "shard/0", true},
+			{"foo/bar=2/baz=def/part=00;transform/der/unmatched", "foo", "shard/0", true},
+			{"foo/bar=2/baz=def/part=01;transform/der/unmatched", "foo", "shard/2", true},
+
+			// Partition-covered reads are different for each shard:
+			{"foo/bar=1/baz=abc/part=00;transform/der/partitions-cover", "foo", "shard/0", index != 0},
+			{"foo/bar=1/baz=abc/part=01;transform/der/partitions-cover", "foo", "shard/0", index != 0},
+			{"foo/bar=1/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/1", index != 1},
+			{"foo/bar=2/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/0", index != 0},
+			{"foo/bar=2/baz=def/part=01;transform/der/partitions-cover", "foo", "shard/0", index != 0},
 		}
 
-		// Partition-covered reads are different for each shard:
-		if index == 0 {
-			expect = append(expect, []expectRow{
-				{"foo/bar=1/baz=abc/part=00;transform/der/partitions-cover", "foo", "shard/0"},
-				{"foo/bar=1/baz=abc/part=01;transform/der/partitions-cover", "foo", "shard/0"},
-				{"foo/bar=2/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/0"},
-				{"foo/bar=2/baz=def/part=01;transform/der/partitions-cover", "foo", "shard/0"},
-			}...)
-		} else if index == 1 {
-			expect = append(expect, []expectRow{
-				{"foo/bar=1/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/1"},
-			}...)
-		}
-		// No additional reads for shard index == 2.
-
-		var err = walkReads(shards[index].Id, shards, journals, shuffles,
-			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
+		var err = walkReads(shards[index].Id, shards, shuffles,
+			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool) {
 				require.Equal(t, expect[0].journal, spec.Name.String())
-				require.Equal(t, expect[0].source, shuffles[shuffleIndex].sourceCollection.String())
+				require.Equal(t, expect[0].source, shuffles[shuffleIndex].sourceSpec.Name.String())
 				require.Equal(t, expect[0].coordinator, coordinator)
+				require.Equal(t, expect[0].filtered, filtered)
 				expect = expect[1:]
 			})
 		require.NoError(t, err)
@@ -393,19 +424,19 @@ func TestWalkingReads(t *testing.T) {
 	// Walk with shard/0 and shard/1 only, such that the 0xaaaaaaaa to 0xffffffff
 	// portion of the key range is not covered by any shard.
 	// This results in an error when walking with shuffle "bar-one" which uses the source key.
-	var err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[:1],
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID) {})
+	err = walkReads(shards[0].Id, shards[0:2], shuffles[:1],
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _ bool) {})
 	require.EqualError(t, err,
 		"none of 2 shards overlap the key-range of journal foo/bar=1/baz=abc/part=00, aaaaaaaa-ffffffff")
 	// But is not an error with shuffle "baz-def", which *doesn't* use the source key.
-	err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[1:2],
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID) {})
+	err = walkReads(shards[0].Id, shards[0:2], shuffles[1:2],
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _ bool) {})
 	require.NoError(t, err)
 
-	// Case: shard doesn't exist.
-	err = walkReads("shard/deleted", shards, journals, shuffles,
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID) {})
-	require.EqualError(t, err, "shard shard/deleted not found among shuffle members")
+	// Case: shard doesn't exist. walkReads is a no-op.
+	err = walkReads("shard/deleted", shards, shuffles,
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _ bool) { panic("not called") })
+	require.NoError(t, err)
 }
 
 func TestHRWRegression(t *testing.T) {
@@ -481,9 +512,8 @@ func TestShuffleMemberOrdering(t *testing.T) {
 		"shard shard/3: expected estuary.dev/key-begin to be a 4-byte, hex encoded integer; got whoops")
 }
 
-func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.CollectionSpec) {
-	var journals = flow.Journals{
-		KeySpace: &keyspace.KeySpace{Root: "/the/root"}}
+func buildReadTestJournalsAndTransforms() ([]*pb.JournalSpec, []*pc.ShardSpec, *pf.CollectionSpec) {
+	var journals []*pb.JournalSpec
 
 	for _, j := range []struct {
 		bar   string
@@ -500,20 +530,21 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 	} {
 		var name = fmt.Sprintf("foo/bar=%s/baz=%s/part=%02d", j.bar, j.baz, j.part)
 
-		journals.KeyValues = append(journals.KeyValues, keyspace.KeyValue{
-			Raw: mvccpb.KeyValue{
-				Key: []byte(allocator.ItemKey(journals.KeySpace, name)),
+		journals = append(journals, &pb.JournalSpec{
+			Name:        pb.Journal(name),
+			Replication: 1,
+			LabelSet: pb.MustLabelSet(
+				labels.Collection, "foo",
+				labels.FieldPrefix+"bar", j.bar,
+				labels.FieldPrefix+"baz", j.baz,
+				labels.KeyBegin, j.begin,
+				labels.KeyEnd, j.end,
+			),
+			Fragment: pb.JournalSpec_Fragment{
+				Length:           1 << 10,
+				CompressionCodec: pb.CompressionCodec_NONE,
+				RefreshInterval:  time.Minute,
 			},
-			Decoded: allocator.Item{ItemValue: &pb.JournalSpec{
-				Name: pb.Journal(name),
-				LabelSet: pb.MustLabelSet(
-					labels.Collection, "foo",
-					labels.FieldPrefix+"bar", j.bar,
-					labels.FieldPrefix+"baz", j.baz,
-					labels.KeyBegin, j.begin,
-					labels.KeyEnd, j.end,
-				),
-			}},
 		})
 	}
 	var shards = []*pc.ShardSpec{
@@ -534,6 +565,15 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 			labels.RClockEnd, "88888888")},
 	}
 
+	var source = pf.CollectionSpec{
+		Name: "foo",
+		Projections: []pf.Projection{
+			{Ptr: "/bar", Field: "bar", IsPartitionKey: true},
+			{Ptr: "/baz", Field: "baz", IsPartitionKey: true},
+		},
+		PartitionTemplate: &pb.JournalSpec{Name: "foo"},
+	}
+
 	// Derivation fixture reading partitions of "foo" into derivation "der".
 	var task = &pf.CollectionSpec{
 		Name: "der",
@@ -542,7 +582,7 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 				{
 					Name:             "bar-one",
 					ReadDelaySeconds: 60,
-					Collection:       pf.CollectionSpec{Name: "foo"},
+					Collection:       source,
 					PartitionSelector: pb.LabelSelector{
 						Include: pb.MustLabelSet(labels.FieldPrefix+"bar", "1"),
 					},
@@ -551,7 +591,7 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 				{
 					Name:       "baz-def",
 					ShuffleKey: []string{"/key"},
-					Collection: pf.CollectionSpec{Name: "foo"},
+					Collection: source,
 					PartitionSelector: pb.LabelSelector{
 						Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "def"),
 					},
@@ -560,22 +600,16 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.C
 				{
 					Name:       "unmatched",
 					ShuffleKey: []string{"/key"},
-					Collection: pf.CollectionSpec{Name: "foo"},
+					Collection: source,
 					PartitionSelector: pb.LabelSelector{
 						Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
 					},
 					JournalReadSuffix: "transform/der/unmatched",
 				},
 				{
-					Name:       "partitions-cover",
-					ShuffleKey: []string{"/baz", "/bar"},
-					Collection: pf.CollectionSpec{
-						Name: "foo",
-						Projections: []pf.Projection{
-							{Ptr: "/bar", Field: "bar", IsPartitionKey: true},
-							{Ptr: "/baz", Field: "baz", IsPartitionKey: true},
-						},
-					},
+					Name:              "partitions-cover",
+					ShuffleKey:        []string{"/baz", "/bar"},
+					Collection:        source,
 					JournalReadSuffix: "transform/der/partitions-cover",
 				},
 			},

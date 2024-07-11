@@ -56,6 +56,10 @@ const (
 	SplitSource = "estuary.dev/split-source"
 	// LogLevel is the desired log level for publishing logs related to the catalog task.
 	LogLevel = "estuary.dev/log-level"
+	// Journal to which task logs are directed.
+	LogsJournal = "estuary.dev/logs-journal"
+	// Journal to which task stats are directed.
+	StatsJournal = "estuary.dev/stats-journal"
 
 	Hostname = "estuary.dev/hostname"
 

@@ -27,6 +27,8 @@ pub const RCLOCK_END_MAX: &str = KEY_END_MAX;
 pub const SPLIT_TARGET: &str = "estuary.dev/split-target";
 pub const SPLIT_SOURCE: &str = "estuary.dev/split-source";
 pub const LOG_LEVEL: &str = "estuary.dev/log-level";
+pub const LOGS_JOURNAL: &str = "estuary.dev/logs-journal";
+pub const STATS_JOURNAL: &str = "estuary.dev/stats-journal";
 // Shard labels related to network connectivity to shards.
 pub const HOSTNAME: &str = "estuary.dev/hostname";
 pub const EXPOSE_PORT: &str = "estuary.dev/expose-port";
