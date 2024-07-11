@@ -33,9 +33,9 @@ func TestPartitionPicking(t *testing.T) {
 		expectPrefix string
 		expectKey    string
 	}{
-		{"/root/items/a/collection/00ffffffffffffff/bar=%_32/foo=A/", "b9f08d38"},
-		{"/root/items/a/collection/00ffffffffffffff/bar=%_32/foo=A/", "1505e3cb"},
-		{"/root/items/a/collection/00ffffffffffffff/bar=%_42/foo=A%2FB/", "b9f08d38"},
+		{"/root/items/a/collection/ffffffffffffffff/bar=%_32/foo=A/", "b9f08d38"},
+		{"/root/items/a/collection/ffffffffffffffff/bar=%_32/foo=A/", "1505e3cb"},
+		{"/root/items/a/collection/ffffffffffffffff/bar=%_42/foo=A%2FB/", "b9f08d38"},
 	} {
 		logicalPrefix, hexKey, b = m.logicalPrefixAndHexKey(b[:0], fixtures[ind])
 
@@ -171,8 +171,8 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	var items = journals.KeyValues.Prefixed(journals.Root + allocator.ItemsPrefix)
 	require.Len(t, items, 2)
 	for i, n := range []string{
-		"a/collection/00ffffffffffffff/bar=%_32/foo=A/pivot=00",
-		"a/collection/00ffffffffffffff/bar=%_42/foo=A%2FB/pivot=00",
+		"a/collection/ffffffffffffffff/bar=%_32/foo=A/pivot=00",
+		"a/collection/ffffffffffffffff/bar=%_42/foo=A%2FB/pivot=00",
 	} {
 		require.Equal(t, n, items[i].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).Name.String())
 	}
@@ -187,7 +187,7 @@ func TestPublisherMappingIntegration(t *testing.T) {
 	// Expect an attempt to publish fails on discovering the shard FQN was removed.
 	_, err = pub.PublishCommitted(mapper.Map, fixtures[0])
 	require.EqualError(t, err,
-		"creating partition a/collection/00ffffffffffffff/bar=%_52/foo=A/pivot=00: shard spec doesn't exist")
+		"creating partition a/collection/ffffffffffffffff/bar=%_52/foo=A/pivot=00: shard spec doesn't exist")
 
 	broker.Tasks.Cancel()
 	require.NoError(t, broker.Tasks.Wait())
