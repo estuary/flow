@@ -20,7 +20,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
-	"go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
@@ -37,11 +36,20 @@ type FlowTesting struct {
 	pubClock *message.Clock
 	// Task service for associated testing RPCs.
 	svc *bindings.TaskService
+	// Journal watch.
+	watch *client.WatchedList
 }
 
 // NewFlowTesting builds a *FlowTesting which will ingest using the given AppendService.
-func NewFlowTesting(inner *FlowConsumer, ajc *client.AppendService) (*FlowTesting, error) {
+func NewFlowTesting(ctx context.Context, inner *FlowConsumer, ajc *client.AppendService) (*FlowTesting, error) {
 	var pubClock = new(message.Clock)
+
+	// Start watch over all journals.
+	// This is reasonable only because we're running within a temporary data-plane.
+	var watch = client.NewWatchedList(ctx, ajc, pb.ListRequest{}, nil)
+	if err := <-watch.UpdateCh(); err != nil {
+		return nil, fmt.Errorf("staring journal watch: %w", err)
+	}
 
 	svc, err := bindings.NewTaskService(
 		pr.TaskServiceConfig{TaskName: "flow-testing"},
@@ -57,6 +65,7 @@ func NewFlowTesting(inner *FlowConsumer, ajc *client.AppendService) (*FlowTestin
 		pub:          message.NewPublisher(ajc, pubClock),
 		pubClock:     pubClock,
 		svc:          svc,
+		watch:        watch,
 	}, nil
 }
 
@@ -171,7 +180,7 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	f.pubClock.Update(time.Now().Add(delta))
 	// Drain the combiner, mapping documents to logical partitions and writing
 	// them as uncommitted messages.
-	var mapper = flow.NewMapper(ctx, f.Service.Etcd, f.Journals, f.Service.State.LocalKey)
+	var mapper = flow.NewMapper(ctx, f.Service.Journals)
 
 	for {
 		var response, err = combiner.Recv()
@@ -188,6 +197,7 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 			Doc:        json.RawMessage(response.DocJson),
 			PackedKey:  response.KeyPacked,
 			Partitions: partitions,
+			List:       f.watch,
 		}); err != nil {
 			return nil, err
 		}
@@ -211,13 +221,6 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		acks[intent.Journal] = aa
 	}
 
-	// Our |mapper| above used |f.Journals| to resolve and create dynamic
-	// collection partitions. It may have created and read-through journal keys
-	// which must be reflected in the logical Clock.
-	f.Journals.Mu.RLock()
-	var journalEtcd = ext.FromEtcdResponseHeader(f.Journals.Header)
-	f.Journals.Mu.RUnlock()
-
 	// Await async ACK appends, and collect their commit end offsets.
 	var writeHeads = make(pb.Offsets, len(acks))
 	for journal, aa := range acks {
@@ -231,8 +234,5 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		return nil, fmt.Errorf("closing build: %w", err)
 	}
 
-	return &pf.IngestResponse{
-		JournalWriteHeads: writeHeads,
-		JournalEtcd:       journalEtcd,
-	}, nil
+	return &pf.IngestResponse{JournalWriteHeads: writeHeads}, nil
 }

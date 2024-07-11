@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"sync"
-	"unsafe"
 
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -20,8 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
-	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
@@ -37,6 +35,7 @@ type Mappable struct {
 	Doc        json.RawMessage
 	PackedKey  []byte
 	Partitions tuple.Tuple
+	List       *client.WatchedList
 }
 
 var _ message.Message = Mappable{}
@@ -44,29 +43,14 @@ var _ message.Message = Mappable{}
 // Mapper maps IndexedCombineResponse documents into a corresponding logical
 // partition, creating that partition if it doesn't yet exist.
 type Mapper struct {
-	ctx      context.Context // TODO(johnny): Fix gazette so this is passed on the Map call.
-	etcd     *clientv3.Client
-	journals Journals
-	shardFQN string
+	ctx context.Context
+	jc  pb.JournalClient
 }
 
 // NewMapper builds and returns a new Mapper, which monitors from |journals|
 // and creates new partitions into the given |etcd| client.
-// When creating partitions, it requires that |shardFQN| still exists, to ensure
-// that its creation of new partitions doesn't race with the tear-down of its
-// authority to create those partitions.
-func NewMapper(
-	ctx context.Context,
-	etcd *clientv3.Client,
-	journals Journals,
-	shardFQN string,
-) Mapper {
-	return Mapper{
-		ctx:      ctx,
-		etcd:     etcd,
-		journals: journals,
-		shardFQN: shardFQN,
-	}
+func NewMapper(ctx context.Context, jc pb.JournalClient) Mapper {
+	return Mapper{ctx: ctx, jc: jc}
 }
 
 // Map |mappable|, which must be an instance of Mappable, into a physical journal partition
@@ -75,7 +59,7 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 	var msg = mappable.(Mappable)
 
 	var bufPtr = mappingBufferPool.Get().(*[]byte)
-	logicalPrefix, hexKey, buf := m.logicalPrefixAndHexKey((*bufPtr)[:0], msg)
+	var logicalPrefix, hexKey, buf = logicalPrefixAndHexKey((*bufPtr)[:0], msg)
 	*bufPtr = buf
 
 	defer func() {
@@ -83,10 +67,8 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 	}()
 
 	for attempt := 0; true; attempt++ {
-		// Pick a partition at the current Etcd |revision|.
-		m.journals.Mu.RLock()
-		var picked = m.pickPartition(logicalPrefix, hexKey)
-		m.journals.Mu.RUnlock()
+		// Pick an available partition.
+		var picked = pickPartition(logicalPrefix, hexKey, msg.List.List().Journals)
 
 		if picked != nil {
 			// Partition already exists (the common case).
@@ -109,79 +91,55 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 			panic(err) // Cannot fail because KeyBegin is always set.
 		}
 
-		var applyKey = allocator.ItemKey(m.journals.KeySpace, applySpec.Name.String())
-		applyBytes, err := applySpec.Marshal()
-		if err != nil {
-			panic(err) // Cannot fail because a custom marshaler isn't used.
-		}
-
-		// Conditionally apply the new specification in an Etcd transaction.
-		applyResponse, err := m.etcd.Txn(m.ctx).If(
-			// Require that the partition doesn't already exist.
-			clientv3.Compare(clientv3.ModRevision(applyKey), "=", 0),
-			// Require that the shard FQN under which we're running has not been removed.
-			clientv3.Compare(clientv3.ModRevision(m.shardFQN), "!=", 0),
-		).Then(
-			// Put the spec (which doesn't yet exist).
-			clientv3.OpPut(applyKey, string(applyBytes)),
-		).Else(
-			// The spec exists. Fetch its current version & revision.
-			clientv3.OpGet(applyKey),
-		).Commit()
-
-		var readThrough int64
+		var ctx = pb.WithClaims(pb.WithDispatchDefault(m.ctx), pb.Claims{
+			Capability: pb.Capability_APPLY,
+			Selector: pb.LabelSelector{
+				Include: pb.MustLabelSet("name", applySpec.Name.String()),
+			},
+		})
+		resp, err := m.jc.Apply(ctx, &pb.ApplyRequest{
+			Changes: []pb.ApplyRequest_Change{
+				{
+					Upsert:            applySpec,
+					ExpectModRevision: 0, // Expect it's created.
+				},
+			},
+		})
 
 		if err != nil {
 			return "", "", fmt.Errorf("creating partition %s: %w", applySpec.Name, err)
-		} else if !applyResponse.Succeeded {
+		} else if resp.Status == pb.Status_ETCD_TRANSACTION_FAILED {
 			// We lost a race to create this journal.
 			//
 			// This is expected to happen very infrequently, when we race
 			// another process to create the journal, or are racing the removal
 			// of the shard spec under which we're running.
-
-			// Did we lose because the journal already exists ?
-			if kvs := applyResponse.Responses[0].GetResponseRange().Kvs; len(kvs) != 0 {
-				readThrough = kvs[0].ModRevision // Read through its last update.
-
-				log.WithFields(log.Fields{
-					"attempt":     attempt,
-					"journal":     applySpec.Name,
-					"readThrough": readThrough,
-				}).Info("lost race to create partition")
-			} else {
-				// The shard spec that granted us authority to create partitions was removed.
-				return "", "", fmt.Errorf("creating partition %s: %w", applySpec.Name,
-					fmt.Errorf("shard spec doesn't exist"))
-			}
-		} else {
-			// On success, |applyResponse| always reference the revision of the
-			// applied Etcd transaction, which is guaranteed to produce an update
-			// into |m.Journals|.
-			readThrough = applyResponse.Header.Revision
-
 			log.WithFields(log.Fields{
 				"attempt":     attempt,
 				"journal":     applySpec.Name,
-				"readThrough": readThrough,
+				"readThrough": resp.Header.Etcd.Revision,
+			}).Info("lost race to create partition")
+		} else if resp.Status == pb.Status_OK {
+			log.WithFields(log.Fields{
+				"attempt":     attempt,
+				"journal":     applySpec.Name,
+				"readThrough": resp.Header.Etcd.Revision,
 			}).Info("created partition")
 			createdPartitionsCounters.WithLabelValues(msg.Spec.Name.String()).Inc()
+		} else {
+			return "", "", fmt.Errorf("creating partition %s: %s", applySpec.Name, resp.Status)
 		}
 
-		m.journals.Mu.RLock()
-		err = m.journals.WaitForRevision(m.ctx, readThrough)
-		m.journals.Mu.RUnlock()
-
-		if err != nil {
-			return "", "", fmt.Errorf("awaiting journal revision '%d': %w", readThrough, err)
+		// Wait for an update notification.
+		select {
+		case <-msg.List.UpdateCh():
+		case <-m.ctx.Done():
 		}
 	}
 	panic("not reached")
 }
 
-func (m *Mapper) logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix []byte, hexKey []byte, buf []byte) {
-	b = append(b, m.journals.Root...)
-	b = append(b, allocator.ItemsPrefix...)
+func logicalPrefixAndHexKey(b []byte, msg Mappable) (logicalPrefix []byte, hexKey []byte, buf []byte) {
 	b = append(b, msg.Spec.PartitionTemplate.Name...)
 	b = append(b, '/')
 
@@ -207,31 +165,40 @@ func appendHex32(b []byte, n uint32) []byte {
 	return strconv.AppendUint(b, uint64(n), 16)
 }
 
-func (m *Mapper) pickPartition(logicalPrefix []byte, hexKey []byte) *pb.JournalSpec {
-	// This unsafe cast avoids |logicalPrefix| escaping to heap, as would otherwise
-	// happen due to it's use within a closure that crosses the sort.Search interface
-	// boundary. It's safe to do because the value is not retained or used beyond
-	// the journals.Prefixed call.
-	var logicalPrefixStrUnsafe = *(*string)(unsafe.Pointer(&logicalPrefix))
-	// Map |logicalPrefix| into a set of physical partitions.
-	var physical = m.journals.Prefixed(logicalPrefixStrUnsafe)
+func pickPartition(logicalPrefix []byte, hexKey []byte, journals []pb.ListResponse_Journal) *pb.JournalSpec {
+	// Find the first physical partition having `logicalPrefix` as its Name prefix
+	// and label KeyEnd > `hexKey`. Note we're performing the latter comparison in
+	// a hex-encoded space.
+	var ind = sort.Search(len(journals), func(i int) bool {
+		var pre = journals[i].Spec.Name
 
-	// Find the first physical partition having KeyEnd > hexKey.
-	// Note we're performing this comparasion in a hex-encoded space.
-	var ind = sort.Search(len(physical), func(i int) bool {
-		var keyEnd = physical[i].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet.ValueOf(labels.KeyEnd)
-		return keyEnd >= string(hexKey)
+		if l, r := len(logicalPrefix), len(pre); l < r {
+			pre = pre[:l] // Compare over the prefix.
+		}
+		switch bytes.Compare([]byte(pre), logicalPrefix) {
+		case -1:
+			return false
+		case 0:
+			// Prefixes match. Now compare over KeyEnd.
+			return journals[i].Spec.LabelSet.ValueOf(labels.KeyEnd) >= string(hexKey)
+		case 1:
+			return true
+		default:
+			panic("not reached")
+		}
 	})
 
-	if ind == len(physical) {
+	if ind == len(journals) {
 		return nil
-	}
-
-	var p = physical[ind].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)
-	if p.LabelSet.ValueOf(labels.KeyBegin) <= string(hexKey) {
+	} else if p := &journals[ind].Spec; len(p.Name) < len(logicalPrefix) {
+		return nil
+	} else if !bytes.Equal([]byte(p.Name[:len(logicalPrefix)]), logicalPrefix) {
+		return nil
+	} else if p.LabelSet.ValueOf(labels.KeyBegin) > string(hexKey) {
+		return nil
+	} else {
 		return p
 	}
-	return nil
 }
 
 var mappingBufferPool = sync.Pool{

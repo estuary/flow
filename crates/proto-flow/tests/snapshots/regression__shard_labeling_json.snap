@@ -14,5 +14,7 @@ expression: json_test(msg)
   },
   "splitSource": "split/source/shard",
   "taskName": "the/task/name",
-  "taskType": "derivation"
+  "taskType": "derivation",
+  "logsJournal": "ops/logs/one=capture/two=the%2Ftask%2Fname",
+  "statsJournal": "ops/stats/one=capture/two=the%2Ftask%2Fname"
 }

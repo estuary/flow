@@ -3,15 +3,9 @@ package ops
 import (
 	"fmt"
 	"reflect"
-	"strings"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
-
-// LogCollection returns the collection to which logs of the given shard are written.
-func LogCollection(taskName string) pf.Collection {
-	return pf.Collection(fmt.Sprintf("ops/%s/logs", strings.Split(taskName, "/")[0]))
-}
 
 // ValidateLogsCollection sanity-checks that the given CollectionSpec is appropriate
 // for storing instances of Log documents.
