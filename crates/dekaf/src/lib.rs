@@ -145,11 +145,12 @@ async fn handle_api(
     let ret = match api_key {
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
-            let (header, request) = dec_request(version >= 3, frame)?;
+            let (header, request) = dec_request(frame, version)?;
+            tracing::debug!(client_id=?header.client_id, "Got client ID!");
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
         ApiKey::SaslHandshakeKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             *raw_sasl_auth = header.request_api_version == 0;
             Ok(enc_resp(
                 out,
@@ -171,7 +172,7 @@ async fn handle_api(
             Ok(())
         }
         ApiKey::SaslAuthenticateKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header,
@@ -180,11 +181,11 @@ async fn handle_api(
         }
         ApiKey::MetadataKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2417
-            let (header, request) = dec_request(version >= 9, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.metadata(request).await?))
         }
         ApiKey::FindCoordinatorKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header,
@@ -192,17 +193,17 @@ async fn handle_api(
             ))
         }
         ApiKey::ListOffsetsKey => {
-            let (header, request) = dec_request(version >= 6, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.list_offsets(request).await?))
         }
 
         ApiKey::FetchKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.fetch(request).await?))
         }
 
         ApiKey::OffsetCommitKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header,
@@ -211,7 +212,7 @@ async fn handle_api(
         }
 
         ApiKey::DescribeConfigsKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header,
@@ -220,15 +221,23 @@ async fn handle_api(
         }
 
         ApiKey::JoinGroupKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
                 session.join_group(request, header).await?,
             ))
         }
+        ApiKey::LeaveGroupKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.leave_group(request, header).await?,
+            ))
+        }
         ApiKey::ListGroupsKey => {
-            let (header, request) = dec_request(version >= 3, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -236,7 +245,7 @@ async fn handle_api(
             ))
         }
         ApiKey::SyncGroupKey => {
-            let (header, request) = dec_request(version >= 4, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -244,7 +253,7 @@ async fn handle_api(
             ))
         }
         ApiKey::DeleteGroupsKey => {
-            let (header, request) = dec_request(version >= 2, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -252,7 +261,7 @@ async fn handle_api(
             ))
         }
         ApiKey::HeartbeatKey => {
-            let (header, request) = dec_request(version >= 4, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header.clone(),
@@ -271,16 +280,16 @@ async fn handle_api(
 }
 
 // Easier dispatch to type-specific decoder by using result-type inference.
-fn dec_request<T: kafka_protocol::protocol::Decodable + std::fmt::Debug>(
-    flexver: bool,
+fn dec_request<T: kafka_protocol::protocol::Request + std::fmt::Debug>(
     mut frame: bytes::BytesMut,
+    req_version: i16,
 ) -> anyhow::Result<(messages::RequestHeader, T)> {
-    // This can handled by ApiKey::request_header_version
-    let header = messages::RequestHeader::decode(&mut frame, if flexver { 2 } else { 1 })?;
+    let header_version = T::header_version(req_version);
+    let header = messages::RequestHeader::decode(&mut frame, header_version)?;
 
     let request = T::decode(&mut frame, header.request_api_version).with_context(|| {
         format!(
-            "failed to decode {} with header {header:?}",
+            "failed to decode {} with header version {header_version}: {header:?}",
             std::any::type_name::<T>()
         )
     })?;
