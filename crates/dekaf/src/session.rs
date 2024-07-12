@@ -65,7 +65,7 @@ impl Session {
                 self.client = client;
 
                 let mut response = messages::SaslAuthenticateResponse::default();
-                response.session_lifetime_ms = i64::MAX; // TODO(johnny): Access token expiry.
+                response.session_lifetime_ms = 60 * 60 * 60 * 24; // TODO(johnny): Access token expiry.
                 response
             }
             Err(err) => messages::SaslAuthenticateResponse::builder()
