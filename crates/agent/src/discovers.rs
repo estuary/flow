@@ -3,6 +3,7 @@ use super::{
 };
 use agent_sql::discovers::Row;
 use anyhow::Context;
+use models::CaptureEndpoint;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 
@@ -194,6 +195,7 @@ impl DiscoverHandler {
             &row.image_name,
             &row.image_tag,
             row.update_only,
+            row.background,
             row.user_id,
             txn,
         )
@@ -273,6 +275,7 @@ impl DiscoverHandler {
         image_name: &str,
         image_tag: &str,
         update_only: bool,
+        background: bool,
         user_id: Uuid,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<Result<models::Catalog, Vec<draft::Error>>> {
@@ -335,11 +338,28 @@ impl DiscoverHandler {
 
         // Deeply merge the capture and its bindings.
         let capture_name = models::Capture::new(capture_name);
+        let existing_capture = catalog.captures.remove(&capture_name);
+        // This is a hack to prevent autoDiscovers from overwriting changes to the capture endpoint.
+        // Background discovers get prioritized behind interactive publications, so it's possible
+        // for an interactive publication to update the endpoint config after the `discovers` row
+        // has already been created but before it's been processed. This detects that condition and
+        // bails, so we can try again on the next auto-discover.
+        if existing_capture
+            .as_ref()
+            .is_some_and(|spec| background && is_endpoint_changed(&spec.endpoint, &endpoint))
+        {
+            return Ok(Err(vec![draft::Error {
+                catalog_name: capture_name.to_string(),
+                detail: format!("capture endpoint has been modified since the discover was created (will retry)"),
+                scope: None,
+            }]));
+        }
+
         let merge_result = specs::merge_capture(
             &capture_name,
             endpoint,
             discovered_bindings,
-            catalog.captures.remove(&capture_name),
+            existing_capture,
             update_only,
             &resource_path_pointers,
         );
@@ -393,6 +413,16 @@ impl DiscoverHandler {
 
         Ok(Ok(catalog))
     }
+}
+
+fn is_endpoint_changed(a: &CaptureEndpoint, b: &CaptureEndpoint) -> bool {
+    let CaptureEndpoint::Connector(cfga) = a else {
+        panic!("discovers handler doesn't support local connectors");
+    };
+    let CaptureEndpoint::Connector(cfgb) = b else {
+        panic!("discovers handler doesn't support local connectors");
+    };
+    cfga.image != cfgb.image || cfga.config.get().trim() != cfgb.config.get().trim()
 }
 
 #[cfg(test)]
@@ -476,6 +506,7 @@ mod test {
             "ghcr.io/estuary/source-thingy",
             ":v1",
             false,
+            false,
             Uuid::from_str("11111111-1111-1111-1111-111111111111").unwrap(),
             &mut txn,
         )
@@ -483,6 +514,74 @@ mod test {
 
         let catalog = result.unwrap().unwrap();
         insta::assert_json_snapshot!(json!(catalog));
+    }
+
+    #[tokio::test]
+    async fn test_catalog_merge_endpoint_changed() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(
+            r#"
+            with
+            p1 as (
+                insert into user_grants(user_id, object_role, capability) values
+                ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin')
+            ),
+            p2 as (
+                insert into drafts (id, user_id) values
+                ('eeeeeeeeeeeeeeee', '11111111-1111-1111-1111-111111111111')
+            ),
+            p3 as (
+                insert into live_specs (catalog_name, spec_type, spec) values
+                -- Existing capture which is deeply merged.
+                ('aliceCo/dir/source-thingy', 'capture', '{
+                    "bindings": [ ],
+                    "endpoint": { "connector": { "config": { "a": "oldA" }, "image": "an/image" } },
+                    "interval": "10m"
+                }')
+            )
+            select 1;
+            "#,
+        )
+        .execute(&mut txn)
+        .await
+        .unwrap();
+
+        let discover_output = json!({
+            "bindings": [
+                {"documentSchema": {"const": "write!"}, "key": ["/foo"], "recommendedName": "foo", "resourceConfig": {"table": "foo"}},
+                {"documentSchema": {"const": "bar"}, "key": ["/bar"], "recommendedName": "bar", "resourceConfig": {"table": "bar"}},
+                {"documentSchema": {"const": "quz"}, "key": ["/quz"], "recommendedName": "quz", "resourceConfig": {"table": "quz"}},
+            ],
+        }).to_string();
+
+        let endpoint_config = serde_json::value::to_raw_value(&json!({"a": "newA"})).unwrap();
+
+        let result = super::DiscoverHandler::build_merged_catalog(
+            "aliceCo/dir/source-thingy",
+            discover_output.as_bytes(),
+            Id::from_hex("eeeeeeeeeeeeeeee").unwrap(),
+            &endpoint_config,
+            "ghcr.io/estuary/source-thingy",
+            ":v1",
+            false,
+            true,
+            Uuid::from_str("11111111-1111-1111-1111-111111111111").unwrap(),
+            &mut txn,
+        )
+        .await;
+
+        let errs = result
+            .unwrap()
+            .expect_err("expected inner result to be an error");
+        assert_eq!(1, errs.len());
+        assert_eq!(
+            "capture endpoint has been modified since the discover was created (will retry)",
+            &errs[0].detail
+        );
     }
 
     #[tokio::test]
@@ -523,6 +622,7 @@ mod test {
             &serde_json::value::to_raw_value(&json!({"some": "endpoint-config"})).unwrap(),
             "ghcr.io/estuary/source-thingy",
             ":v1",
+            false,
             false,
             Uuid::from_str("11111111-1111-1111-1111-111111111111").unwrap(),
             &mut txn,
