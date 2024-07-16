@@ -27,7 +27,7 @@ If you haven't yet captured your data from its external source, start at the beg
 
 You need to first create a SQL Warehouse if you don't already have one in your account. See [Databricks documentation](https://docs.databricks.com/en/sql/admin/create-sql-warehouse.html) on configuring a Databricks SQL Warehouse. After creating a SQL Warehouse, you can find the details necessary for connecting to it under the **Connection Details** tab.
 
-In order to save on costs, we recommend that you set the Auto Stop parameter for your SQL warehouse to the minimum available. Estuary's Databricks connector automatically delays updates to the destination up to a configured Update Delay (see the endpoint configuration below), with a default value of 30 minutes. If your SQL warehouse is configured to have an Auto Stop of more than 15 minutes, we disable the automatic delay since the delay is not as effective in saving costs with a long Auto Stop idle period.
+In order to save on costs, we recommend that you set the Auto Stop parameter for your SQL warehouse to the minimum available. Estuary's Databricks connector automatically delays updates to the destination according to the configured **Sync Schedule** (see configuration details below), with a default delay value of 30 minutes.
 
 You also need an access token for your user to be used by our connector, see the respective [documentation](https://docs.databricks.com/en/administration-guide/access-control/tokens.html) from Databricks on how to create an access token.
 
@@ -49,8 +49,6 @@ Use the below properties to configure a Databricks materialization, which will d
 | **`/credentials`**                       | Credentials  | Authentication credentials                                                                                                        | object                                                                                                             |                          |
 | **`/credentials/auth_type`**             | Role         | Authentication type, set to `PAT` for personal access token                                                                       | string                                                                                                             | Required                 |
 | **`/credentials/personal_access_token`** | Role         | Personal Access Token                                                                                                             | string                                                                                                             | Required                 |
-| /advanced                                | Advanced     | Options for advanced users. You should not typically need to modify these.                                                        | object                                                                                                             |                          |
-| /advanced/updateDelay                    | Update Delay | Potentially reduce active warehouse time by increasing the delay between updates. Defaults to 30 minutes if unset.                | string                                                                                                             | 30m                      |
 
 #### Bindings
 
@@ -86,6 +84,11 @@ materializations:
     source: ${PREFIX}/${source_collection}
 ```
 
+## Sync Schedule
+
+This connector supports configuring a schedule for sync frequency. You can read
+about how to configure this [here](../../materialization-sync-schedule.md).
+
 ## Delta updates
 
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
@@ -106,16 +109,6 @@ You can enable delta updates on a per-binding basis:
         delta_updates: true
     source: ${PREFIX}/${source_collection}
 ```
-
-## Update Delay
-
-The `Update Delay` parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This advanced option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period. By incorporating an update delay into your workflow, you can effectively manage and optimize your active warehouse time, leading to potentially lower costs and more efficient data processing.
-
-An update delay is configured in the advanced settings of a materialization's configuration. It represents the amount of time the system will wait before it begins materializing the latest data. This delay is specified in hours and can be adjusted according to the needs of your data pipeline.
-
-For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
-
-To configure an update delay, navigate the `Advanced Options` section of the materialization's configuration and select a value from the drop down. The default value for the update delay in Estuary materializations is set to 30 minutes.
 
 ## Reserved words
 
