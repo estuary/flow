@@ -64,8 +64,6 @@ For a complete introduction to resource organization in Bigquery, see the [BigQu
 | **`/bucket`** | Bucket | Name of the GCS bucket. | String | Required |
 | `/bucket_path` | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | |
 | `/billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery. Typically, you want this to be the same as `project_id` (the default). | String | Same as `project_id` |
-| `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
-| `/advanced/updateDelay`     | Update Delay    | Potentially reduce compute time by increasing the delay between updates. Defaults to 30 minutes if unset. | string  |  |
 
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
 
@@ -98,15 +96,10 @@ materializations:
       source: ${PREFIX}/${source_collection}
 ```
 
-## Update Delay
+## Sync Schedule
 
-The `Update Delay` parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This advanced option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period. By incorporating an update delay into your workflow, you can effectively manage and optimize your active warehouse time, leading to potentially lower costs and more efficient data processing.
-
-An update delay is configured in the advanced settings of a materialization's configuration. It represents the amount of time the system will wait before it begins materializing the latest data. This delay is specified in hours and can be adjusted according to the needs of your data pipeline.
-
-For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
-
-To configure an update delay, navigate the `Advanced Options` section of the materialization's configuration and select a value from the drop down. The default value for the update delay in Estuary materializations is set to 30 minutes.
+This connector supports configuring a schedule for sync frequency. You can read
+about how to configure this [here](../../materialization-sync-schedule.md).
 
 ## Delta updates
 
