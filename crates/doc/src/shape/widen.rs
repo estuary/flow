@@ -201,9 +201,12 @@ impl ArrayShape {
 
 impl NumericShape {
     fn widen(&mut self, num: json::Number, is_first: bool) -> bool {
-        let mut changed = false;
+        let mut changed = is_first;
 
-        if is_first {
+        // We confirm minimum and maximum are None because INTEGER and FRACTIONAL
+        // are separate types and will result in is_first being true,
+        // even though they're min / maxed using the same ring.
+        if is_first && self.minimum.is_none() && self.maximum.is_none() {
             let (min, max) = number_bounds(num);
             self.minimum = Some(min);
             self.maximum = Some(max);
@@ -269,12 +272,11 @@ impl Shape {
         // it’s “the first time i’ve seen this location with this type”
         let mut apply_type = |type_| -> bool {
             if self.type_ & type_ != type_ {
-                // Handle INT_OR_FRACT correctly. We could have partial overlap with type_.
-                let is_first = self.type_ & type_ == types::INVALID;
                 self.type_ = self.type_ | type_;
-                return is_first;
+                true
+            } else {
+                false
             }
-            false
         };
 
         match node.as_node() {
@@ -327,7 +329,9 @@ impl Shape {
     where
         N: AsNode,
     {
-        let Some(enums) = self.enum_.as_mut() else { unreachable!("enum must be Some") };
+        let Some(enums) = self.enum_.as_mut() else {
+            unreachable!("enum must be Some")
+        };
 
         return match (
             enums.binary_search_by(|lhs| crate::compare(lhs, node)),
@@ -1116,6 +1120,30 @@ mod test {
         assert_eq!(length_bounds((1 << 31) + 0), (1 << 30, 1 << 31));
         assert_eq!(length_bounds((1 << 31) + 1), (1 << 31, u32::MAX));
         assert_eq!(length_bounds((1 << 33) + 1), (1 << 31, u32::MAX)); // Saturates as u32::MAX.
+    }
+
+    #[test]
+    fn test_widening_numeric() {
+        let schema = r#"
+            type: []
+        "#;
+        // We preserve an enum if it's only widened with strings and exact matches.
+        widening_snapshot_helper(
+            Some(schema),
+            r#"
+            type: number
+            minimum: 1
+            maximum: 100
+            "#,
+            &[
+                (true, json!(3)),
+                (false, json!(4)),
+                (true, json!(30)),
+                (false, json!(31)),
+                (true, json!(30.14159)),
+                (false, json!(30.2)),
+            ],
+        );
     }
 
     #[test]
