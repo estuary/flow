@@ -136,8 +136,6 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
 | `/credentials/password`      | Password            | Required if using user_password authentication                                                                                                                  | string | Required         |
 | `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
-| `/advanced`                  | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                                      | object |                  |
-| `/advanced/updateDelay`      | Update Delay        | Potentially reduce active warehouse time by increasing the delay between updates.                                                                               | string |                  |
 
 #### Bindings
 
@@ -209,6 +207,30 @@ materializations:
     source: ${PREFIX}/${source_collection}
 ```
 
+## Sync Schedule
+
+This connector supports configuring a schedule for sync frequency. You can read
+about how to configure this [here](../../materialization-sync-schedule.md).
+
+Snowflake compute is [priced](https://www.snowflake.com/pricing/) per second of
+activity, with a minimum of 60 seconds. Inactive warehouses don't incur charges.
+To keep costs down, you'll want to minimize your warehouse's active time.
+
+To accomplish this, we recommend a two-pronged approach:
+
+* [Configure your Snowflake warehouse to auto-suspend](https://docs.snowflake.com/en/sql-reference/sql/create-warehouse.html#:~:text=Specifies%20the%20number%20of%20seconds%20of%20inactivity%20after%20which%20a%20warehouse%20is%20automatically%20suspended.) after 60 seconds.
+
+   This ensures that after each transaction completes, you'll only be charged for one minute of compute, Snowflake's smallest granularity.
+
+   Use a query like the one shown below, being sure to substitute your warehouse name:
+
+   ```sql
+   ALTER WAREHOUSE ESTUARY_WH SET auto_suspend = 60;
+   ```
+
+* Configure the materialization's **Sync Schedule** based on your requirements for data freshness.
+
+
 ## Delta updates
 
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
@@ -244,47 +266,6 @@ This is because most materializations tend to be roughly chronological over time
 
 This means that updates of keys `/date, /user_id` will need to physically read far fewer rows as compared to a key like `/user_id`,
 because those rows will tend to live in the same micro-partitions, and Snowflake is able to cheaply prune micro-partitions that aren't relevant to the transaction.
-
-### Reducing active warehouse time
-
-Snowflake compute is [priced](https://www.snowflake.com/pricing/) per second of activity, with a minimum of 60 seconds.
-Inactive warehouses don't incur charges.
-To keep costs down, you'll want to minimize your warehouse's active time.
-
-Like other Estuary connectors, this is a real-time connector that materializes documents using continuous [**transactions**](../../../concepts/advanced/shards.md#transactions).
-Every time a Flow materialization commits a transaction, your warehouse becomes active.
-
-If your source data collection or collections don't change much, this shouldn't cause an issue;
-Flow only commits transactions when data has changed.
-However, if your source data is frequently updated, your materialization may have frequent transactions that result in
-excessive active time in the warehouse, and thus a higher bill from Snowflake.
-
-To mitigate this, we recommend a two-pronged approach:
-
-* [Configure your Snowflake warehouse to auto-suspend](https://docs.snowflake.com/en/sql-reference/sql/create-warehouse.html#:~:text=Specifies%20the%20number%20of%20seconds%20of%20inactivity%20after%20which%20a%20warehouse%20is%20automatically%20suspended.) after 60 seconds.
-
-   This ensures that after each transaction completes, you'll only be charged for one minute of compute, Snowflake's smallest granularity.
-
-   Use a query like the one shown below, being sure to substitute your warehouse name:
-
-   ```sql
-   ALTER WAREHOUSE ESTUARY_WH SET auto_suspend = 60;
-   ```
-
-* Configure the materialization's **update delay** by setting a value in the advanced configuration.
-
-For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
-update delay to 30 minutes, you can incur as little as 48 minutes per day of active time in the warehouse.
-
-### Update Delay
-
-The `Update Delay` parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. This advanced option allows users to control when the materialization or capture tasks pull in new data by specifying a delay period. By incorporating an update delay into your workflow, you can effectively manage and optimize your active warehouse time, leading to potentially lower costs and more efficient data processing.
-
-An update delay is configured in the advanced settings of a materialization's configuration. It represents the amount of time the system will wait before it begins materializing the latest data. This delay is specified in hours and can be adjusted according to the needs of your data pipeline.
-
-For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing for batching and other optimizations that can reduce warehouse load and processing time.
-
-To configure an update delay, navigate the `Advanced Options` section of the materialization's configuration and select a value from the drop down. The default value for the update delay in Estuary materializations is set to 30 minutes.
 
 ### Snowpipe
 

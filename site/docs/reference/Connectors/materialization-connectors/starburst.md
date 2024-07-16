@@ -45,8 +45,6 @@ Use the below properties to configure a Starburst materialization, which will di
 | **`/region`**             | AWS Region             | Region of AWS storage                                                                                              | string | Required         |
 | **`/bucket`**             | Bucket name            |                                                                                                                    | string | Required         |
 | **`/bucketPath`**         | Bucket path            | A prefix that will be used to store objects in S3.                                                                 | string | Required         |
-| /advanced                 | Advanced               | Options for advanced users. You should not typically need to modify these.                                         | string |                  |
-| /advanced/updateDelay     | Update Delay           | Potentially reduce active warehouse time by increasing the delay between updates. Defaults to 30 minutes if unset. | string | 30m              |
 
 #### Bindings
 
@@ -83,6 +81,11 @@ materializations:
           schema: default
     source: ${PREFIX}/${source_collection}
 ```
+
+## Sync Schedule
+
+This connector supports configuring a schedule for sync frequency. You can read
+about how to configure this [here](../../materialization-sync-schedule.md).
 
 ## Reserved words
 
