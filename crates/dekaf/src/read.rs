@@ -4,10 +4,10 @@ use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
 
 pub struct Read {
-    // Journal offset to be served by this Read.
-    // (Actual next offset may be larger if a fragment was removed).
+    /// Journal offset to be served by this Read.
+    /// (Actual next offset may be larger if a fragment was removed).
     pub(crate) offset: i64,
-    // Most-recent journal write head observed by this Read.
+    /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
 
     key_ptr: Vec<doc::Pointer>, // Pointers to the document key.
@@ -62,7 +62,11 @@ impl Read {
         }
     }
 
-    pub async fn next_batch(mut self, target_bytes: usize) -> anyhow::Result<(Self, bytes::Bytes)> {
+    pub async fn next_batch(
+        mut self,
+        target_bytes: usize,
+        target_docs: Option<usize>,
+    ) -> anyhow::Result<(Self, usize, bytes::Bytes)> {
         use kafka_protocol::records::{
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
         };
@@ -75,7 +79,9 @@ impl Read {
         let mut tmp = Vec::new();
         let mut buf = bytes::BytesMut::new();
 
-        while records_bytes < target_bytes {
+        while records_bytes < target_bytes
+            && target_docs.map_or(true, |target_docs| records.len() < target_docs)
+        {
             let read = tokio::select! {
                 biased; // Attempt to read before yielding.
 
@@ -195,6 +201,6 @@ impl Read {
             "returning records"
         );
 
-        Ok((self, buf.freeze()))
+        Ok((self, records.len(), buf.freeze()))
     }
 }
