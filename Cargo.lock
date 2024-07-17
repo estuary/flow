@@ -1635,6 +1635,7 @@ dependencies = [
  "serde_json",
  "simd-doc",
  "socket2",
+ "stream-reconnect",
  "time 0.3.20",
  "tokio",
  "tokio-rustls 0.26.0",
@@ -3219,28 +3220,6 @@ dependencies = [
  "core2",
  "hashbrown 0.14.5",
  "rle-decode-fast",
-]
-
-[[package]]
-name = "libgssapi"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dcfb7f77cbefc242a46ea667491c4f1129712f563cd368623d3f1b261a90e5f"
-dependencies = [
- "bitflags 2.4.2",
- "bytes",
- "lazy_static",
- "libgssapi-sys",
-]
-
-[[package]]
-name = "libgssapi-sys"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b57d9a71c774ec53b1b9119dbbcc589b5209831f0ddc0ff4210640051f545372"
-dependencies = [
- "bindgen",
- "pkg-config",
 ]
 
 [[package]]
@@ -4883,14 +4862,11 @@ checksum = "3c57973583603020fed95a31fdd3998c56d1d026cfd603773980dac67857dd11"
 dependencies = [
  "acid_io",
  "base64 0.13.1",
- "bitflags 1.3.2",
  "digest",
  "hmac",
- "libgssapi",
  "linkme",
  "pbkdf2",
  "rand 0.8.5",
- "serde",
  "serde_json",
  "sha-1",
  "sha2",
@@ -5738,6 +5714,17 @@ name = "str-buf"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e08d8363704e6c71fc928674353e6b7c23dcea9d82d7012c8faf2a3a025f8d0"
+
+[[package]]
+name = "stream-reconnect"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9831f47a89f0d699b3a0c74ae7c48b30974ccca14a571f342a0eb41b6f7f2a56"
+dependencies = [
+ "futures",
+ "log",
+ "tokio",
+]
 
 [[package]]
 name = "stringprep"
