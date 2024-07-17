@@ -125,12 +125,12 @@ Use the below properties to configure a Snowflake materialization, which will di
 
 | Property                     | Title               | Description                                                                                                                                                     | Type   | Required/Default |
 |------------------------------|---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
-| **`/account`**               | Account             | The Snowflake account identifier                                                                                                                                | string | Required         |
-| **`/database`**              | Database            | Name of the Snowflake database to which to materialize                                                                                                          | string | Required         |
 | **`/host`**                  | Host (Account URL)  | The Snowflake Host used for the connection. Example: orgname-accountname.snowflakecomputing.com (do not include the protocol).                                  | string | Required         |
-| `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
+| **`/database`**              | Database            | Name of the Snowflake database to which to materialize                                                                                                          | string | Required         |
 | **`/schema`**                | Schema              | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | Required         |
 | `/warehouse`                 | Warehouse           | Name of the data warehouse that contains the database                                                                                                           | string |                  |
+| `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
+| `/account`                   | Account             | The Snowflake account identifier                                                                                                                                | string |                  |
 | **`/credentials`**           | Credentials         | Credentials for authentication                                                                                                                                  | object | Required         |
 | **`/credentials/auth_type`** | Authentication type | One of `user_password` or `jwt`                                                                                                                                 | string | Required         |
 | **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
@@ -155,7 +155,6 @@ materializations:
     endpoint:
   	    connector:
     	    config:
-              account: acmeCo
               database: acmeCo_db
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
@@ -181,7 +180,6 @@ materializations:
     endpoint:
   	    connector:
     	    config:
-              account: acmeCo
               database: acmeCo_db
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
