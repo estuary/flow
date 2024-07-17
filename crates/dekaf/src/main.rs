@@ -85,19 +85,17 @@ async fn main() -> anyhow::Result<()> {
         anon_client: postgrest::Postgrest::new(api_endpoint).insert_header("apikey", api_token),
         advertise_host: cli.advertise_host,
         advertise_kafka_port: cli.kafka_port,
-        kafka_client: KafkaApiClient::new(
+        kafka_client: KafkaApiClient::connect(
             upstream_kafka_host.as_str(),
             SASLConfig::with_credentials(
                 None,
                 cli.default_broker_username,
                 cli.default_broker_password,
             )?,
-        ),
+        ).await.context(
+            "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
+        )?,
     });
-
-    app.kafka_client.validate_auth().await.context(
-        "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
-    )?;
 
     tracing::info!(
         broker_url = upstream_kafka_host,
