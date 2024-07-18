@@ -345,6 +345,7 @@ pub struct KafkaApiClient {
     url: String,
     sasl_config: Arc<SASLConfig>,
     versions: ApiVersionsResponse,
+    coordinators: Arc<Mutex<HashMap<String, KafkaApiClient>>>,
 }
 
 impl KafkaApiClient {
@@ -396,6 +397,53 @@ impl KafkaApiClient {
         send_request(conn.deref_mut(), req, header).await
     }
 
+    #[instrument(skip(self))]
+    pub async fn connect_to_group_coordinator(&self, key: &str) -> anyhow::Result<KafkaApiClient> {
+        let mut coordinators = self.coordinators.clone().lock_owned().await;
+        match coordinators.get(key) {
+            None => {
+                // RedPanda only support v3 of this request
+                let req = FindCoordinatorRequestBuilder::default()
+                    .key(StrBytes::from_string(key.to_string()))
+                    // https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/FindCoordinatorRequest.java#L119
+                    .key_type(0) // 0: consumer, 1: transaction
+                    .build()?;
+
+                let resp = self
+                    .send_request(
+                        req,
+                        Some(
+                            RequestHeader::builder()
+                                .request_api_key(FindCoordinatorRequest::KEY)
+                                .request_api_version(3)
+                                .build()
+                                .expect("Request header shouldn't fail to build"),
+                        ),
+                    )
+                    .await?;
+
+                let (coord_host, coord_port) = if resp.coordinators.len() > 0 {
+                    let coord = resp.coordinators.get(0).expect("already checked length");
+                    (coord.host.as_str(), coord.port)
+                } else {
+                    (resp.host.as_str(), resp.port)
+                };
+
+                let coord_url = format!("tcp://{}:{}", coord_host.to_string(), coord_port);
+
+                Ok(if coord_url.eq(self.url.as_str()) {
+                    coordinators.insert(key.to_string(), self.clone());
+                    self.to_owned()
+                } else {
+                    let mut coord = Self::connect(&coord_url, self.sasl_config.clone()).await?;
+                    coord.coordinators = self.coordinators.clone();
+                    coordinators.insert(key.to_string(), coord.clone());
+                    coord
+                })
+            }
+            Some(coord) => Ok(coord.clone()),
+        }
+    }
 
     pub fn supported_versions<R: Request>(&self) -> anyhow::Result<ApiVersion> {
         let api_key = R::KEY;
