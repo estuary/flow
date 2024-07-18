@@ -155,7 +155,6 @@ materializations:
     endpoint:
   	    connector:
     	    config:
-              account: acmeCo
               database: acmeCo_db
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
@@ -181,7 +180,6 @@ materializations:
     endpoint:
   	    connector:
     	    config:
-              account: acmeCo
               database: acmeCo_db
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
