@@ -344,6 +344,7 @@ pub struct KafkaApiClient {
     connection: Arc<Mutex<ReconnectKafkaConnection>>,
     url: String,
     sasl_config: Arc<SASLConfig>,
+    versions: ApiVersionsResponse,
 }
 
 impl KafkaApiClient {
@@ -368,10 +369,14 @@ impl KafkaApiClient {
         )
         .await?;
 
+        let versions = send_request(&mut conn, ApiVersionsRequest::default(), None).await?;
+
         Ok(Self {
             connection: Arc::new(Mutex::new(conn)),
             url: broker_url.to_string(),
             sasl_config: sasl_config,
+            versions,
+            coordinators: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -391,6 +396,18 @@ impl KafkaApiClient {
         send_request(conn.deref_mut(), req, header).await
     }
 
+
+    pub fn supported_versions<R: Request>(&self) -> anyhow::Result<ApiVersion> {
+        let api_key = R::KEY;
+
+        let version = self
+            .versions
+            .api_keys
+            .get(&api_key)
+            .context(format!("Unknown API key {api_key}"))?;
+
+        Ok(version.to_owned())
+    }
 }
 
 fn get_reconnect_strategy() -> DurationIterator {
