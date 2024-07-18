@@ -121,9 +121,56 @@ returns setof text as $$
 
 $$ language sql;
 
+create function tests.test_user_info_summary()
+returns setof text as $$
+    select set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
--- We can resolve all roles granted with a minimum capability.
--- This is commonly used for row-level security checks.
+    select is(
+        (select user_info_summary())::jsonb,
+        '{"hasDemoAccess": false, "hasSupportAccess": false, "hasAnyAccess": false}'::jsonb
+    );
+
+    insert into user_grants (user_id, object_role, capability) values (
+        '11111111-1111-1111-1111-111111111111' ,
+        'alice/',
+        'read'
+    );
+
+    select is(
+        (select user_info_summary())::jsonb,
+        '{"hasDemoAccess": false, "hasSupportAccess": false, "hasAnyAccess": true}'::jsonb
+    );
+
+    insert into user_grants (user_id, object_role, capability) values (
+        '11111111-1111-1111-1111-111111111111',
+        'alice_admin/',
+        'admin'
+    );
+
+    insert into role_grants (subject_role, object_role, capability) values (
+        'alice_admin/',
+        'demo/',
+        'read'
+    );
+
+    select is(
+        (select user_info_summary())::jsonb,
+        '{"hasDemoAccess": true, "hasSupportAccess": false, "hasAnyAccess": true}'::jsonb
+    );
+
+    insert into role_grants (subject_role, object_role, capability) values (
+        'alice_admin/',
+        'estuary_support/',
+        'admin'
+    );
+
+    select is(
+        (select user_info_summary())::jsonb,
+        '{"hasDemoAccess": true, "hasSupportAccess": true, "hasAnyAccess": true}'::jsonb
+    );
+
+$$ language sql;
+
 create function tests.test_gateway_auth_token_generation()
 returns setof text as $$
   select set_authenticated_context('11111111-1111-1111-1111-111111111111');
@@ -165,4 +212,3 @@ returns setof text as $$
   );
 
 $$ language sql;
-
