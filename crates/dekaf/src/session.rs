@@ -586,12 +586,37 @@ impl Session {
             .unwrap())
     }
 
+    #[instrument(skip_all)]
     pub async fn join_group(
         &mut self,
         req: messages::JoinGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
-        return self.app.kafka_client.send_request(req, Some(header)).await;
+        tracing::debug!("Got request");
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        let response = client.send_request(req, Some(header)).await?;
+        tracing::debug!(response=?response, "Got response");
+        Ok(response)
+    }
+
+    #[instrument(skip_all)]
+    pub async fn leave_group(
+        &mut self,
+        req: messages::LeaveGroupRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::LeaveGroupResponse> {
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        let response = client.send_request(req, Some(header)).await?;
+        tracing::debug!(response=?response, "Got response");
+        Ok(response)
     }
 
     pub async fn list_group(
@@ -607,7 +632,14 @@ impl Session {
         req: messages::SyncGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::SyncGroupResponse> {
-        return self.app.kafka_client.send_request(req, Some(header)).await;
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        let response = client.send_request(req, Some(header)).await?;
+        tracing::debug!(response=?response, "Got response");
+        Ok(response)
     }
 
     pub async fn delete_group(
@@ -623,7 +655,13 @@ impl Session {
         req: messages::HeartbeatRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::HeartbeatResponse> {
-        return self.app.kafka_client.send_request(req, Some(header)).await;
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        return client.send_request(req, Some(header)).await;
+    }
     }
 
     /// ApiVersions lists the APIs which are supported by this "broker".
