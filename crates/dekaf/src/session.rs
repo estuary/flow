@@ -1,13 +1,17 @@
 use super::{fetch_all_collection_names, App, Collection, Read};
+use crate::{sanitize_topic_name, unsanitize_topic_name};
 use anyhow::Context;
+use gazette::broker;
 use kafka_protocol::{
     error::ResponseError,
     indexmap::IndexMap,
     messages::{self, metadata_response::MetadataResponseTopic, RequestHeader, TopicName},
     protocol::{Builder, StrBytes},
 };
+use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::instrument;
 
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
@@ -86,15 +90,16 @@ impl Session {
     /// Serve metadata of topics and their partitions.
     /// For efficiency, we do NOT enumerate partitions when we receive an unqualified metadata request.
     /// Otherwise, if specific "topics" (collections) are listed, we fetch and map journals into partitions.
+    #[instrument(skip_all)]
     pub async fn metadata(
         &mut self,
         mut request: messages::MetadataRequest,
     ) -> anyhow::Result<messages::MetadataResponse> {
-        let topics = if let Some(topics) = request.topics.take() {
-            self.metadata_select_topics(topics).await?
-        } else {
-            self.metadata_all_topics().await?
-        };
+        tracing::debug!(req=?request, "Got metadata request");
+        let topics = match request.topics.take() {
+            Some(topics) if topics.len() > 0 => self.metadata_select_topics(topics).await,
+            _ => self.metadata_all_topics().await,
+        }?;
 
         // We only ever advertise a single logical broker.
         let mut brokers = kafka_protocol::indexmap::IndexMap::new();
@@ -128,7 +133,7 @@ impl Session {
             .into_iter()
             .map(|name| {
                 (
-                    TopicName(StrBytes::from_string(name)),
+                    sanitize_topic_name(TopicName(StrBytes::from_string(name))),
                     MetadataResponseTopic::builder()
                         .is_internal(false)
                         .build()
@@ -150,7 +155,7 @@ impl Session {
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                let name = topic.name.unwrap_or_default();
+                let name = unsanitize_topic_name(topic.name.unwrap_or_default());
                 let maybe_collection = Collection::new(client, name.as_str()).await?;
                 Ok((name, maybe_collection))
             }))
@@ -161,7 +166,7 @@ impl Session {
         for (name, maybe_collection) in collections? {
             let Some(collection) = maybe_collection else {
                 topics.insert(
-                    name,
+                    sanitize_topic_name(name),
                     MetadataResponseTopic::builder()
                         .error_code(ResponseError::UnknownTopicOrPartition.code())
                         .build()
@@ -186,7 +191,7 @@ impl Session {
                 .collect();
 
             topics.insert(
-                name,
+                sanitize_topic_name(name),
                 MetadataResponseTopic::builder()
                     .is_internal(false)
                     .partitions(partitions)
@@ -235,11 +240,12 @@ impl Session {
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
         let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<(i64, i64)>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
-                let maybe_collection = Collection::new(client, topic.name.as_str()).await?;
+                let maybe_collection =
+                    Collection::new(client, &unsanitize_topic_name(topic.name.clone())).await?;
 
                 let Some(collection) = maybe_collection else {
                     return Ok((
-                        topic.name,
+                        unsanitize_topic_name(topic.name),
                         topic
                             .partitions
                             .iter()
@@ -265,7 +271,7 @@ impl Session {
                 )
                 .await;
 
-                Ok((topic.name, offsets?))
+                Ok((unsanitize_topic_name(topic.name), offsets?))
             }))
             .await;
 
@@ -311,7 +317,7 @@ impl Session {
                     .collect();
 
                 ListOffsetsTopicResponse::builder()
-                    .name(topic_name)
+                    .name(sanitize_topic_name(topic_name))
                     .partitions(partitions)
                     .build()
                     .unwrap()
@@ -347,6 +353,8 @@ impl Session {
 
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
+            let mut key = (unsanitize_topic_name(topic_request.topic.clone()), 0);
+
             let latest_topic_requested = self.listed_offsets.get(&key.0);
 
             for partition_request in &topic_request.partitions {
@@ -472,7 +480,7 @@ impl Session {
         let mut topic_responses = Vec::with_capacity(topic_requests.len());
 
         for topic_request in &topic_requests {
-            let mut key = (topic_request.topic.clone(), 0);
+            let mut key = (unsanitize_topic_name(topic_request.topic.clone()), 0);
             let mut partition_responses = Vec::with_capacity(topic_request.partitions.len());
 
             for partition_request in &topic_request.partitions {
@@ -521,7 +529,7 @@ impl Session {
 
             topic_responses.push(
                 FetchableTopicResponse::builder()
-                    .topic(topic_request.topic.clone())
+                    .topic(sanitize_topic_name(topic_request.topic.clone()))
                     .partitions(partition_responses)
                     .build()
                     .unwrap(),
@@ -533,14 +541,6 @@ impl Session {
             .responses(topic_responses)
             .build()
             .unwrap())
-    }
-
-    /// OffsetCommit is an ignored no-op.
-    pub async fn offset_commit(
-        &mut self,
-        _req: messages::OffsetCommitRequest,
-    ) -> anyhow::Result<messages::OffsetCommitResponse> {
-        Ok(messages::OffsetCommitResponse::builder().build().unwrap())
     }
 
     /// DescribeConfigs lists configuration metadata of topics.
@@ -662,6 +662,51 @@ impl Session {
             .await?;
         return client.send_request(req, Some(header)).await;
     }
+
+    pub async fn offset_commit(
+        &mut self,
+        req: messages::OffsetCommitRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::OffsetCommitResponse> {
+        let mut mutated_req = req.clone();
+        for topic in &mut mutated_req.topics {
+            topic.name = sanitize_topic_name(topic.name.clone())
+        }
+
+        return self
+            .app
+            .kafka_client
+            .send_request(mutated_req, Some(header))
+            .await;
+    }
+
+    #[instrument(skip_all)]
+    pub async fn offset_fetch(
+        &mut self,
+        req: messages::OffsetFetchRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::OffsetFetchResponse> {
+        let mut mutated_req = req.clone();
+        if let Some(ref mut topics) = mutated_req.topics {
+            for topic in topics {
+                topic.name = sanitize_topic_name(topic.name.clone())
+            }
+        }
+
+        if let Some(ref topics) = mutated_req.topics {
+            self.app
+                .kafka_client
+                .ensure_topics(topics.iter().map(|t| t.name.to_owned()).collect())
+                .await?;
+        }
+        let resp = self
+            .app
+            .kafka_client
+            .send_request(mutated_req, Some(header))
+            .await?;
+
+        tracing::debug!(resp=?resp, "Got Response");
+        Ok(resp)
     }
 
     /// ApiVersions lists the APIs which are supported by this "broker".
@@ -785,6 +830,19 @@ impl Session {
             self.app
                 .kafka_client
                 .supported_versions::<HeartbeatRequest>()?,
+        );
+
+        res.api_keys.insert(
+            ApiKey::OffsetCommitKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<OffsetCommitRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::OffsetFetchKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<OffsetFetchRequest>()?,
         );
 
         Ok(res)
