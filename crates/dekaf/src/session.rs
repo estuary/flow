@@ -712,18 +712,42 @@ impl Session {
         );
         */
 
-        res.api_keys
-            .insert(ApiKey::JoinGroupKey as i16, version::<JoinGroupRequest>());
-        res.api_keys
-            .insert(ApiKey::ListGroupsKey as i16, version::<ListGroupsRequest>());
-        res.api_keys
-            .insert(ApiKey::SyncGroupKey as i16, version::<SyncGroupRequest>());
+        res.api_keys.insert(
+            ApiKey::JoinGroupKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<JoinGroupRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::LeaveGroupKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<LeaveGroupRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::ListGroupsKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<ListGroupsRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::SyncGroupKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<SyncGroupRequest>()?,
+        );
         res.api_keys.insert(
             ApiKey::DeleteGroupsKey as i16,
-            version::<DeleteGroupsRequest>(),
+            self.app
+                .kafka_client
+                .supported_versions::<DeleteGroupsRequest>()?,
         );
-        res.api_keys
-            .insert(ApiKey::HeartbeatKey as i16, version::<HeartbeatRequest>());
+        res.api_keys.insert(
+            ApiKey::HeartbeatKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<HeartbeatRequest>()?,
+        );
 
         Ok(res)
     }
