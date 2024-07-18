@@ -1396,6 +1396,7 @@ dependencies = [
  "postgrest",
  "proto-flow",
  "proto-gazette",
+ "regex",
  "rsasl",
  "serde",
  "serde_json",

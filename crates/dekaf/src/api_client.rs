@@ -456,6 +456,64 @@ impl KafkaApiClient {
 
         Ok(version.to_owned())
     }
+
+    #[instrument(skip_all)]
+    pub async fn ensure_topics(&self, topic_names: Vec<TopicName>) -> anyhow::Result<()> {
+        let req = MetadataRequest::builder()
+            .topics(Some(
+                topic_names
+                    .iter()
+                    .map(|name| {
+                        MetadataRequestTopic::builder()
+                            .name(Some(name.clone()))
+                            .build()
+                            .expect("failed to build MetadataRequestTopic")
+                    })
+                    .collect(),
+            ))
+            .allow_auto_topic_creation(true)
+            .build()?;
+        let resp = self.send_request(req, None).await?;
+        tracing::debug!(metadata=?resp, "Got metadata response");
+
+        if resp
+            .topics
+            .iter()
+            .all(|(name, topic)| topic_names.contains(&name) && topic.error_code == 0)
+        {
+            return Ok(());
+        } else {
+            let mut topics_map = IndexMap::new();
+            for topic_name in topic_names.into_iter() {
+                topics_map.insert(
+                    topic_name,
+                    // error=Some(InvalidReplicationFactor) replication factor must be 3
+                    CreatableTopic::builder()
+                        .replication_factor(3)
+                        .num_partitions(-1)
+                        .build()?,
+                );
+            }
+            let create_req = CreateTopicsRequest::builder().topics(topics_map).build()?;
+            let create_resp = self.send_request(create_req, None).await?;
+            tracing::debug!(create_response=?create_resp, "Got create response");
+
+            for (name, topic) in create_resp.topics {
+                if topic.error_code > 0 {
+                    let err = kafka_protocol::ResponseError::try_from_code(topic.error_code);
+                    tracing::warn!(
+                        topic = name.to_string(),
+                        error = ?err,
+                        message = topic.error_message.map(|m|m.to_string()),
+                        "Failed to create topic"
+                    );
+                    bail!("Failed to create topic");
+                }
+            }
+
+            Ok(())
+        }
+    }
 }
 
 fn get_reconnect_strategy() -> DurationIterator {
