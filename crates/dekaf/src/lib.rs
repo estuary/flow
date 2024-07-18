@@ -1,8 +1,8 @@
 use anyhow::Context;
 use bytes::BufMut;
 use kafka_protocol::{
-    messages::{self, ApiKey},
-    protocol::{Builder, Decodable, Encodable},
+    messages::{self, ApiKey, TopicName},
+    protocol::{Builder, Decodable, Encodable, StrBytes},
 };
 use tracing::instrument;
 
@@ -19,6 +19,7 @@ pub mod registry;
 
 mod api_client;
 pub use api_client::KafkaApiClient;
+use regex::Regex;
 
 pub struct App {
     /// Anonymous API client for the Estuary control plane.
@@ -202,15 +203,6 @@ async fn handle_api(
             Ok(enc_resp(out, &header, session.fetch(request).await?))
         }
 
-        ApiKey::OffsetCommitKey => {
-            let (header, request) = dec_request(frame, version)?;
-            Ok(enc_resp(
-                out,
-                &header,
-                session.offset_commit(request).await?,
-            ))
-        }
-
         ApiKey::DescribeConfigsKey => {
             let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
@@ -266,6 +258,22 @@ async fn handle_api(
                 out,
                 &header.clone(),
                 session.heartbeat(request, header).await?,
+            ))
+        }
+        ApiKey::OffsetFetchKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.offset_fetch(request, header).await?,
+            ))
+        }
+        ApiKey::OffsetCommitKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.offset_commit(request, header).await?,
             ))
         }
         /*
@@ -328,6 +336,27 @@ fn enc_resp<
     // Go back and write the length header.
     let len = (b.len() - offset) as u32;
     b[(offset - 4)..offset].copy_from_slice(&len.to_be_bytes());
+}
+
+fn sanitize_topic_name(topic: TopicName) -> TopicName {
+    // Regex comes from redpanda error message
+    let sanitizer = Regex::new("[^a-zA-Z0-9._-]").unwrap();
+    let sanitized: String = sanitizer
+        .replace_all(topic.as_str(), ".-.")
+        .chars()
+        .collect();
+
+    TopicName::from(StrBytes::from_string(sanitized))
+}
+
+fn unsanitize_topic_name(topic: TopicName) -> TopicName {
+    let unsanitizer = Regex::new("\\.-\\.").unwrap();
+    let unsanitized: String = unsanitizer
+        .replace_all(topic.as_str(), "/")
+        .chars()
+        .collect();
+
+    TopicName::from(StrBytes::from_string(unsanitized))
 }
 
 const RESERVED_USERNAME_ERR : &str = "The configured username must be '{}' because Dekaf may use it for optional configuration in the future.";
