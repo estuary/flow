@@ -8,7 +8,6 @@ use kafka_protocol::{
     messages::{self, metadata_response::MetadataResponseTopic, RequestHeader, TopicName},
     protocol::{Builder, StrBytes},
 };
-use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::instrument;
@@ -361,7 +360,7 @@ impl Session {
                 key.1 = partition_request.partition;
 
                 let mut fetch_offset = partition_request.fetch_offset;
-                let mut record_limit = None;
+                let record_limit = None;
 
                 let latest_offset_requested = latest_topic_requested
                     .and_then(|partitions| partitions.get(&partition_request.partition).copied())
@@ -415,23 +414,20 @@ impl Session {
                             }
                         }
                     }
-                } else {
-                    tracing::debug!(
-                        topic = topic_request.topic.to_string(),
-                        "No offset was fetched in this Session"
-                    );
                 }
 
                 if matches!(self.reads.get(&key), Some(pending) if pending.offset == fetch_offset) {
                     continue; // Common case: fetch is at the pending offset.
                 }
                 let Some(collection) = Collection::new(client, &key.0).await? else {
+                    tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
                     continue; // Collection doesn't exist.
                 };
                 let Some(partition) = collection
                     .partitions
                     .get(partition_request.partition as usize)
                 else {
+                    tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
                 let (key_schema_id, value_schema_id) =
@@ -582,6 +578,52 @@ impl Session {
 
         Ok(DescribeConfigsResponse::builder()
             .results(results)
+            .build()
+            .unwrap())
+    }
+
+    /// Produce is assumed to be supported in various places, and clients using librdkafka
+    /// break when that assumption isn't satisfied. For example, the `Fetch` API > version 0
+    /// appears to (indirectly) assume that the broker supports `Produce`.
+    /// For example: Each of these 3 conditions (`MSGVER1`, `MSGVER2`, `THROTTLE_TIME`) require `Produce`,
+    /// and when it's not present the consumer will sit in a tight loop endlessly failing to
+    /// send a fetch request because it's missing an API version flag:
+    /// https://github.com/confluentinc/librdkafka/blob/master/src/rdkafka_fetcher.c#L997-L1005
+    pub async fn produce(
+        &mut self,
+        req: messages::ProduceRequest,
+    ) -> anyhow::Result<messages::ProduceResponse> {
+        use kafka_protocol::messages::produce_response::*;
+
+        let responses =
+            req.topic_data
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k,
+                        TopicProduceResponse::builder()
+                            .partition_responses(
+                                v.partition_data
+                                    .into_iter()
+                                    .map(|part| {
+                                        PartitionProduceResponse::builder()
+                                .index(part.index)
+                                .error_code(
+                                    kafka_protocol::error::ResponseError::InvalidRequest.code(),
+                                )
+                                .build()
+                                .unwrap()
+                                    })
+                                    .collect(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                })
+                .collect();
+
+        Ok(ProduceResponse::builder()
+            .responses(responses)
             .build()
             .unwrap())
     }
@@ -746,8 +788,20 @@ impl Session {
             ApiKey::ListOffsetsKey as i16,
             version::<ListOffsetsRequest>(),
         );
-        res.api_keys
-            .insert(ApiKey::FetchKey as i16, version::<FetchRequest>());
+        res.api_keys.insert(
+            ApiKey::FetchKey as i16,
+            ApiVersion::builder()
+                // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
+                // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
+                // just the consequence of convergent development, where some implicit requirement got encoded both in the client
+                // and server without being explicitly documented anywhere.
+                .min_version(4)
+                // I don't understand why, but some kafka clients don't seem to be able to send flexver fetch requests correctly
+                // For example, `kcat` sends an empty topic name when >= v12. I'm 99% sure there's more to this however.
+                .max_version(11)
+                .build()
+                .unwrap(),
+        );
         res.api_keys.insert(
             ApiKey::OffsetCommitKey as i16,
             version::<OffsetCommitRequest>(),
@@ -757,6 +811,15 @@ impl Session {
         res.api_keys.insert(
             ApiKey::DescribeConfigsKey as i16,
             version::<DescribeConfigsRequest>(),
+        );
+
+        res.api_keys.insert(
+            ApiKey::ProduceKey as i16,
+            ApiVersion::builder()
+                .min_version(3)
+                .max_version(9)
+                .build()
+                .unwrap(),
         );
 
         // UNIMPLEMENTED.
