@@ -2,7 +2,7 @@ use anyhow::Context;
 use bytes::BufMut;
 use kafka_protocol::{
     messages::{self, ApiKey, TopicName},
-    protocol::{Builder, Decodable, Encodable, StrBytes},
+    protocol::{buf::ByteBuf, Builder, Decodable, Encodable, StrBytes},
 };
 use tracing::instrument;
 
@@ -210,6 +210,10 @@ async fn handle_api(
                 &header,
                 session.describe_configs(request).await?,
             ))
+        }
+        ApiKey::ProduceKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(out, &header, session.produce(request).await?))
         }
 
         ApiKey::JoinGroupKey => {
