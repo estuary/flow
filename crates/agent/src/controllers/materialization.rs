@@ -38,24 +38,15 @@ impl MaterializationStatus {
             .resolve_dependencies(state, control_plane)
             .await?;
         if let Some(pub_id) = dependencies.next_pub_id {
-            let draft = pending_pub.start_spec_update(
+            pending_pub.start_spec_update(
                 pub_id,
                 state,
                 format!("in response to publication of one or more depencencies"),
             );
-            if !dependencies.deleted.is_empty() {
-                let mat_name = models::Materialization::new(&state.catalog_name);
-                let draft_row = draft.materializations.get_mut_by_key(&mat_name);
-                let model = draft_row.unwrap().model.as_mut().unwrap();
-                let add_detail = handle_deleted_dependencies(
-                    &dependencies.deleted,
-                    model,
-                    &mut self.source_capture,
-                );
-                pending_pub.update_pending_draft(add_detail);
-            }
         }
 
+        // Note that publications in response to the source_capture being updated
+        // do not
         if let Some(source_capture_name) = &model.source_capture {
             // If the source capture has been deleted, we will have already handled that as a
             // part of `handle_deleted_dependencies`.
@@ -80,7 +71,18 @@ impl MaterializationStatus {
         }
 
         if pending_pub.has_pending() {
-            let result = pending_pub
+            if !dependencies.deleted.is_empty() {
+                let mat_name = models::Materialization::new(&state.catalog_name);
+                let draft_row = pending_pub.draft.materializations.get_mut_by_key(&mat_name);
+                let model = draft_row.unwrap().model.as_mut().unwrap();
+                let add_detail = handle_deleted_dependencies(
+                    &dependencies.deleted,
+                    model,
+                    &mut self.source_capture,
+                );
+                pending_pub.update_pending_draft(add_detail);
+            }
+            let mut result = pending_pub
                 .finish(state, &mut self.publications, control_plane)
                 .await
                 .context("failed to execute publication")?;
@@ -113,17 +115,19 @@ impl MaterializationStatus {
                         "publication failed after applying evolution actions"
                     );
                 }
-                // We retry materialization publication failures, because they primarily depend on the
-                // availability and state of an external system. But we don't retry indefinitely, since
-                // oftentimes users will abandon live tasks after deleting those external systems.
-                new_result
-                    .error_for_status()
-                    .with_maybe_retry(backoff_publication_failure(state.failures))?;
+                result = new_result;
             }
+
+            // We retry materialization publication failures, because they primarily depend on the
+            // availability and state of an external system. But we don't retry indefinitely, since
+            // oftentimes users will abandon live tasks after deleting those external systems.
+            result
+                .error_for_status()
+                .with_maybe_retry(backoff_publication_failure(state.failures))?;
+
             // If the publication was successful, update the source capture status to reflect that it's up-to-date.
-            match self.source_capture.as_mut() {
-                Some(status) if result.status.is_success() => status.publish_success(),
-                _ => {}
+            if let Some(source_capture_status) = self.source_capture.as_mut() {
+                source_capture_status.publish_success();
             }
         } else {
             // Not much point in activating if we just published, since we're going to be
@@ -132,7 +136,7 @@ impl MaterializationStatus {
             // materializations have no dependents, so nobody to notify
         }
 
-        Ok(None)
+        Ok(dependencies.next_run)
     }
 
     fn apply_evolution_actions(

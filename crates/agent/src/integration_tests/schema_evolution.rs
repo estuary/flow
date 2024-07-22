@@ -215,6 +215,18 @@ async fn test_schema_evolution() {
         },
     );
 
+    harness
+        .move_back_last_pub_time(vec![
+            ("goats/materializeBackfill", CatalogType::Materialization),
+            (
+                "goats/materializeDisableBinding",
+                CatalogType::Materialization,
+            ),
+            ("goats/materializeMixed", CatalogType::Materialization),
+            ("goats/totes", CatalogType::Collection),
+        ])
+        .await;
+
     harness.run_pending_controllers(None).await;
     // All consumers should have been published
     harness.control_plane().assert_activations(
@@ -249,6 +261,17 @@ async fn test_schema_evolution() {
         .await;
     harness
         .fast_forward_inferred_schema_update("goats/totes")
+        .await;
+    harness
+        .move_back_last_pub_time(vec![
+            ("goats/materializeBackfill", CatalogType::Materialization),
+            (
+                "goats/materializeDisableBinding",
+                CatalogType::Materialization,
+            ),
+            ("goats/materializeMixed", CatalogType::Materialization),
+            ("goats/totes", CatalogType::Collection),
+        ])
         .await;
     harness.run_pending_controller("goats/totes").await;
     harness.run_pending_controllers(None).await;
@@ -299,6 +322,18 @@ async fn test_schema_evolution() {
         .await;
     harness
         .fast_forward_inferred_schema_update("goats/totes")
+        .await;
+
+    harness
+        .move_back_last_pub_time(vec![
+            ("goats/materializeBackfill", CatalogType::Materialization),
+            (
+                "goats/materializeDisableBinding",
+                CatalogType::Materialization,
+            ),
+            ("goats/materializeMixed", CatalogType::Materialization),
+            ("goats/totes", CatalogType::Collection),
+        ])
         .await;
     harness.run_pending_controller("goats/totes").await;
     harness.run_pending_controllers(None).await;

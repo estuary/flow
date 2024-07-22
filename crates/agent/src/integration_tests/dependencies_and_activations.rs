@@ -267,8 +267,9 @@ async fn test_dependencies_and_controllers() {
         .assert_live_spec_soft_deleted("owls/hoots", del_pub_id)
         .await;
 
-    // All the controllers ought to run now. The collection controller should run first and notfiy
-    // the others.
+    // All the controllers ought to run eventually. The collection controller should run first and
+    // notfiy the others. But the others won't publish immediately since they just did a
+    // publication in response to dependency changes, so they'll instead schedule future runs.
     let runs = harness.run_pending_controllers(Some(1)).await;
     assert_eq!("owls/hoots", &runs[0].catalog_name);
     harness
@@ -276,9 +277,30 @@ async fn test_dependencies_and_controllers() {
         .assert_activations("hoots deletion", vec![("owls/hoots", None)]);
     harness.assert_live_spec_hard_deleted("owls/hoots").await;
 
-    let _ = harness.run_pending_controllers(None).await;
+    // Run controllers and expect that they _don't_ publish due to the `min_publication_interval`
+    let runs = harness.run_pending_controllers(None).await;
+    assert_controllers_ran(&["owls/capture", "owls/materialize", "owls/nests"], runs);
     harness.control_plane().assert_activations(
-        "after hoots deleted",
+        "just after hoots deleted (expecting no activations)",
+        Vec::new(),
+    );
+
+    harness
+        .move_back_last_pub_time(vec![
+            ("owls/capture", CatalogType::Capture),
+            ("owls/materialize", CatalogType::Materialization),
+            ("owls/nests", CatalogType::Collection),
+            ("owls/test-test", CatalogType::Test),
+        ])
+        .await;
+    harness.run_pending_controller("owls/capture").await;
+    harness.run_pending_controller("owls/materialize").await;
+    harness.run_pending_controller("owls/nests").await;
+    harness.run_pending_controller("owls/test-test").await;
+    harness.run_pending_controllers(None).await;
+
+    harness.control_plane().assert_activations(
+        "after hoots deleted (and publication interval elapsed)",
         vec![
             ("owls/capture", Some(CatalogType::Capture)),
             ("owls/materialize", Some(CatalogType::Materialization)),
@@ -390,12 +412,19 @@ async fn test_dependencies_and_controllers() {
     assert_controllers_ran(&["owls/capture", "owls/materialize"], runs);
 
     harness.assert_live_spec_hard_deleted("owls/capture").await;
+    harness
+        .control_plane()
+        .assert_activations("after capture deleted", vec![("owls/capture", None)]);
+
+    harness
+        .move_back_last_pub_time(vec![("owls/materialize", CatalogType::Materialization)])
+        .await;
+    harness.run_pending_controller("owls/materialize").await;
+    let runs = harness.run_pending_controllers(None).await;
+    assert_controllers_ran(&["owls/materialize"], runs);
     harness.control_plane().assert_activations(
-        "after capture deleted",
-        vec![
-            ("owls/capture", None),
-            ("owls/materialize", Some(CatalogType::Materialization)),
-        ],
+        "after capture deleted and materialization min_pub_interval expires",
+        vec![("owls/materialize", Some(CatalogType::Materialization))],
     );
 
     let materialization_state = harness.get_controller_state("owls/materialize").await;

@@ -316,9 +316,23 @@ expression: schema
           },
           "type": "array"
         },
+        "last_publication_time": {
+          "description": "Time of the last controller-initiated publication",
+          "format": "date-time",
+          "type": "string"
+        },
         "max_observed_pub_id": {
           "$ref": "#/definitions/Id",
           "description": "The publication id at which the controller has last notified dependent specs. A publication of the controlled spec will cause the controller to notify the controllers of all dependent specs. When it does so, it sets `max_observed_pub_id` to the current `last_pub_id`, so that it can avoid notifying dependent controllers unnecessarily."
+        },
+        "min_publication_interval": {
+          "default": "30m",
+          "description": "The minimim time to wait between controller-initiated publications.",
+          "pattern": "^\\d+(s|m|h)$",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "target_pub_id": {
           "$ref": "#/definitions/Id",
@@ -395,7 +409,8 @@ expression: schema
         "publications": {
           "$ref": "#/definitions/PublicationStatus",
           "default": {
-            "history": []
+            "history": [],
+            "min_publication_interval": "30m"
           }
         },
         "type": {
@@ -430,7 +445,8 @@ expression: schema
         "publications": {
           "$ref": "#/definitions/PublicationStatus",
           "default": {
-            "history": []
+            "history": [],
+            "min_publication_interval": "30m"
           }
         },
         "type": {
@@ -455,7 +471,8 @@ expression: schema
         "publications": {
           "$ref": "#/definitions/PublicationStatus",
           "default": {
-            "history": []
+            "history": [],
+            "min_publication_interval": "30m"
           }
         },
         "source_capture": {
@@ -488,7 +505,8 @@ expression: schema
         "publications": {
           "$ref": "#/definitions/PublicationStatus",
           "default": {
-            "history": []
+            "history": [],
+            "min_publication_interval": "30m"
           }
         },
         "type": {

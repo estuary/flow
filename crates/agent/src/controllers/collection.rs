@@ -40,7 +40,7 @@ impl CollectionStatus {
                 format!("in response to publication of one or more depencencies"),
             );
             if !dependencies.deleted.is_empty() {
-                let add_detail = handle_deleted_dependencies(draft, state, dependencies);
+                let add_detail = handle_deleted_dependencies(draft, state, &dependencies);
                 pending_pub.update_pending_draft(add_detail);
             }
         }
@@ -85,7 +85,10 @@ impl CollectionStatus {
                 .await?;
         }
 
-        Ok(inferred_schema_next_run)
+        Ok(super::reduce_next_run(&[
+            inferred_schema_next_run,
+            dependencies.next_run,
+        ]))
     }
 }
 
@@ -94,7 +97,7 @@ impl CollectionStatus {
 fn handle_deleted_dependencies(
     draft: &mut tables::DraftCatalog,
     state: &ControllerState,
-    dependencies: Dependencies,
+    dependencies: &Dependencies,
 ) -> String {
     let drafted = draft
         .collections

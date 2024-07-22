@@ -1,9 +1,7 @@
 use super::{
-    backoff_data_plane_activate,
-    publication_status::{ActivationStatus, PendingPublication},
-    ControlPlane, ControllerErrorExt, ControllerState, NextRun,
+    backoff_data_plane_activate, ActivationStatus, ControlPlane, ControllerErrorExt,
+    ControllerState, NextRun, PendingPublication, PublicationStatus,
 };
-use crate::controllers::publication_status::PublicationStatus;
 use anyhow::Context;
 use itertools::Itertools;
 use schemars::JsonSchema;
@@ -83,7 +81,7 @@ impl CaptureStatus {
                 .context("failed to notify dependents")?;
         }
 
-        Ok(None)
+        Ok(dependencies.next_run)
     }
 }
 

@@ -2,7 +2,6 @@ use super::{LockFailure, UncommittedBuild};
 use agent_sql::publications::{LiveRevision, LiveSpecUpdate};
 use agent_sql::Capability;
 use anyhow::Context;
-use itertools::Itertools;
 use models::{split_image_tag, Id, ModelDef};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -965,7 +964,6 @@ pub async fn add_built_specs_to_draft_specs(
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_null_bytes_in_json() {

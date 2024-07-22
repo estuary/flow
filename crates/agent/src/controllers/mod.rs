@@ -15,12 +15,16 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use std::fmt::Debug;
 
-use self::{
-    capture::CaptureStatus, catalog_test::TestStatus, collection::CollectionStatus,
+pub use self::{
+    capture::CaptureStatus,
+    catalog_test::TestStatus,
+    collection::CollectionStatus,
+    handler::ControllerHandler,
     materialization::MaterializationStatus,
+    publication_status::{
+        ActivationStatus, Dependencies, PendingPublication, PublicationInfo, PublicationStatus,
+    },
 };
-
-pub use handler::ControllerHandler;
 
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a lower version than this will need to be run in order
@@ -253,9 +257,13 @@ impl NextRun {
         use rand::Rng;
 
         let delta_millis = self.after_seconds as i64 * 1000;
-        let jitter_mul = self.jitter_percent as f64 / 100.0;
-        let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
-        let jitter_add = rand::thread_rng().gen_range(0..jitter_max);
+        let jitter_add = if self.jitter_percent > 0 {
+            let jitter_mul = self.jitter_percent as f64 / 100.0;
+            let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
+            rand::thread_rng().gen_range(0..jitter_max)
+        } else {
+            0
+        };
         let dur = chrono::TimeDelta::milliseconds(delta_millis + jitter_add);
         Utc::now() + dur
     }
@@ -287,7 +295,7 @@ fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
 
 impl Status {
     pub fn json_schema() -> schemars::schema::RootSchema {
-        let mut settings = schemars::gen::SchemaSettings::draft2019_09();
+        let settings = schemars::gen::SchemaSettings::draft2019_09();
         //settings.option_add_null_type = false;
         //settings.inline_subschemas = true;
         let generator = schemars::gen::SchemaGenerator::new(settings);
@@ -362,7 +370,7 @@ impl Status {
         matches!(self, Status::Uninitialized)
     }
 
-    fn as_capture_mut(&mut self) -> anyhow::Result<&mut CaptureStatus> {
+    pub fn as_capture_mut(&mut self) -> anyhow::Result<&mut CaptureStatus> {
         if self.is_uninitialized() {
             *self = Status::Capture(Default::default());
         }
@@ -372,7 +380,7 @@ impl Status {
         }
     }
 
-    fn as_collection_mut(&mut self) -> anyhow::Result<&mut CollectionStatus> {
+    pub fn as_collection_mut(&mut self) -> anyhow::Result<&mut CollectionStatus> {
         if self.is_uninitialized() {
             *self = Status::Collection(Default::default());
         }
@@ -382,7 +390,7 @@ impl Status {
         }
     }
 
-    fn as_materialization_mut(&mut self) -> anyhow::Result<&mut MaterializationStatus> {
+    pub fn as_materialization_mut(&mut self) -> anyhow::Result<&mut MaterializationStatus> {
         if self.is_uninitialized() {
             *self = Status::Materialization(Default::default());
         }
@@ -392,7 +400,7 @@ impl Status {
         }
     }
 
-    fn as_test_mut(&mut self) -> anyhow::Result<&mut TestStatus> {
+    pub fn as_test_mut(&mut self) -> anyhow::Result<&mut TestStatus> {
         if self.is_uninitialized() {
             *self = Status::Test(Default::default());
         }
@@ -510,6 +518,8 @@ mod test {
                 add_bindings,
             }),
             publications: PublicationStatus {
+                last_publication_time: None,
+                min_publication_interval: std::time::Duration::from_secs(300),
                 target_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 history,

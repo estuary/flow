@@ -39,13 +39,13 @@ impl TestStatus {
             // return a terminal error if the publication failed
             result.error_for_status().do_not_retry()?;
             // TODO(phil): This would be a great place to trigger an alert if the publication failed
-        } else {
+        } else if dependencies.next_run.is_none() {
             // We're up-to-date with our dependencies, which means the test has been published successfully
             self.passing = true;
         }
 
         // Don't re-try when tests fail, because fixing them will likely require a change to either
         // the test itself or one of its dependencies.
-        Ok(None)
+        Ok(dependencies.next_run)
     }
 }

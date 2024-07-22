@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::{
-    controllers::{ControllerHandler, ControllerState},
+    controllers::{ControllerHandler, ControllerState, Status},
     controlplane::ConnectorSpec,
     publications::{self, PublicationResult, Publisher, UncommittedBuild},
     ControlPlane, HandleResult, Handler, PGControlPlane,
@@ -19,6 +19,7 @@ use tempfile::tempdir;
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // some fields are only used in snapshots
 pub struct LiveSpec {
     pub catalog_name: String,
     pub connector_image_name: Option<String>,
@@ -667,6 +668,66 @@ impl TestHarness {
         .fetch_one(&self.pool)
         .await
         .expect("fast forward inferred schema update failed");
+    }
+
+    /// Asserts that the given specs are not yet eligible for publication due to the
+    /// `min_publication_interval` not having elapsed yet. Then adjusts the
+    /// `last_publication_time` of the publication status to permit another publication at the
+    /// current time.
+    pub async fn move_back_last_pub_time(&mut self, specs: Vec<(&str, CatalogType)>) {
+        for (catalog_name, spec_type) in specs {
+            let mut state = self.get_controller_state(catalog_name).await;
+            let pub_status = match spec_type {
+                CatalogType::Capture => {
+                    &mut state.current_status.as_capture_mut().unwrap().publications
+                }
+                CatalogType::Collection => {
+                    &mut state
+                        .current_status
+                        .as_collection_mut()
+                        .unwrap()
+                        .publications
+                }
+                CatalogType::Materialization => {
+                    &mut state
+                        .current_status
+                        .as_materialization_mut()
+                        .unwrap()
+                        .publications
+                }
+                CatalogType::Test => &mut state.current_status.as_test_mut().unwrap().publications,
+            };
+
+            let Some(last_pub) = pub_status.last_publication_time else {
+                panic!("spec {catalog_name} has no last_publication_time in: {state:?}");
+            };
+            // Assert that the spec is not yet eligible to be published. Technically, this is
+            // racing against time, but the default min_publication_interval is 30 minutes so
+            // we should expect that the interval has not yet elapsed.
+            assert!(
+                last_pub + pub_status.min_publication_interval > Utc::now(),
+                "expected spec {catalog_name} to be within min_publication_interval in: {state:?}"
+            );
+            pub_status.last_publication_time = Some(last_pub - pub_status.min_publication_interval);
+            self.update_status(catalog_name, state.current_status).await;
+        }
+    }
+
+    pub async fn update_status(&mut self, catalog_name: &str, status: Status) {
+        sqlx::query!(
+            r#"update controller_jobs
+            set status = $2
+            from live_specs ls
+            where ls.catalog_name = $1
+            and controller_jobs.live_spec_id = ls.id
+            returning 1 as "must_exist!: bool";
+            "#,
+            catalog_name as &str,
+            agent_sql::TextJson(status) as agent_sql::TextJson<Status>,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("failed to update controller status");
     }
 
     pub async fn upsert_inferred_schema(&mut self, schema: tables::InferredSchema) {

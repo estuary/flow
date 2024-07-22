@@ -244,6 +244,9 @@ async fn test_user_publications() {
         &mut harness,
     )
     .await;
+    harness
+        .move_back_last_pub_time(vec![("dogs/materialize", CatalogType::Materialization)])
+        .await;
 
     harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(

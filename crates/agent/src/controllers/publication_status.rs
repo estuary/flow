@@ -4,11 +4,14 @@ use crate::{
     publications::{self, PublicationResult},
 };
 use anyhow::Context;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use models::{AnySpec, Id, ModelDef};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    time::Duration,
+};
 
 use super::{backoff_data_plane_activate, ControllerState, NextRun};
 
@@ -21,10 +24,33 @@ pub struct Dependencies {
     /// Dependencies that have been deleted. If this is non-empty, then the dependent needs to be
     /// published.
     pub deleted: BTreeSet<String>,
-    /// If a publication is required, then this will be Some non-zero publication id.
-    /// If `next_pub_id` is `None`, then no publication in order to stay up to date with
-    /// respect to dependencies.
+
+    /// If a publication is required and permitted, then this will be Some non-zero publication id.
+    /// If `next_pub_id` is `None`, then either no publication is necessary (`next_run` will be
+    /// `None`), or the publication must be deferred in order to respect the
+    /// `min_publication_interval` (`next_run` will be set to the time at which the publication
+    /// may proceed).
     pub next_pub_id: Option<Id>,
+    /// If a publication is required, but should be deferred, then `next_run` will be set to the
+    /// time at which we should next publish. There's a limit on how frequently a given spec should
+    /// publish in response to changes in dependencies. This is important when, for example, a
+    /// task depends on many collections that use schema inference, which themselves get published
+    /// frequently. If a materialization re-published itself in response to every collection
+    /// publication, the publications could be so frequent as to make UI-initiated publications
+    /// very likely to fail due to `expect_pub_id` mismatches.
+    pub next_run: Option<NextRun>,
+}
+
+fn default_min_pub_interval() -> Duration {
+    Duration::from_secs(60 * 30)
+}
+
+fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": ["string", "null"],
+        "pattern": "^\\d+(s|m|h)$"
+    }))
+    .unwrap()
 }
 
 /// Status of the activation of the task in the data-plane
@@ -213,6 +239,14 @@ impl PendingPublication {
 /// This does not include any information on user-initiated publications.
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct PublicationStatus {
+    /// Time of the last controller-initiated publication
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "super::datetime_schema")]
+    pub last_publication_time: Option<DateTime<Utc>>,
+    /// The minimim time to wait between controller-initiated publications.
+    #[serde(default = "default_min_pub_interval", with = "humantime_serde")]
+    #[schemars(schema_with = "duration_schema")]
+    pub min_publication_interval: Duration,
     /// The largest `last_pub_id` among all of this spec's dependencies.
     /// For example, for materializations the dependencies are all of
     /// the collections of all enabled binding `source`s, as well as the
@@ -235,6 +269,8 @@ pub struct PublicationStatus {
 impl Clone for PublicationStatus {
     fn clone(&self) -> Self {
         PublicationStatus {
+            last_publication_time: self.last_publication_time.clone(),
+            min_publication_interval: self.min_publication_interval.clone(),
             target_pub_id: self.target_pub_id,
             max_observed_pub_id: self.max_observed_pub_id,
             history: self.history.clone(),
@@ -245,6 +281,8 @@ impl Clone for PublicationStatus {
 impl Default for PublicationStatus {
     fn default() -> Self {
         PublicationStatus {
+            last_publication_time: None,
+            min_publication_interval: default_min_pub_interval(),
             target_pub_id: Id::zero(),
             max_observed_pub_id: Id::zero(),
             history: VecDeque::new(),
@@ -265,6 +303,7 @@ impl PublicationStatus {
                 live: Default::default(),
                 deleted: Default::default(),
                 next_pub_id: None,
+                next_run: None,
             });
         };
         let all_deps = model.all_dependencies();
@@ -277,7 +316,7 @@ impl PublicationStatus {
             deleted.remove(name);
         }
 
-        let next_pub_id = if deleted.is_empty() {
+        let mut next_pub_id = if deleted.is_empty() {
             live.last_pub_ids()
                 .max()
                 .filter(|id| id > &state.last_pub_id)
@@ -287,6 +326,16 @@ impl PublicationStatus {
             // deleted specs.
             Some(control_plane.next_pub_id())
         };
+
+        let next_run = if next_pub_id.is_some() {
+            self.can_publish_at(control_plane.current_time())
+        } else {
+            None
+        };
+        if next_run.is_some() {
+            next_pub_id = None;
+            tracing::info!("deferring publication in response to dependency publish");
+        };
         if let Some(next) = next_pub_id {
             self.target_pub_id = next;
         }
@@ -294,7 +343,31 @@ impl PublicationStatus {
             live,
             deleted,
             next_pub_id,
+            next_run,
         })
+    }
+
+    fn can_publish_at(&self, time: DateTime<Utc>) -> Option<NextRun> {
+        let Some(last_pub) = self.last_publication_time else {
+            return None;
+        };
+        let minimum = TimeDelta::from_std(self.min_publication_interval).unwrap_or_else(|_| {
+                tracing::warn!(interval = ?self.min_publication_interval, "min_publication_interval out of range, falling back to TimeDelta::max_value");
+                TimeDelta::max_value()
+            });
+        let elapsed = time.signed_duration_since(last_pub);
+
+        if elapsed >= minimum {
+            None
+        } else {
+            let diff = minimum - elapsed;
+            let after_seconds = diff.num_seconds().abs().min(u32::max_value() as i64) as u32;
+            tracing::info!(?diff, ?after_seconds, pub_interval = ?minimum, ?elapsed, ?last_pub, ?time, "delaying publication because last_pub was too recent");
+            Some(NextRun {
+                after_seconds,
+                jitter_percent: 0, // don't add jitter if we're delaying here
+            })
+        }
     }
 
     pub async fn notify_dependents<C: ControlPlane>(
@@ -313,6 +386,9 @@ impl PublicationStatus {
 
     pub fn record_result(&mut self, publication: PublicationInfo) {
         tracing::info!(pub_id = ?publication.id, status = ?publication.result, "controller finished publication");
+        if publication.is_success() {
+            self.last_publication_time = publication.completed;
+        }
         self.history.push_front(publication);
         while self.history.len() > PublicationStatus::MAX_HISTORY {
             self.history.pop_back();
