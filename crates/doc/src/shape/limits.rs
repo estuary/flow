@@ -123,22 +123,30 @@ fn squash_location(shape: &mut Shape, location: &[Token]) {
 
 /// Reduce the size/complexity of a shape while making sure that all
 /// objects that used to pass validation still do.
-pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
-    let mut pointers = shape
-        .locations()
-        .into_iter()
-        .filter_map(|(ptr, _, _, _)| match ptr.0.as_slice() {
+/// The `limit` limits the total number of properties, and the `depth_limit` removes any
+/// properties after more than `depth_limit` levels of nesting.
+pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize, depth_limit: usize) {
+    let locations = shape.locations();
+    let mut pointers = Vec::with_capacity(locations.len());
+    let mut over_depth_limit = false;
+    for (prt, _, _, _) in locations {
+        match prt.0.as_slice() {
             // We need to include `/*/foo` in order to squash inside `additional*` subschemas,
             // but we don't want to include those locations that are leaf nodes, since
             // leaf node recursion is squashed every time we squash a concrete property.
-            [.., Token::NextIndex] => None,
-            [.., Token::NextProperty] => None,
-            [] => None,
-            _ => Some(ptr),
-        })
-        .collect_vec();
+            [.., Token::NextIndex] => { /* pass */ }
+            [.., Token::NextProperty] => { /* pass */ }
+            [] => { /* pass */ }
+            _ => {
+                if prt.0.len() > depth_limit {
+                    over_depth_limit = true;
+                }
+                pointers.push(prt);
+            }
+        }
+    }
 
-    if pointers.len() < limit {
+    if pointers.len() < limit && !over_depth_limit {
         return;
     }
 
@@ -151,7 +159,9 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
         }
     });
 
-    while pointers.len() > limit {
+    while pointers.len() > limit
+        || (!pointers.is_empty() && pointers.last().unwrap().0.len() > depth_limit)
+    {
         let location_ptr = pointers
             .pop()
             .expect("locations vec was just checked to be non-empty");
@@ -161,6 +171,12 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
 }
 
 pub const DEFAULT_SCHEMA_COMPLEXITY_LIMIT: usize = 1_000;
+/// The default depth limit is chosen to result in JSON schemas that can be parsed
+/// using a maximum recursion limit of 128, because that's what serde-json uses.
+/// Each level of nesting in a source document produces two levels of nesting in the
+/// schema due to the `properties` keyword. Then there's room for one last level of
+/// nesting for the leave node schema, which will be an object.
+pub const DEFAULT_SCHEMA_DEPTH_LIMIT: usize = 63;
 
 #[cfg(test)]
 mod test {
@@ -173,7 +189,7 @@ mod test {
         initial_schema: Option<&str>,
         expected_schema: &str,
         docs: &[serde_json::Value],
-        enforce_limits: Option<usize>,
+        enforce_limits: Option<(usize, usize)>,
     ) -> Shape {
         let mut schema = match initial_schema {
             Some(initial) => shape_from(initial),
@@ -186,8 +202,8 @@ mod test {
 
         let expected = shape_from(expected_schema);
 
-        if let Some(limit) = enforce_limits {
-            enforce_shape_complexity_limit(&mut schema, limit);
+        if let Some((limit, depth_limit)) = enforce_limits {
+            enforce_shape_complexity_limit(&mut schema, limit, depth_limit);
         }
 
         assert_eq!(expected, schema);
@@ -216,7 +232,7 @@ mod test {
                 maximum: 10000
             "#,
             dynamic_keys.as_slice(),
-            Some(0),
+            Some((0, 99)),
         );
     }
 
@@ -250,7 +266,7 @@ mod test {
                     - type: object
             "#,
             &[json!(root)],
-            Some(0),
+            Some((0, 99)),
         );
     }
 
@@ -279,7 +295,7 @@ mod test {
                             maximum: 0
             "#,
             &[json!({ "container": nested })],
-            Some(4),
+            Some((4, 99)),
         );
 
         for id in 0..300 {
@@ -301,7 +317,7 @@ mod test {
                         maximum: 10000
             "#,
             &[json!({ "container": nested })],
-            Some(1),
+            Some((1, 99)),
         );
     }
 
@@ -324,7 +340,7 @@ mod test {
                         maxLength: 4
             "#,
             &[json!([{"key": "test"}])],
-            Some(3),
+            Some((3, 99)),
         );
         let dynamic_array_objects = (0..8)
             .map(|id| {
@@ -363,7 +379,7 @@ mod test {
                         maxLength: 4
                 "#,
             &dynamic_array_objects,
-            Some(0),
+            Some((0, 99)),
         );
     }
 
@@ -395,7 +411,7 @@ mod test {
                     maximum: 0
             "#,
             dynamic_keys.as_slice(),
-            Some(20),
+            Some((20, 99)),
         );
     }
 
@@ -405,6 +421,7 @@ mod test {
         for idx in 0..10 {
             doc = json!({format!("foo{idx}"): doc, format!("bar{idx}"): doc});
         }
+        let docs = &[doc];
 
         widening_snapshot_helper(
             None,
@@ -413,8 +430,28 @@ mod test {
             additionalProperties:
                 type: object
             "#,
-            &[doc],
-            Some(0),
+            docs,
+            Some((0, 99)),
+        );
+
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            required: [bar9, foo9]
+            additionalProperties: false
+            properties:
+                bar9:
+                    type: object
+                    additionalProperties:
+                        type: object
+                foo9:
+                    type: object
+                    additionalProperties:
+                        type: object
+            "#,
+            docs,
+            Some((99, 1)),
         );
     }
 
@@ -430,7 +467,7 @@ mod test {
                 additionalProperties: false
             "#,
             &[json!([{}])],
-            Some(0),
+            Some((0, 99)),
         );
     }
 
@@ -446,7 +483,7 @@ mod test {
                 additionalItems: false
             "#,
             &[json!({"foo":[]})],
-            Some(0),
+            Some((0, 99)),
         );
     }
 
@@ -475,7 +512,7 @@ mod test {
                 maxLength: 0
             "#,
             &[],
-            Some(0),
+            Some((0, 99)),
         );
     }
 }

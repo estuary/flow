@@ -1,7 +1,10 @@
 use super::{count_nodes, Cursor, Error, Result};
 use crate::{
     shape::limits,
-    shape::{limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, schema::to_schema},
+    shape::{
+        limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
+        schema::to_schema,
+    },
     AsNode, HeapNode, SerPolicy, Shape,
 };
 use json::schema::index::IndexBuilder;
@@ -29,7 +32,11 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
 
     let mut merged_shape = Shape::union(left, right);
-    limits::enforce_shape_complexity_limit(&mut merged_shape, DEFAULT_SCHEMA_COMPLEXITY_LIMIT);
+    limits::enforce_shape_complexity_limit(
+        &mut merged_shape,
+        DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+        DEFAULT_SCHEMA_DEPTH_LIMIT,
+    );
 
     // Convert back from `Shape` into `HeapNode`.
     let merged_doc = serde_json::to_value(to_schema(merged_shape)).unwrap();

@@ -45,7 +45,7 @@ fn assert_docs_fit_schema(docs: Vec<Value>, shape: Shape) -> bool {
     return true;
 }
 
-fn shape_limits(vals: Vec<Value>, limit: usize) -> bool {
+fn shape_limits(vals: Vec<Value>, limit: usize, depth_limit: usize) -> bool {
     let mut shape = Shape::nothing();
     for val in &vals {
         shape.widen(val);
@@ -54,7 +54,7 @@ fn shape_limits(vals: Vec<Value>, limit: usize) -> bool {
     let initial_locations = shape.locations().len();
     let initial_schema_yaml = serde_yaml::to_string(&to_schema(shape.clone())).unwrap();
 
-    enforce_shape_complexity_limit(&mut shape, limit);
+    enforce_shape_complexity_limit(&mut shape, limit, depth_limit);
 
     let enforced_locations = shape
         .locations()
@@ -84,7 +84,7 @@ fn roundtrip_schema_widening_validation(vals: Vec<Value>) -> bool {
 
 #[test]
 fn test_case_obj() {
-    assert_eq!(true, shape_limits(vec![json!({"":{"":55}})], 1));
+    assert_eq!(true, shape_limits(vec![json!({"":{"":55}})], 1, 3));
 }
 
 #[test]
@@ -101,16 +101,16 @@ fn fuzz_roundtrip() {
 
 #[test]
 fn fuzz_limiting() {
-    fn inner_test(av: Vec<ArbitraryValue>, limit: usize) -> TestResult {
-        if limit < 1 {
+    fn inner_test(av: Vec<ArbitraryValue>, limit: usize, depth_limit: usize) -> TestResult {
+        if limit < 1 || depth_limit < 1 {
             return TestResult::discard();
         }
         let vals = av.into_iter().map(|v| v.0).collect_vec();
-        TestResult::from_bool(shape_limits(vals, limit))
+        TestResult::from_bool(shape_limits(vals, limit, depth_limit))
     }
 
     QuickCheck::new()
         .gen(Gen::new(100))
         .tests(1000)
-        .quickcheck(inner_test as fn(Vec<ArbitraryValue>, usize) -> TestResult);
+        .quickcheck(inner_test as fn(Vec<ArbitraryValue>, usize, usize) -> TestResult);
 }
