@@ -228,6 +228,7 @@ pub fn send_client_published(
         doc::shape::limits::enforce_shape_complexity_limit(
             shape,
             doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+            doc::shape::limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
         );
     }
 
