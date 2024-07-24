@@ -44,6 +44,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - BigQuery
   - [Configuration](./bigquery-batch.md)
   - Package — ghcr.io/estuary/source-bigquery-batch:dev
+- Dropbox
+  - [Configuration](./dropbox.md)
+  - Package - ghcr.io/estuary/source-dropbox:dev
 - Google Cloud Storage
   - [Configuration](./gcs.md)
   - Package — ghcr.io/estuary/source-gcs:dev
