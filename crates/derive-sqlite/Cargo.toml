@@ -13,6 +13,7 @@ doc = { path = "../doc" }
 extractors = { path = "../extractors" }
 json = { path = "../json" }
 proto-flow = { path = "../proto-flow" }
+simd-doc = { path = "../simd-doc" }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }

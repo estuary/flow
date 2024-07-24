@@ -42,6 +42,9 @@ where
     // A possibly opened Sqlite DB context.
     let mut maybe_handle: Option<Handle> = None;
 
+    let mut parser = simd_doc::Parser::new();
+    let mut alloc = doc::Allocator::new();
+
     loop {
         match request_rx.next().await {
             None => return Ok(()),
@@ -98,8 +101,15 @@ where
                     .as_mut()
                     .ok_or_else(|| tonic::Status::invalid_argument("Read without Open"))?;
 
-                do_read(&mut handle.transforms, read, response_tx, &tokio_handle)
-                    .map_err(anyhow_to_status)?;
+                do_read(
+                    &mut handle.transforms,
+                    &mut parser,
+                    &mut alloc,
+                    read,
+                    response_tx,
+                    &tokio_handle,
+                )
+                .map_err(anyhow_to_status)?;
             }
             Some(Request {
                 flush: Some(request::Flush {}),
@@ -222,6 +232,8 @@ fn parse_open(
 
 fn do_read<'db>(
     transforms: &mut [(String, Vec<Lambda<'db>>)],
+    parser: &mut simd_doc::Parser,
+    alloc: &mut doc::Allocator,
     read: request::Read,
     response_tx: &mut mpsc::Sender<anyhow::Result<Response>>,
     tokio_handle: &tokio::runtime::Handle,
@@ -237,7 +249,9 @@ fn do_read<'db>(
         .get_mut(transform as usize)
         .with_context(|| format!("invalid transform index {transform}"))?;
 
-    let doc: serde_json::Value = serde_json::from_str(&doc_json)
+    alloc.reset();
+    let doc = parser
+        .parse_one(doc_json.as_bytes(), alloc)
         .with_context(|| format!("couldn't parse read document as JSON: {doc_json}",))?;
 
     // Invoke each lambda of the stack in turn, streaming published documents into `response_tx`.
@@ -254,7 +268,7 @@ fn do_read<'db>(
             })),
             Err(err) => Ok(Err(anyhow::anyhow!(
                 "failed to invoke transform {transform:?} lambda statement at offset {index}: {err}\nDocument was {}",
-                serde_json::to_string_pretty(&doc).unwrap()
+                serde_json::to_string_pretty(&doc::SerPolicy::debug().on(&doc)).unwrap()
             ))),
         });
 
