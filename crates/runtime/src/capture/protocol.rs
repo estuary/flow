@@ -231,6 +231,7 @@ pub fn send_client_captured_or_checkpoint(
         doc::shape::limits::enforce_shape_complexity_limit(
             &mut shapes[index],
             doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+            doc::shape::limits::DEFAULT_SCHEMA_DEPTH_LIMIT,
         );
         txn.updated_inferences.insert(index);
     }
