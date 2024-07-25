@@ -1,7 +1,8 @@
 use anyhow::Context;
 use clap::Parser;
-use dekaf::Session;
+use dekaf::{KafkaApiClient, Session};
 use futures::{FutureExt, TryStreamExt};
+use rsasl::config::SASLConfig;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
@@ -39,6 +40,20 @@ pub struct Cli {
     /// The port to listen on for schema registry API requests.
     #[clap(long, default_value = "9093", env = "SCHEMA_REGISTRY_PORT")]
     schema_registry_port: u16,
+
+    /// The hostname of the default Kafka broker to use for serving group management APIs
+    #[clap(long, env = "DEFAULT_BROKER_HOSTNAME")]
+    default_broker_hostname: String,
+    /// The port of the default Kafka broker to use for serving group management APIs
+    #[clap(long, default_value = "9092", env = "DEFAULT_BROKER_PORT")]
+    default_broker_port: u16,
+    /// The username for the default Kafka broker to use for serving group management APIs.
+    /// Currently only supports SASL PLAIN username/password auth.
+    #[clap(long, env = "DEFAULT_BROKER_USERNAME")]
+    default_broker_username: String,
+    /// The password for the default Kafka broker to use for serving group management APIs
+    #[clap(long, env = "DEFAULT_BROKER_PASSWORD")]
+    default_broker_password: String,
 }
 
 #[tokio::main]
@@ -53,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    tracing::info!(args=?ops::DebugJson(&cli), "starting");
+    tracing::info!("Starting dekaf");
 
     let (api_endpoint, api_token) = if cli.local {
         (LOCAL_API_ENDPOINT, LOCAL_API_KEY)
@@ -61,11 +76,31 @@ async fn main() -> anyhow::Result<()> {
         (cli.api_endpoint.as_str(), cli.api_key.as_str())
     };
 
+    let upstream_kafka_host = format!(
+        "tcp://{}:{}",
+        cli.default_broker_hostname, cli.default_broker_port
+    );
+
     let app = Arc::new(dekaf::App {
         anon_client: postgrest::Postgrest::new(api_endpoint).insert_header("apikey", api_token),
         advertise_host: cli.advertise_host,
         advertise_kafka_port: cli.kafka_port,
+        kafka_client: KafkaApiClient::connect(
+            upstream_kafka_host.as_str(),
+            SASLConfig::with_credentials(
+                None,
+                cli.default_broker_username,
+                cli.default_broker_password,
+            )?,
+        ).await.context(
+            "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
+        )?,
     });
+
+    tracing::info!(
+        broker_url = upstream_kafka_host,
+        "Successfully authenticated to upstream Kafka broker"
+    );
 
     // Build a server which listens and serves supported schema registry requests.
     let schema_listener = std::net::TcpListener::bind(format!("[::]:{}", cli.schema_registry_port))

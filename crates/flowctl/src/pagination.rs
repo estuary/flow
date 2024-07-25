@@ -121,7 +121,9 @@ where
     ) -> PageTurnerOutput<Self, PaginationRequest> {
         let resp: Vec<Item> = api_exec::<Vec<Item>>(request.builder.clone()).await?;
 
-        if resp.len() == request.page_size
+        // Sometimes, it seems, we can get back more than the requested page size.
+        // So far I've only seen this on a request of 1,000 and a response of 1,001.
+        if resp.len() >= request.page_size
             // If the original builder had a limit set to the same value as page_size
             // this ensures that we stop right at the limit, instead of issuing an extra
             // request for 0 rows.

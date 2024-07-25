@@ -1,24 +1,29 @@
 use super::{fetch_all_collection_names, App, Collection, Read};
+use crate::{sanitize_topic_name, unsanitize_topic_name};
 use anyhow::Context;
+use gazette::broker;
 use kafka_protocol::{
     error::ResponseError,
     indexmap::IndexMap,
-    messages::{self, metadata_response::MetadataResponseTopic, TopicName},
+    messages::{self, metadata_response::MetadataResponseTopic, RequestHeader, TopicName},
     protocol::{Builder, StrBytes},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::instrument;
 
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
-    handle: tokio::task::JoinHandle<anyhow::Result<(Read, bytes::Bytes)>>,
+    docs_remaining: Option<usize>,
+    handle: tokio::task::JoinHandle<anyhow::Result<(Read, usize, bytes::Bytes)>>,
 }
 
 pub struct Session {
     app: Arc<App>,
     client: postgrest::Postgrest,
     reads: HashMap<(TopicName, i32), PendingRead>,
+    listed_offsets: HashMap<TopicName, HashMap<i32, Option<(i64, i64)>>>,
 }
 
 impl Session {
@@ -28,6 +33,7 @@ impl Session {
             app,
             client,
             reads: HashMap::new(),
+            listed_offsets: HashMap::new(),
         }
     }
 
@@ -65,7 +71,7 @@ impl Session {
                 self.client = client;
 
                 let mut response = messages::SaslAuthenticateResponse::default();
-                response.session_lifetime_ms = i64::MAX; // TODO(johnny): Access token expiry.
+                response.session_lifetime_ms = 60 * 60 * 60 * 24; // TODO(johnny): Access token expiry.
                 response
             }
             Err(err) => messages::SaslAuthenticateResponse::builder()
@@ -83,15 +89,16 @@ impl Session {
     /// Serve metadata of topics and their partitions.
     /// For efficiency, we do NOT enumerate partitions when we receive an unqualified metadata request.
     /// Otherwise, if specific "topics" (collections) are listed, we fetch and map journals into partitions.
+    #[instrument(skip_all)]
     pub async fn metadata(
         &mut self,
         mut request: messages::MetadataRequest,
     ) -> anyhow::Result<messages::MetadataResponse> {
-        let topics = if let Some(topics) = request.topics.take() {
-            self.metadata_select_topics(topics).await?
-        } else {
-            self.metadata_all_topics().await?
-        };
+        tracing::debug!(req=?request, "Got metadata request");
+        let topics = match request.topics.take() {
+            Some(topics) if topics.len() > 0 => self.metadata_select_topics(topics).await,
+            _ => self.metadata_all_topics().await,
+        }?;
 
         // We only ever advertise a single logical broker.
         let mut brokers = kafka_protocol::indexmap::IndexMap::new();
@@ -125,7 +132,7 @@ impl Session {
             .into_iter()
             .map(|name| {
                 (
-                    TopicName(StrBytes::from_string(name)),
+                    sanitize_topic_name(TopicName(StrBytes::from_string(name))),
                     MetadataResponseTopic::builder()
                         .is_internal(false)
                         .build()
@@ -147,7 +154,7 @@ impl Session {
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                let name = topic.name.unwrap_or_default();
+                let name = unsanitize_topic_name(topic.name.unwrap_or_default());
                 let maybe_collection = Collection::new(client, name.as_str()).await?;
                 Ok((name, maybe_collection))
             }))
@@ -158,7 +165,7 @@ impl Session {
         for (name, maybe_collection) in collections? {
             let Some(collection) = maybe_collection else {
                 topics.insert(
-                    name,
+                    sanitize_topic_name(name),
                     MetadataResponseTopic::builder()
                         .error_code(ResponseError::UnknownTopicOrPartition.code())
                         .build()
@@ -183,7 +190,7 @@ impl Session {
                 .collect();
 
             topics.insert(
-                name,
+                sanitize_topic_name(name),
                 MetadataResponseTopic::builder()
                     .is_internal(false)
                     .partitions(partitions)
@@ -232,11 +239,12 @@ impl Session {
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
         let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<(i64, i64)>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
-                let maybe_collection = Collection::new(client, topic.name.as_str()).await?;
+                let maybe_collection =
+                    Collection::new(client, &unsanitize_topic_name(topic.name.clone())).await?;
 
                 let Some(collection) = maybe_collection else {
                     return Ok((
-                        topic.name,
+                        unsanitize_topic_name(topic.name),
                         topic
                             .partitions
                             .iter()
@@ -262,16 +270,29 @@ impl Session {
                 )
                 .await;
 
-                Ok((topic.name, offsets?))
+                Ok((unsanitize_topic_name(topic.name), offsets?))
             }))
             .await;
+
+        let collections = collections?;
 
         use messages::list_offsets_response::{
             ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
         };
 
+        self.listed_offsets
+            .extend(
+                collections
+                    .clone()
+                    .into_iter()
+                    .map(|(t, offsets_by_partition)| {
+                        let offsets_map: HashMap<_, _> = offsets_by_partition.into_iter().collect();
+                        (t, offsets_map)
+                    }),
+            );
+
         // Map topics, partition indices, and fetched offsets into a comprehensive response.
-        let response = collections?
+        let response = collections
             .into_iter()
             .map(|(topic_name, offsets)| {
                 let partitions = offsets
@@ -295,7 +316,7 @@ impl Session {
                     .collect();
 
                 ListOffsetsTopicResponse::builder()
-                    .name(topic_name)
+                    .name(sanitize_topic_name(topic_name))
                     .partitions(partitions)
                     .build()
                     .unwrap()
@@ -331,22 +352,82 @@ impl Session {
 
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
-            let mut key = (topic_request.topic.clone(), 0);
+            let mut key = (unsanitize_topic_name(topic_request.topic.clone()), 0);
+
+            let latest_topic_requested = self.listed_offsets.get(&key.0);
 
             for partition_request in &topic_request.partitions {
                 key.1 = partition_request.partition;
 
-                if matches!(self.reads.get(&key), Some(pending) if pending.offset == partition_request.fetch_offset)
-                {
+                let mut fetch_offset = partition_request.fetch_offset;
+                let record_limit = None;
+
+                let latest_offset_requested = latest_topic_requested
+                    .and_then(|partitions| partitions.get(&partition_request.partition).copied())
+                    .flatten();
+
+                if let Some((offset, _)) = latest_offset_requested {
+                    let diff = partition_request.fetch_offset - offset;
+                    tracing::debug!(
+                        topic = topic_request.topic.to_string(),
+                        sent_offset = offset,
+                        requested_offset = partition_request.fetch_offset,
+                        diff,
+                        "Requested vs sent offset"
+                    );
+
+                    // Tinybird attempts to read exactly 12 documents back from the latest in order to
+                    // power their data preview UI. Since our offsets represent bytes and not documents,
+                    // we have to hack this up in order to send them some valid documents to show.
+                    if diff == -12 {
+                        let maybe_collection = Collection::new(
+                            client,
+                            &unsanitize_topic_name(topic_request.topic.to_owned()),
+                        )
+                        .await?;
+
+                        if let Some(collection) = maybe_collection {
+                            let part = collection
+                                .partitions
+                                .get(partition_request.partition as usize);
+                            if let Some(partition) = part {
+                                let request = broker::FragmentsRequest {
+                                    journal: partition.spec.name.clone(),
+                                    begin_mod_time: i64::MAX, // Sentinel for "largest available offset",
+                                    page_limit: 1,
+                                    ..Default::default()
+                                };
+                                let response =
+                                    collection.journal_client.list_fragments(request).await?;
+
+                                if let Some(fragment) =
+                                    response.fragments.get(0).and_then(|f| f.spec.as_ref())
+                                {
+                                    tracing::debug!(
+                                        topic = topic_request.topic.to_string(),
+                                        new_offset = fragment.begin,
+                                        "Tinybird special-case, resetting fetch_offset"
+                                    );
+                                    fetch_offset = offset;
+                                    // record_limit = Some(0);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if matches!(self.reads.get(&key), Some(pending) if pending.offset == fetch_offset) {
                     continue; // Common case: fetch is at the pending offset.
                 }
                 let Some(collection) = Collection::new(client, &key.0).await? else {
+                    tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
                     continue; // Collection doesn't exist.
                 };
                 let Some(partition) = collection
                     .partitions
                     .get(partition_request.partition as usize)
                 else {
+                    tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
                 let (key_schema_id, value_schema_id) =
@@ -356,23 +437,26 @@ impl Session {
                     collection.journal_client.clone(),
                     &collection,
                     partition,
-                    partition_request.fetch_offset,
+                    fetch_offset,
                     key_schema_id,
                     value_schema_id,
                 );
-                let pending = PendingRead {
-                    offset: partition_request.fetch_offset,
-                    last_write_head: partition_request.fetch_offset,
-                    handle: tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
-                    ),
+                let pending =
+                    PendingRead {
+                        offset: fetch_offset,
+                        last_write_head: fetch_offset,
+                        docs_remaining: record_limit,
+                        handle: tokio::spawn(read.next_batch(
+                            partition_request.partition_max_bytes as usize,
+                            record_limit,
+                        )),
                 };
 
                 tracing::info!(
                     journal = &partition.spec.name,
                     key_schema_id,
                     value_schema_id,
-                    partition_request.fetch_offset,
+                    fetch_offset,
                     "started read",
                 );
 
@@ -381,7 +465,7 @@ impl Session {
                         topic = topic_request.topic.as_str(),
                         partition = partition_request.partition,
                         old_offset = old.offset,
-                        new_offset = partition_request.fetch_offset,
+                        new_offset = fetch_offset,
                         "discarding pending read due to offset jump",
                     );
                 }
@@ -392,7 +476,7 @@ impl Session {
         let mut topic_responses = Vec::with_capacity(topic_requests.len());
 
         for topic_request in &topic_requests {
-            let mut key = (topic_request.topic.clone(), 0);
+            let mut key = (unsanitize_topic_name(topic_request.topic.clone()), 0);
             let mut partition_responses = Vec::with_capacity(topic_request.partitions.len());
 
             for partition_request in &topic_request.partitions {
@@ -409,16 +493,20 @@ impl Session {
                     continue;
                 };
 
-                let batch = if let Some((read, batch)) = tokio::select! {
+                let batch = if let Some((read, docs_read, batch)) = tokio::select! {
                     biased; // Prefer to complete a pending read.
                     read  = &mut pending.handle => Some(read??),
                     _ = &mut timeout => None,
                 } {
                     pending.offset = read.offset;
                     pending.last_write_head = read.last_write_head;
-                    pending.handle = tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
-                    );
+                    if let Some(docs_remaining) = pending.docs_remaining {
+                        pending.docs_remaining = Some(docs_remaining - docs_read)
+                    }
+                    pending.handle = tokio::spawn(read.next_batch(
+                        partition_request.partition_max_bytes as usize,
+                        pending.docs_remaining,
+                    ));
                     batch
                 } else {
                     bytes::Bytes::new()
@@ -437,7 +525,7 @@ impl Session {
 
             topic_responses.push(
                 FetchableTopicResponse::builder()
-                    .topic(topic_request.topic.clone())
+                    .topic(sanitize_topic_name(topic_request.topic.clone()))
                     .partitions(partition_responses)
                     .build()
                     .unwrap(),
@@ -449,14 +537,6 @@ impl Session {
             .responses(topic_responses)
             .build()
             .unwrap())
-    }
-
-    /// OffsetCommit is an ignored no-op.
-    pub async fn offset_commit(
-        &mut self,
-        _req: messages::OffsetCommitRequest,
-    ) -> anyhow::Result<messages::OffsetCommitResponse> {
-        Ok(messages::OffsetCommitResponse::builder().build().unwrap())
     }
 
     /// DescribeConfigs lists configuration metadata of topics.
@@ -502,6 +582,175 @@ impl Session {
             .unwrap())
     }
 
+    /// Produce is assumed to be supported in various places, and clients using librdkafka
+    /// break when that assumption isn't satisfied. For example, the `Fetch` API > version 0
+    /// appears to (indirectly) assume that the broker supports `Produce`.
+    /// For example: Each of these 3 conditions (`MSGVER1`, `MSGVER2`, `THROTTLE_TIME`) require `Produce`,
+    /// and when it's not present the consumer will sit in a tight loop endlessly failing to
+    /// send a fetch request because it's missing an API version flag:
+    /// https://github.com/confluentinc/librdkafka/blob/master/src/rdkafka_fetcher.c#L997-L1005
+    pub async fn produce(
+        &mut self,
+        req: messages::ProduceRequest,
+    ) -> anyhow::Result<messages::ProduceResponse> {
+        use kafka_protocol::messages::produce_response::*;
+
+        let responses =
+            req.topic_data
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k,
+                        TopicProduceResponse::builder()
+                            .partition_responses(
+                                v.partition_data
+                                    .into_iter()
+                                    .map(|part| {
+                                        PartitionProduceResponse::builder()
+                                .index(part.index)
+                                .error_code(
+                                    kafka_protocol::error::ResponseError::InvalidRequest.code(),
+                                )
+                                .build()
+                                .unwrap()
+                                    })
+                                    .collect(),
+                            )
+                            .build()
+                            .unwrap(),
+                    )
+                })
+                .collect();
+
+        Ok(ProduceResponse::builder()
+            .responses(responses)
+            .build()
+            .unwrap())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn join_group(
+        &mut self,
+        req: messages::JoinGroupRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::JoinGroupResponse> {
+        tracing::debug!("Got request");
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        let response = client.send_request(req, Some(header)).await?;
+        tracing::debug!(response=?response, "Got response");
+        Ok(response)
+    }
+
+    #[instrument(skip_all)]
+    pub async fn leave_group(
+        &mut self,
+        req: messages::LeaveGroupRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::LeaveGroupResponse> {
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        let response = client.send_request(req, Some(header)).await?;
+        tracing::debug!(response=?response, "Got response");
+        Ok(response)
+    }
+
+    pub async fn list_group(
+        &mut self,
+        req: messages::ListGroupsRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::ListGroupsResponse> {
+        return self.app.kafka_client.send_request(req, Some(header)).await;
+    }
+
+    pub async fn sync_group(
+        &mut self,
+        req: messages::SyncGroupRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::SyncGroupResponse> {
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        let response = client.send_request(req, Some(header)).await?;
+        tracing::debug!(response=?response, "Got response");
+        Ok(response)
+    }
+
+    pub async fn delete_group(
+        &mut self,
+        req: messages::DeleteGroupsRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::DeleteGroupsResponse> {
+        return self.app.kafka_client.send_request(req, Some(header)).await;
+    }
+
+    pub async fn heartbeat(
+        &mut self,
+        req: messages::HeartbeatRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::HeartbeatResponse> {
+        let client = self
+            .app
+            .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
+        return client.send_request(req, Some(header)).await;
+    }
+
+    pub async fn offset_commit(
+        &mut self,
+        req: messages::OffsetCommitRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::OffsetCommitResponse> {
+        let mut mutated_req = req.clone();
+        for topic in &mut mutated_req.topics {
+            topic.name = sanitize_topic_name(topic.name.clone())
+        }
+
+        return self
+            .app
+            .kafka_client
+            .send_request(mutated_req, Some(header))
+            .await;
+    }
+
+    #[instrument(skip_all)]
+    pub async fn offset_fetch(
+        &mut self,
+        req: messages::OffsetFetchRequest,
+        header: RequestHeader,
+    ) -> anyhow::Result<messages::OffsetFetchResponse> {
+        let mut mutated_req = req.clone();
+        if let Some(ref mut topics) = mutated_req.topics {
+            for topic in topics {
+                topic.name = sanitize_topic_name(topic.name.clone())
+            }
+        }
+
+        if let Some(ref topics) = mutated_req.topics {
+            self.app
+                .kafka_client
+                .ensure_topics(topics.iter().map(|t| t.name.to_owned()).collect())
+                .await?;
+        }
+        let resp = self
+            .app
+            .kafka_client
+            .send_request(mutated_req, Some(header))
+            .await?;
+
+        tracing::debug!(resp=?resp, "Got Response");
+        Ok(resp)
+    }
+
     /// ApiVersions lists the APIs which are supported by this "broker".
     pub async fn api_versions(
         &mut self,
@@ -539,8 +788,20 @@ impl Session {
             ApiKey::ListOffsetsKey as i16,
             version::<ListOffsetsRequest>(),
         );
-        res.api_keys
-            .insert(ApiKey::FetchKey as i16, version::<FetchRequest>());
+        res.api_keys.insert(
+            ApiKey::FetchKey as i16,
+            ApiVersion::builder()
+                // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
+                // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
+                // just the consequence of convergent development, where some implicit requirement got encoded both in the client
+                // and server without being explicitly documented anywhere.
+                .min_version(4)
+                // I don't understand why, but some kafka clients don't seem to be able to send flexver fetch requests correctly
+                // For example, `kcat` sends an empty topic name when >= v12. I'm 99% sure there's more to this however.
+                .max_version(11)
+                .build()
+                .unwrap(),
+        );
         res.api_keys.insert(
             ApiKey::OffsetCommitKey as i16,
             version::<OffsetCommitRequest>(),
@@ -550,6 +811,15 @@ impl Session {
         res.api_keys.insert(
             ApiKey::DescribeConfigsKey as i16,
             version::<DescribeConfigsRequest>(),
+        );
+
+        res.api_keys.insert(
+            ApiKey::ProduceKey as i16,
+            ApiVersion::builder()
+                .min_version(3)
+                .max_version(9)
+                .build()
+                .unwrap(),
         );
 
         // UNIMPLEMENTED.
@@ -587,6 +857,56 @@ impl Session {
             version::<DeleteTopicsRequest>(),
         );
         */
+
+        res.api_keys.insert(
+            ApiKey::JoinGroupKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<JoinGroupRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::LeaveGroupKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<LeaveGroupRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::ListGroupsKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<ListGroupsRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::SyncGroupKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<SyncGroupRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::DeleteGroupsKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<DeleteGroupsRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::HeartbeatKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<HeartbeatRequest>()?,
+        );
+
+        res.api_keys.insert(
+            ApiKey::OffsetCommitKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<OffsetCommitRequest>()?,
+        );
+        res.api_keys.insert(
+            ApiKey::OffsetFetchKey as i16,
+            self.app
+                .kafka_client
+                .supported_versions::<OffsetFetchRequest>()?,
+        );
 
         Ok(res)
     }

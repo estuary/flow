@@ -15,15 +15,14 @@ mod generate;
 mod local_specs;
 mod ops;
 mod output;
-mod pagination;
+pub mod pagination;
 mod poll;
 mod preview;
 mod raw;
 
 use output::{Output, OutputType};
+use pagination::into_items;
 use poll::poll_while_queued;
-
-use crate::pagination::into_items;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]

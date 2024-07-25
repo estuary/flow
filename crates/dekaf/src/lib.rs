@@ -1,9 +1,10 @@
 use anyhow::Context;
 use bytes::BufMut;
 use kafka_protocol::{
-    messages,
-    protocol::{Builder, Decodable, Encodable},
+    messages::{self, ApiKey, TopicName},
+    protocol::{buf::ByteBuf, Builder, Decodable, Encodable, StrBytes},
 };
+use tracing::instrument;
 
 mod topology;
 use topology::{fetch_all_collection_names, Collection, Partition};
@@ -16,6 +17,10 @@ pub use session::Session;
 
 pub mod registry;
 
+mod api_client;
+pub use api_client::KafkaApiClient;
+use regex::Regex;
+
 pub struct App {
     /// Anonymous API client for the Estuary control plane.
     pub anon_client: postgrest::Postgrest,
@@ -23,6 +28,8 @@ pub struct App {
     pub advertise_host: String,
     /// Port which is advertised for Kafka access.
     pub advertise_kafka_port: u16,
+    /// Client used when proxying group management APIs.
+    pub kafka_client: KafkaApiClient,
 }
 
 impl App {
@@ -88,16 +95,14 @@ pub async fn dispatch_request_frame(
     frame: bytes::BytesMut,
     out: &mut bytes::BytesMut,
 ) -> anyhow::Result<()> {
-    use messages::*;
-
     /*
     println!(
-        "full frame:\n{}",
-        hexdump::hexdump_iter(&frame)
-            .map(|line| format!(" {line}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
+         "full frame:\n{}",
+         hexdump::hexdump_iter(&frame)
+             .map(|line| format!(" {line}"))
+             .collect::<Vec<_>>()
+             .join("\n")
+     );
     */
 
     let (api_key, version) = if !*raw_sasl_auth {
@@ -124,14 +129,29 @@ pub async fn dispatch_request_frame(
     );
     */
 
-    match api_key {
+    handle_api(api_key, version, session, raw_sasl_auth, frame, out).await
+}
+
+#[instrument(level="debug", skip_all,fields(?api_key,v=version))]
+async fn handle_api(
+    api_key: ApiKey,
+    version: i16,
+    session: &mut Session,
+    raw_sasl_auth: &mut bool,
+    frame: bytes::BytesMut,
+    out: &mut bytes::BytesMut,
+) -> anyhow::Result<()> {
+    tracing::debug!("Handling request");
+    use messages::*;
+    let ret = match api_key {
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
-            let (header, request) = dec_request(version >= 3, frame)?;
+            let (header, request) = dec_request(frame, version)?;
+            tracing::debug!(client_id=?header.client_id, "Got client ID!");
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
         ApiKey::SaslHandshakeKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             *raw_sasl_auth = header.request_api_version == 0;
             Ok(enc_resp(
                 out,
@@ -153,7 +173,7 @@ pub async fn dispatch_request_frame(
             Ok(())
         }
         ApiKey::SaslAuthenticateKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header,
@@ -162,11 +182,11 @@ pub async fn dispatch_request_frame(
         }
         ApiKey::MetadataKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2417
-            let (header, request) = dec_request(version >= 9, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.metadata(request).await?))
         }
         ApiKey::FindCoordinatorKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header,
@@ -174,30 +194,90 @@ pub async fn dispatch_request_frame(
             ))
         }
         ApiKey::ListOffsetsKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.list_offsets(request).await?))
         }
 
         ApiKey::FetchKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(out, &header, session.fetch(request).await?))
         }
 
-        ApiKey::OffsetCommitKey => {
-            let (header, request) = dec_request(false, frame)?;
-            Ok(enc_resp(
-                out,
-                &header,
-                session.offset_commit(request).await?,
-            ))
-        }
-
         ApiKey::DescribeConfigsKey => {
-            let (header, request) = dec_request(false, frame)?;
+            let (header, request) = dec_request(frame, version)?;
             Ok(enc_resp(
                 out,
                 &header,
                 session.describe_configs(request).await?,
+            ))
+        }
+        ApiKey::ProduceKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(out, &header, session.produce(request).await?))
+        }
+
+        ApiKey::JoinGroupKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.join_group(request, header).await?,
+            ))
+        }
+        ApiKey::LeaveGroupKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.leave_group(request, header).await?,
+            ))
+        }
+        ApiKey::ListGroupsKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.list_group(request, header).await?,
+            ))
+        }
+        ApiKey::SyncGroupKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.sync_group(request, header).await?,
+            ))
+        }
+        ApiKey::DeleteGroupsKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.delete_group(request, header).await?,
+            ))
+        }
+        ApiKey::HeartbeatKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.heartbeat(request, header).await?,
+            ))
+        }
+        ApiKey::OffsetFetchKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.offset_fetch(request, header).await?,
+            ))
+        }
+        ApiKey::OffsetCommitKey => {
+            let (header, request) = dec_request(frame, version)?;
+            Ok(enc_resp(
+                out,
+                &header.clone(),
+                session.offset_commit(request, header).await?,
             ))
         }
         /*
@@ -205,19 +285,23 @@ pub async fn dispatch_request_frame(
         ApiKey::ListGroupsKey => Ok(K::ListGroupsRequest(ListGroupsRequest::decode(b, v)?)),
         */
         _ => anyhow::bail!("unsupported request type {api_key:?}"),
-    }
+    };
+    tracing::debug!("Response sent");
+
+    ret
 }
 
 // Easier dispatch to type-specific decoder by using result-type inference.
-fn dec_request<T: kafka_protocol::protocol::Decodable + std::fmt::Debug>(
-    flexver: bool,
+fn dec_request<T: kafka_protocol::protocol::Request + std::fmt::Debug>(
     mut frame: bytes::BytesMut,
+    req_version: i16,
 ) -> anyhow::Result<(messages::RequestHeader, T)> {
-    let header = messages::RequestHeader::decode(&mut frame, if flexver { 2 } else { 1 })?;
+    let header_version = T::header_version(req_version);
+    let header = messages::RequestHeader::decode(&mut frame, header_version)?;
 
     let request = T::decode(&mut frame, header.request_api_version).with_context(|| {
         format!(
-            "failed to decode {} with header {header:?}",
+            "failed to decode {} with header version {header_version}: {header:?}",
             std::any::type_name::<T>()
         )
     })?;
@@ -256,6 +340,27 @@ fn enc_resp<
     // Go back and write the length header.
     let len = (b.len() - offset) as u32;
     b[(offset - 4)..offset].copy_from_slice(&len.to_be_bytes());
+}
+
+fn sanitize_topic_name(topic: TopicName) -> TopicName {
+    // Regex comes from redpanda error message
+    let sanitizer = Regex::new("[^a-zA-Z0-9._-]").unwrap();
+    let sanitized: String = sanitizer
+        .replace_all(topic.as_str(), ".-.")
+        .chars()
+        .collect();
+
+    TopicName::from(StrBytes::from_string(sanitized))
+}
+
+fn unsanitize_topic_name(topic: TopicName) -> TopicName {
+    let unsanitizer = Regex::new("\\.-\\.").unwrap();
+    let unsanitized: String = unsanitizer
+        .replace_all(topic.as_str(), "/")
+        .chars()
+        .collect();
+
+    TopicName::from(StrBytes::from_string(unsanitized))
 }
 
 const RESERVED_USERNAME_ERR : &str = "The configured username must be '{}' because Dekaf may use it for optional configuration in the future.";
