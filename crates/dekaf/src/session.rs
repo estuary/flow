@@ -1,12 +1,18 @@
 use super::{fetch_all_collection_names, App, Collection, Read};
 use crate::{sanitize_topic_name, unsanitize_topic_name};
 use anyhow::Context;
+use bytes::{BufMut, BytesMut};
 use gazette::broker;
 use kafka_protocol::{
     error::ResponseError,
     indexmap::IndexMap,
-    messages::{self, metadata_response::MetadataResponseTopic, RequestHeader, TopicName},
-    protocol::{Builder, StrBytes},
+    messages::{
+        self,
+        metadata_response::{MetadataResponsePartition, MetadataResponseTopic},
+        ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
+        RequestHeader, TopicName,
+    },
+    protocol::{buf::ByteBuf, Builder, Decodable, Encodable, StrBytes},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -132,9 +138,14 @@ impl Session {
             .into_iter()
             .map(|name| {
                 (
-                    sanitize_topic_name(TopicName(StrBytes::from_string(name))),
+                    TopicName(StrBytes::from_string(name)),
                     MetadataResponseTopic::builder()
                         .is_internal(false)
+                        .partitions(vec![MetadataResponsePartition::builder()
+                            .partition_index(0)
+                            .leader_id(0.into())
+                            .build()
+                            .unwrap()])
                         .build()
                         .unwrap(),
                 )
@@ -154,7 +165,7 @@ impl Session {
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                let name = unsanitize_topic_name(topic.name.unwrap_or_default());
+                let name = topic.name.unwrap_or_default();
                 let maybe_collection = Collection::new(client, name.as_str()).await?;
                 Ok((name, maybe_collection))
             }))
@@ -165,7 +176,7 @@ impl Session {
         for (name, maybe_collection) in collections? {
             let Some(collection) = maybe_collection else {
                 topics.insert(
-                    sanitize_topic_name(name),
+                    name,
                     MetadataResponseTopic::builder()
                         .error_code(ResponseError::UnknownTopicOrPartition.code())
                         .build()
@@ -190,7 +201,7 @@ impl Session {
                 .collect();
 
             topics.insert(
-                sanitize_topic_name(name),
+                name,
                 MetadataResponseTopic::builder()
                     .is_internal(false)
                     .partitions(partitions)
@@ -239,12 +250,11 @@ impl Session {
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
         let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<(i64, i64)>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
-                let maybe_collection =
-                    Collection::new(client, &unsanitize_topic_name(topic.name.clone())).await?;
+                let maybe_collection = Collection::new(client, &topic.name.clone()).await?;
 
                 let Some(collection) = maybe_collection else {
                     return Ok((
-                        unsanitize_topic_name(topic.name),
+                        topic.name,
                         topic
                             .partitions
                             .iter()
@@ -270,7 +280,7 @@ impl Session {
                 )
                 .await;
 
-                Ok((unsanitize_topic_name(topic.name), offsets?))
+                Ok((topic.name, offsets?))
             }))
             .await;
 
@@ -316,7 +326,7 @@ impl Session {
                     .collect();
 
                 ListOffsetsTopicResponse::builder()
-                    .name(sanitize_topic_name(topic_name))
+                    .name(topic_name)
                     .partitions(partitions)
                     .build()
                     .unwrap()
@@ -336,6 +346,8 @@ impl Session {
     ) -> anyhow::Result<messages::FetchResponse> {
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
 
+        tracing::debug!(req=?request,"Got fetch request");
+
         let messages::FetchRequest {
             topics: topic_requests,
             max_bytes: _, // Ignored.
@@ -352,7 +364,7 @@ impl Session {
 
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
-            let mut key = (unsanitize_topic_name(topic_request.topic.clone()), 0);
+            let mut key = (topic_request.topic.clone(), 0);
 
             let latest_topic_requested = self.listed_offsets.get(&key.0);
 
@@ -380,11 +392,8 @@ impl Session {
                     // power their data preview UI. Since our offsets represent bytes and not documents,
                     // we have to hack this up in order to send them some valid documents to show.
                     if diff == -12 {
-                        let maybe_collection = Collection::new(
-                            client,
-                            &unsanitize_topic_name(topic_request.topic.to_owned()),
-                        )
-                        .await?;
+                        let maybe_collection =
+                            Collection::new(client, &topic_request.topic.to_owned()).await?;
 
                         if let Some(collection) = maybe_collection {
                             let part = collection
@@ -450,7 +459,7 @@ impl Session {
                             partition_request.partition_max_bytes as usize,
                             record_limit,
                         )),
-                };
+                    };
 
                 tracing::info!(
                     journal = &partition.spec.name,
@@ -476,7 +485,7 @@ impl Session {
         let mut topic_responses = Vec::with_capacity(topic_requests.len());
 
         for topic_request in &topic_requests {
-            let mut key = (unsanitize_topic_name(topic_request.topic.clone()), 0);
+            let mut key = (topic_request.topic.clone(), 0);
             let mut partition_responses = Vec::with_capacity(topic_request.partitions.len());
 
             for partition_request in &topic_request.partitions {
@@ -525,7 +534,7 @@ impl Session {
 
             topic_responses.push(
                 FetchableTopicResponse::builder()
-                    .topic(sanitize_topic_name(topic_request.topic.clone()))
+                    .topic(topic_request.topic.clone())
                     .partitions(partition_responses)
                     .build()
                     .unwrap(),
@@ -640,9 +649,76 @@ impl Session {
             .kafka_client
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
-        let response = client.send_request(req, Some(header)).await?;
-        tracing::debug!(response=?response, "Got response");
-        Ok(response)
+
+        let mut mutable_req = req.clone();
+        for (_, protocol) in mutable_req.protocols.iter_mut() {
+            let mut consumer_protocol_subscription_raw = protocol.metadata.clone();
+
+            let consumer_protocol_subscription_version = consumer_protocol_subscription_raw
+                .try_get_i16()
+                .context("failed to parse consumer protocol message")?;
+
+            // TODO: validate acceptable version
+
+            let mut consumer_protocol_subscription_msg = ConsumerProtocolSubscription::decode(
+                &mut consumer_protocol_subscription_raw,
+                consumer_protocol_subscription_version,
+            )
+            .context("failed to parse consumer protocol message")?;
+
+            consumer_protocol_subscription_msg
+                .topics
+                .iter_mut()
+                .for_each(|topic| *topic = sanitize_topic_name(topic.to_owned().into()).into());
+
+            let mut new_protocol_subscription = BytesMut::new();
+
+            new_protocol_subscription.put_i16(consumer_protocol_subscription_version);
+            consumer_protocol_subscription_msg.encode(
+                &mut new_protocol_subscription,
+                consumer_protocol_subscription_version,
+            )?;
+
+            protocol.metadata = new_protocol_subscription.into();
+        }
+
+        let response = client.send_request(mutable_req, Some(header)).await?;
+
+        // Now re-translate response
+        let mut mutable_resp = response.clone();
+        for member in mutable_resp.members.iter_mut() {
+            let mut consumer_protocol_subscription_raw = member.metadata.clone();
+
+            let consumer_protocol_subscription_version = consumer_protocol_subscription_raw
+                .try_get_i16()
+                .context("failed to parse consumer protocol message")?;
+
+            // TODO: validate acceptable version
+
+            let mut consumer_protocol_subscription_msg = ConsumerProtocolSubscription::decode(
+                &mut consumer_protocol_subscription_raw,
+                consumer_protocol_subscription_version,
+            )
+            .context("failed to parse consumer protocol message")?;
+
+            consumer_protocol_subscription_msg
+                .topics
+                .iter_mut()
+                .for_each(|topic| *topic = unsanitize_topic_name(topic.to_owned().into()).into());
+
+            let mut new_protocol_subscription = BytesMut::new();
+
+            new_protocol_subscription.put_i16(consumer_protocol_subscription_version);
+            consumer_protocol_subscription_msg.encode(
+                &mut new_protocol_subscription,
+                consumer_protocol_subscription_version,
+            )?;
+
+            member.metadata = new_protocol_subscription.into();
+        }
+
+        tracing::debug!(response=?mutable_resp, "Got response");
+        Ok(mutable_resp)
     }
 
     #[instrument(skip_all)]
@@ -661,12 +737,23 @@ impl Session {
         Ok(response)
     }
 
-    pub async fn list_group(
+    pub async fn list_groups(
         &mut self,
         req: messages::ListGroupsRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::ListGroupsResponse> {
-        return self.app.kafka_client.send_request(req, Some(header)).await;
+        // Redpanda seems to randomly disconnect this?
+        let r = self.app.kafka_client.send_request(req, Some(header)).await;
+        match r {
+            Ok(e) => Ok(e),
+            Err(e) => {
+                tracing::warn!(e=?e, "Failed to list_groups");
+                Ok(ListGroupsResponse::builder()
+                    .groups(vec![])
+                    .build()
+                    .unwrap())
+            }
+        }
     }
 
     pub async fn sync_group(
@@ -679,9 +766,70 @@ impl Session {
             .kafka_client
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
-        let response = client.send_request(req, Some(header)).await?;
-        tracing::debug!(response=?response, "Got response");
-        Ok(response)
+
+        tracing::debug!(req=?req, "Got request");
+        let mut mutable_req = req.clone();
+        for assignment in mutable_req.assignments.iter_mut() {
+            let mut consumer_protocol_assignment_raw = assignment.assignment.clone();
+            let consumer_protocol_assignment_version = consumer_protocol_assignment_raw
+                .try_get_i16()
+                .context("failed to parse consumer protocol message")?;
+            // TODO: validate acceptable version
+
+            let mut consumer_protocol_assignment_msg = ConsumerProtocolAssignment::decode(
+                &mut consumer_protocol_assignment_raw,
+                consumer_protocol_assignment_version,
+            )
+            .context("failed to parse consumer protocol message")?;
+
+            consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
+                .assigned_partitions
+                .into_iter()
+                .map(|(name, item)| (sanitize_topic_name(name.to_owned().into()).into(), item))
+                .collect();
+
+            let mut new_protocol_assignment = BytesMut::new();
+
+            new_protocol_assignment.put_i16(consumer_protocol_assignment_version);
+            consumer_protocol_assignment_msg.encode(
+                &mut new_protocol_assignment,
+                consumer_protocol_assignment_version,
+            )?;
+            assignment.assignment = new_protocol_assignment.into();
+        }
+
+        let response = client.send_request(mutable_req, Some(header)).await?;
+
+        let mut mutable_resp = response.clone();
+        let mut consumer_protocol_assignment_raw = mutable_resp.assignment.clone();
+        let consumer_protocol_assignment_version =
+            consumer_protocol_assignment_raw
+                .try_get_i16()
+                .context("failed to parse consumer protocol message")?;
+        // TODO: validate acceptable version
+
+        let mut consumer_protocol_assignment_msg = ConsumerProtocolAssignment::decode(
+            &mut consumer_protocol_assignment_raw,
+            consumer_protocol_assignment_version,
+        )
+        .context("failed to parse consumer protocol message")?;
+        consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
+            .assigned_partitions
+            .into_iter()
+            .map(|(name, item)| (unsanitize_topic_name(name.to_owned().into()).into(), item))
+            .collect();
+
+        let mut new_protocol_assignment = BytesMut::new();
+
+        new_protocol_assignment.put_i16(consumer_protocol_assignment_version);
+        consumer_protocol_assignment_msg.encode(
+            &mut new_protocol_assignment,
+            consumer_protocol_assignment_version,
+        )?;
+        mutable_resp.assignment = new_protocol_assignment.into();
+
+        tracing::debug!(response=?mutable_resp, "Got response");
+        Ok(mutable_resp)
     }
 
     pub async fn delete_group(
@@ -715,11 +863,17 @@ impl Session {
             topic.name = sanitize_topic_name(topic.name.clone())
         }
 
-        return self
+        let mut resp = self
             .app
             .kafka_client
             .send_request(mutated_req, Some(header))
-            .await;
+            .await?;
+
+        for topic in resp.topics.iter_mut() {
+            topic.name = unsanitize_topic_name(topic.name.to_owned());
+        }
+
+        Ok(resp)
     }
 
     #[instrument(skip_all)]
@@ -741,11 +895,15 @@ impl Session {
                 .ensure_topics(topics.iter().map(|t| t.name.to_owned()).collect())
                 .await?;
         }
-        let resp = self
+        let mut resp = self
             .app
             .kafka_client
             .send_request(mutated_req, Some(header))
             .await?;
+
+        for topic in resp.topics.iter_mut() {
+            topic.name = unsanitize_topic_name(topic.name.to_owned());
+        }
 
         tracing::debug!(resp=?resp, "Got Response");
         Ok(resp)
