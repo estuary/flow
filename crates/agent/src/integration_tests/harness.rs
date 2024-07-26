@@ -649,26 +649,6 @@ impl TestHarness {
         draft_id
     }
 
-    pub async fn fast_forward_inferred_schema_update(&mut self, collection_name: &str) {
-        sqlx::query!(
-            r#"update controller_jobs
-            set status = jsonb_set(
-                status::jsonb,
-                array['inferred_schema', 'schema_last_updated'],
-                -- set to at least 5 minutes in the past
-                to_jsonb(now() - '6m'::interval),
-                -- do not create if missing
-                false
-            )::json
-            where live_spec_id = (select id from live_specs where catalog_name = $1)
-            returning 1 as "must_exist: bool";"#,
-            collection_name
-        )
-        .fetch_one(&self.pool)
-        .await
-        .expect("fast forward inferred schema update failed");
-    }
-
     pub async fn upsert_inferred_schema(&mut self, schema: tables::InferredSchema) {
         let tables::InferredSchema {
             collection_name,
