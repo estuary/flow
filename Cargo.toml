@@ -123,7 +123,6 @@ serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0.8"
 serde-transcode = "1.1"
 serde-wasm-bindgen = "0.4"
-stream-reconnect = "0.3"
 size = "0.4"
 socket2 = "0.5.7"
 strsim = "0.10"
@@ -139,6 +138,7 @@ sqlx = { version = "0.6", features = [
     "uuid",
 ] }
 
+typestate = "0.8.0"
 tokio-rustls = "0.26.0"
 webpki-roots = "0.26"
 tempfile = "3.3"
@@ -202,6 +202,7 @@ criterion = "0.3"
 glob = "0.3"
 insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
 pretty_assertions = "1.4.0"
+bb8 = "0.8"
 rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = { version = "0.4" }
 serial_test = "0.9"
