@@ -26,6 +26,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+itertools = { workspace = true }
 kafka-protocol = { workspace = true }
 md5 = { workspace = true }
 postgrest = { workspace = true }
@@ -40,7 +41,9 @@ tokio-rustls = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+typestate = { workspace = true }
 url = { workspace = true }
 webpki-roots = { workspace = true }
-stream-reconnect = { workspace = true }
+bb8 = { workspace = true }
 regex = { workspace = true }
+# hexdump = { workspace = true }
