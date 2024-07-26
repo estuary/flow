@@ -187,9 +187,6 @@ async fn test_schema_evolution() {
     harness
         .upsert_inferred_schema(mock_inferred_schema("goats/pasture", 2))
         .await;
-    harness
-        .fast_forward_inferred_schema_update("goats/pasture")
-        .await;
     harness.run_pending_controller("goats/pasture").await;
 
     // Simulate an unsatisfiable constraint on the next publications of the materializations
@@ -247,9 +244,6 @@ async fn test_schema_evolution() {
     harness
         .upsert_inferred_schema(mock_inferred_schema("goats/totes", 1))
         .await;
-    harness
-        .fast_forward_inferred_schema_update("goats/totes")
-        .await;
     harness.run_pending_controller("goats/totes").await;
     harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(
@@ -296,9 +290,6 @@ async fn test_schema_evolution() {
     );
     harness
         .upsert_inferred_schema(mock_inferred_schema("goats/totes", 2))
-        .await;
-    harness
-        .fast_forward_inferred_schema_update("goats/totes")
         .await;
     harness.run_pending_controller("goats/totes").await;
     harness.run_pending_controllers(None).await;
