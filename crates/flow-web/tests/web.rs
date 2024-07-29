@@ -200,6 +200,37 @@ fn test_end_to_end_extend_read_bundle() {
           "maxProperties": 10,
         })
     );
+
+    let input: JsValue = to_js_value(&json!({
+      "read": {
+        "allOf": [
+            {"$ref": "flow://inferred-schema"},
+            {"$ref": "flow://write-schema"},
+        ]
+      },
+      "inferred": {
+        "$id": "flow://inferred-schema",
+        "x-canary-annotation": true
+      }
+    }));
+
+    let output = flow_web::extend_read_bundle(input).expect("extend first bundle");
+    let output: serde_json::Value = from_js_value(output).expect("failed to deserialize output");
+    assert_eq!(
+        output,
+        json!({
+            "$defs": {
+                "flow://inferred-schema": {
+                    "$id": "flow://inferred-schema",
+                    "x-canary-annotation": true
+                }
+            },
+            "allOf": [
+                {"$ref": "flow://inferred-schema"},
+                {"$ref": "flow://write-schema"},
+            ]
+        })
+    );
 }
 
 fn to_js_value(val: &serde_json::Value) -> JsValue {

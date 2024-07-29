@@ -76,7 +76,7 @@ impl Schema {
         .unwrap()
     }
 
-    pub fn default_inferred_read_schema(write_schema: &Self) -> Self {
+    pub fn default_inferred_read_schema() -> Self {
         let read_schema = serde_json::json!({
             "allOf": [
                 {"$ref": "flow://write-schema"},
@@ -84,7 +84,7 @@ impl Schema {
             ],
         });
         let read_bundle = Self(crate::RawValue::from_value(&read_schema));
-        Self::extend_read_bundle(&read_bundle, write_schema, None)
+        Self::extend_read_bundle(&read_bundle, None, None)
     }
 
     /// Extend a bundled Flow read schema, which may include references to the
@@ -93,7 +93,7 @@ impl Schema {
     /// If an inferred schema is not available then `{}` is used.
     pub fn extend_read_bundle(
         read_bundle: &Self,
-        write_bundle: &Self,
+        write_bundle: Option<&Self>,
         inferred_bundle: Option<&Self>,
     ) -> Self {
         const KEYWORD_DEF: &str = "$defs";
@@ -115,8 +115,10 @@ impl Schema {
         // So, we treat $ref: flow://write-schema as a user assertion that there is
         // no such conflicting definition (and we may produce an indexing error
         // later if they're wrong).
-        if read_bundle.references_write_schema() {
-            let mut write_schema: Skim = serde_json::from_str(write_bundle.get()).unwrap();
+        if let Some(write_schema_json) =
+            write_bundle.filter(|_| read_bundle.references_write_schema())
+        {
+            let mut write_schema: Skim = serde_json::from_str(write_schema_json.get()).unwrap();
 
             // Set $id to "flow://write-schema".
             _ = write_schema.insert(
@@ -251,7 +253,7 @@ mod test {
             "minProperties": 5,
         })));
 
-        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, &write_schema, Some(&inferred_schema)).to_value(), @r###"
+        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, Some(&write_schema), Some(&inferred_schema)).to_value(), @r###"
         {
           "$defs": {
             "existing://def": {
@@ -281,7 +283,7 @@ mod test {
         "###);
 
         // Case: no inferred schema is available.
-        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, &write_schema, None).to_value(), @r###"
+        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, Some(&write_schema), None).to_value(), @r###"
         {
           "$defs": {
             "existing://def": {
@@ -326,13 +328,37 @@ mod test {
         "###);
 
         // Case: pass `write_schema` which has no references.
-        insta::assert_json_snapshot!(Schema::extend_read_bundle(&write_schema, &write_schema, None).to_value(), @r###"
+        insta::assert_json_snapshot!(Schema::extend_read_bundle(&write_schema, Some(&write_schema), None).to_value(), @r###"
         {
           "$defs": {},
           "$id": "old://value",
           "required": [
             "a_key"
           ]
+        }
+        "###);
+
+        // Case: don't include `write_schema`
+        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, None, Some(&inferred_schema)).to_value(), @r###"
+        {
+          "$defs": {
+            "existing://def": {
+              "type": "array"
+            },
+            "flow://inferred-schema": {
+              "$id": "flow://inferred-schema",
+              "minProperties": 5
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "flow://inferred-schema"
+            },
+            {
+              "$ref": "flow://write-schema"
+            }
+          ],
+          "maxProperties": 10
         }
         "###);
     }
