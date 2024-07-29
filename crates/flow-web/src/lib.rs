@@ -144,7 +144,7 @@ pub fn extend_read_bundle(input: JsValue) -> Result<JsValue, JsValue> {
     } = serde_json::from_value(input)
         .map_err(|err| JsValue::from_str(&format!("invalid input: {:?}", err)))?;
 
-    let output = models::Schema::extend_read_bundle(&read, &write, inferred.as_ref());
+    let output = models::Schema::extend_read_bundle(&read, Some(&write), inferred.as_ref());
 
     serde_wasm_bindgen::to_value(&output).map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }

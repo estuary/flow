@@ -99,8 +99,11 @@ fn walk_collection(
 
             // Potentially extend the user's read schema with definitions
             // for the collection's current write and inferred schemas.
-            let read_bundle =
-                models::Schema::extend_read_bundle(read_bundle, write_bundle, inferred_bundle);
+            let read_bundle = models::Schema::extend_read_bundle(
+                read_bundle,
+                Some(write_bundle),
+                inferred_bundle,
+            );
 
             let read_schema =
                 walk_collection_schema(scope.push_prop("readSchema"), &read_bundle, errors);

@@ -272,7 +272,7 @@ pub fn merge_collections(
             // This is either a new collection, or else discovery has just started asking for
             // the inferred schema. In either case, we must initialize the read schema with the
             // inferred schema placeholder.
-            let read_schema = models::Schema::default_inferred_read_schema(&document_schema);
+            let read_schema = models::Schema::default_inferred_read_schema();
             collection.read_schema = Some(read_schema);
             collection.write_schema = Some(document_schema);
             collection.schema = None;
