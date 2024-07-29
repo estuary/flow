@@ -218,10 +218,7 @@ fn update_inferred_schema(
         let Some(read_schema) = model.read_schema.as_ref() else {
             anyhow::bail!("model is missing read schema");
         };
-        let Some(write_schema) = model.write_schema.as_ref() else {
-            anyhow::bail!("model is missing write schema");
-        };
-        models::Schema::extend_read_bundle(read_schema, write_schema, Some(inferred_schema))
+        models::Schema::extend_read_bundle(read_schema, None, Some(inferred_schema))
     };
 
     model.read_schema = Some(new_read_schema);

@@ -48,14 +48,14 @@ expression: "serde_json::to_string_pretty(&out).unwrap()"
   },
   "case/5": {
     "writeSchema": {"const":"write!","x-infer-schema":true},
-    "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]},"flow://write-schema":{"$id":"flow://write-schema","const":"write!","x-infer-schema":true}},"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+    "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]}},"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
     "key": [
       "/key"
     ]
   },
   "case/6": {
     "writeSchema": {"const":"write!","x-infer-schema":true},
-    "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]},"flow://write-schema":{"$id":"flow://write-schema","const":"write!","x-infer-schema":true}},"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+    "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]}},"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
     "key": [
       "/key"
     ]
