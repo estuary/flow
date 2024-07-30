@@ -33,6 +33,10 @@ impl std::ops::DerefMut for Schema {
     }
 }
 
+type Skim = BTreeMap<String, RawValue>;
+const KEYWORD_DEF: &str = "$defs";
+const KEYWORD_ID: &str = "$id";
+
 impl Schema {
     pub fn new(v: RawValue) -> Self {
         Self(v)
@@ -96,11 +100,7 @@ impl Schema {
         write_bundle: Option<&Self>,
         inferred_bundle: Option<&Self>,
     ) -> Self {
-        const KEYWORD_DEF: &str = "$defs";
-        const KEYWORD_ID: &str = "$id";
-
         use serde_json::{value::to_raw_value, Value};
-        type Skim = BTreeMap<String, RawValue>;
 
         let mut read_schema: Skim = serde_json::from_str(read_bundle.get()).unwrap();
         let mut read_defs: Skim = read_schema
@@ -179,6 +179,32 @@ impl Schema {
             serde_json::value::to_raw_value(&read_defs).unwrap().into(),
         );
         Self(to_raw_value(&read_schema).unwrap().into())
+    }
+
+    /// Removes the bundled write schema from the `$defs` of `self`, returning
+    /// a new schema with the value removed, and a boolean indicating whether the write
+    /// schema def was actually present. We used to bundle the write schema as part of the
+    /// read schema, just like the inferred schema. We're no longer doing that because it's
+    /// confusing to users, so this function removes the bundled write schema. This function
+    /// should only be needed for long enough to update all the inferred schemas, and can then
+    /// be safely removed.
+    pub fn remove_bundled_write_schema(&self) -> (bool, Self) {
+        use serde_json::value::to_raw_value;
+
+        let mut read_schema: Skim = serde_json::from_str(self.0.get()).unwrap();
+        let mut read_defs: Skim = read_schema
+            .get(KEYWORD_DEF)
+            .map(|d| serde_json::from_str(d.get()).unwrap())
+            .unwrap_or_default();
+        let had_write_schema = read_defs.remove(Schema::REF_WRITE_SCHEMA_URL).is_some();
+        read_schema.insert(
+            KEYWORD_DEF.to_string(),
+            to_raw_value(&read_defs).unwrap().into(),
+        );
+        (
+            had_write_schema,
+            Self(to_raw_value(&read_schema).unwrap().into()),
+        )
     }
 }
 
@@ -361,5 +387,65 @@ mod test {
           "maxProperties": 10
         }
         "###);
+    }
+
+    #[test]
+    fn test_removing_bundled_write_schema() {
+        let read_schema = Schema::new(RawValue::from_value(&json!({
+            "$defs": {
+                "existing://def": {"type": "array"},
+            },
+            "maxProperties": 10,
+            "allOf": [
+                {"$ref": "flow://inferred-schema"},
+                {"$ref": "flow://write-schema"},
+            ]
+        })));
+        let write_schema = Schema::new(RawValue::from_value(&json!({
+            "$id": "old://value",
+            "required": ["a_key"],
+        })));
+        let inferred_schema = Schema::new(RawValue::from_value(&json!({
+            "$id": "old://value",
+            "minProperties": 5,
+        })));
+
+        let bundle =
+            Schema::extend_read_bundle(&read_schema, Some(&write_schema), Some(&inferred_schema));
+        assert_eq!(
+            3,
+            bundle.get().matches(Schema::REF_WRITE_SCHEMA_URL).count(),
+            "schema should contain 'flow://write-schema' 3 times, for $ref, $defs key, and $id"
+        );
+        let (was_removed, new_bundle) = bundle.remove_bundled_write_schema();
+        assert!(was_removed);
+        insta::assert_json_snapshot!(new_bundle.to_value(), @r###"
+        {
+          "$defs": {
+            "existing://def": {
+              "type": "array"
+            },
+            "flow://inferred-schema": {
+              "$id": "flow://inferred-schema",
+              "minProperties": 5
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "flow://inferred-schema"
+            },
+            {
+              "$ref": "flow://write-schema"
+            }
+          ],
+          "maxProperties": 10
+        }
+        "###);
+
+        let (was_removed, _) = new_bundle.remove_bundled_write_schema();
+        assert!(
+            !was_removed,
+            "expected write schema to have already been removed"
+        );
     }
 }
