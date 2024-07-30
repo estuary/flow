@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use super::harness::{draft_catalog, TestHarness};
+use super::harness::{self, draft_catalog, TestHarness};
 use crate::{
     controllers::ControllerState, integration_tests::harness::mock_inferred_schema, ControlPlane,
 };
@@ -386,19 +386,41 @@ async fn test_dependencies_and_controllers() {
         .assert_live_spec_soft_deleted("owls/capture", del_pub_id)
         .await;
 
+    harness.control_plane().fail_next_build(
+        "owls/materialize",
+        BuildFailure {
+            catalog_name: "owls/materialize",
+            catalog_type: CatalogType::Materialization,
+        },
+    );
+
     let runs = harness.run_pending_controllers(None).await;
     assert_controllers_ran(&["owls/capture", "owls/materialize"], runs);
 
     harness.assert_live_spec_hard_deleted("owls/capture").await;
-    harness.control_plane().assert_activations(
-        "after capture deleted",
-        vec![
-            ("owls/capture", None),
-            ("owls/materialize", Some(CatalogType::Materialization)),
-        ],
-    );
-
+    harness
+        .control_plane()
+        .assert_activations("after capture deleted", vec![("owls/capture", None)]);
+    // Assert that the materialization recorded the build error and has a retry scheduled
     let materialization_state = harness.get_controller_state("owls/materialize").await;
+    let failed_pub = &materialization_state
+        .current_status
+        .unwrap_materialization()
+        .publications
+        .history[0];
+    assert_eq!("simulated build failure", &failed_pub.errors[0].detail);
+    assert!(materialization_state.next_run.is_some());
+
+    // The materialization should now successfully retry and then activate
+    harness.run_pending_controller("owls/materialize").await;
+    let materialization_state = harness.get_controller_state("owls/materialize").await;
+    let success_pub = &materialization_state
+        .current_status
+        .unwrap_materialization()
+        .publications
+        .history[0];
+    assert!(success_pub.is_success());
+    // The sourceCapture should have been removed
     let materialization_model = materialization_state
         .live_spec
         .as_ref()
@@ -406,6 +428,12 @@ async fn test_dependencies_and_controllers() {
         .as_materialization()
         .unwrap();
     assert!(materialization_model.source_capture.is_none());
+
+    harness.run_pending_controller("owls/materialize").await;
+    harness.control_plane().assert_activations(
+        "after capture deleted",
+        vec![("owls/materialize", Some(CatalogType::Materialization))],
+    );
 
     // Publish deletions of all the remaining tasks
     let mut draft = tables::DraftCatalog::default();
@@ -448,6 +476,20 @@ async fn test_dependencies_and_controllers() {
     harness
         .assert_live_spec_hard_deleted("owls/test-test")
         .await;
+}
+
+#[derive(Debug)]
+struct BuildFailure {
+    catalog_name: &'static str,
+    catalog_type: CatalogType,
+}
+impl harness::FailBuild for BuildFailure {
+    fn modify(&mut self, result: &mut crate::publications::UncommittedBuild) {
+        result.output.built.errors.insert(tables::Error {
+            scope: tables::synthetic_scope(self.catalog_type, self.catalog_name),
+            error: anyhow::anyhow!("simulated build failure"),
+        });
+    }
 }
 
 fn assert_controllers_ran(expected: &[&str], actual: Vec<ControllerState>) {

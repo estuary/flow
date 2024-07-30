@@ -217,13 +217,13 @@ mod test {
         assert_eq!(id.get_variant(), uuid::Variant::RFC4122);
         assert_eq!(id.get_version(), Some(uuid::Version::Mac));
         assert_eq!(
-            id.get_timestamp(),
-            Some(uuid::Timestamp::from_unix(
-                uuid::timestamp::context::NoContext,
+            id.get_timestamp().map(|ts| ts.to_unix()),
+            Some((
                 SECONDS,
                 (NANOS / 100) * 100, // Rounded down to nearest 100ns.
             ))
         );
+        assert_eq!(id.get_timestamp().map(|ts| ts.to_gregorian().1), Some(2730));
 
         let (p_out, c_out, f_out) = parse(id).unwrap();
 

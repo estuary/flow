@@ -30,16 +30,14 @@ such as database change data capture (CDC) connectors.
 
 See the [source connector reference documentation](../reference/Connectors/capture-connectors/README.md).
 
-### Airbyte sources
+### Batch sources
 
-Flow supports running Airbyte source connectors (through
-[airbyte-to-flow](https://github.com/estuary/airbyte/tree/master/airbyte-to-flow))
+Flow supports running both first and third party connectors to batch sources including Singer, Meltano and Airbyte as well as natively-written Estuary connectors.  
 These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
 Flow runs the connector at regular intervals to capture updated documents.
 
-Airbyte source connectors are independently reviewed and sometime updated for compatibility with Flow.
-Estuary's [source connectors](../reference/Connectors/capture-connectors/README.md) documentation includes actively supported Airbyte connectors.
-A full list of Airbyte's connectors is available at [Airbyte docker hub](https://hub.docker.com/u/airbyte?page=1).
+Third-party source connectors are independently reviewed and sometimes updated for compatibility with Flow.
+Estuary's [source connectors](../reference/Connectors/capture-connectors/README.md) documentation includes all actively supported connectors.
 If you see a connector you'd like to prioritize for access in the Flow web app, [contact us](mailto:support@estuary.dev).
 
 ## Discovery

@@ -80,7 +80,7 @@ impl MaterializationStatus {
         }
 
         if pending_pub.has_pending() {
-            let result = pending_pub
+            let mut result = pending_pub
                 .finish(state, &mut self.publications, control_plane)
                 .await
                 .context("failed to execute publication")?;
@@ -113,13 +113,16 @@ impl MaterializationStatus {
                         "publication failed after applying evolution actions"
                     );
                 }
-                // We retry materialization publication failures, because they primarily depend on the
-                // availability and state of an external system. But we don't retry indefinitely, since
-                // oftentimes users will abandon live tasks after deleting those external systems.
-                new_result
-                    .error_for_status()
-                    .with_maybe_retry(backoff_publication_failure(state.failures))?;
+                result = new_result;
             }
+
+            // We retry materialization publication failures, because they primarily depend on the
+            // availability and state of an external system. But we don't retry indefinitely, since
+            // oftentimes users will abandon live tasks after deleting those external systems.
+            result = result
+                .error_for_status()
+                .with_maybe_retry(backoff_publication_failure(state.failures))?;
+
             // If the publication was successful, update the source capture status to reflect that it's up-to-date.
             match self.source_capture.as_mut() {
                 Some(status) if result.status.is_success() => status.publish_success(),
