@@ -91,7 +91,13 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 			panic(err) // Cannot fail because KeyBegin is always set.
 		}
 
-		resp, err := m.jc.Apply(pb.WithDispatchDefault(m.ctx), &pb.ApplyRequest{
+		var ctx = pb.WithClaims(pb.WithDispatchDefault(m.ctx), pb.Claims{
+			Capability: pb.Capability_APPLY,
+			Selector: pb.LabelSelector{
+				Include: pb.MustLabelSet("name", applySpec.Name.String()),
+			},
+		})
+		resp, err := m.jc.Apply(ctx, &pb.ApplyRequest{
 			Changes: []pb.ApplyRequest_Change{
 				{
 					Upsert:            applySpec,

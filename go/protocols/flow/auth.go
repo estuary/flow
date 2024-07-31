@@ -12,7 +12,7 @@ const (
 	// AUTHORIZE gives the bearer a capability to request an authorization
 	// for the given claim, which may then be signed using a different key
 	// and returned without the AUTHORIZE capability (which prevents the
-	// reciepient from using the token to obtain further Authorizations).
+	// recipient from using the token to obtain further Authorizations).
 	Capability_AUTHORIZE pb.Capability = 1 << 16
 	// SHUFFLE gives the bearer a capability to use the runtime's Shuffle API.
 	Capability_SHUFFLE pb.Capability = 1 << 17
