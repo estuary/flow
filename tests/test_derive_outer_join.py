@@ -9,6 +9,8 @@ def test_with_restart(request, snapshot):
             "preview",
             "--source",
             request.config.rootdir + "/examples/derive-patterns/join-outer.flow.yaml",
+            "--name",
+            "patterns/outer-join",
             "--fixture",
             request.config.rootdir + "/tests/ints-strings-fixture.json",
             "--sessions",
