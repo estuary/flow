@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"path"
+	"runtime/pprof"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/gogo/protobuf/types"
 	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -67,7 +69,13 @@ func newTaskBase[TaskSpec pf.Task](
 	recorder *recoverylog.Recorder,
 	extractFn func(*sql.DB, string) (TaskSpec, error),
 ) (*taskBase[TaskSpec], error) {
-	var publisher = NewOpsPublisher(host.LogPublisher)
+
+	var opsCtx = pprof.WithLabels(host.OpsContext, pprof.Labels(
+		"shard", shard.Spec().Id.String(), // Same label set by consumer framework.
+	))
+	var publisher = NewOpsPublisher(message.NewPublisher(
+		client.NewAppendService(opsCtx, host.Service.Journals), nil))
+
 	var legacyCheckpoint, legacyState, err = parseLegacyState(recorder)
 	if err != nil {
 		return nil, err
