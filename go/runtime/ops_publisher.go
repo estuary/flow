@@ -133,5 +133,5 @@ func shardKeyAndPartitions(shard *ops.ShardRef, ts *types.Timestamp) (tuple.Tupl
 }
 
 var opsPlaceholderSpec = pf.CollectionSpec{
-	AckTemplateJson: json.RawMessage(`{"_meta": "` + string(pf.DocumentUUIDPlaceholder) + `","ack":true}`),
+	AckTemplateJson: json.RawMessage(`{"_meta":{"uuid":"` + string(pf.DocumentUUIDPlaceholder) + `"},"ack":true}`),
 }
