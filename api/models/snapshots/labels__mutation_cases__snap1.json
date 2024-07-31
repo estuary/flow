@@ -1,0 +1,22 @@
+{
+  "labels": [
+    {
+      "name": "a",
+      "value": "aa"
+    },
+    {
+      "name": "a",
+      "value": "aa.2"
+    },
+    {
+      "name": "b",
+      "value": "bb.1",
+      "prefix": true
+    },
+    {
+      "name": "d",
+      "value": "dd.2",
+      "prefix": true
+    }
+  ]
+}

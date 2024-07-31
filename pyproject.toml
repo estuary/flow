@@ -5,9 +5,14 @@ description = ""
 authors = ["Johnny Graettinger <johnny@estuary.dev>"]
 
 [tool.poetry.dependencies]
-python = "^3.10"
-pytest = "^7.4.3"
-pytest-insta = "^0.2.0"
+python = "^3.12"
+pytest = "^8.3.2"
+pytest-insta = "^0.3.0"
+fastapi = "^0.111.1"
+pydantic = "^2.8.2"
+pyjwt = "^2.8.0"
+asyncpg = "^0.29.0"
+asyncpg-stubs = "^0.29.1"
 
 [build-system]
 requires = ["poetry-core"]
