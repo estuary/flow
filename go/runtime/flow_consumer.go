@@ -14,6 +14,7 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
+	"go.gazette.dev/core/auth"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -54,10 +55,10 @@ type FlowConsumer struct {
 		Now *flow.Timepoint
 		Mu  sync.Mutex
 	}
-	// LogAppendService is used to append log messages to the ops logs collections. It's important
-	// that we use an AppendService with a context that's scoped to the life of the process, rather
-	// than the lives of individual shards.
-	LogPublisher *message.Publisher
+	// OpsContext to use when appending messages to ops collections.
+	// It's important that we use a Context that's scoped to the life of the process,
+	// rather than the lives of individual shards, so we don't lose logs.
+	OpsContext context.Context
 }
 
 // Application is the interface implemented by Flow shard task stores.
@@ -190,16 +191,30 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return fmt.Errorf("catalog builds service: %w", err)
 	}
 
+	if !config.Flow.TestAPIs {
+		// Wrap the underlying Authorizer for brokered control-plane authorizations.
+		args.Service.Authorizer = NewControlPlaneAuthorizer(
+			args.Service.Authorizer.(*auth.KeyedAuth),
+			"localhost",
+			"http://localhost:8675/authorize",
+		)
+
+		// Unwrap the raw JournalClient from its current AuthJournalClient,
+		// and then replace it with one built using our wrapped Authorizer.
+		var rawClient = args.Service.Journals.(*pb.ComposedRoutedJournalClient).JournalClient.(*pb.AuthJournalClient).JournalClient
+		args.Service.Journals.(*pb.ComposedRoutedJournalClient).JournalClient = pb.NewAuthJournalClient(rawClient, args.Service.Authorizer)
+	}
+
 	// Wrap Shard Hints RPC to support the Flow shard splitting workflow.
 	args.Service.ShardAPI.GetHints = func(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 		return shardGetHints(ctx, claims, svc, req)
 	}
 
-	f.LogPublisher = message.NewPublisher(client.NewAppendService(args.Context, args.Service.Journals), nil)
 	f.Config = &config
 	f.Service = args.Service
 	f.Builds = builds
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
+	f.OpsContext = args.Context
 
 	// Start a ticker of the shared *Timepoint.
 	go func() {
