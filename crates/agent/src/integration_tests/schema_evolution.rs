@@ -44,6 +44,14 @@ async fn test_schema_evolution() {
                             "properties": {
                                 "pre-existing": { "type": "integer" }
                             }
+                        },
+                        // Include write schema to start, and expect that this is removed
+                        "flow://write-schema": {
+                            "$id": "flow://write-schema",
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" }
+                            }
                         }
                     },
                     "allOf": [
@@ -150,6 +158,34 @@ async fn test_schema_evolution() {
     assert!(totes_spec
         .read_schema_json
         .contains("inferredSchemaIsNotAvailable"));
+    // Assert that the bundled write schema has been removed. We expect one reference to
+    // the write schema url, down from 3 originally.
+    // TODO: we can remove these assertions (and the bundled write schema in the setup) once
+    // all the collections have been updated.
+    let totes_model = totes_state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_collection()
+        .unwrap();
+    assert_eq!(
+        1,
+        totes_model
+            .read_schema
+            .as_ref()
+            .unwrap()
+            .get()
+            .matches(models::Schema::REF_WRITE_SCHEMA_URL)
+            .count()
+    );
+    // Assert that the schema in the built spec _does_ contain the bundled write schema
+    assert_eq!(
+        3,
+        totes_spec
+            .read_schema_json
+            .matches(models::Schema::REF_WRITE_SCHEMA_URL)
+            .count()
+    );
     assert!(totes_state.next_run.is_some());
 
     harness.control_plane().reset_activations();
