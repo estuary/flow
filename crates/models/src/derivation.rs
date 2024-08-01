@@ -8,7 +8,7 @@ use serde_json::{from_value, json};
 use std::time::Duration;
 
 /// Derive specifies how a collection is derived from other collections.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Derivation {
     /// # The selected runtime for this derivation.
@@ -27,7 +27,7 @@ pub struct Derivation {
 }
 
 /// A derivation runtime implementation.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum DeriveUsing {
     /// # A Connector.
@@ -43,7 +43,7 @@ pub enum DeriveUsing {
 /// A Transform reads and shuffles documents of a source collection,
 /// and processes each document through either one or both of a register
 /// "update" lambda and a derived document "publish" lambda.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "TransformDef::example")]
 pub struct TransformDef {
@@ -103,7 +103,7 @@ pub struct TransformDef {
 
 /// A Shuffle specifies how a shuffling key is to be extracted from
 /// collection documents.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Shuffle::example")]
 pub enum Shuffle {
@@ -134,7 +134,7 @@ impl Default for Shuffle {
 }
 
 /// Type of a shuffled key component.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum ShuffleType {
     Boolean,

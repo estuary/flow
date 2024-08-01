@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// A ShardTemplate configures how shards process a catalog task.
-#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "ShardTemplate::example")]
 pub struct ShardTemplate {
