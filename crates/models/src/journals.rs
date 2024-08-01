@@ -285,7 +285,7 @@ impl StorageDef {
 /// fragment is included in its filename, such as ".gz" for GZIP. A
 /// collection's compression may be changed at any time, and will affect
 /// newly-written journal fragments.
-#[derive(Deserialize, Debug, Serialize, JsonSchema, Clone)]
+#[derive(Deserialize, Debug, Serialize, JsonSchema, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
 #[schemars(example = "CompressionCodec::example")]
 pub enum CompressionCodec {
@@ -306,7 +306,7 @@ impl CompressionCodec {
 /// produced as part of a collection.
 // path_postfix_template and refresh_interval are deliberately not
 // exposed here. We're fixing these values in place for now.
-#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Validate, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Validate, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "FragmentTemplate::example")]
 pub struct FragmentTemplate {
@@ -365,7 +365,7 @@ impl FragmentTemplate {
 
 /// A JournalTemplate configures the journals which make up the
 /// physical partitions of a collection.
-#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "JournalTemplate::example")]
 pub struct JournalTemplate {

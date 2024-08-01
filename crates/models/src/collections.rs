@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 /// of the key. By default, this reduction is achieved by completely replacing
 /// the previous document, but much richer reduction behaviors can be specified
 /// through the use of annotated reduction strategies of the collection schema.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "CollectionDef::example")]
 pub struct CollectionDef {
@@ -70,7 +70,7 @@ impl CollectionDef {
 /// Projections are named locations within a collection document which
 /// may be used for logical partitioning or directly exposed to databases
 /// into which collections are materialized.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 pub enum Projection {
     Pointer(JsonPointer),

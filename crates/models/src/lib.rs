@@ -49,7 +49,7 @@ pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify
 
 /// ModelDef is the common trait of top-level Flow specifications.
 pub trait ModelDef:
-    Clone + serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug
+    Clone + PartialEq + serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug
 {
     /// Source collections read by this specification.
     /// Disabled bindings must be excluded from the iterator.
@@ -96,7 +96,7 @@ pub trait ModelDef:
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AnySpec {
     Capture(CaptureDef),

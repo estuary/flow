@@ -8,7 +8,7 @@ use std::time::Duration;
 /// from which data should be continuously captured, with a Flow collection into that captured
 /// data is ingested. Multiple Captures may be bound to a single collection, but only one
 /// capture may exist for a given endpoint and target.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CaptureDef {
     /// # Continuously keep the collection spec and schema up-to-date
@@ -50,7 +50,7 @@ pub struct CaptureDef {
 }
 
 /// Settings to determine how Flow should stay abreast of ongoing changes to collections and schemas.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct AutoDiscover {
     /// Automatically add new bindings discovered from the source.
@@ -64,7 +64,7 @@ pub struct AutoDiscover {
 }
 
 /// An endpoint from which Flow will capture.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum CaptureEndpoint {
     /// # A Connector.
@@ -73,7 +73,7 @@ pub enum CaptureEndpoint {
     Local(LocalConfig),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[schemars(example = "CaptureBinding::example")]
 pub struct CaptureBinding {
