@@ -18,7 +18,7 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
 }
 
 /// Connector image and configuration specification.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct ConnectorConfig {
     /// # Image of the connector.
     pub image: String,
@@ -36,7 +36,7 @@ impl ConnectorConfig {
 }
 
 /// Local command and its configuration.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct LocalConfig {
     /// # Command to execute
     pub command: Vec<String>,

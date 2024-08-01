@@ -40,7 +40,7 @@ impl OnIncompatibleSchemaChange {
 }
 
 /// A source collection and details of how it's read.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(untagged, deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Source::example")]
 pub enum Source {
@@ -49,7 +49,7 @@ pub enum Source {
 }
 
 /// A source collection and details of how it's read.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "FullSource::example")]
 pub struct FullSource {
@@ -131,7 +131,7 @@ impl Into<FullSource> for Source {
 
 /// Partition selectors identify a desired subset of the
 /// available logical partitions of a collection.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "PartitionSelector::example")]
 pub struct PartitionSelector {

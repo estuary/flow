@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DeriveUsingTypescript {
     /// # TypeScript module implementing this derivation.

@@ -1,5 +1,12 @@
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct RawValue(Box<serde_json::value::RawValue>);
+// RawValues are only equal if they are byte-for-byte identical,
+// except for leading and trailing whitespace.
+impl std::cmp::PartialEq<RawValue> for RawValue {
+    fn eq(&self, other: &RawValue) -> bool {
+        self.get().trim() == other.get().trim()
+    }
+}
 
 impl RawValue {
     pub fn is_null(&self) -> bool {

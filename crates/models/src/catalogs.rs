@@ -12,7 +12,7 @@ use super::{
 /// collections, derivations, tests, and materializations of the Catalog.
 /// Catalog sources may reference and import other sources, in order to
 /// collections and other entities that source defines.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Default, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Catalog {
     /// # JSON-Schema against which the Catalog is validated.

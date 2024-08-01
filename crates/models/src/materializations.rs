@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 /// A Materialization binds a Flow collection with an external system & target
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct MaterializationDef {
     /// # Automatically materialize new bindings from a named capture
@@ -42,7 +42,7 @@ pub struct MaterializationDef {
 }
 
 /// An Endpoint connector used for Flow materializations.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum MaterializationEndpoint {
     /// # A Connector.
@@ -52,7 +52,7 @@ pub enum MaterializationEndpoint {
     Local(LocalConfig),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "MaterializationBinding::example")]
 pub struct MaterializationBinding {
@@ -100,7 +100,7 @@ pub struct MaterializationBinding {
 
 /// MaterializationFields defines a selection of projections to materialize,
 /// as well as optional per-projection, driver-specific configuration.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "MaterializationFields::example")]
 pub struct MaterializationFields {
