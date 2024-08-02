@@ -5,12 +5,13 @@ pub fn inline_draft_catalog(catalog: &mut tables::DraftCatalog) {
     let tables::DraftCatalog {
         captures,
         collections,
+        errors: _,
         fetches: _,
         imports,
         materializations,
+        meta: _,
         resources,
         tests,
-        errors: _,
     } = catalog;
 
     for capture in captures.iter_mut() {

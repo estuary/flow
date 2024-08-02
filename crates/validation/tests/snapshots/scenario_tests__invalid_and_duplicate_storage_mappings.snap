@@ -4,35 +4,35 @@ expression: errors
 ---
 [
     Error {
-        scope: flow://control/storage-mapping//leading/Slash/,
-        error: /leading/Slash/ cannot be used as name for storageMappings ("/leading/Slash/" is invalid),
+        scope: flow://storageMapping/leading/Slash/,
+        error: /leading/Slash/ cannot be used as name for storageMapping ("/leading/Slash/" is invalid),
     },
     Error {
-        scope: flow://control/storage-mapping/bad%20space,
-        error: bad space cannot be used as name for storageMappings ("bad space" is invalid),
+        scope: flow://storageMapping/bad%20space,
+        error: bad space cannot be used as name for storageMapping ("bad space" is invalid),
     },
     Error {
-        scope: flow://control/storage-mapping/bad!punctuation/,
-        error: bad!punctuation/ cannot be used as name for storageMappings ("bad!punctuation/" is invalid),
+        scope: flow://storageMapping/bad!punctuation/,
+        error: bad!punctuation/ cannot be used as name for storageMapping ("bad!punctuation/" is invalid),
     },
     Error {
-        scope: flow://control/storage-mapping/double//slash/,
-        error: double//slash/ cannot be used as name for storageMappings ("/slash/" is invalid),
+        scope: flow://storageMapping/double//slash/,
+        error: double//slash/ cannot be used as name for storageMapping ("/slash/" is invalid),
     },
     Error {
-        scope: flow://control/storage-mapping/missingSlash,
-        error: missingSlash cannot be used as name for storageMappings ("missingSlash" is invalid),
+        scope: flow://storageMapping/missingSlash,
+        error: missingSlash cannot be used as name for storageMapping ("missingSlash" is invalid),
     },
     Error {
-        scope: flow://control/storage-mapping/,
-        error: storageMapping  is a prohibited prefix of storageMapping /leading/Slash, defined at flow://control/storage-mapping//leading/Slash/,
+        scope: flow://storageMappings/#/,
+        error: storageMapping  is a prohibited prefix of storageMapping /leading/Slash, defined at flow://storageMappings/#/~1leading~1Slash~1,
     },
     Error {
-        scope: flow://control/storage-mapping/not-matched/,
-        error: storageMapping not-matched is a prohibited prefix of storageMapping Not-Matched/foobar, defined at flow://control/storage-mapping/Not-Matched/foobar/,
+        scope: flow://storageMappings/#/not-matched~1,
+        error: storageMapping not-matched is a prohibited prefix of storageMapping Not-Matched/foobar, defined at flow://storageMappings/#/Not-Matched~1foobar~1,
     },
     Error {
-        scope: flow://control/storage-mapping/recoverY/,
-        error: storageMapping recoverY is a prohibited prefix of storageMapping recovery/testing, defined at flow://control/storage-mapping/recovery/testing/,
+        scope: flow://storageMappings/#/recoverY~1,
+        error: storageMapping recoverY is a prohibited prefix of storageMapping recovery/testing, defined at flow://storageMappings/#/recovery~1testing~1,
     },
 ]

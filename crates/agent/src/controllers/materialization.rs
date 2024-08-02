@@ -102,7 +102,13 @@ impl MaterializationStatus {
                     .context("applying evolution actions")?;
 
                 let new_result = control_plane
-                    .publish(publication_id, detail, state.logs_token, draft)
+                    .publish(
+                        publication_id,
+                        detail,
+                        state.logs_token,
+                        draft,
+                        state.data_plane_id,
+                    )
                     .await
                     .context("failed to execute publication")?;
                 self.publications

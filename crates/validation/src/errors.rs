@@ -213,6 +213,8 @@ pub enum Error {
         ref_entity: &'static str,
         ref_name: String,
     },
+    #[error("data plane {data_plane_name} does not exist or the user is not authorized")]
+    MissingDefaultDataPlane { data_plane_name: String },
 }
 
 impl Error {

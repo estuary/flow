@@ -134,6 +134,7 @@ pub struct UncommittedBuild {
     pub(crate) live_spec_ids: BTreeMap<String, models::Id>,
     pub(crate) test_errors: tables::Errors,
     pub(crate) incompatible_collections: Vec<IncompatibleCollection>,
+    pub(crate) data_plane_id: models::Id,
 }
 impl UncommittedBuild {
     pub fn start_time(&self) -> DateTime<Utc> {
@@ -172,6 +173,7 @@ impl UncommittedBuild {
             live_spec_ids: _,
             test_errors,
             incompatible_collections,
+            data_plane_id: _,
         } = self;
         debug_assert!(
             incompatible_collections.is_empty(),
@@ -210,6 +212,7 @@ impl Publisher {
         detail: Option<String>,
         draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = Utc::now();
         let build_id = self.build_id_gen.next();
@@ -238,6 +241,7 @@ impl Publisher {
                 live_spec_ids: BTreeMap::new(),
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
+                data_plane_id,
             });
         }
 
@@ -257,6 +261,7 @@ impl Publisher {
                 live_spec_ids,
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
+                data_plane_id,
             });
         }
 
@@ -283,6 +288,7 @@ impl Publisher {
                 live_spec_ids,
                 test_errors: tables::Errors::default(),
                 incompatible_collections,
+                data_plane_id,
             });
         }
 
@@ -363,6 +369,7 @@ impl Publisher {
             live_spec_ids,
             test_errors,
             incompatible_collections: Vec::new(),
+            data_plane_id,
         })
     }
 
@@ -513,6 +520,7 @@ mod test {
             })
             .collect(),
             incompatible_collections: Vec::new(),
+            data_plane_id: models::Id::zero(),
         };
         let result = build.build_failed();
         assert_eq!(JobStatus::TestFailed, result.status);

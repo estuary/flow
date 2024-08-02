@@ -91,12 +91,13 @@ pub fn into_catalog(draft: tables::DraftCatalog) -> models::Catalog {
     let tables::DraftCatalog {
         captures,
         collections,
+        errors,
         fetches: _,
         imports: _,
         materializations,
+        meta: _,
         resources: _,
         tests,
-        errors,
     } = draft;
 
     assert!(errors.is_empty());

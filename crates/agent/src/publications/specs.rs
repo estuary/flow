@@ -2,7 +2,6 @@ use super::{LockFailure, UncommittedBuild};
 use agent_sql::publications::{LiveRevision, LiveSpecUpdate};
 use agent_sql::Capability;
 use anyhow::Context;
-use itertools::Itertools;
 use models::{split_image_tag, Id, ModelDef};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -19,10 +18,12 @@ pub async fn persist_updates(
         ref mut live_spec_ids,
         ref user_id,
         ref detail,
+        ref data_plane_id,
         ..
     } = uncommitted;
 
-    let live_spec_updates = update_live_specs(*publication_id, &output, txn).await?;
+    let live_spec_updates =
+        update_live_specs(*publication_id, *data_plane_id, &output, txn).await?;
     let lock_failures = live_spec_updates
         .iter()
         .filter_map(|r| {
@@ -187,6 +188,7 @@ async fn update_drafted_live_spec_flows(
 
 async fn update_live_specs(
     pub_id: Id,
+    pub_data_plane_id: Id,
     output: &build::Output,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<agent_sql::publications::LiveSpecUpdate>> {
@@ -285,6 +287,7 @@ async fn update_live_specs(
         &writes_tos,
         &images,
         &image_tags,
+        pub_data_plane_id.into(),
         txn,
     )
     .await?;

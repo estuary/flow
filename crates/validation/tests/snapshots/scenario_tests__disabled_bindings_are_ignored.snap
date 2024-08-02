@@ -7,6 +7,8 @@ Outcome {
         BuiltCapture {
             capture: testing/fully-disabled-capture,
             scope: test://example/catalog.yaml#/captures/testing~1fully-disabled-capture,
+            control_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -158,6 +160,8 @@ Outcome {
         BuiltCapture {
             capture: testing/partially-disabled-capture,
             scope: test://example/catalog.yaml#/captures/testing~1partially-disabled-capture,
+            control_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -487,6 +491,8 @@ Outcome {
         BuiltCollection {
             collection: testing/collection,
             scope: test://example/catalog.yaml#/collections/testing~1collection,
+            control_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
@@ -660,6 +666,8 @@ Outcome {
         BuiltCollection {
             collection: testing/fully-disabled-derivation,
             scope: test://example/catalog.yaml#/collections/testing~1fully-disabled-derivation,
+            control_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1fully-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
@@ -983,6 +991,8 @@ Outcome {
         BuiltCollection {
             collection: testing/partly-disabled-derivation,
             scope: test://example/catalog.yaml#/collections/testing~1partly-disabled-derivation,
+            control_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1partly-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
@@ -1507,6 +1517,8 @@ Outcome {
         BuiltMaterialization {
             materialization: testing/fully-disabled-materialization,
             scope: test://example/catalog.yaml#/materializations/testing~1fully-disabled-materialization,
+            control_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -1655,6 +1667,8 @@ Outcome {
         BuiltMaterialization {
             materialization: testing/partially-disabled-materialization,
             scope: test://example/catalog.yaml#/materializations/testing~1partially-disabled-materialization,
+            control_id: NULL,
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -2237,7 +2251,7 @@ Outcome {
     storage_mappings: [
         StorageMapping {
             catalog_prefix: ,
-            scope: flow://control/storage-mapping/default,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "S3",

@@ -9,12 +9,13 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
     let tables::DraftCatalog {
         captures,
         collections,
+        errors: _,
         fetches: _,
         imports,
         materializations,
+        meta: _,
         resources,
         tests,
-        errors: _,
     } = draft;
 
     for tables::DraftCapture {
@@ -70,12 +71,13 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
     let tables::DraftCatalog {
         captures,
         collections,
+        errors: _,
         fetches: _,
         imports,
         materializations,
+        meta: _,
         resources,
         tests,
-        errors: _,
     } = draft;
 
     let mut catalogs: BTreeMap<url::Url, models::Catalog> = BTreeMap::new();

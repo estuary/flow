@@ -43,9 +43,10 @@ async fn test_forbidden_connector() {
         }
     }));
     let pub_id = Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
+    let data_plane_id = Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
     let built = harness
         .publisher
-        .build(user_id, pub_id, None, draft, Uuid::new_v4())
+        .build(user_id, pub_id, None, draft, Uuid::new_v4(), data_plane_id)
         .await
         .expect("build failed");
     assert!(built.has_errors());

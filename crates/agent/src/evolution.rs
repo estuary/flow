@@ -287,6 +287,7 @@ async fn process_row(
             auto_evolve,
             detail,
             row.background,
+            String::new(), // TODO(johnny) -- how do we populate this? It's not actually needed, formally.
         )
         .await?;
         Some(id)

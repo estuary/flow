@@ -128,16 +128,17 @@ pub async fn validate(
         runtime,
     };
 
-    let built = validation::validate(
-        pub_id,
+    draft.meta.push(tables::MetaRow {
+        build_config: Default::default(),
         build_id,
-        project_root,
-        &connectors,
-        &draft,
-        &live,
-        true, // Fail-fast.
-    )
-    .await;
+        default_data_plane_id: Some(models::Id::zero()),
+        default_data_plane_name: "data/plane".to_string(),
+        fail_fast: true,
+        project_root: project_root.clone(),
+        pub_id,
+    });
+
+    let built = validation::validate(&connectors, &draft, &live).await;
 
     Output::new(draft, live, built)
 }
@@ -212,11 +213,13 @@ pub fn persist(
     tables::persist_tables(&db, &output.built.as_tables())
         .context("failed to persist built catalog")?;
 
+    /*
     // Legacy support: encode and persist a deprecated protobuf build Config.
     // At the moment, these are still covered by Go snapshot tests.
     let mut meta = tables::Meta::new();
     meta.insert_row(build_config);
     tables::persist_tables(&db, &[&meta]).context("failed to persist catalog meta")?;
+    */
 
     tracing::info!(?db_path, "wrote build database");
     Ok(())
@@ -456,7 +459,7 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
             let mut live = tables::LiveCatalog::default();
             live.storage_mappings.insert_row(
                 models::Prefix::new(""),
-                url::Url::parse("flow://control").unwrap(),
+                models::Id::zero(),
                 vec![models::Store::Gcs(models::GcsBucketAndPrefix {
                     bucket: "example-bucket".to_string(),
                     prefix: None,

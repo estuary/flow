@@ -116,6 +116,7 @@ async fn test_dependencies_and_controllers() {
             Some(format!("initial publication")),
             Uuid::new_v4(),
             draft,
+            models::Id::zero(),
         )
         .await
         .expect("initial publish failed");
@@ -171,6 +172,7 @@ async fn test_dependencies_and_controllers() {
             Some("test publication of owls/hoots".to_string()),
             Uuid::new_v4(),
             tables::DraftCatalog::from(live),
+            models::Id::zero(),
         )
         .await
         .expect("publication failed");
@@ -259,6 +261,7 @@ async fn test_dependencies_and_controllers() {
             Some("delete owls/hoots".to_string()),
             Uuid::new_v4(),
             draft,
+            models::Id::zero(),
         )
         .await
         .expect("failed to publish collection deletion");
@@ -378,6 +381,7 @@ async fn test_dependencies_and_controllers() {
             Some("deleting capture".to_string()),
             Uuid::new_v4(),
             draft,
+            models::Id::zero(),
         )
         .await
         .expect("failed to publish");
@@ -449,6 +453,7 @@ async fn test_dependencies_and_controllers() {
             Some("delete owls/ stuff".to_string()),
             Uuid::new_v4(),
             draft,
+            models::Id::zero(),
         )
         .await
         .expect("failed to publish deletions");

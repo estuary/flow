@@ -2,8 +2,9 @@ use anyhow::Context;
 use serde_json::value::RawValue;
 
 use crate::{
-    Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection, LiveCollections,
-    LiveMaterialization, LiveMaterializations, LiveTest, LiveTests, StorageMappings,
+    DataPlanes, Errors, InferredSchemas, LiveCapture, LiveCaptures, LiveCollection,
+    LiveCollections, LiveMaterialization, LiveMaterializations, LiveTest, LiveTests,
+    StorageMappings,
 };
 
 // CatalogResolver is a trait which maps `catalog_names`, such as those from
@@ -32,7 +33,11 @@ pub trait LiveRow: crate::Row {
     // Name of this specification.
     fn catalog_name(&self) -> &Self::Key;
     // Scope of the live specification.
-    fn scope(&self) -> &url::Url;
+    fn scope(&self) -> url::Url;
+    // Control-plane ID of this specification.
+    fn control_id(&self) -> models::Id;
+    // Data-plane assignment of this specification.
+    fn data_plane_id(&self) -> models::Id;
     // Most recent publication ID of this specification.
     fn last_pub_id(&self) -> models::Id;
     // Model of this specification.
@@ -48,8 +53,14 @@ impl LiveRow for crate::LiveCapture {
     fn catalog_name(&self) -> &Self::Key {
         &self.capture
     }
-    fn scope(&self) -> &url::Url {
-        &self.scope
+    fn scope(&self) -> url::Url {
+        crate::synthetic_scope(models::CatalogType::Capture.to_string(), &self.capture)
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        self.data_plane_id
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
@@ -69,8 +80,17 @@ impl LiveRow for crate::LiveCollection {
     fn catalog_name(&self) -> &Self::Key {
         &self.collection
     }
-    fn scope(&self) -> &url::Url {
-        &self.scope
+    fn scope(&self) -> url::Url {
+        crate::synthetic_scope(
+            models::CatalogType::Collection.to_string(),
+            &self.collection,
+        )
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        self.data_plane_id
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
@@ -90,8 +110,17 @@ impl LiveRow for crate::LiveMaterialization {
     fn catalog_name(&self) -> &Self::Key {
         &self.materialization
     }
-    fn scope(&self) -> &url::Url {
-        &self.scope
+    fn scope(&self) -> url::Url {
+        crate::synthetic_scope(
+            models::CatalogType::Materialization.to_string(),
+            &self.materialization,
+        )
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        self.data_plane_id
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
@@ -111,8 +140,14 @@ impl LiveRow for crate::LiveTest {
     fn catalog_name(&self) -> &Self::Key {
         &self.test
     }
-    fn scope(&self) -> &url::Url {
-        &self.scope
+    fn scope(&self) -> url::Url {
+        crate::synthetic_scope(models::CatalogType::Test.to_string(), &self.test)
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        models::Id::zero()
     }
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
@@ -140,6 +175,7 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
+            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -150,6 +186,7 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
+            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -163,6 +200,7 @@ impl LiveCatalog {
         let Self {
             captures,
             collections,
+            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -173,6 +211,7 @@ impl LiveCatalog {
         vec![
             captures,
             collections,
+            data_planes,
             errors,
             inferred_schemas,
             materializations,
@@ -187,6 +226,7 @@ impl LiveCatalog {
 pub struct LiveCatalog {
     pub captures: LiveCaptures,
     pub collections: LiveCollections,
+    pub data_planes: DataPlanes,
     pub errors: Errors,
     pub inferred_schemas: InferredSchemas,
     pub materializations: LiveMaterializations,
@@ -236,7 +276,8 @@ impl LiveCatalog {
         &mut self,
         spec_type: models::CatalogType,
         catalog_name: &str,
-        scope: url::Url,
+        control_id: models::Id,
+        data_plane_id: models::Id,
         last_pub_id: models::Id,
         model_json: &RawValue,
         built_spec_json: &RawValue,
@@ -249,7 +290,8 @@ impl LiveCatalog {
                     .context("deserializing live built capture spec")?;
                 self.captures.insert(LiveCapture {
                     capture: models::Capture::new(catalog_name),
-                    scope,
+                    control_id,
+                    data_plane_id,
                     last_pub_id,
                     model,
                     spec: built,
@@ -262,7 +304,8 @@ impl LiveCatalog {
                     .context("deserializing live built collection spec")?;
                 self.collections.insert(LiveCollection {
                     collection: models::Collection::new(catalog_name),
-                    scope,
+                    control_id,
+                    data_plane_id,
                     last_pub_id,
                     model,
                     spec: built,
@@ -275,7 +318,8 @@ impl LiveCatalog {
                     .context("deserializing live built materialization spec")?;
                 self.materializations.insert(LiveMaterialization {
                     materialization: models::Materialization::new(catalog_name),
-                    scope,
+                    control_id,
+                    data_plane_id,
                     last_pub_id,
                     model,
                     spec: built,
@@ -288,7 +332,7 @@ impl LiveCatalog {
                     .context("deserializing live built test spec")?;
                 self.tests.insert(LiveTest {
                     test: models::Test::new(catalog_name),
-                    scope,
+                    control_id,
                     last_pub_id,
                     model,
                     spec: built,

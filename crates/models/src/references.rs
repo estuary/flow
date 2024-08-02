@@ -169,6 +169,11 @@ string_reference_types! {
     /// and a name may not begin or end in a '/'.
     pub struct Capture("Capture::schema", pattern = CATALOG_NAME_RE, example = "acmeCo/capture");
 
+    /// DataPlane names are paths of Unicode letters, numbers, '-', '_', or '.'.
+    /// Each path component is separated by a slash '/',
+    /// and a name may not begin or end in a '/'.
+    pub struct DataPlane("DataPlane::schema", pattern = CATALOG_NAME_RE, example = "acmeCo/data/plane");
+
     /// Materialization names are paths of Unicode letters, numbers, '-', '_', or '.'.
     /// Each path component is separated by a slash '/',
     /// and a name may not begin or end in a '/'.

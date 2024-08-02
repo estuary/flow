@@ -19,6 +19,7 @@ dependencies = [
  "ops",
  "proto-flow",
  "proto-gazette",
+ "serde",
  "serde_json",
  "tables",
  "tokio",

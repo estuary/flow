@@ -10,7 +10,8 @@ pub fn walk_all_storage_mappings(
     errors: &mut tables::Errors,
 ) {
     for m in storage_mappings {
-        let scope = Scope::new(&m.scope);
+        let scope = m.scope();
+        let scope = Scope::new(&scope);
 
         for (index, store) in m.stores.iter().enumerate() {
             let scope = scope.push_item(index);
@@ -149,12 +150,15 @@ pub fn walk_all_storage_mappings(
         }
         indexed::walk_name(
             scope,
-            "storageMappings",
+            "storageMapping",
             m.catalog_prefix.as_ref(),
             models::Prefix::regex(),
             errors,
         );
     }
+
+    let scope = url::Url::parse("flow://storageMappings/").unwrap();
+    let scope = Scope::new(&scope);
 
     indexed::walk_duplicates(
         storage_mappings.iter().map(|m| {
@@ -166,7 +170,7 @@ pub fn walk_all_storage_mappings(
                     .as_str()
                     .strip_suffix("/")
                     .unwrap_or(m.catalog_prefix.as_str()),
-                Scope::new(&m.scope),
+                scope.push_prop(&m.catalog_prefix),
             )
         }),
         errors,
@@ -201,7 +205,7 @@ pub fn mapped_stores<'a>(
                     (
                         strsim::osa_distance(&name, &m.catalog_prefix),
                         &m.catalog_prefix,
-                        &m.scope,
+                        m.scope(),
                     )
                 })
                 .min()
@@ -211,7 +215,7 @@ pub fn mapped_stores<'a>(
                 this_thing: name.to_string(),
                 this_entity: entity,
                 suggest_name: suggest_name.to_string(),
-                suggest_scope: suggest_scope.clone(),
+                suggest_scope: suggest_scope,
             }
             .push(scope, errors);
 
@@ -245,11 +249,11 @@ mod test {
     #[test]
     fn test_matched_mapping() {
         let mut mappings = tables::StorageMappings::new();
-        let scope = url::Url::parse("http://scope").unwrap();
+        let id = models::Id::zero();
 
-        mappings.insert_row(Prefix::new("foo/"), &scope, Vec::new());
-        mappings.insert_row(Prefix::new("bar/one/"), &scope, Vec::new());
-        mappings.insert_row(Prefix::new("bar/two/"), &scope, Vec::new());
+        mappings.insert_row(Prefix::new("foo/"), id, Vec::new());
+        mappings.insert_row(Prefix::new("bar/one/"), id, Vec::new());
+        mappings.insert_row(Prefix::new("bar/two/"), id, Vec::new());
 
         assert!(lookup_mapping(&mappings, "foo/foo").is_some());
         assert!(lookup_mapping(&mappings, "fooo/foo").is_none());

@@ -251,6 +251,7 @@ impl DiscoverHandler {
                 row.auto_evolve,
                 detail,
                 row.background,
+                row.data_plane_name,
             )
             .await?;
             Some(id)

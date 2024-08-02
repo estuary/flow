@@ -5,6 +5,13 @@ os.putenv("RUST_LOG", "info")
 os.putenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
 
 
+# Secret(s) used to sign Authorizations within a data plane.
+# Testing values here are the base64 encoding of "secret" and "other-secret".
+AUTH_KEYS="c2VjcmV0,b3RoZXItc2VjcmV0"
+os.putenv("CONSUMER_AUTH_KEYS", AUTH_KEYS)
+os.putenv("BROKER_AUTH_KEYS", AUTH_KEYS)
+
+
 REPO_BASE= '%s/..' % os.getcwd()
 TEST_KMS_KEY="projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/testing"
 

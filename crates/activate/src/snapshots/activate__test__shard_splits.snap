@@ -1,6 +1,6 @@
 ---
 source: crates/activate/src/lib.rs
-expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,\n    \"key_shard_changes\", key_shard_changes, \"key_log_changes\",\n    key_log_changes, \"clock_shard_changes\", clock_shard_changes,\n    \"clock_log_changes\", clock_log_changes,])"
+expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits, \"key_changes\",\n    key_changes, \"clock_changes\", clock_changes,])"
 ---
 [
   "key_splits",
@@ -137,10 +137,10 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
       0
     ]
   ],
-  "key_shard_changes",
-  {
-    "changes": [
-      {
+  "key_changes",
+  [
+    {
+      "Shard": {
         "expectModRevision": "111",
         "upsert": {
           "hintBackups": 2,
@@ -170,6 +170,10 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
                 "value": "info"
               },
               {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
                 "name": "estuary.dev/rclock-begin",
                 "value": "60000000"
               },
@@ -182,60 +186,8 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
                 "value": "derivation/example/derivation/2020202020202020/20000000-60000000"
               },
               {
-                "name": "estuary.dev/task-name",
-                "value": "example/derivation"
-              },
-              {
-                "name": "estuary.dev/task-type",
-                "value": "derivation"
-              }
-            ]
-          },
-          "maxTxnDuration": "60s",
-          "minTxnDuration": "0s",
-          "readChannelSize": 4096,
-          "recoveryLogPrefix": "recovery",
-          "ringBufferSize": 65536
-        }
-      },
-      {
-        "upsert": {
-          "hintBackups": 2,
-          "hintPrefix": "/estuary/flow/hints",
-          "id": "derivation/example/derivation/2020202020202020/20000000-60000000",
-          "labels": {
-            "labels": [
-              {
-                "name": "app.gazette.dev/managed-by",
-                "value": "estuary.dev/flow"
-              },
-              {
-                "name": "estuary.dev/build",
-                "value": "0101010101010101"
-              },
-              {
-                "name": "estuary.dev/key-begin",
-                "value": "20000000"
-              },
-              {
-                "name": "estuary.dev/key-end",
-                "value": "2fffffff"
-              },
-              {
-                "name": "estuary.dev/log-level",
-                "value": "info"
-              },
-              {
-                "name": "estuary.dev/rclock-begin",
-                "value": "60000000"
-              },
-              {
-                "name": "estuary.dev/rclock-end",
-                "value": "9fffffff"
-              },
-              {
-                "name": "estuary.dev/split-source",
-                "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -254,12 +206,9 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           "ringBufferSize": 65536
         }
       }
-    ]
-  },
-  "key_log_changes",
-  {
-    "changes": [
-      {
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "flags": 4,
@@ -299,8 +248,76 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           "name": "recovery/derivation/example/derivation/2020202020202020/10000000-60000000",
           "replication": 3
         }
-      },
-      {
+      }
+    },
+    {
+      "Shard": {
+        "upsert": {
+          "hintBackups": 2,
+          "hintPrefix": "/estuary/flow/hints",
+          "id": "derivation/example/derivation/2020202020202020/20000000-60000000",
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "20000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "2fffffff"
+              },
+              {
+                "name": "estuary.dev/log-level",
+                "value": "info"
+              },
+              {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
+                "name": "estuary.dev/rclock-begin",
+                "value": "60000000"
+              },
+              {
+                "name": "estuary.dev/rclock-end",
+                "value": "9fffffff"
+              },
+              {
+                "name": "estuary.dev/split-source",
+                "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
+              },
+              {
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/derivation"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "maxTxnDuration": "60s",
+          "minTxnDuration": "0s",
+          "readChannelSize": 4096,
+          "recoveryLogPrefix": "recovery",
+          "ringBufferSize": 65536
+        }
+      }
+    },
+    {
+      "Journal": {
         "upsert": {
           "flags": 4,
           "fragment": {
@@ -340,12 +357,12 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           "replication": 3
         }
       }
-    ]
-  },
-  "clock_shard_changes",
-  {
-    "changes": [
-      {
+    }
+  ],
+  "clock_changes",
+  [
+    {
+      "Shard": {
         "expectModRevision": "111",
         "upsert": {
           "hintBackups": 2,
@@ -375,6 +392,10 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
                 "value": "info"
               },
               {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
                 "name": "estuary.dev/rclock-begin",
                 "value": "60000000"
               },
@@ -387,60 +408,8 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
                 "value": "derivation/example/derivation/2020202020202020/10000000-80000000"
               },
               {
-                "name": "estuary.dev/task-name",
-                "value": "example/derivation"
-              },
-              {
-                "name": "estuary.dev/task-type",
-                "value": "derivation"
-              }
-            ]
-          },
-          "maxTxnDuration": "60s",
-          "minTxnDuration": "0s",
-          "readChannelSize": 4096,
-          "recoveryLogPrefix": "recovery",
-          "ringBufferSize": 65536
-        }
-      },
-      {
-        "upsert": {
-          "hintBackups": 2,
-          "hintPrefix": "/estuary/flow/hints",
-          "id": "derivation/example/derivation/2020202020202020/10000000-80000000",
-          "labels": {
-            "labels": [
-              {
-                "name": "app.gazette.dev/managed-by",
-                "value": "estuary.dev/flow"
-              },
-              {
-                "name": "estuary.dev/build",
-                "value": "0101010101010101"
-              },
-              {
-                "name": "estuary.dev/key-begin",
-                "value": "10000000"
-              },
-              {
-                "name": "estuary.dev/key-end",
-                "value": "2fffffff"
-              },
-              {
-                "name": "estuary.dev/log-level",
-                "value": "info"
-              },
-              {
-                "name": "estuary.dev/rclock-begin",
-                "value": "80000000"
-              },
-              {
-                "name": "estuary.dev/rclock-end",
-                "value": "9fffffff"
-              },
-              {
-                "name": "estuary.dev/split-source",
-                "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -459,12 +428,9 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           "ringBufferSize": 65536
         }
       }
-    ]
-  },
-  "clock_log_changes",
-  {
-    "changes": [
-      {
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "flags": 4,
@@ -504,8 +470,76 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           "name": "recovery/derivation/example/derivation/2020202020202020/10000000-60000000",
           "replication": 3
         }
-      },
-      {
+      }
+    },
+    {
+      "Shard": {
+        "upsert": {
+          "hintBackups": 2,
+          "hintPrefix": "/estuary/flow/hints",
+          "id": "derivation/example/derivation/2020202020202020/10000000-80000000",
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "10000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "2fffffff"
+              },
+              {
+                "name": "estuary.dev/log-level",
+                "value": "info"
+              },
+              {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
+                "name": "estuary.dev/rclock-begin",
+                "value": "80000000"
+              },
+              {
+                "name": "estuary.dev/rclock-end",
+                "value": "9fffffff"
+              },
+              {
+                "name": "estuary.dev/split-source",
+                "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
+              },
+              {
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/derivation"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "maxTxnDuration": "60s",
+          "minTxnDuration": "0s",
+          "readChannelSize": 4096,
+          "recoveryLogPrefix": "recovery",
+          "ringBufferSize": 65536
+        }
+      }
+    },
+    {
+      "Journal": {
         "upsert": {
           "flags": 4,
           "fragment": {
@@ -545,6 +579,6 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           "replication": 3
         }
       }
-    ]
-  }
+    }
+  ]
 ]

@@ -5,66 +5,66 @@ expression: errors
 [
     Error {
         scope: test://example/array-key#/collections/testing~1array-key,
-        error: could not map collection testing/array-key into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/array-key into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/from-array-key#/collections/testing~1from-array-key,
-        error: could not map collection testing/from-array-key into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/from-array-key into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: could not map collection testing/int-halve into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/int-halve into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse,
-        error: could not map collection testing/int-reverse into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/int-reverse into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string,
-        error: could not map collection testing/int-string into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/int-string into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-inferred,
-        error: could not map collection testing/int-string-inferred into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/int-string-inferred into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
-        error: could not map collection testing/int-string-inferred-not-found into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/int-string-inferred-not-found into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: could not map collection testing/int-string-rw into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/int-string-rw into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string.v2,
-        error: could not map collection testing/int-string.v2 into a storage mapping; did you mean TestinG/ defined at flow://control/storage-mapping/TestinG/?,
+        error: could not map collection testing/int-string.v2 into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1db-cdc,
-        error: could not map capture recovery/testing/db-cdc into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://control/storage-mapping/RecoverY/TestinG/?,
+        error: could not map capture recovery/testing/db-cdc into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://storageMapping/RecoverY/TestinG/?,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1s3-source,
-        error: could not map capture recovery/testing/s3-source into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://control/storage-mapping/RecoverY/TestinG/?,
+        error: could not map capture recovery/testing/s3-source into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://storageMapping/RecoverY/TestinG/?,
     },
     Error {
         scope: test://example/from-array-key#/collections/testing~1from-array-key/derive,
-        error: could not map derivation recovery/testing/from-array-key into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://control/storage-mapping/RecoverY/TestinG/?,
+        error: could not map derivation recovery/testing/from-array-key into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://storageMapping/RecoverY/TestinG/?,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derive,
-        error: could not map derivation recovery/testing/int-halve into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://control/storage-mapping/RecoverY/TestinG/?,
+        error: could not map derivation recovery/testing/int-halve into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://storageMapping/RecoverY/TestinG/?,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive,
-        error: could not map derivation recovery/testing/int-reverse into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://control/storage-mapping/RecoverY/TestinG/?,
+        error: could not map derivation recovery/testing/int-reverse into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://storageMapping/RecoverY/TestinG/?,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views,
-        error: could not map materialization recovery/testing/db-views into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://control/storage-mapping/RecoverY/TestinG/?,
+        error: could not map materialization recovery/testing/db-views into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://storageMapping/RecoverY/TestinG/?,
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
-        error: could not map materialization recovery/testing/webhook/deliveries into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://control/storage-mapping/RecoverY/TestinG/?,
+        error: could not map materialization recovery/testing/webhook/deliveries into a storage mapping; did you mean RecoverY/TestinG/ defined at flow://storageMapping/RecoverY/TestinG/?,
     },
 ]

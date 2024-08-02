@@ -19,6 +19,8 @@ proto-gazette = { path = "../proto-gazette" }
 
 anyhow = { workspace = true }
 futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

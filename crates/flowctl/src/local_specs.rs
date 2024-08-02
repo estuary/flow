@@ -213,7 +213,7 @@ impl tables::CatalogResolver for Resolver {
                     // TODO(johnny): Fetch actual storage mappings?
                     live.storage_mappings.insert_row(
                         models::Prefix::new(""),
-                        url::Url::parse("flow://control").unwrap(),
+                        models::Id::zero(),
                         vec![models::Store::Gcs(models::GcsBucketAndPrefix {
                             bucket: "example-bucket".to_string(),
                             prefix: None,
@@ -247,6 +247,7 @@ impl Resolver {
 
         #[derive(serde::Deserialize)]
         struct LiveSpec {
+            id: models::Id,
             catalog_name: String,
             spec_type: CatalogType,
             #[serde(alias = "spec")]
@@ -263,7 +264,7 @@ impl Resolver {
                 let builder = self
                     .client
                     .from("live_specs_ext")
-                    .select("catalog_name,spec_type,spec,built_spec,last_pub_id")
+                    .select("id,catalog_name,spec_type,spec,built_spec,last_pub_id")
                     .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
 
@@ -276,6 +277,7 @@ impl Resolver {
         let mut live = tables::LiveCatalog::default();
 
         for LiveSpec {
+            id,
             catalog_name,
             spec_type,
             model,
@@ -288,28 +290,31 @@ impl Resolver {
             match spec_type {
                 CatalogType::Capture => live.captures.insert_row(
                     models::Capture::new(catalog_name),
-                    scope,
+                    id,
+                    models::Id::zero(),
                     last_pub_id,
                     serde_json::from_str::<models::CaptureDef>(model.get())?,
                     serde_json::from_str::<flow::CaptureSpec>(built_spec.get())?,
                 ),
                 CatalogType::Collection => live.collections.insert_row(
                     models::Collection::new(catalog_name),
-                    scope,
+                    id,
+                    models::Id::zero(),
                     last_pub_id,
                     serde_json::from_str::<models::CollectionDef>(model.get())?,
                     serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
                 ),
                 CatalogType::Materialization => live.materializations.insert_row(
                     models::Materialization::new(catalog_name),
-                    scope,
+                    id,
+                    models::Id::zero(),
                     last_pub_id,
                     serde_json::from_str::<models::MaterializationDef>(model.get())?,
                     serde_json::from_str::<flow::MaterializationSpec>(built_spec.get())?,
                 ),
                 CatalogType::Test => live.tests.insert_row(
                     models::Test::new(catalog_name),
-                    scope,
+                    id,
                     last_pub_id,
                     serde_json::from_str::<models::TestDef>(model.get())?,
                     serde_json::from_str::<flow::TestSpec>(built_spec.get())?,

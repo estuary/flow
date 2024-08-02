@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
-use super::{backoff_data_plane_activate, ControllerState, NextRun};
+use super::{backoff_data_plane_activate, ControllerState};
 
 /// Information about the dependencies of a live spec.
 pub struct Dependencies {
@@ -55,7 +55,7 @@ impl ActivationStatus {
             let name = state.catalog_name.clone();
             let built_spec = state.built_spec.as_ref().expect("built_spec must be Some");
             control_plane
-                .data_plane_activate(name, built_spec)
+                .data_plane_activate(name, built_spec, state.data_plane_id)
                 .await
                 .with_retry(backoff_data_plane_activate(state.failures))
                 .context("failed to activate")?;
@@ -177,7 +177,13 @@ impl PendingPublication {
 
         let detail = details.join(", ");
         let result = control_plane
-            .publish(id, Some(detail), state.logs_token, draft)
+            .publish(
+                id,
+                Some(detail),
+                state.logs_token,
+                draft,
+                state.data_plane_id,
+            )
             .await;
         match result.as_ref() {
             Ok(r) => {

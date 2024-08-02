@@ -405,7 +405,8 @@ impl TestHarness {
                 cj.logs_token,
                 cj.status as "status: TextJson<Box<RawValue>>",
                 cj.failures,
-                cj.error
+                cj.error,
+                ls.data_plane_id as "data_plane_id: agent_sql::Id"
             from live_specs ls
             join controller_jobs cj on ls.id = cj.live_spec_id
             where ls.catalog_name = $1;"#,
@@ -490,6 +491,7 @@ impl TestHarness {
             false,
             detail.clone(),
             false,
+            String::new(),
         )
         .await
         .expect("failed to create publication");
@@ -823,6 +825,7 @@ impl ControlPlane for TestControlPlane {
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<PublicationResult> {
         let mut result = self
             .inner
@@ -833,6 +836,7 @@ impl ControlPlane for TestControlPlane {
                 detail,
                 draft,
                 logs_token,
+                data_plane_id,
             )
             .await?;
 
@@ -866,6 +870,7 @@ impl ControlPlane for TestControlPlane {
         &mut self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
+        _data_plane_id: models::Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
@@ -888,6 +893,7 @@ impl ControlPlane for TestControlPlane {
         &mut self,
         catalog_name: String,
         catalog_type: CatalogType,
+        _data_plane_id: models::Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");

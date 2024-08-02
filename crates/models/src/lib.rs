@@ -40,8 +40,9 @@ pub use materializations::{
 };
 pub use raw_value::RawValue;
 pub use references::{
-    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
-    RelativeUrl, StorageEndpoint, Test, Transform, CATALOG_PREFIX_RE, TOKEN_RE,
+    Capture, Collection, CompositeKey, DataPlane, Field, JsonPointer, Materialization,
+    PartitionField, Prefix, RelativeUrl, StorageEndpoint, Test, Transform, CATALOG_PREFIX_RE,
+    TOKEN_RE,
 };
 pub use schemas::Schema;
 use serde::{Deserialize, Serialize};

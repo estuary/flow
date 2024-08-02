@@ -20,6 +20,7 @@ pub struct ControllerJob {
     pub status: TextJson<Box<RawValue>>,
     pub failures: i32,
     pub error: Option<String>,
+    pub data_plane_id: Id,
 }
 
 /// Returns the next available controller job, if any are due to be run. Filters
@@ -46,7 +47,8 @@ pub async fn dequeue(
             cj.logs_token,
             cj.status as "status: TextJson<Box<RawValue>>",
             cj.failures,
-            cj.error
+            cj.error,
+            ls.data_plane_id as "data_plane_id: Id"
         from live_specs ls
         join controller_jobs cj on ls.id = cj.live_spec_id
         where

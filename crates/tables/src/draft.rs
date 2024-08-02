@@ -1,8 +1,7 @@
 use crate::{
     synthetic_scope, DraftCapture, DraftCaptures, DraftCollection, DraftCollections,
     DraftMaterialization, DraftMaterializations, DraftTest, DraftTests, Error, Errors, Fetches,
-    Imports, LiveCapture, LiveCatalog, LiveCollection, LiveMaterialization, LiveTest, Resources,
-    Row, Table,
+    Imports, Meta, Resources, Row, Table,
 };
 use anyhow::Context;
 use models::{AnySpec, CatalogType, ModelDef};
@@ -13,10 +12,11 @@ use serde_json::value::RawValue;
 pub struct DraftCatalog {
     pub captures: DraftCaptures,
     pub collections: DraftCollections,
-    pub materializations: DraftMaterializations,
     pub errors: Errors,
     pub fetches: Fetches,
     pub imports: Imports,
+    pub materializations: DraftMaterializations,
+    pub meta: Meta,
     pub resources: Resources,
     pub tests: DraftTests,
 }
@@ -348,6 +348,7 @@ impl DraftCatalog {
             fetches,
             imports,
             materializations,
+            meta,
             resources,
             tests,
         } = self;
@@ -359,6 +360,7 @@ impl DraftCatalog {
             fetches,
             imports,
             materializations,
+            meta,
             resources,
             tests,
         ]
@@ -373,6 +375,7 @@ impl DraftCatalog {
             fetches,
             imports,
             materializations,
+            meta,
             resources,
             tests,
         } = self;
@@ -384,29 +387,10 @@ impl DraftCatalog {
             fetches,
             imports,
             materializations,
+            meta,
             resources,
             tests,
         ]
-    }
-}
-
-impl From<LiveCatalog> for DraftCatalog {
-    fn from(live: LiveCatalog) -> Self {
-        Self {
-            captures: live.captures.into_iter().map(DraftCapture::from).collect(),
-            collections: live
-                .collections
-                .into_iter()
-                .map(DraftCollection::from)
-                .collect(),
-            materializations: live
-                .materializations
-                .into_iter()
-                .map(DraftMaterialization::from)
-                .collect(),
-            tests: live.tests.into_iter().map(DraftTest::from).collect(),
-            ..Default::default()
-        }
     }
 }
 
@@ -615,11 +599,33 @@ impl DraftRow for crate::DraftTest {
     }
 }
 
+/*
+impl From<LiveCatalog> for DraftCatalog {
+    fn from(live: LiveCatalog) -> Self {
+        Self {
+            captures: live.captures.into_iter().map(DraftCapture::from).collect(),
+            collections: live
+                .collections
+                .into_iter()
+                .map(DraftCollection::from)
+                .collect(),
+            materializations: live
+                .materializations
+                .into_iter()
+                .map(DraftMaterialization::from)
+                .collect(),
+            tests: live.tests.into_iter().map(DraftTest::from).collect(),
+            ..Default::default()
+        }
+    }
+}
+
 impl From<LiveCapture> for DraftCapture {
     fn from(value: LiveCapture) -> Self {
         let LiveCapture {
-            scope,
             capture,
+            scope,
+            data_plane_id: _,
             last_pub_id,
             model,
             spec: _,
@@ -636,8 +642,9 @@ impl From<LiveCapture> for DraftCapture {
 impl From<LiveCollection> for DraftCollection {
     fn from(value: LiveCollection) -> Self {
         let LiveCollection {
-            scope,
             collection,
+            scope,
+            data_plane_id: _,
             last_pub_id,
             model,
             spec: _,
@@ -655,10 +662,11 @@ impl From<LiveMaterialization> for DraftMaterialization {
     fn from(value: LiveMaterialization) -> Self {
         let LiveMaterialization {
             materialization,
-            spec: _,
-            model,
             scope,
+            data_plane_id: _,
             last_pub_id,
+            model,
+            spec: _,
         } = value;
         DraftMaterialization {
             scope,
@@ -685,3 +693,4 @@ impl From<LiveTest> for DraftTest {
         }
     }
 }
+*/

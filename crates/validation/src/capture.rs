@@ -8,6 +8,7 @@ use tables::EitherOrBoth as EOB;
 pub async fn walk_all_captures(
     pub_id: models::Id,
     build_id: models::Id,
+    default_plane_id: models::Id,
     draft_captures: &tables::DraftCaptures,
     live_captures: &tables::LiveCaptures,
     built_collections: &tables::BuiltCollections,
@@ -33,6 +34,7 @@ pub async fn walk_all_captures(
             let built_capture = walk_capture(
                 pub_id,
                 build_id,
+                default_plane_id,
                 eob,
                 built_collections,
                 connectors,
@@ -60,14 +62,15 @@ pub async fn walk_all_captures(
 async fn walk_capture(
     pub_id: models::Id,
     build_id: models::Id,
+    default_plane_id: models::Id,
     eob: EOB<&tables::LiveCapture, &tables::DraftCapture>,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltCapture> {
-    let (capture, scope, model, expect_pub_id, live_spec) =
-        match walk_transition(pub_id, eob, errors) {
+    let (capture, scope, model, control_id, data_plane_id, expect_pub_id, live_spec) =
+        match walk_transition(pub_id, default_plane_id, eob, errors) {
             Ok(ok) => ok,
             Err(built) => return Some(built),
         };
@@ -272,6 +275,8 @@ async fn walk_capture(
     Some(tables::BuiltCapture {
         capture: capture.clone(),
         scope: scope.flatten(),
+        control_id,
+        data_plane_id,
         expect_pub_id,
         model: Some(model.clone()),
         validated: Some(validated_response),

@@ -84,22 +84,32 @@ impl Publisher {
             %row.updated_at,
             %row.user_id,
             %row.background,
+            %row.data_plane_name,
             "processing publication",
         );
+
+        let Some(data_plane_id) = agent_sql::data_plane::resolve_authorized_data_plane(
+            &row.data_plane_name,
+            row.user_id,
+            &self.db,
+        )
+        .await?
+        else {
+            anyhow::bail!(
+                "data-plane {} does not exist or the user is not authorized",
+                row.data_plane_name
+            );
+        };
 
         let mut attempt = 0;
         loop {
             attempt += 1;
             let draft = specs::load_draft(row.draft_id.into(), &self.db).await?;
-            // let all_drafted_specs = draft
-            //     .all_spec_names()
-            //     .map(|n| n.to_string())
-            //     .collect::<BTreeSet<_>>();
+
             tracing::debug!(
                 %attempt,
                 n_drafted = draft.all_spec_names().count(),
                 errors = draft.errors.len(),
-                //spec_names = ?all_drafted_specs,
                 "resolved draft specifications"
             );
             if !draft.errors.is_empty() {
@@ -119,7 +129,7 @@ impl Publisher {
                     },
                 ));
             }
-            let result = self.try_process(&row, draft).await?;
+            let result = self.try_process(&row, draft, data_plane_id.into()).await?;
             let JobStatus::ExpectPubIdMismatch { failures } = &result.status else {
                 return Ok(result);
             };
@@ -138,6 +148,7 @@ impl Publisher {
         &mut self,
         row: &Row,
         mut draft: tables::DraftCatalog,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<PublicationResult> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
         // the published collections. We do this so that validation can catch any inconsistencies
@@ -214,6 +225,7 @@ impl Publisher {
                 row.detail.clone(),
                 draft,
                 row.logs_token,
+                data_plane_id,
             )
             .await?;
         if built.has_errors() {

@@ -4,23 +4,23 @@ expression: errors
 ---
 [
     Error {
-        scope: flow://control/collections/the/collection,
+        scope: flow://collection/the/collection,
         error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
-        scope: flow://control/collections/the/derivation,
+        scope: flow://collection/the/derivation,
         error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
-        scope: flow://control/tests/the/test,
+        scope: flow://test/the/test,
         error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
-        scope: flow://control/captures/the/capture,
+        scope: flow://capture/the/capture,
         error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
     Error {
-        scope: flow://control/materializations/the/materialization,
+        scope: flow://materialization/the/materialization,
         error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
     },
 ]
