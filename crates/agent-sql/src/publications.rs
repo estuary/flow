@@ -600,6 +600,7 @@ pub async fn insert_live_spec_flows(
 
 #[derive(Debug)]
 pub struct StorageRow {
+    pub id: Id,
     pub catalog_prefix: String,
     pub spec: serde_json::Value,
 }
@@ -621,6 +622,7 @@ pub async fn resolve_storage_mappings(
           union all select 'recovery/' || name from tenants
         )
         select
+            m.id as "id: Id",
             m.catalog_prefix,
             m.spec
         from prefixes p

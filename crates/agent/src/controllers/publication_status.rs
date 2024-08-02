@@ -97,7 +97,7 @@ impl PublicationInfo {
 
     pub fn observed(publication: &PublicationResult) -> Self {
         PublicationInfo {
-            id: publication.pub_id,
+            id: publication.draft.pub_id(),
             created: Some(publication.started_at),
             completed: Some(publication.completed_at),
             result: Some(publication.status.clone()),
@@ -326,12 +326,17 @@ impl PublicationStatus {
     }
 }
 
-fn draft_publication(state: &ControllerState, live_spec: &AnySpec) -> tables::DraftCatalog {
+fn draft_publication(state: &ControllerState, spec: &AnySpec) -> tables::DraftCatalog {
     let mut draft = tables::DraftCatalog::default();
-    draft.add_any_spec(
+    let scope = tables::synthetic_scope(spec.catalog_type(), &state.catalog_name);
+
+    draft.add_spec(
+        spec.catalog_type(),
         &state.catalog_name,
-        live_spec.clone(),
+        scope,
         Some(state.last_pub_id),
+        Some(&spec.to_raw_value()),
     );
+
     draft
 }

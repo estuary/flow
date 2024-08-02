@@ -22,8 +22,6 @@ pub use self::status::{
 /// Represents a publication that has just completed.
 #[derive(Debug)]
 pub struct PublicationResult {
-    pub pub_id: models::Id,
-    pub user_id: Uuid,
     pub detail: Option<String>,
     pub started_at: DateTime<Utc>,
     pub completed_at: DateTime<Utc>,
@@ -43,8 +41,6 @@ pub struct PublicationResult {
 
 impl PublicationResult {
     pub fn new(
-        pub_id: models::Id,
-        user_id: Uuid,
         detail: Option<String>,
         start_time: DateTime<Utc>,
         built: build::Output,
@@ -52,8 +48,6 @@ impl PublicationResult {
         status: JobStatus,
     ) -> Self {
         Self {
-            pub_id,
-            user_id,
             detail,
             started_at: start_time,
             completed_at: Utc::now(),
@@ -126,15 +120,11 @@ impl Publisher {
 }
 
 pub struct UncommittedBuild {
-    pub(crate) publication_id: models::Id,
-    pub(crate) user_id: Uuid,
     pub(crate) detail: Option<String>,
     pub(crate) started_at: DateTime<Utc>,
     pub(crate) output: build::Output,
-    pub(crate) live_spec_ids: BTreeMap<String, models::Id>,
     pub(crate) test_errors: tables::Errors,
     pub(crate) incompatible_collections: Vec<IncompatibleCollection>,
-    pub(crate) data_plane_id: models::Id,
 }
 impl UncommittedBuild {
     pub fn start_time(&self) -> DateTime<Utc> {
@@ -165,15 +155,11 @@ impl UncommittedBuild {
 
     pub fn into_result(self, completed_at: DateTime<Utc>, status: JobStatus) -> PublicationResult {
         let UncommittedBuild {
-            publication_id,
-            user_id,
             detail,
             started_at,
             output,
-            live_spec_ids: _,
             test_errors,
             incompatible_collections,
-            data_plane_id: _,
         } = self;
         debug_assert!(
             incompatible_collections.is_empty(),
@@ -181,9 +167,7 @@ impl UncommittedBuild {
         );
         let build::Output { draft, live, built } = output;
         PublicationResult {
-            user_id,
             detail,
-            pub_id: publication_id,
             started_at,
             completed_at,
             draft,
@@ -207,12 +191,9 @@ impl Publisher {
     #[tracing::instrument(level = "info", skip(self, draft))]
     pub async fn build(
         &mut self,
-        user_id: Uuid,
-        publication_id: models::Id,
         detail: Option<String>,
         draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
-        data_plane_id: models::Id,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = Utc::now();
         let build_id = self.build_id_gen.next();
@@ -233,15 +214,11 @@ impl Publisher {
                 live: Default::default(),
             };
             return Ok(UncommittedBuild {
-                publication_id,
-                user_id,
                 detail,
                 started_at: start_time,
                 output,
-                live_spec_ids: BTreeMap::new(),
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
-                data_plane_id,
             });
         }
 
@@ -249,8 +226,6 @@ impl Publisher {
             specs::resolve_live_specs(user_id, &draft, &self.db).await?;
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
-                publication_id,
-                user_id,
                 detail,
                 started_at: start_time,
                 output: build::Output {
@@ -258,10 +233,8 @@ impl Publisher {
                     live: live_catalog,
                     built: Default::default(),
                 },
-                live_spec_ids,
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
-                data_plane_id,
             });
         }
 
@@ -280,15 +253,11 @@ impl Publisher {
                 },
             };
             return Ok(UncommittedBuild {
-                publication_id,
-                user_id,
                 detail,
                 started_at: start_time,
                 output,
-                live_spec_ids,
                 test_errors: tables::Errors::default(),
                 incompatible_collections,
-                data_plane_id,
             });
         }
 
@@ -361,21 +330,17 @@ impl Publisher {
         };
 
         Ok(UncommittedBuild {
-            publication_id,
-            user_id,
             detail,
             started_at: start_time,
             output: built,
-            live_spec_ids,
             test_errors,
             incompatible_collections: Vec::new(),
-            data_plane_id,
         })
     }
 
     #[tracing::instrument(err, skip_all, fields(
-        publication_id = %uncommitted.publication_id,
-        user_id = %uncommitted.user_id,
+        publication_id = %uncommitted.output.draft.meta.pub_id(),
+        user_id = %uncommitted.output.draft.meta.user_id(),
         detail = ?uncommitted.detail
     ))]
     pub async fn commit(

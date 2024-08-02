@@ -54,6 +54,7 @@ pub trait ControlPlane: Send {
         &mut self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<()>;
 
     /// Deletes the given entity from the data plane.
@@ -73,7 +74,6 @@ pub trait ControlPlane: Send {
     /// an `Ok`, where the `PublicationResult` has a non-success status.
     async fn publish(
         &mut self,
-        publication_id: models::Id,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
@@ -271,7 +271,8 @@ impl ControlPlane for PGControlPlane {
             live.add_spec(
                 catalog_type,
                 &row.catalog_name,
-                scope,
+                row.id,
+                row.data_plane_id.into(),
                 row.last_pub_id.into(),
                 model_json,
                 built_spec_json,

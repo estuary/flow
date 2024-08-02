@@ -13,12 +13,8 @@ pub async fn persist_updates(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<LockFailure>> {
     let UncommittedBuild {
-        ref publication_id,
         ref output,
-        ref mut live_spec_ids,
-        ref user_id,
         ref detail,
-        ref data_plane_id,
         ..
     } = uncommitted;
 
@@ -610,10 +606,9 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
 }
 
 pub async fn resolve_live_specs(
-    user_id: Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
-) -> anyhow::Result<(tables::LiveCatalog, BTreeMap<String, models::Id>)> {
+) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
     // still contain information on the user and spec capabilities.
@@ -621,7 +616,7 @@ pub async fn resolve_live_specs(
     let mut all_spec_names = draft
         .all_catalog_names()
         .iter()
-        .map(|n| n.to_string())
+        .map(str::to_string)
         .collect::<Vec<_>>();
 
     // Ops collections must be injected as part of the `LiveCatalog`, so that they can be included
@@ -639,14 +634,9 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows = agent_sql::live_specs::fetch_live_specs(user_id, &all_spec_names, db)
+    let rows = agent_sql::live_specs::fetch_live_specs(draft.user_id(), &all_spec_names, db)
         .await
         .context("fetching live specs")?;
-
-    let spec_ids = rows
-        .iter()
-        .map(|r| (r.catalog_name.clone(), r.id.into()))
-        .collect();
 
     // Check the user and spec authorizations.
     // Start by making an easy way to lookup whether each row was drafted or not.
@@ -734,12 +724,12 @@ pub async fn resolve_live_specs(
 
         if let Some(model) = spec_row.spec.as_ref() {
             let catalog_type: models::CatalogType = spec_row.spec_type.unwrap().into();
-            let scope = tables::synthetic_scope(catalog_type, &spec_row.catalog_name);
             live.add_spec(
                 catalog_type,
                 &spec_row.catalog_name,
-                scope,
-                spec_row.last_pub_id.into(),
+                spec_row.id,
+                spec_row.data_plane_id,
+                spec_row.last_pub_id,
                 &model,
                 &spec_row
                     .built_spec
@@ -761,7 +751,6 @@ pub async fn resolve_live_specs(
     tenant_names.dedup();
     let storage_rows = agent_sql::publications::resolve_storage_mappings(tenant_names, db).await?;
     for row in storage_rows {
-        let scope = tables::synthetic_scope("storage-mappings", &row.catalog_prefix);
         let store: models::StorageDef = match serde_json::from_value(row.spec) {
             Ok(s) => s,
             Err(err) => {
@@ -773,8 +762,8 @@ pub async fn resolve_live_specs(
             }
         };
         live.storage_mappings.insert(tables::StorageMapping {
+            control_id: row.id,
             catalog_prefix: models::Prefix::new(row.catalog_prefix),
-            scope,
             stores: store.stores,
         });
     }
