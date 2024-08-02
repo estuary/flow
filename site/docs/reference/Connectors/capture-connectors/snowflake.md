@@ -114,7 +114,7 @@ moment in time, the interval merely controls how frequent and fine-grained the u
 ### Sample Configuration
 
 ```yaml
-materializations:
+captures:
   ${prefix}/source-snowflake:
     endpoint:
       connector:
