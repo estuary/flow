@@ -43,3 +43,4 @@ insta = { workspace = true }
 json-patch = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
+uuid = { workspace = true }

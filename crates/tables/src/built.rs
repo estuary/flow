@@ -1,4 +1,6 @@
-use crate::{BuiltCaptures, BuiltCollections, BuiltMaterializations, BuiltTests, Errors};
+use crate::{
+    BuiltCaptures, BuiltCollections, BuiltMaterializations, BuiltTests, Errors, MetaTable,
+};
 
 /// BuiltRow is a common trait of rows reflecting built specifications.
 pub trait BuiltRow: crate::Row {
@@ -283,6 +285,7 @@ impl BuiltRow for crate::BuiltTest {
 /// Validations are tables populated by catalog validations of the `validation` crate.
 #[derive(Default, Debug)]
 pub struct Validations {
+    pub meta: MetaTable,
     pub built_captures: BuiltCaptures,
     pub built_collections: BuiltCollections,
     pub built_materializations: BuiltMaterializations,
@@ -331,6 +334,7 @@ impl Validations {
             built_materializations,
             built_tests,
             errors,
+            meta,
         } = self;
 
         vec![
@@ -339,6 +343,7 @@ impl Validations {
             built_materializations,
             built_tests,
             errors,
+            meta,
         ]
     }
 
@@ -350,6 +355,7 @@ impl Validations {
             built_materializations,
             built_tests,
             errors,
+            meta,
         } = self;
 
         vec![
@@ -358,6 +364,7 @@ impl Validations {
             built_materializations,
             built_tests,
             errors,
+            meta,
         ]
     }
 }

@@ -9,7 +9,6 @@ pub fn inline_draft_catalog(catalog: &mut tables::DraftCatalog) {
         fetches: _,
         imports,
         materializations,
-        meta: _,
         resources,
         tests,
     } = catalog;

@@ -94,24 +94,16 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::DraftCatalog {
 /// * If `generate_ops_collections` is set, then ops collections are added into `sources`.
 /// * If any of `noop_*` is true, then validations are skipped for connectors of that type.
 pub async fn validate(
-    pub_id: models::Id,
-    build_id: models::Id,
     allow_local: bool,
     connector_network: &str,
-    generate_ops_collections: bool,
     log_handler: impl runtime::LogHandler,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
-    project_root: &url::Url,
+    meta: tables::Meta,
     mut draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
 ) -> Output {
-    // TODO(johnny): We *really* need to kill this, and have ops collections
-    // be injected exclusively from the control-plane.
-    if generate_ops_collections {
-        assemble::generate_ops_collections(&mut draft);
-    }
     ::sources::inline_draft_catalog(&mut draft);
 
     let runtime = runtime::Runtime::new(
@@ -119,7 +111,7 @@ pub async fn validate(
         connector_network.to_string(),
         log_handler,
         None,
-        format!("build/{build_id:#}"),
+        format!("build/{:#}", meta.build_id),
     );
     let connectors = Connectors {
         noop_captures,
@@ -127,18 +119,7 @@ pub async fn validate(
         noop_materializations,
         runtime,
     };
-
-    draft.meta.push(tables::MetaRow {
-        build_config: Default::default(),
-        build_id,
-        default_data_plane_id: Some(models::Id::zero()),
-        default_data_plane_name: "data/plane".to_string(),
-        fail_fast: true,
-        project_root: project_root.clone(),
-        pub_id,
-    });
-
-    let built = validation::validate(&connectors, &draft, &live).await;
+    let built = validation::validate(&connectors, meta, &draft, &live).await;
 
     Output::new(draft, live, built)
 }
@@ -199,11 +180,7 @@ impl Output {
 }
 
 /// Persist a managed build Result into the SQLite tables commonly known as a "build DB".
-pub fn persist(
-    build_config: proto_flow::flow::build_api::Config,
-    db_path: &Path,
-    output: &Output,
-) -> anyhow::Result<()> {
+pub fn persist(db_path: &Path, output: &Output) -> anyhow::Result<()> {
     let db = rusqlite::Connection::open(db_path).context("failed to open catalog database")?;
 
     tables::persist_tables(&db, &output.draft.as_tables())
@@ -212,14 +189,6 @@ pub fn persist(
         .context("failed to persist live catalog")?;
     tables::persist_tables(&db, &output.built.as_tables())
         .context("failed to persist built catalog")?;
-
-    /*
-    // Legacy support: encode and persist a deprecated protobuf build Config.
-    // At the moment, these are still covered by Go snapshot tests.
-    let mut meta = tables::Meta::new();
-    meta.insert_row(build_config);
-    tables::persist_tables(&db, &[&meta]).context("failed to persist catalog meta")?;
-    */
 
     tracing::info!(?db_path, "wrote build database");
     Ok(())
@@ -390,10 +359,13 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
     fn validate_capture<'a>(
         &'a self,
         request: capture::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
         async move {
             if self.noop_captures {
-                validation::NoOpConnectors.validate_capture(request).await
+                validation::NoOpConnectors
+                    .validate_capture(request, data_plane)
+                    .await
             } else {
                 Ok(self
                     .runtime
@@ -408,11 +380,12 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
     fn validate_derivation<'a>(
         &'a self,
         request: derive::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
         async move {
             if self.noop_derivations {
                 validation::NoOpConnectors
-                    .validate_derivation(request)
+                    .validate_derivation(request, data_plane)
                     .await
             } else {
                 Ok(self
@@ -428,11 +401,12 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
         async move {
             if self.noop_materializations {
                 validation::NoOpConnectors
-                    .validate_materialization(request)
+                    .validate_materialization(request, data_plane)
                     .await
             } else {
                 Ok(self

@@ -120,6 +120,10 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         config: models::RawValue::from_str("{\"live\":\"config\"}").unwrap(),
     };
 
+    for (control_id, _mock) in &mock_calls.data_planes {
+        live.data_planes.insert_row(control_id);
+    }
+
     // Load into LiveCatalog::live_captures.
     for (capture, mock) in &mock_calls.live_captures {
         let model = models::CaptureDef {
@@ -300,17 +304,15 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             .insert_row(models::Prefix::new(""), models::Id::zero(), vec![store]);
     }
 
-    draft.meta.push(tables::MetaRow {
-        build_config: Default::default(),
-        build_id: models::Id::new([1; 8]),
-        default_data_plane_id: Some(models::Id::new([29; 8])),
-        default_data_plane_name: "data/plane".to_string(),
+    let meta = tables::Meta {
         fail_fast: false,
-        project_root: url::Url::parse("file:///project/root").unwrap(),
+        default_data_plane_id: Some(models::Id::new([29; 8])),
         pub_id: models::Id::new([32; 8]),
-    });
+        ..tables::Meta::for_local_test()
+    };
 
-    let validations = futures::executor::block_on(validation::validate(&mock_calls, &draft, &live));
+    let validations =
+        futures::executor::block_on(validation::validate(&mock_calls, meta, &draft, &live));
 
     let tables::DraftCatalog {
         captures,
@@ -319,7 +321,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         fetches,
         imports,
         materializations,
-        meta: _,
         resources,
         tests,
     } = draft;
@@ -334,6 +335,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         built_materializations,
         built_tests,
         errors,
+        meta: _,
     } = validations;
 
     Outcome {
@@ -395,6 +397,10 @@ struct MockLiveTest {
     last_pub_id: models::Id,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MockDataPlane {}
+
 #[derive(Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MockDriverCalls {
@@ -407,6 +413,8 @@ struct MockDriverCalls {
     materializations: BTreeMap<String, MockMaterializationValidateCall>,
 
     // Live catalog mocks:
+    #[serde(default)]
+    data_planes: BTreeMap<models::Id, MockDataPlane>,
     #[serde(default)]
     inferred_schemas: BTreeMap<models::Collection, models::Schema>,
     #[serde(default)]
@@ -486,6 +494,7 @@ impl validation::Connectors for MockDriverCalls {
     fn validate_capture<'a>(
         &'a self,
         request: capture::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
         let capture::Request {
             validate: Some(request),
@@ -553,6 +562,7 @@ impl validation::Connectors for MockDriverCalls {
     fn validate_derivation<'a>(
         &'a self,
         request: derive::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
         let derive::Request {
             validate: Some(request),
@@ -636,6 +646,7 @@ impl validation::Connectors for MockDriverCalls {
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
         let materialize::Request {
             validate: Some(request),

@@ -738,17 +738,18 @@ mod test {
             return build::Output::new(draft, live, Default::default());
         }
 
+        let meta = tables::Meta {
+            project_root: build::project_root(&source),
+            ..tables::Meta::for_local_test()
+        };
         build::validate(
-            models::Id::new([32; 8]), // pub_id
-            models::Id::new([1; 8]),  // build_id
-            true,                     // allow_local
-            "",                       // connector_network
-            true,                     // generate_ops_collections
+            true, // allow_local
+            "",   // connector_network
             ops::tracing_log_handler,
             false, // don't no-op validations
             false, // don't no-op validations
             false, // don't no-op validations
-            &build::project_root(&source),
+            meta,
             draft,
             live,
         )

@@ -8,11 +8,12 @@ use tables::EitherOrBoth as EOB;
 pub async fn walk_all_captures(
     pub_id: models::Id,
     build_id: models::Id,
-    default_plane_id: models::Id,
     draft_captures: &tables::DraftCaptures,
     live_captures: &tables::LiveCaptures,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
+    default_plane_id: models::Id,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
@@ -34,10 +35,11 @@ pub async fn walk_all_captures(
             let built_capture = walk_capture(
                 pub_id,
                 build_id,
-                default_plane_id,
                 eob,
                 built_collections,
                 connectors,
+                data_planes,
+                default_plane_id,
                 storage_mappings,
                 &mut local_errors,
             )
@@ -62,10 +64,11 @@ pub async fn walk_all_captures(
 async fn walk_capture(
     pub_id: models::Id,
     build_id: models::Id,
-    default_plane_id: models::Id,
     eob: EOB<&tables::LiveCapture, &tables::DraftCapture>,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
+    default_plane_id: models::Id,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltCapture> {
@@ -129,6 +132,10 @@ async fn walk_capture(
         errors,
     );
 
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let data_plane =
+        reference::walk_data_plane(scope, capture, data_plane_id, data_planes, errors)?;
+
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
     if !errors.is_empty() {
@@ -159,9 +166,9 @@ async fn walk_capture(
 
     // If shards are disabled, then don't ask the connector to validate.
     let response = if shard_template.disable {
-        NoOpConnectors.validate_capture(wrapped_request)
+        NoOpConnectors.validate_capture(wrapped_request, data_plane)
     } else {
-        connectors.validate_capture(wrapped_request)
+        connectors.validate_capture(wrapped_request, data_plane)
     }
     .await;
 

@@ -13,7 +13,6 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         fetches: _,
         imports,
         materializations,
-        meta: _,
         resources,
         tests,
     } = draft;
@@ -75,7 +74,6 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         fetches: _,
         imports,
         materializations,
-        meta: _,
         resources,
         tests,
     } = draft;

@@ -10,11 +10,12 @@ use tables::EitherOrBoth as EOB;
 pub async fn walk_all_materializations(
     pub_id: models::Id,
     build_id: models::Id,
-    default_plane_id: models::Id,
     draft_materializations: &tables::DraftMaterializations,
     live_materializations: &tables::LiveMaterializations,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
+    default_plane_id: models::Id,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
@@ -37,10 +38,11 @@ pub async fn walk_all_materializations(
             let built_capture = walk_materialization(
                 pub_id,
                 build_id,
-                default_plane_id,
                 eob,
                 built_collections,
                 connectors,
+                data_planes,
+                default_plane_id,
                 storage_mappings,
                 &mut local_errors,
             )
@@ -65,10 +67,11 @@ pub async fn walk_all_materializations(
 async fn walk_materialization(
     pub_id: models::Id,
     build_id: models::Id,
-    default_plane_id: models::Id,
     eob: EOB<&tables::LiveMaterialization, &tables::DraftMaterialization>,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
+    default_plane_id: models::Id,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltMaterialization> {
@@ -139,6 +142,10 @@ async fn walk_materialization(
         errors,
     );
 
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let data_plane =
+        reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
+
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
     if !errors.is_empty() {
@@ -169,9 +176,9 @@ async fn walk_materialization(
 
     // If shards are disabled, then don't ask the connector to validate.
     let response = if shard_template.disable {
-        NoOpConnectors.validate_materialization(wrapped_request)
+        NoOpConnectors.validate_materialization(wrapped_request, data_plane)
     } else {
-        connectors.validate_materialization(wrapped_request)
+        connectors.validate_materialization(wrapped_request, data_plane)
     }
     .await;
 

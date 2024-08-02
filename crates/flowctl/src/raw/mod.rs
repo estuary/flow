@@ -251,6 +251,13 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let source_url = build::arg_source_to_url(&source, false)?;
     let project_root = build::project_root(&source_url);
 
+    let meta = tables::Meta {
+        build_id,
+        project_root,
+        pub_id,
+        ..tables::Meta::for_local_test()
+    };
+
     let draft = build::load(&source_url, std::path::Path::new(&file_root)).await;
     let draft = local_specs::surface_errors(draft.into_result())?;
 
@@ -258,32 +265,19 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let live = local_specs::surface_errors(live.into_result())?;
 
     let output = build::validate(
-        pub_id,
-        build_id,
         true, // Allow local connectors.
         &connector_network,
-        true, // Generate ops collections.
         ops::tracing_log_handler,
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
-        &project_root,
+        meta,
         draft,
         live,
     )
     .await;
 
-    // build_api::Config is a legacy metadata structure which we still
-    // expect and validate when we open up a DB from Go.
-    let build_config = proto_flow::flow::build_api::Config {
-        build_db: db_path.to_string_lossy().to_string(),
-        build_id: build_id.to_string(),
-        source,
-        source_type: proto_flow::flow::ContentType::Catalog as i32,
-        ..Default::default()
-    };
-
-    build::persist(build_config, &db_path, &output)?;
+    build::persist(&db_path, &output)?;
 
     Ok(())
 }

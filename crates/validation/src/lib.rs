@@ -24,46 +24,37 @@ pub trait Connectors: Send + Sync {
     fn validate_capture<'a>(
         &'a self,
         request: proto_flow::capture::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::capture::Response>>;
 
     fn validate_derivation<'a>(
         &'a self,
         request: proto_flow::derive::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::derive::Response>>;
 
     fn validate_materialization<'a>(
         &'a self,
         request: proto_flow::materialize::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::materialize::Response>>;
 }
 
 pub async fn validate(
     connectors: &dyn Connectors,
+    meta: tables::Meta,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
-    let Some(tables::MetaRow {
-        build_id,
-        default_data_plane_id,
-        default_data_plane_name,
-        fail_fast,
-        project_root,
-        pub_id,
-        ..
-    }) = draft.meta.first()
-    else {
-        panic!("validate requires a single DraftCatalog::Meta row")
-    };
-
-    let default_plane_id = match default_data_plane_id {
-        Some(id) => *id,
+    let default_plane_id = match meta.default_data_plane_id {
+        Some(id) => id,
         None => {
             Error::MissingDefaultDataPlane {
-                data_plane_name: default_data_plane_name.clone(),
+                data_plane_name: meta.default_data_plane_name.clone(),
             }
-            .push(Scope::new(project_root), &mut errors);
+            .push(Scope::new(&meta.project_root), &mut errors);
 
             models::Id::zero()
         }
@@ -73,8 +64,8 @@ pub async fn validate(
 
     // Build all local collections.
     let mut built_collections = collection::walk_all_collections(
-        *pub_id,
-        *build_id,
+        meta.pub_id,
+        meta.build_id,
         default_plane_id,
         &draft.collections,
         &live.collections,
@@ -85,19 +76,20 @@ pub async fn validate(
 
     // If we failed to build one or more collections then further validation
     // will generate lots of misleading "not found" errors.
-    if *fail_fast && !errors.is_empty() {
+    if meta.fail_fast && !errors.is_empty() {
         return tables::Validations {
             built_captures: tables::BuiltCaptures::new(),
             built_collections,
             built_materializations: tables::BuiltMaterializations::new(),
             built_tests: tables::BuiltTests::new(),
             errors,
+            meta: meta_table(meta),
         };
     }
 
     let built_tests = test_step::walk_all_tests(
-        *pub_id,
-        *build_id,
+        meta.pub_id,
+        meta.build_id,
         &draft.tests,
         &live.tests,
         &built_collections,
@@ -106,13 +98,14 @@ pub async fn validate(
 
     // Validating tests is fast, and encountered errors are likely to impact
     // task validations (which are slower).
-    if *fail_fast && !errors.is_empty() {
+    if meta.fail_fast && !errors.is_empty() {
         return tables::Validations {
             built_captures: tables::BuiltCaptures::new(),
             built_collections,
             built_materializations: tables::BuiltMaterializations::new(),
             built_tests,
             errors,
+            meta: meta_table(meta),
         };
     }
 
@@ -120,40 +113,43 @@ pub async fn validate(
 
     let mut capture_errors = tables::Errors::new();
     let built_captures = capture::walk_all_captures(
-        *pub_id,
-        *build_id,
-        default_plane_id,
+        meta.pub_id,
+        meta.build_id,
         &draft.captures,
         &live.captures,
         &built_collections,
         connectors,
+        &live.data_planes,
+        default_plane_id,
         &live.storage_mappings,
         &mut capture_errors,
     );
 
     let mut derive_errors = tables::Errors::new();
     let built_derivations = derivation::walk_all_derivations(
-        *pub_id,
-        *build_id,
+        meta.pub_id,
+        meta.build_id,
         &draft.collections,
         &live.collections,
         &built_collections,
         connectors,
+        &live.data_planes,
         &draft.imports,
-        project_root,
+        &meta.project_root,
         &live.storage_mappings,
         &mut derive_errors,
     );
 
     let mut materialize_errors = tables::Errors::new();
     let built_materializations = materialization::walk_all_materializations(
-        *pub_id,
-        *build_id,
-        default_plane_id,
+        meta.pub_id,
+        meta.build_id,
         &draft.materializations,
         &live.materializations,
         &built_collections,
         connectors,
+        &live.data_planes,
+        default_plane_id,
         &live.storage_mappings,
         &mut materialize_errors,
     );
@@ -205,6 +201,7 @@ pub async fn validate(
         built_materializations,
         built_tests,
         errors,
+        meta: meta_table(meta),
     }
 }
 
@@ -340,4 +337,10 @@ where
             }
         }
     }
+}
+
+fn meta_table(meta: tables::Meta) -> tables::MetaTable {
+    let mut t = tables::MetaTable::new();
+    t.push(meta);
+    t
 }

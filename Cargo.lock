@@ -5112,6 +5112,7 @@ dependencies = [
  "serde_json",
  "superslice",
  "url",
+ "uuid 1.10.0",
 ]
 
 [[package]]
@@ -5759,6 +5760,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "url",
+ "uuid 1.10.0",
 ]
 
 [[package]]

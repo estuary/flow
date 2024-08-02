@@ -215,6 +215,11 @@ pub enum Error {
     },
     #[error("data plane {data_plane_name} does not exist or the user is not authorized")]
     MissingDefaultDataPlane { data_plane_name: String },
+    #[error("{this_entity} requires data plane {data_plane_id}, which was not found")]
+    MissingDataPlane {
+        this_entity: String,
+        data_plane_id: models::Id,
+    },
 }
 
 impl Error {

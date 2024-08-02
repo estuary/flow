@@ -70,8 +70,6 @@ tables!(
     table DataPlanes (row DataPlane, sql "data_planes") {
         // Control-plane identifier for this data-plane.
         key id: models::Id,
-        // Default is true iff data-plane should be used for newly-created tasks.
-        val default: bool,
     }
 
     table DraftCaptures (row DraftCapture, sql "draft_captures") {
@@ -267,7 +265,7 @@ tables!(
         val error: anyhow::Error,
     }
 
-    table Meta (row MetaRow, sql "meta") {
+    table MetaTable (row Meta, sql "meta") {
         // Build ID of this catalog build.
         val build_id: models::Id,
         // Default data-plane ID for created specifications.
@@ -280,9 +278,11 @@ tables!(
         val project_root: url::Url,
         // Publication ID for this build.
         val pub_id: models::Id,
+        // User ID for this build.
+        val user_id: uuid::Uuid,
 
         // build_config is deprecated and should be removed.
-        val build_config: proto_flow::flow::build_api::Config,
+        // val build_config: proto_flow::flow::build_api::Config,
     }
 );
 
@@ -314,9 +314,10 @@ pub fn synthetic_scope(catalog_type: impl AsRef<str>, catalog_name: impl AsRef<s
 
 primitive_sql_types!(
     String => "TEXT",
-    url::Url => "TEXT",
     bool => "BOOLEAN",
     u32 => "INTEGER",
+    url::Url => "TEXT",
+    uuid::Uuid => "TEXT",
 );
 
 // primitive_sql_types generates SqlColumn but not Column implementations.
@@ -328,6 +329,11 @@ impl Column for String {
 impl Column for url::Url {
     fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+impl Column for uuid::Uuid {
+    fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.as_hyphenated().to_string())
     }
 }
 impl Column for bool {

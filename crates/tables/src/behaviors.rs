@@ -57,6 +57,20 @@ impl super::StorageMapping {
     }
 }
 
+impl super::Meta {
+    pub fn for_local_test() -> Self {
+        Self {
+            build_id: models::Id::new([1; 8]),
+            default_data_plane_id: Some(models::Id::zero()),
+            default_data_plane_name: "local".to_string(),
+            fail_fast: true,
+            project_root: url::Url::parse("file:///").unwrap(),
+            pub_id: models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
+            user_id: uuid::Uuid::nil(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::super::{Import, Imports};

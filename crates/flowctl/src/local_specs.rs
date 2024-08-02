@@ -77,6 +77,10 @@ async fn validate(
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
+    let meta = tables::Meta {
+        project_root,
+        ..tables::Meta::for_local_test()
+    };
     let mut live = Resolver { client }.resolve(draft.all_catalog_names()).await;
 
     let output = if !live.errors.is_empty() {
@@ -87,16 +91,13 @@ async fn validate(
         build::Output { draft, live, built }
     } else {
         build::validate(
-            models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
-            models::Id::new([1; 8]),
             true, // Allow local connectors.
             network,
-            false, // Don't generate ops collections.
             ops::tracing_log_handler,
             noop_captures,
             noop_derivations,
             noop_materializations,
-            &project_root,
+            meta,
             draft,
             live,
         )
@@ -112,7 +113,7 @@ async fn validate(
             .as_secs();
 
         let db_path = std::env::temp_dir().join(format!("flowctl_{seconds}.sqlite"));
-        build::persist(Default::default(), &db_path, &output).expect("failed to write build DB");
+        build::persist(&db_path, &output).expect("failed to write build DB");
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
