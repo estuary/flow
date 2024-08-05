@@ -12,12 +12,20 @@ but keep in mind that the two versions may be significantly different.
 
 The following data resources are supported through the Zendesk API:
 
+* [Account attributes](https://developer.zendesk.com/api-reference/ticketing/ticket-management/skill_based_routing/#list-account-attributes)
+* [Attribute definitions](https://developer.zendesk.com/api-reference/ticketing/ticket-management/skill_based_routing/#list-routing-attribute-definitions)
+* [Audit logs](https://developer.zendesk.com/api-reference/ticketing/account-configuration/audit_logs/#list-audit-logs)
 * [Brands](https://developer.zendesk.com/api-reference/ticketing/account-configuration/brands/)
 * [Custom roles](https://developer.zendesk.com/api-reference/ticketing/account-configuration/custom_roles/)
 * [Group memberships](https://developer.zendesk.com/api-reference/ticketing/groups/group_memberships/)
 * [Groups](https://developer.zendesk.com/api-reference/ticketing/groups/groups/)
 * [Macros](https://developer.zendesk.com/api-reference/ticketing/business-rules/macros/)
 * [Organizations](https://developer.zendesk.com/api-reference/ticketing/organizations/organizations/)
+* [Organization memberships](https://developer.zendesk.com/api-reference/ticketing/organizations/organization_memberships/)
+* [Posts](https://developer.zendesk.com/api-reference/help_center/help-center-api/posts/#list-posts)
+* [Post comments](https://developer.zendesk.com/api-reference/help_center/help-center-api/post_comments/#list-comments)
+* [Post comment votes](https://developer.zendesk.com/api-reference/help_center/help-center-api/votes/#list-votes)
+* [Post votes](https://developer.zendesk.com/api-reference/help_center/help-center-api/votes/#list-votes)
 * [Satisfaction ratings](https://developer.zendesk.com/api-reference/ticketing/ticket-management/satisfaction_ratings/)
 * [Schedules](https://developer.zendesk.com/api-reference/ticketing/ticket-management/schedules/)
 * [SLA policies](https://developer.zendesk.com/api-reference/ticketing/business-rules/sla_policies/)
@@ -28,6 +36,7 @@ The following data resources are supported through the Zendesk API:
 * [Ticket forms](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_forms/)
 * [Ticket metrics](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_metrics/)
 * [Ticket metric events](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_metric_events/)
+* [Ticket skips](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_skips/)
 * [Tickets](https://developer.zendesk.com/api-reference/ticketing/ticket-management/incremental_exports/#incremental-ticket-export-time-based)
 * [Users](https://developer.zendesk.com/api-reference/ticketing/ticket-management/incremental_exports/#incremental-user-export)
 
@@ -62,6 +71,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | **`/stream`** | Stream | Resource in Zendesk from which collections are captured. | string | Required |
 | **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| `cursorField` | Cursor Field | Field to use as a cursor when paginating through results. Required when `syncMode` is `incremental`. | string |   |
 
 ### Sample
 
@@ -80,25 +90,85 @@ captures:
             subdomain: my_subdomain
     bindings:
       - resource:
+          stream: account_attributes
+          syncMode: full_refresh
+        target: ${PREFIX}/accountattributes
+      - resource:
+          stream: attribute_definitions
+          syncMode: full_refresh
+        target: ${PREFIX}/attributedefinitions
+      - resource:
+          stream: audit_logs
+          syncMode: incremental
+          cursorField:
+            - created_at
+        target: ${PREFIX}/auditlogs
+      - resource:
+          stream: brands
+          syncMode: full_refresh
+        target: ${PREFIX}/brands
+      - resource:
+          stream: custom_roles
+          syncMode: full_refresh
+        target: ${PREFIX}/customroles
+      - resource:
           stream: group_memberships
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/groupmemberships
       - resource:
           stream: groups
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/groups
       - resource:
           stream: macros
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/macros
       - resource:
           stream: organizations
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/organizations
+      - resource:
+          stream: organization_memberships
+          syncMode: incremental
+          cursorField:
+            - updated_at
+        target: ${PREFIX}/organizationmemberships
+      - resource:
+          stream: posts
+          syncMode: incremental
+          cursorField:
+            - updated_at
+        target: ${PREFIX}/posts
+      - resource:
+          stream: post_comments
+          syncMode: full_refresh
+        target: ${PREFIX}/postcomments
+      - resource:
+          stream: post_comment_votes
+          syncMode: full_refresh
+        target: ${PREFIX}/postcommentvotes
+      - resource:
+          stream: post_votes
+          syncMode: full_refresh
+        target: ${PREFIX}/postvotes
       - resource:
           stream: satisfaction_ratings
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/satisfactionratings
+      - resource:
+          stream: schedules
+          syncMode: full_refresh
+        target: ${PREFIX}/schedules
       - resource:
           stream: sla_policies
           syncMode: full_refresh
@@ -110,45 +180,55 @@ captures:
       - resource:
           stream: ticket_audits
           syncMode: incremental
+          cursorField:
+            - created_at
         target: ${PREFIX}/ticketaudits
       - resource:
           stream: ticket_comments
           syncMode: incremental
+          cursorField:
+            - created_at
         target: ${PREFIX}/ticketcomments
       - resource:
           stream: ticket_fields
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/ticketfields
       - resource:
           stream: ticket_forms
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/ticketforms
       - resource:
           stream: ticket_metrics
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/ticketmetrics
       - resource:
           stream: ticket_metric_events
           syncMode: incremental
+          cursorField:
+            - time
         target: ${PREFIX}/ticketmetricevents
+      - resource:
+          stream: ticket_skips
+          syncMode: incremental
+          cursorField:
+            - updated_at
+        target: ${PREFIX}/ticketskips
       - resource:
           stream: tickets
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/tickets
       - resource:
           stream: users
           syncMode: incremental
+          cursorField:
+            - updated_at
         target: ${PREFIX}/users
-      - resource:
-          stream: brands
-          syncMode: full_refresh
-        target: ${PREFIX}/brands
-      - resource:
-          stream: custom_roles
-          syncMode: full_refresh
-        target: ${PREFIX}/customroles
-      - resource:
-          stream: schedules
-          syncMode: full_refresh
-        target: ${PREFIX}/schedules
 ```
