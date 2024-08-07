@@ -64,7 +64,7 @@ impl Handler for Publisher {
             // As a separate transaction, delete the draft. Note that the user technically could
             // have inserted or updated draft specs after we started the publication, and those
             // would still be removed by this.
-            if (status.is_success() || status.is_empty_draft()) && !dry_run {
+            if status.is_success() && !dry_run {
                 agent_sql::publications::delete_draft(draft_id, pg_pool).await?;
             }
             return Ok(HandleResult::HadJob);
