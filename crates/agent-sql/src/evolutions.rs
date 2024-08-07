@@ -5,28 +5,26 @@ use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 
 pub async fn create(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    pool: &sqlx::PgPool,
     user_id: Uuid,
     draft_id: Id,
     collections: Vec<serde_json::Value>,
     auto_publish: bool,
     detail: String,
-    background: bool,
 ) -> sqlx::Result<Id> {
     let rec = sqlx::query!(
         r#"
         insert into evolutions
             ( user_id, draft_id, collections, auto_publish, detail, background)
-        values ( $1, $2, $3, $4, $5, $6 ) returning id as "id: Id"
+        values ( $1, $2, $3, $4, $5, true ) returning id as "id: Id"
         "#,
         user_id as Uuid,
         draft_id as Id,
         serde_json::Value::Array(collections),
         auto_publish,
         detail,
-        background,
     )
-    .fetch_one(txn)
+    .fetch_one(pool)
     .await?;
     Ok(rec.id)
 }
