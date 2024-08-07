@@ -8,6 +8,8 @@ use crate::{
     HandleResult, Handler,
 };
 
+use super::IncompatibleCollection;
+
 #[async_trait::async_trait]
 impl Handler for Publisher {
     async fn handle(
@@ -119,7 +121,34 @@ impl Publisher {
                     },
                 ));
             }
-            let result = self.try_process(&row, draft).await?;
+            let mut result = self.try_process(&row, draft).await?;
+
+            // If this is a result of a build failure, then we may need to create an evolutions job in response.
+            if let JobStatus::BuildFailed {
+                incompatible_collections,
+                evolution_id,
+            } = &mut result.status
+            {
+                if !incompatible_collections.is_empty() && row.auto_evolve {
+                    let collections = to_evolutions_collections(&incompatible_collections);
+                    let detail = format!(
+                        "system created in response to failed publication: {}",
+                        row.pub_id
+                    );
+                    let next_job = agent_sql::evolutions::create(
+                        &self.db,
+                        row.user_id,
+                        row.draft_id,
+                        collections,
+                        true, // auto_publish
+                        detail,
+                    )
+                    .await
+                    .context("creating evolutions job")?;
+                    *evolution_id = Some(next_job.into());
+                }
+            }
+
             let JobStatus::ExpectPubIdMismatch { failures } = &result.status else {
                 return Ok(result);
             };
@@ -232,4 +261,31 @@ impl Publisher {
 
         self.commit(built).await.context("committing publication")
     }
+}
+
+fn to_evolutions_collections(
+    incompatible_collections: &[IncompatibleCollection],
+) -> Vec<serde_json::Value> {
+    incompatible_collections
+        .iter()
+        .map(|ic| {
+            // Do we need to re-create the whole collection, or can we just re-create materialization bindings?
+            let (new_name, materializations) = if ic.requires_recreation.is_empty() {
+                // Since we're not re-creating the collection, specify only the materializations that
+                // have failed validation. This avoids potentially backfilling other materializations
+                // unnecessarily.
+                (None, ic.affected_materializations.iter().map(|c| c.name.clone()).collect())
+            } else {
+                tracing::debug!(reasons = ?ic.requires_recreation, collection = %ic.collection, "will attempt to re-create collection");
+                // Since we are re-creating the collection, all materializations will be affected.
+                (Some(crate::next_name(&ic.collection)), Vec::new())
+            };
+            serde_json::to_value(crate::evolution::EvolveRequest {
+                current_name: ic.collection.clone(),
+                new_name,
+                materializations,
+            })
+            .unwrap()
+        })
+        .collect()
 }

@@ -465,16 +465,38 @@ impl TestHarness {
         states
     }
 
-    /// Runs a publication by inserting into the `publications` table and
-    /// waiting for the publications handler to process it. This is the same
-    /// mechanism that's used for user-initiated publications today. Returns
-    /// a `ScenarioResult` (a hold over from the old publications tests, which
-    /// were ported over) describing the results of the publication.
+    /// Performs a publication as if it were initiated by `flowctl` or the UI,
+    /// and return a `ScenarioResult` describing the results.
     pub async fn user_publication(
         &mut self,
         user_id: Uuid,
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
+    ) -> ScenarioResult {
+        self.async_publication(user_id, detail, draft, false, false)
+            .await
+    }
+
+    pub async fn auto_discover_publication(
+        &mut self,
+        draft: tables::DraftCatalog,
+        auto_evolve: bool,
+    ) -> ScenarioResult {
+        let system_user = self.control_plane().inner.system_user_id;
+        self.async_publication(system_user, "test auto-discover publication", draft, auto_evolve, true).await
+    }
+
+    /// Runs a publication by inserting into the `publications` table and
+    /// waiting for the publications handler to process it. Returns
+    /// a `ScenarioResult` (a hold over from the old publications tests, which
+    /// were ported over) describing the results of the publication.
+    async fn async_publication(
+        &mut self,
+        user_id: Uuid,
+        detail: impl Into<String>,
+        draft: tables::DraftCatalog,
+        auto_evolve: bool,
+        background: bool,
     ) -> ScenarioResult {
         let detail = detail.into();
         let draft_id = self.create_draft(user_id, detail.clone(), draft).await;
@@ -487,9 +509,9 @@ impl TestHarness {
             &mut txn,
             user_id,
             draft_id,
-            false,
+            auto_evolve,
             detail.clone(),
-            false,
+            background,
         )
         .await
         .expect("failed to create publication");
@@ -511,7 +533,6 @@ impl TestHarness {
         assert_ne!(publications::JobStatus::Queued, pub_result.status);
         pub_result
     }
-
     async fn get_publication_result(&mut self, publication_id: models::Id) -> ScenarioResult {
         let pub_id: agent_sql::Id = publication_id.into();
 

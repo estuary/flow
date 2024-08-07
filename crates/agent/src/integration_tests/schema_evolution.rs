@@ -1,7 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::harness::{draft_catalog, mock_inferred_schema, FailBuild, TestHarness};
-use crate::{controllers::ControllerState, publications::UncommittedBuild, ControlPlane};
+use crate::{
+    controllers::ControllerState,
+    publications::{JobStatus, UncommittedBuild},
+    ControlPlane,
+};
 use models::CatalogType;
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use tables::BuiltRow;
@@ -416,40 +420,8 @@ async fn test_collection_key_changes() {
     assert!(initial_result.status.is_success());
     harness.run_pending_controllers(None).await;
 
-    let key_change_draft = draft_catalog(serde_json::json!({
-        "collections": {
-            "camels/water": {
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "id1": { "type": "string" },
-                        "id2": { "type": "string" }
-                    },
-                    "required": ["id1", "id2"]
-                },
-                "key": ["/id2"]
-            },
-        },
-    }));
-
-    let update_result = harness
-        .user_publication(user_id, "update to id2", key_change_draft)
-        .await;
-    insta::assert_debug_snapshot!(update_result.status, @r###"
-    BuildFailed {
-        incompatible_collections: [
-            IncompatibleCollection {
-                collection: "camels/water",
-                requires_recreation: [
-                    KeyChange,
-                ],
-                affected_materializations: [],
-            },
-        ],
-        evolution_id: None,
-    }
-    "###);
-
+    // Simulate a user-initiated change to partitions, and expect a job status with
+    // incompatible_collections that need re-created.
     let partition_change_draft = draft_catalog(serde_json::json!({
         "collections": {
             "camels/water": {
@@ -471,7 +443,6 @@ async fn test_collection_key_changes() {
             },
         },
     }));
-
     let update_result = harness
         .user_publication(user_id, "update partitions", partition_change_draft)
         .await;
@@ -489,6 +460,60 @@ async fn test_collection_key_changes() {
         evolution_id: None,
     }
     "###);
+
+    // Simulate an auto-discover publication that changes the key, and expect that
+    // there's an evolution created. This scenario could continue, but is being cut
+    // short because of imminent changes to auto-discovers.
+    let key_change_draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "camels/water": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id1": { "type": "string" },
+                        "id2": { "type": "string" }
+                    },
+                    "required": ["id1", "id2"]
+                },
+                "key": ["/id2"]
+            },
+        },
+    }));
+    let update_result = harness
+        .auto_discover_publication(key_change_draft, true)
+        .await;
+    let JobStatus::BuildFailed {
+        incompatible_collections,
+        evolution_id,
+    } = &update_result.status
+    else {
+        panic!("expected buildFailed, got: {:?}", update_result.status);
+    };
+
+    insta::assert_debug_snapshot!(incompatible_collections, @r###"
+    [
+        IncompatibleCollection {
+            collection: "camels/water",
+            requires_recreation: [
+                KeyChange,
+            ],
+            affected_materializations: [],
+        },
+    ]
+    "###);
+    let Some(evolution_id) = evolution_id else {
+        panic!("expected an evolution was created, but no id present");
+    };
+    let evo = sqlx::query!(
+        r##"select auto_publish, background from evolutions where id = $1"##,
+        agent_sql::Id::from(*evolution_id) as agent_sql::Id
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .unwrap();
+
+    assert!(evo.auto_publish);
+    assert!(evo.background);
 }
 
 #[derive(Debug)]
