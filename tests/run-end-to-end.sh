@@ -28,12 +28,12 @@ echo "Created temporary test directory: $TESTDIR"
 # Start local ssh server and postgres database.
 
 # Docker compose file for starting / stopping the testing SSH server and PSQL DB.
-docker-compose --file ${DOCKER_COMPOSE} up --detach
+docker compose --file ${DOCKER_COMPOSE} up --detach
 # Allow postgres to start.
 sleep 10
 
 function stopTestInfra() {
-  docker-compose --file ${DOCKER_COMPOSE} down
+  docker compose --file ${DOCKER_COMPOSE} down
 }
 function cleanup() {
     stopTestInfra
@@ -169,7 +169,7 @@ fi
 # Compare stdout / stderr to expected fixtures.
 
 function psql_exec() {
-    docker-compose --file ${DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow "$@"
+    docker compose --file ${DOCKER_COMPOSE} exec -T -e PGPASSWORD=flow postgres psql -w -U flow -d flow "$@"
 }
 
 # Glob patterns which match nothing should expand to nothing, rather than themselves.
