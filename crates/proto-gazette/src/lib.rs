@@ -1,6 +1,7 @@
 pub mod consumer;
 mod protocol;
 pub mod recoverylog;
+pub mod uuid;
 
 // The `protocol` package is publicly exported as `broker`.
 pub mod broker {

@@ -91,10 +91,9 @@ impl Extractor {
                     Node::String(s) => Some(s),
                     _ => None,
                 }
-                .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                .and_then(|u| u.get_timestamp())
-                .and_then(|t| {
-                    let (seconds, nanos) = t.to_unix();
+                .and_then(|s| proto_gazette::uuid::parse_str(s).ok())
+                .and_then(|(_producer, clock, _flags)| {
+                    let (seconds, nanos) = clock.to_unix();
                     time::OffsetDateTime::from_unix_timestamp_nanos(
                         seconds as i128 * 1_000_000_000 + nanos as i128,
                     )
@@ -250,7 +249,11 @@ mod test {
             "uuid-ts": [
                 "85bad119-15f2-11ee-8401-43f05f562888",
                 "1878923d-162a-11ee-8401-43f05f562888",
-                "6d304974-1631-11ee-8401-whoops"
+                // These differ only in counter bits.
+                "66285dbc-543d-11ef-8401-69ef5bf77016",
+                "66285dbc-543d-11ef-8801-69ef5bf77016",
+                // Does not parse.
+                "6d304974-1631-11ee-8401-whoops",
             ],
             "long-str": "very very very very very very very very very very very very long",
         });
@@ -270,6 +273,8 @@ mod test {
             Extractor::for_uuid_v1_date_time("/uuid-ts/0"),
             Extractor::for_uuid_v1_date_time("/uuid-ts/1"),
             Extractor::for_uuid_v1_date_time("/uuid-ts/2"),
+            Extractor::for_uuid_v1_date_time("/uuid-ts/3"),
+            Extractor::for_uuid_v1_date_time("/uuid-ts/4"),
             Extractor::for_uuid_v1_date_time("/missing"),
             Extractor::for_uuid_v1_date_time("/fals"),
             Extractor::new("/long-str", &policy),
@@ -315,6 +320,12 @@ mod test {
             ),
             String(
                 "2023-06-29T03:07:35.0056509Z",
+            ),
+            String(
+                "2024-08-06T21:46:55.5434428Z",
+            ),
+            String(
+                "2024-08-06T21:46:55.5434428Z",
             ),
             String(
                 "6d304974-1631-11ee-8401-whoops",

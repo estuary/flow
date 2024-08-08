@@ -109,7 +109,7 @@ impl Default for Clock {
 impl Flags {
     #[inline]
     pub fn is_ack(&self) -> bool {
-        self.0 & (proto_gazette::message_flags::ACK_TXN as u16) != 0
+        self.0 & (crate::message_flags::ACK_TXN as u16) != 0
     }
 }
 
