@@ -23,7 +23,6 @@ require (
 	golang.org/x/net v0.26.0
 	google.golang.org/api v0.126.0
 	google.golang.org/grpc v1.59.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -57,7 +56,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/googleapis/gax-go/v2 v2.11.0 // indirect
-	github.com/gorilla/schema v1.2.0 // indirect
+	github.com/gorilla/schema v1.4.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/jgraettinger/cockroach-encoding v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
@@ -97,4 +96,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
