@@ -271,7 +271,13 @@ because those rows will tend to live in the same micro-partitions, and Snowflake
 
 ## Timestamp Data Type Mapping
 
-Flow uses the `TIMESTAMP` type alias in Snowflake for materializing timestamp data types. This type alias points to either `TIMESTAMP_NTZ` (default), `TIMESTAMP_TZ` or `TIMESTAMP_LTZ`. The default `TIMESTAMP_NTZ` mapping means timestamps are normalised to UTC upon materialization. If you want to have timezone data as part of the timestamp, set the `TIMESTAMP_TYPE_MAPPING` configuration to `TIMESTAMP_TZ`. See [Snowflake documentation on `TIMESTAMP_TYPE_MAPPING` for more information](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping).
+Flow materializes timestamp data types as either `TIMESTAMP_LTZ` or
+`TIMESTAMP_TZ` columns in Snowflake. `TIMESTAMP_LTZ` is used unless the
+Snowflake  `TIMESTAMP_TYPE_MAPPING` configuration is set to `TIMESTAMP_TZ`,
+which will cause Flow to use `TIMESTAMP_TZ` columns. Flow never creates columns
+as `TIMESTAMP_NTZ`. See [Snowflake documentation on `TIMESTAMP_TYPE_MAPPING` for
+more
+information](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping).
 
 ## Reserved words
 
