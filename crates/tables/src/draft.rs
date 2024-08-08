@@ -1,11 +1,10 @@
 use crate::{
     synthetic_scope, DraftCapture, DraftCaptures, DraftCollection, DraftCollections,
     DraftMaterialization, DraftMaterializations, DraftTest, DraftTests, Error, Errors, Fetches,
-    Imports, LiveCapture, LiveCatalog, LiveCollection, LiveMaterialization, LiveTest, Resources,
-    Row, Table,
+    Imports, Resources, Row, Table,
 };
 use anyhow::Context;
-use models::{AnySpec, CatalogType, ModelDef};
+use models::{CatalogType, ModelDef};
 use serde_json::value::RawValue;
 
 /// DraftCatalog are tables which are populated by catalog loads of the `sources` crate.
@@ -109,49 +108,6 @@ impl DraftCatalog {
                 model: None,
             }),
         };
-    }
-
-    pub fn add_any_spec(
-        &mut self,
-        catalog_name: &str,
-        spec: AnySpec,
-        expect_pub_id: Option<models::Id>,
-    ) {
-        let scope = crate::synthetic_scope(spec.catalog_type(), catalog_name);
-        match spec {
-            AnySpec::Capture(model) => {
-                self.captures.insert(DraftCapture {
-                    capture: models::Capture::new(catalog_name),
-                    expect_pub_id,
-                    scope,
-                    model: Some(model),
-                });
-            }
-            AnySpec::Collection(model) => {
-                self.collections.insert(DraftCollection {
-                    collection: models::Collection::new(catalog_name),
-                    expect_pub_id,
-                    scope,
-                    model: Some(model),
-                });
-            }
-            AnySpec::Materialization(model) => {
-                self.materializations.insert(DraftMaterialization {
-                    materialization: models::Materialization::new(catalog_name),
-                    expect_pub_id,
-                    scope,
-                    model: Some(model),
-                });
-            }
-            AnySpec::Test(model) => {
-                self.tests.insert(DraftTest {
-                    test: models::Test::new(catalog_name),
-                    expect_pub_id,
-                    scope,
-                    model: Some(model),
-                });
-            }
-        }
     }
 
     pub fn add_spec(
@@ -390,26 +346,6 @@ impl DraftCatalog {
     }
 }
 
-impl From<LiveCatalog> for DraftCatalog {
-    fn from(live: LiveCatalog) -> Self {
-        Self {
-            captures: live.captures.into_iter().map(DraftCapture::from).collect(),
-            collections: live
-                .collections
-                .into_iter()
-                .map(DraftCollection::from)
-                .collect(),
-            materializations: live
-                .materializations
-                .into_iter()
-                .map(DraftMaterialization::from)
-                .collect(),
-            tests: live.tests.into_iter().map(DraftTest::from).collect(),
-            ..Default::default()
-        }
-    }
-}
-
 /// DraftRow is a common trait of rows reflecting draft specifications.
 pub trait DraftRow: crate::Row {
     type ModelDef: models::ModelDef;
@@ -612,76 +548,5 @@ impl DraftRow for crate::DraftTest {
     }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
-    }
-}
-
-impl From<LiveCapture> for DraftCapture {
-    fn from(value: LiveCapture) -> Self {
-        let LiveCapture {
-            scope,
-            capture,
-            last_pub_id,
-            model,
-            spec: _,
-        } = value;
-        DraftCapture {
-            scope,
-            capture,
-            expect_pub_id: Some(last_pub_id),
-            model: Some(model),
-        }
-    }
-}
-
-impl From<LiveCollection> for DraftCollection {
-    fn from(value: LiveCollection) -> Self {
-        let LiveCollection {
-            scope,
-            collection,
-            last_pub_id,
-            model,
-            spec: _,
-        } = value;
-        DraftCollection {
-            scope,
-            collection,
-            expect_pub_id: Some(last_pub_id),
-            model: Some(model),
-        }
-    }
-}
-
-impl From<LiveMaterialization> for DraftMaterialization {
-    fn from(value: LiveMaterialization) -> Self {
-        let LiveMaterialization {
-            materialization,
-            spec: _,
-            model,
-            scope,
-            last_pub_id,
-        } = value;
-        DraftMaterialization {
-            scope,
-            materialization,
-            expect_pub_id: Some(last_pub_id),
-            model: Some(model),
-        }
-    }
-}
-impl From<LiveTest> for DraftTest {
-    fn from(value: LiveTest) -> Self {
-        let LiveTest {
-            test,
-            last_pub_id,
-            spec: _,
-            model,
-            scope,
-        } = value;
-        DraftTest {
-            scope,
-            test,
-            expect_pub_id: Some(last_pub_id),
-            model: Some(model),
-        }
     }
 }

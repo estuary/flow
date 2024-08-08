@@ -51,12 +51,13 @@ tables!(
     table StorageMappings (row StorageMapping, sql "storage_mappings") {
         // Catalog prefix to which this storage mapping applies.
         key catalog_prefix: models::Prefix,
-        // Scope of the storage mapping.
-        val scope: url::Url,
+        // Control-plane ID of this storage mapping.
+        val control_id: models::Id,
         // Stores for journal fragments under this prefix.
         val stores: Vec<models::Store>,
     }
 
+    // TODO remove me!
     table InferredSchemas (row InferredSchema, sql "inferred_schemas") {
         // Collection which this inferred schema reflects.
         key collection_name: models::Collection,
@@ -64,6 +65,13 @@ tables!(
         val schema: models::Schema,
         // MD5 content sum of `schema`.
         val md5: String,
+    }
+
+    table DataPlanes (row DataPlane, sql "data_planes") {
+        // Control-plane identifier for this data-plane.
+        key id: models::Id,
+        // When true, this DataPlane is to be used for created specifications.
+        val default: bool,
     }
 
     table DraftCaptures (row DraftCapture, sql "draft_captures") {
@@ -113,8 +121,10 @@ tables!(
     table LiveCaptures (row LiveCapture, sql "live_captures") {
         // Catalog name of this capture.
         key capture: models::Capture,
-        // Scope of the live capture.
-        val scope: url::Url,
+        // Control-plane ID of this capture.
+        val control_id: models::Id,
+        // Data-plane assignment for this capture.
+        val data_plane_id: models::Id,
         // Most recent publication ID of this capture.
         val last_pub_id: models::Id,
         // Model of the capture as-of `last_pub_id`
@@ -126,8 +136,10 @@ tables!(
     table LiveCollections (row LiveCollection, sql "live_collections") {
         // Catalog name of this collection.
         key collection: models::Collection,
-        // Scope of the live collection.
-        val scope: url::Url,
+        // Control-plane ID of this collection.
+        val control_id: models::Id,
+        // Data-plane assignment for this collection.
+        val data_plane_id: models::Id,
         // Most recent publication ID of this collection.
         val last_pub_id: models::Id,
         // Model of the collection as-of `last_pub_id`.
@@ -139,8 +151,10 @@ tables!(
     table LiveMaterializations (row LiveMaterialization, sql "live_materializations") {
         // Catalog name of this materialization.
         key materialization: models::Materialization,
-        // Scope of the live materialization.
-        val scope: url::Url,
+        // Control-plane ID of this materialization.
+        val control_id: models::Id,
+        // Data-plane assignment for this materialization.
+        val data_plane_id: models::Id,
         // Most recent publication ID of this materialization.
         val last_pub_id: models::Id,
         // Model of the materialization as-of `last_pub_id`.
@@ -152,8 +166,8 @@ tables!(
     table LiveTests (row LiveTest, sql "live_tests") {
         // Catalog name of this test.
         key test: models::Test,
-        // Scope of the live test.
-        val scope: url::Url,
+        // Control-plane ID of this test.
+        val control_id: models::Id,
         // Most recent publication ID of this test.
         val last_pub_id: models::Id,
         // Model of the test as-of `last_pub_id`.
@@ -167,6 +181,10 @@ tables!(
         key capture: models::Capture,
         // Scope of this built capture.
         val scope: url::Url,
+        // Control-plane ID of this capture, or zero if un-assigned.
+        val control_id: models::Id,
+        // Data-plane assignment for this capture.
+        val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
         // Model of this capture, or None if the capture is being deleted.
@@ -185,6 +203,10 @@ tables!(
         key collection: models::Collection,
         // Scope of this built collection.
         val scope: url::Url,
+        // Control-plane ID of this collection, or zero if un-assigned.
+        val control_id: models::Id,
+        // Data-plane assignment for this collection.
+        val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
         // Model of this collection, or None if the collection is being deleted.
@@ -203,6 +225,10 @@ tables!(
         key materialization: models::Materialization,
         // Scope of this built materialization.
         val scope: url::Url,
+        // Control-plane ID of this materialization, or zero if un-assigned.
+        val control_id: models::Id,
+        // Data-plane assignment for this materialization.
+        val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
         // Model of this materialization, or None if the materialization is being deleted.
@@ -221,6 +247,8 @@ tables!(
         key test: models::Test,
         // Scope of this built test.
         val scope: url::Url,
+        // Control-plane identifier for this test, or zero if un-assigned.
+        val control_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
         // Model of the test, or None if the test is being deleted.

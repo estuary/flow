@@ -63,9 +63,9 @@ expression: "json!([\"splits\", splits, \"partition_changes\", partition_changes
     ]
   ],
   "partition_changes",
-  {
-    "changes": [
-      {
+  [
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "flags": 4,
@@ -119,8 +119,10 @@ expression: "json!([\"splits\", splits, \"partition_changes\", partition_changes
           "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=10000000",
           "replication": 3
         }
-      },
-      {
+      }
+    },
+    {
+      "Journal": {
         "upsert": {
           "flags": 4,
           "fragment": {
@@ -174,6 +176,6 @@ expression: "json!([\"splits\", splits, \"partition_changes\", partition_changes
           "replication": 3
         }
       }
-    ]
-  }
+    }
+  ]
 ]

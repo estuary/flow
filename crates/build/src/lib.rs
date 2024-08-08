@@ -98,7 +98,6 @@ pub async fn validate(
     build_id: models::Id,
     allow_local: bool,
     connector_network: &str,
-    generate_ops_collections: bool,
     log_handler: impl runtime::LogHandler,
     noop_captures: bool,
     noop_derivations: bool,
@@ -107,11 +106,6 @@ pub async fn validate(
     mut draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
 ) -> Output {
-    // TODO(johnny): We *really* need to kill this, and have ops collections
-    // be injected exclusively from the control-plane.
-    if generate_ops_collections {
-        assemble::generate_ops_collections(&mut draft);
-    }
     ::sources::inline_draft_catalog(&mut draft);
 
     let runtime = runtime::Runtime::new(
@@ -387,10 +381,13 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
     fn validate_capture<'a>(
         &'a self,
         request: capture::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
         async move {
             if self.noop_captures {
-                validation::NoOpConnectors.validate_capture(request).await
+                validation::NoOpConnectors
+                    .validate_capture(request, data_plane)
+                    .await
             } else {
                 Ok(self
                     .runtime
@@ -405,11 +402,12 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
     fn validate_derivation<'a>(
         &'a self,
         request: derive::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
         async move {
             if self.noop_derivations {
                 validation::NoOpConnectors
-                    .validate_derivation(request)
+                    .validate_derivation(request, data_plane)
                     .await
             } else {
                 Ok(self
@@ -425,11 +423,12 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
         async move {
             if self.noop_materializations {
                 validation::NoOpConnectors
-                    .validate_materialization(request)
+                    .validate_materialization(request, data_plane)
                     .await
             } else {
                 Ok(self
@@ -456,7 +455,7 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
             let mut live = tables::LiveCatalog::default();
             live.storage_mappings.insert_row(
                 models::Prefix::new(""),
-                url::Url::parse("flow://control").unwrap(),
+                models::Id::zero(),
                 vec![models::Store::Gcs(models::GcsBucketAndPrefix {
                     bucket: "example-bucket".to_string(),
                     prefix: None,

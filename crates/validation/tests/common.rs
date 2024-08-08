@@ -120,10 +120,12 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         config: models::RawValue::from_str("{\"live\":\"config\"}").unwrap(),
     };
 
+    for (control_id, mock) in &mock_calls.data_planes {
+        live.data_planes.insert_row(control_id, mock.default);
+    }
+
     // Load into LiveCatalog::live_captures.
     for (capture, mock) in &mock_calls.live_captures {
-        let scope = url::Url::parse(&format!("flow://control/captures/{capture}")).unwrap();
-
         let model = models::CaptureDef {
             auto_discover: None,
             bindings: Vec::new(),
@@ -151,13 +153,17 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             shard_template: Some(shard_template),
             config_json: String::new(),
         };
-        live.captures
-            .insert_row(capture, scope, mock.last_pub_id, model, built_spec);
+        live.captures.insert_row(
+            capture,
+            mock.control_id,
+            mock.data_plane_id,
+            mock.last_pub_id,
+            model,
+            built_spec,
+        );
     }
     // Load into LiveCatalog::live_collections.
     for (collection, mock) in &mock_calls.live_collections {
-        let scope = url::Url::parse(&format!("flow://control/collections/{collection}")).unwrap();
-
         let schema =
             mock.schema
                 .clone()
@@ -216,16 +222,17 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             read_schema_json: String::new(),
             uuid_ptr: "/_meta/uuid".to_string(),
         };
-        live.collections
-            .insert_row(collection, scope, mock.last_pub_id, model, built_spec);
+        live.collections.insert_row(
+            collection,
+            mock.control_id,
+            mock.data_plane_id,
+            mock.last_pub_id,
+            model,
+            built_spec,
+        );
     }
     // Load into LiveCatalog::live_materializations.
     for (materialization, mock) in &mock_calls.live_materializations {
-        let scope = url::Url::parse(&format!(
-            "flow://control/materializations/{materialization}"
-        ))
-        .unwrap();
-
         let model = models::MaterializationDef {
             bindings: Vec::new(),
             endpoint: models::MaterializationEndpoint::Connector(live_connector_fixture.clone()),
@@ -254,7 +261,8 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         };
         live.materializations.insert_row(
             materialization,
-            scope,
+            mock.control_id,
+            mock.data_plane_id,
             mock.last_pub_id,
             model,
             built_spec,
@@ -262,8 +270,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     }
     // Load into LiveCatalog::live_tests.
     for (test, mock) in &mock_calls.live_tests {
-        let scope = url::Url::parse(&format!("flow://control/tests/{test}")).unwrap();
-
         let model = models::TestDef {
             description: "live test".to_string(),
             steps: Vec::new(),
@@ -275,7 +281,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             steps: Vec::new(),
         };
         live.tests
-            .insert_row(test, scope, mock.last_pub_id, model, built_spec);
+            .insert_row(test, mock.control_id, mock.last_pub_id, model, built_spec);
     }
     // Load into LiveCatalog::inferred_schemas.
     for (collection, schema) in &mock_calls.inferred_schemas {
@@ -284,20 +290,18 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
-        let scope = url::Url::parse(&format!("flow://control/storage-mapping/{prefix}")).unwrap();
         live.storage_mappings
-            .insert_row(prefix, scope, &storage.stores);
+            .insert_row(prefix, models::Id::zero(), &storage.stores);
     }
     // Allow fixtures to omit a storage mapping by providing a default.
     if mock_calls.storage_mappings.is_empty() {
-        let scope = url::Url::parse("flow://control/storage-mapping/default").unwrap();
         let store = models::Store::S3(models::S3StorageConfig {
             bucket: "a-bucket".to_string(),
             prefix: None,
             region: None,
         });
         live.storage_mappings
-            .insert_row(models::Prefix::new(""), scope, vec![store]);
+            .insert_row(models::Prefix::new(""), models::Id::zero(), vec![store]);
     }
 
     let validations = futures::executor::block_on(validation::validate(
@@ -359,12 +363,16 @@ pub fn run_errors(fixture_yaml: &str, patch_yaml: &str) -> tables::Errors {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MockLiveCapture {
+    control_id: models::Id,
+    data_plane_id: models::Id,
     last_pub_id: models::Id,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MockLiveCollection {
+    control_id: models::Id,
+    data_plane_id: models::Id,
     last_pub_id: models::Id,
     key: models::CompositeKey,
     #[serde(default)]
@@ -376,13 +384,23 @@ struct MockLiveCollection {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MockLiveMaterialization {
+    control_id: models::Id,
+    data_plane_id: models::Id,
     last_pub_id: models::Id,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MockLiveTest {
+    control_id: models::Id,
     last_pub_id: models::Id,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MockDataPlane {
+    #[serde(default)]
+    default: bool,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -397,6 +415,8 @@ struct MockDriverCalls {
     materializations: BTreeMap<String, MockMaterializationValidateCall>,
 
     // Live catalog mocks:
+    #[serde(default)]
+    data_planes: BTreeMap<models::Id, MockDataPlane>,
     #[serde(default)]
     inferred_schemas: BTreeMap<models::Collection, models::Schema>,
     #[serde(default)]
@@ -476,6 +496,7 @@ impl validation::Connectors for MockDriverCalls {
     fn validate_capture<'a>(
         &'a self,
         request: capture::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
         let capture::Request {
             validate: Some(request),
@@ -543,6 +564,7 @@ impl validation::Connectors for MockDriverCalls {
     fn validate_derivation<'a>(
         &'a self,
         request: derive::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
         let derive::Request {
             validate: Some(request),
@@ -626,6 +648,7 @@ impl validation::Connectors for MockDriverCalls {
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
         let materialize::Request {
             validate: Some(request),
