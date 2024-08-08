@@ -1,8 +1,7 @@
-pub use proto_gazette::{broker, consumer};
+pub use proto_gazette::{broker, consumer, uuid};
 
 pub mod journal;
 pub mod shard;
-pub mod uuid;
 
 mod router;
 pub use router::Router;

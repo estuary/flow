@@ -2,7 +2,6 @@
 // typically inferred schema Shapes.
 use super::*;
 use crate::ptr::Token;
-use itertools::Itertools;
 use std::cmp::Ordering;
 
 // Potential future improvement: currently this squashes any non-INVALID `additional*`
