@@ -262,7 +262,6 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         build_id,
         true, // Allow local connectors.
         &connector_network,
-        true, // Generate ops collections.
         ops::tracing_log_handler,
         false, // Don't no-op captures.
         false, // Don't no-op derivations.

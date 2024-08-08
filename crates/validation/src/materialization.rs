@@ -14,6 +14,8 @@ pub async fn walk_all_materializations(
     live_materializations: &tables::LiveMaterializations,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
+    default_plane_id: Option<models::Id>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
@@ -39,6 +41,8 @@ pub async fn walk_all_materializations(
                 eob,
                 built_collections,
                 connectors,
+                data_planes,
+                default_plane_id,
                 storage_mappings,
                 &mut local_errors,
             )
@@ -66,11 +70,13 @@ async fn walk_materialization(
     eob: EOB<&tables::LiveMaterialization, &tables::DraftMaterialization>,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
+    default_plane_id: Option<models::Id>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltMaterialization> {
-    let (materialization, scope, model, expect_pub_id, live_spec) =
-        match walk_transition(pub_id, eob, errors) {
+    let (materialization, scope, model, control_id, data_plane_id, expect_pub_id, live_spec) =
+        match walk_transition(pub_id, default_plane_id, eob, errors) {
             Ok(ok) => ok,
             Err(built) => return Some(built),
         };
@@ -136,6 +142,10 @@ async fn walk_materialization(
         errors,
     );
 
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let data_plane =
+        reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
+
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
     if !errors.is_empty() {
@@ -166,9 +176,9 @@ async fn walk_materialization(
 
     // If shards are disabled, then don't ask the connector to validate.
     let response = if shard_template.disable {
-        NoOpConnectors.validate_materialization(wrapped_request)
+        NoOpConnectors.validate_materialization(wrapped_request, data_plane)
     } else {
-        connectors.validate_materialization(wrapped_request)
+        connectors.validate_materialization(wrapped_request, data_plane)
     }
     .await;
 
@@ -331,6 +341,8 @@ async fn walk_materialization(
     Some(tables::BuiltMaterialization {
         materialization: materialization.clone(),
         scope: scope.flatten(),
+        control_id,
+        data_plane_id,
         expect_pub_id,
         model: Some(model.clone()),
         validated: Some(validated_response),

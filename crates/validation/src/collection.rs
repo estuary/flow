@@ -7,6 +7,7 @@ use tables::EitherOrBoth as EOB;
 pub fn walk_all_collections(
     pub_id: models::Id,
     build_id: models::Id,
+    default_plane_id: Option<models::Id>,
     draft_collections: &tables::DraftCollections,
     live_collections: &tables::LiveCollections,
     inferred_schemas: &tables::InferredSchemas,
@@ -33,6 +34,7 @@ pub fn walk_all_collections(
         walk_collection(
             pub_id,
             build_id,
+            default_plane_id,
             eob,
             inferred_bundle,
             storage_mappings,
@@ -45,13 +47,14 @@ pub fn walk_all_collections(
 fn walk_collection(
     pub_id: models::Id,
     build_id: models::Id,
+    default_plane_id: Option<models::Id>,
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
     inferred_bundle: Option<&models::Schema>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltCollection> {
-    let (collection, scope, model, expect_pub_id, live_spec) =
-        match walk_transition(pub_id, eob, errors) {
+    let (collection, scope, model, control_id, data_plane_id, expect_pub_id, live_spec) =
+        match walk_transition(pub_id, default_plane_id, eob, errors) {
             Ok(ok) => ok,
             Err(built) => return Some(built),
         };
@@ -209,6 +212,8 @@ fn walk_collection(
     Some(tables::BuiltCollection {
         collection: collection.clone(),
         scope: scope.flatten(),
+        control_id,
+        data_plane_id,
         expect_pub_id,
         model: Some(model.clone()),
         spec: Some(built_spec),
