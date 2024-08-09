@@ -99,9 +99,15 @@ impl Extractor {
                     )
                     .ok()
                 }) {
+                    // Use a custom format and not time::format_description::well_known::Rfc3339,
+                    // because date-times must be right-padded out to the nanosecond to ensure
+                    // that lexicographic ordering matches temporal ordering.
+                    let format = time::macros::format_description!(
+                        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:9]Z"
+                    );
                     return Err(Cow::Owned(serde_json::Value::String(
                         date_time
-                            .format(&time::format_description::well_known::Rfc3339)
+                            .format(format)
                             .expect("rfc3339 format always succeeds"),
                     )));
                 }
@@ -250,6 +256,7 @@ mod test {
                 "85bad119-15f2-11ee-8401-43f05f562888",
                 "1878923d-162a-11ee-8401-43f05f562888",
                 // These differ only in counter bits.
+                "66285dbc-543d-11ef-8001-69ef5bf77016", // Counter is zero.
                 "66285dbc-543d-11ef-8401-69ef5bf77016",
                 "66285dbc-543d-11ef-8801-69ef5bf77016",
                 // Does not parse.
@@ -275,6 +282,7 @@ mod test {
             Extractor::for_uuid_v1_date_time("/uuid-ts/2"),
             Extractor::for_uuid_v1_date_time("/uuid-ts/3"),
             Extractor::for_uuid_v1_date_time("/uuid-ts/4"),
+            Extractor::for_uuid_v1_date_time("/uuid-ts/5"),
             Extractor::for_uuid_v1_date_time("/missing"),
             Extractor::for_uuid_v1_date_time("/fals"),
             Extractor::new("/long-str", &policy),
@@ -316,16 +324,19 @@ mod test {
                 b"\x5b\x22foo\x22\x5d",
             ),
             String(
-                "2023-06-28T20:29:46.4945945Z",
+                "2023-06-28T20:29:46.494594504Z",
             ),
             String(
-                "2023-06-29T03:07:35.0056509Z",
+                "2023-06-29T03:07:35.005650904Z",
             ),
             String(
-                "2024-08-06T21:46:55.5434428Z",
+                "2024-08-06T21:46:55.543442800Z",
             ),
             String(
-                "2024-08-06T21:46:55.5434428Z",
+                "2024-08-06T21:46:55.543442804Z",
+            ),
+            String(
+                "2024-08-06T21:46:55.543442808Z",
             ),
             String(
                 "6d304974-1631-11ee-8401-whoops",
