@@ -223,12 +223,12 @@ captures:
           stream: tickets
           syncMode: incremental
           cursorField:
-            - updated_at
+            - after_cursor
         target: ${PREFIX}/tickets
       - resource:
           stream: users
           syncMode: incremental
           cursorField:
-            - updated_at
+            - after_cursor
         target: ${PREFIX}/users
 ```
