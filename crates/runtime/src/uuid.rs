@@ -26,7 +26,7 @@ mod test {
 
         assert_eq!(producer.as_bytes(), &[8, 6, 7, 5, 3, 9]);
         assert_eq!(clock.to_g1582_ns100(), 0x1eac6a39f2952f32);
-        assert_eq!(clock.to_unix(), (1594821664, 47589100));
+        assert_eq!(clock.to_unix(), (1594821664, 47589108));
         assert_eq!(flags.0, 0x02);
 
         let u2 = gazette::uuid::build(producer, clock, flags);

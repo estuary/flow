@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 json = { path = "../json" }
+proto-gazette = { path = "../proto-gazette" }
 tuple = { path = "../tuple" }
 
 base64 = { workspace = true }

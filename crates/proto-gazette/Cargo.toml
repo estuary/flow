@@ -21,6 +21,8 @@ pbjson = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
 
 [build-dependencies]
 proto-build = { path = "../proto-build", optional = true }
