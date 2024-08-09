@@ -80,7 +80,8 @@ impl Clock {
         // Each tick is 100ns relative to unix epoch.
         let ticks = (self.0 >> 4) - G1582NS100;
         let seconds = ticks / 10_000_000;
-        let nanos = (ticks % 10_000_000) * 100;
+        // We also include the four counter bits as increments of 4 nanoseconds each.
+        let nanos = (ticks % 10_000_000) * 100 + ((self.0 & 0xf) << 2);
         (seconds, nanos as u32)
     }
 
@@ -192,6 +193,16 @@ mod test {
         assert_eq!(c.0, 0x1b21dd2197721000); // Not changed.
 
         assert_eq!(c.to_unix(), (10, 0));
+
+        c.tick();
+        assert_eq!(c.to_unix(), (10, 4));
+        c.tick();
+        assert_eq!(c.to_unix(), (10, 8));
+
+        for _ in 0..16 {
+            c.tick();
+        }
+        assert_eq!(c.to_unix(), (10, 108));
     }
 
     #[test]
