@@ -86,6 +86,7 @@ impl Publisher {
             %row.updated_at,
             %row.user_id,
             %row.background,
+            %row.data_plane_name,
             "processing publication",
         );
 
@@ -243,6 +244,7 @@ impl Publisher {
                 row.detail.clone(),
                 draft,
                 row.logs_token,
+                &row.data_plane_name,
             )
             .await?;
         if built.has_errors() {

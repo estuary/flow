@@ -287,6 +287,7 @@ async fn process_row(
             auto_evolve,
             detail,
             row.background,
+            String::new(), // New data-plane assignments are never required for evolutions.
         )
         .await?;
         Some(id)

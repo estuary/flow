@@ -131,7 +131,6 @@ pub struct UncommittedBuild {
     pub(crate) detail: Option<String>,
     pub(crate) started_at: DateTime<Utc>,
     pub(crate) output: build::Output,
-    pub(crate) live_spec_ids: BTreeMap<String, models::Id>,
     pub(crate) test_errors: tables::Errors,
     pub(crate) incompatible_collections: Vec<IncompatibleCollection>,
 }
@@ -169,7 +168,6 @@ impl UncommittedBuild {
             detail,
             started_at,
             output,
-            live_spec_ids: _,
             test_errors,
             incompatible_collections,
         } = self;
@@ -210,6 +208,7 @@ impl Publisher {
         detail: Option<String>,
         draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
+        default_data_plane_name: &str,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = Utc::now();
         let build_id = self.build_id_gen.next();
@@ -235,14 +234,13 @@ impl Publisher {
                 detail,
                 started_at: start_time,
                 output,
-                live_spec_ids: BTreeMap::new(),
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
             });
         }
 
-        let (live_catalog, live_spec_ids) =
-            specs::resolve_live_specs(user_id, &draft, &self.db).await?;
+        let live_catalog =
+            specs::resolve_live_specs(user_id, &draft, &self.db, default_data_plane_name).await?;
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
                 publication_id,
@@ -254,7 +252,6 @@ impl Publisher {
                     live: live_catalog,
                     built: Default::default(),
                 },
-                live_spec_ids,
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
             });
@@ -280,7 +277,6 @@ impl Publisher {
                 detail,
                 started_at: start_time,
                 output,
-                live_spec_ids,
                 test_errors: tables::Errors::default(),
                 incompatible_collections,
             });
@@ -360,7 +356,6 @@ impl Publisher {
             detail,
             started_at: start_time,
             output: built,
-            live_spec_ids,
             test_errors,
             incompatible_collections: Vec::new(),
         })
@@ -506,7 +501,6 @@ mod test {
             detail: None,
             started_at: Utc::now(),
             output: Default::default(),
-            live_spec_ids: Default::default(),
             test_errors: std::iter::once(tables::Error {
                 scope: tables::synthetic_scope("test", "test/of/a/test"),
                 error: anyhow::anyhow!("test error"),

@@ -50,7 +50,7 @@ macro_rules! string_reference_types {
     ) => {
 
         $(#[$outer])*
-        #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, JsonSchema, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, JsonSchema, Eq, PartialOrd, Ord, Hash, sqlx::Decode, sqlx::Encode)]
         #[schemars(example = "Self::example")]
         pub struct $Wrapper(#[schemars(schema_with = $WrapperStr)] String);
 
@@ -110,7 +110,6 @@ macro_rules! string_reference_types {
             }
         }
 
-
         impl Validate for $Wrapper {
             fn validate(&self) -> Result<(), ValidationErrors> {
                 let s = self.0.as_ref();
@@ -138,6 +137,12 @@ macro_rules! string_reference_types {
                 } else {
                     Ok(())
                 }
+            }
+        }
+
+        impl sqlx::Type<sqlx::Postgres> for $Wrapper {
+            fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+                <String as sqlx::Type<sqlx::Postgres>>::type_info()
             }
         }
 

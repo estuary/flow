@@ -197,6 +197,8 @@ pub async fn test_catalog(
             &shard_client,
             &built.collection,
             Some(&spec),
+            None, // Use "local" logging.
+            None,
             3, // use 3 splits to try to catch shuffle errors
         )
         .await
@@ -252,6 +254,8 @@ pub async fn test_catalog(
             &journal_client,
             &shard_client,
             &built.collection,
+            None,
+            None,
             None,
             1,
         )

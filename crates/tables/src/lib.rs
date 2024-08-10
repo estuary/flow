@@ -71,7 +71,12 @@ tables!(
         // Control-plane identifier for this data-plane.
         key id: models::Id,
         // When true, this DataPlane is to be used for created specifications.
-        val default: bool,
+        val is_default: bool,
+        val ops_logs_name: models::Collection,
+        val ops_stats_name: models::Collection,
+        val hmac_key: String,
+        val broker_address: String,
+        val reactor_address: String,
     }
 
     table DraftCaptures (row DraftCapture, sql "draft_captures") {

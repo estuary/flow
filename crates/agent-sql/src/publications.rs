@@ -1,6 +1,6 @@
 use crate::FlowType;
 
-use super::{Capability, CatalogType, Id, RoleGrant, TextJson as Json};
+use super::{Capability, CatalogType, Id, TextJson as Json};
 
 use chrono::prelude::*;
 use serde::Serialize;
@@ -63,12 +63,13 @@ pub async fn update_live_specs(
     writes_to: &[Option<Json<Vec<String>>>],
     images: &[Option<String>],
     image_tags: &[Option<String>],
+    data_plane_ids: &[Id],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<LiveSpecUpdate>> {
     let fails = sqlx::query_as!(
         LiveSpecUpdate,
         r#"
-        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag) as (
+        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id) as (
             select * from unnest(
                 $2::text[],
                 $3::catalog_spec_type[],
@@ -78,10 +79,11 @@ pub async fn update_live_specs(
                 $7::json[],
                 $8::json[],
                 $9::text[],
-                $10::text[]
+                $10::text[],
+                $11::flowid[]
             )
         ),
-        joined(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, tag, last_pub_id) as (
+        joined(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, last_pub_id) as (
             select
                 inputs.*,
                 case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_pub_id end as last_pub_id
@@ -89,7 +91,7 @@ pub async fn update_live_specs(
             left outer join live_specs ls on ls.catalog_name = inputs.catalog_name
         ),
         insert_live_specs(catalog_name,live_spec_id) as (
-            insert into live_specs (catalog_name, spec_type, spec, built_spec, last_build_id, last_pub_id, controller_next_run, reads_from, writes_to, connector_image_name, connector_image_tag)
+            insert into live_specs (catalog_name, spec_type, spec, built_spec, last_build_id, last_pub_id, controller_next_run, reads_from, writes_to, connector_image_name, connector_image_tag, data_plane_id)
             select
                 catalog_name,
                 spec_type,
@@ -109,7 +111,8 @@ pub async fn update_live_specs(
                     array(select json_array_elements_text(writes_to))
                 end,
                 image,
-                tag
+                image_tag,
+                data_plane_id
             from joined
             on conflict (catalog_name) do update set
                 updated_at = now(),
@@ -125,8 +128,7 @@ pub async fn update_live_specs(
                 connector_image_tag = excluded.connector_image_tag
             returning
                 catalog_name,
-                id as live_spec_id,
-                last_pub_id
+                id as live_spec_id
         ),
         insert_controller_jobs as (
             insert into controller_jobs(live_spec_id)
@@ -156,6 +158,7 @@ pub async fn update_live_specs(
     writes_to as &[Option<Json<Vec<String>>>], // 8
     images as &[Option<String>], // 9
     image_tags as &[Option<String>], // 10
+    data_plane_ids as &[Id], // 11
     )
     .fetch_all(txn)
     .await?;
@@ -170,38 +173,20 @@ pub async fn create(
     auto_evolve: bool,
     detail: String,
     background: bool,
+    data_plane_name: String,
 ) -> sqlx::Result<Id> {
     let rec = sqlx::query!(
-        r#"insert into publications (user_id, draft_id, auto_evolve, detail, background)
-            values ($1, $2, $3, $4, $5) returning id as "id: Id";"#,
+        r#"insert into publications (user_id, draft_id, auto_evolve, detail, background, data_plane_name)
+            values ($1, $2, $3, $4, $5, $6) returning id as "id: Id";"#,
         user_id as Uuid,
         draft_id as Id,
         auto_evolve,
         detail,
-        background
+        background,
+        data_plane_name,
     )
     .fetch_one(txn)
     .await?;
-
-    Ok(rec.id)
-}
-
-/// Enqueues a new publication of the given `draft_id`.
-pub async fn create_with_user_email(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    user_email: &str,
-    draft_id: Id,
-    auto_evolve: bool,
-    detail: String,
-    background: bool,
-) -> sqlx::Result<Id> {
-    let rec = sqlx::query!(
-        r#"insert into publications (user_id, draft_id, auto_evolve, detail, background)
-        values ((select id from auth.users where email = $1), $2, $3, $4, $5) returning id as "id: Id";"#,
-            user_email, draft_id as Id, auto_evolve, detail, background
-        )
-        .fetch_one(txn)
-        .await?;
 
     Ok(rec.id)
 }
@@ -219,6 +204,7 @@ pub struct Row {
     pub user_id: Uuid,
     pub auto_evolve: bool,
     pub background: bool,
+    pub data_plane_name: String,
 }
 
 #[tracing::instrument(level = "debug", skip(txn))]
@@ -238,7 +224,8 @@ pub async fn dequeue(
             updated_at,
             user_id,
             auto_evolve,
-            background
+            background,
+            data_plane_name
         from publications
         where job_status->>'type' = 'queued' and (background = $1 or background = false)
         order by background asc, id asc
@@ -335,81 +322,6 @@ where
     .await?;
 
     Ok(())
-}
-
-#[derive(Debug, Serialize)]
-pub struct SpecRow {
-    // Name of the specification.
-    pub catalog_name: String,
-    // Specification which will be applied by this draft.
-    pub draft_spec: Option<Json<Box<RawValue>>>,
-    // ID of the draft specification.
-    pub draft_spec_id: Id,
-    // Spec type of this draft.
-    // We validate and require that this equals `live_type`.
-    pub draft_type: Option<CatalogType>,
-    // Optional expected value for `last_pub_id` of the live spec.
-    // A special all-zero value means "this should be a creation".
-    pub expect_pub_id: Option<Id>,
-    // Last build ID of the live spec.
-    // If the spec is being created, this is the current publication ID.
-    pub last_build_id: Id,
-    // Last publication ID of the live spec.
-    // If the spec is being created, this is the current publication ID.
-    pub last_pub_id: Id,
-    // Current live specification which will be replaced by this draft.
-    pub live_spec: Option<Json<Box<RawValue>>>,
-    // ID of the live specification.
-    pub live_spec_id: Id,
-    // Spec type of the live specification.
-    pub live_type: Option<CatalogType>,
-    // Capabilities of the specification with respect to other roles.
-    pub spec_capabilities: Json<Vec<RoleGrant>>,
-    // User's capability to the specification `catalog_name`.
-    pub user_capability: Option<Capability>,
-}
-
-pub async fn resolve_spec_rows(
-    draft_id: Id,
-    user_id: Uuid,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<Vec<SpecRow>> {
-    sqlx::query_as!(
-        SpecRow,
-        r#"
-        select
-            draft_specs.catalog_name,
-            draft_specs.expect_pub_id as "expect_pub_id: Id",
-            draft_specs.spec as "draft_spec: Json<Box<RawValue>>",
-            draft_specs.id as "draft_spec_id: Id",
-            draft_specs.spec_type as "draft_type: CatalogType",
-            live_specs.last_build_id as "last_build_id: Id",
-            live_specs.last_pub_id as "last_pub_id: Id",
-            live_specs.spec as "live_spec: Json<Box<RawValue>>",
-            live_specs.id as "live_spec_id: Id",
-            live_specs.spec_type as "live_type?: CatalogType",
-            coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(draft_specs.catalog_name, subject_role)),
-                '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
-            (
-                select max(capability) from internal.user_roles($2) r
-                where starts_with(draft_specs.catalog_name, r.role_prefix)
-            ) as "user_capability: Capability"
-        from draft_specs
-        join live_specs
-            on draft_specs.catalog_name = live_specs.catalog_name
-        where draft_specs.draft_id = $1
-        order by draft_specs.catalog_name asc
-        for update of draft_specs, live_specs nowait;
-        "#,
-        draft_id as Id,
-        user_id,
-    )
-    .fetch_all(txn)
-    .await
 }
 
 #[derive(Debug, Serialize)]
@@ -688,6 +600,7 @@ pub async fn insert_live_spec_flows(
 
 #[derive(Debug)]
 pub struct StorageRow {
+    pub id: Id,
     pub catalog_prefix: String,
     pub spec: serde_json::Value,
 }
@@ -709,6 +622,7 @@ pub async fn resolve_storage_mappings(
           union all select 'recovery/' || name from tenants
         )
         select
+            m.id as "id: Id",
             m.catalog_prefix,
             m.spec
         from prefixes p

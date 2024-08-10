@@ -1,5 +1,6 @@
 pub mod connector_tags;
 pub mod controllers;
+pub mod data_plane;
 pub mod directives;
 pub mod discovers;
 pub mod drafts;
@@ -10,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use std::fmt::{self, Display};
 
-mod id;
-pub use id::Id;
+pub use models::Id;
 
 mod text_json;
 pub use text_json::TextJson;

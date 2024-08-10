@@ -121,7 +121,15 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     };
 
     for (control_id, mock) in &mock_calls.data_planes {
-        live.data_planes.insert_row(control_id, mock.default);
+        live.data_planes.insert_row(
+            control_id,
+            mock.default,
+            models::Collection::new("ops/logs"),
+            models::Collection::new("ops/stats"),
+            "hmac-key".to_string(),
+            "broker:address".to_string(),
+            "reactor:address".to_string(),
+        );
     }
 
     // Load into LiveCatalog::live_captures.
