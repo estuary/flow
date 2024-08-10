@@ -289,6 +289,10 @@ mod test {
             "roleGrantObj": "AcmeTenant/"
           },
           {
+            "cap": "read",
+            "roleGrantObj": "public/"
+          },
+          {
             "prefix": "AcmeTenant/",
             "storageMapping": {
               "stores": [

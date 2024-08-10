@@ -19,6 +19,7 @@ dependencies = [
  "ops",
  "proto-flow",
  "proto-gazette",
+ "serde",
  "serde_json",
  "tables",
  "tokio",
@@ -112,15 +113,17 @@ dependencies = [
 name = "agent-sql"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "chrono",
- "hex",
  "insta",
  "models",
  "proto-flow",
+ "proto-gazette",
  "schemars",
  "serde",
  "serde_json",
  "sqlx",
+ "tables",
  "tokio",
  "tracing",
 ]
@@ -2969,6 +2972,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sqlx",
  "superslice",
  "time 0.3.36",
  "unicode-normalization",

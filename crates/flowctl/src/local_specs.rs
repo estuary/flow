@@ -320,7 +320,15 @@ impl Resolver {
         }
 
         // Singular data-plane for local build contexts.
-        live.data_planes.insert_row(models::Id::zero(), true);
+        live.data_planes.insert_row(
+            models::Id::zero(),
+            true,
+            models::Collection::new(""),
+            models::Collection::new(""),
+            String::new(),
+            String::new(),
+            String::new(),
+        );
 
         Ok(live)
     }

@@ -51,6 +51,9 @@ insert into applied_directives (directive_id, user_id, user_claims)
 -- Give support@estuary.dev the `estuary_support/` role, so that it may perform automatic publications
 insert into user_grants (user_id, object_role, capability) values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'estuary_support/', 'admin');
 
+-- Give support@estuary.dev the `public/` role for access to public data-planes.
+insert into user_grants (user_id, object_role, capability) values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'public/', 'read');
+
 -- Seed a small number of connectors. This is a small list, separate from our
 -- production connectors, because each is pulled onto your dev machine.
 do $$
