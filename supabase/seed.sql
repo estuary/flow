@@ -95,3 +95,22 @@ end;
 $$ language plpgsql;
 
 commit;
+
+-- Install a seed data-plane which matches the configuration in Tiltfile.
+insert into data_planes (
+  data_plane_name,
+  ops_logs_name,
+  ops_stats_name,
+  fqdn,
+  broker_address,
+  reactor_address,
+  hmac_keys
+) values (
+  'public/data-planes/us-central1-v1',
+  'ops.us-central1.v1/logs',
+  'ops.us-central1.v1/stats',
+  'localhost', -- 'us-central1-v1.dp.estuary-data.com',
+  'http://localhost:8080',
+  'http://localhost:9000',
+  '{b3RoZXItc2VjcmV0, c2VjcmV0}' -- Compare to values in Tiltfile.
+);

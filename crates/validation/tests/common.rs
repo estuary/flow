@@ -123,10 +123,12 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     for (control_id, mock) in &mock_calls.data_planes {
         live.data_planes.insert_row(
             control_id,
+            "public/test-data-plane".to_string(),
             mock.default,
+            "the-data-plane.dp.estuary-data.com".to_string(),
+            vec!["hmac-key".to_string()],
             models::Collection::new("ops/logs"),
             models::Collection::new("ops/stats"),
-            "hmac-key".to_string(),
             "broker:address".to_string(),
             "reactor:address".to_string(),
         );

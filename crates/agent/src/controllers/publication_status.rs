@@ -324,13 +324,15 @@ fn draft_publication(state: &ControllerState, spec: &AnySpec) -> tables::DraftCa
     let mut draft = tables::DraftCatalog::default();
     let scope = tables::synthetic_scope(spec.catalog_type(), &state.catalog_name);
 
-    draft.add_spec(
-        spec.catalog_type(),
-        &state.catalog_name,
-        scope,
-        Some(state.last_pub_id),
-        Some(&spec.to_raw_value()),
-    );
+    draft
+        .add_spec(
+            spec.catalog_type(),
+            &state.catalog_name,
+            scope,
+            Some(state.last_pub_id),
+            Some(&spec.to_raw_value()),
+        )
+        .unwrap(); // TODO error handling.
 
     draft
 }

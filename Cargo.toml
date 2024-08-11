@@ -67,6 +67,7 @@ iri-string = "0.6.0"
 jemallocator = { version = "0.3", features = ["profiling"] }
 jemalloc-ctl = "0.3"
 json-patch = "0.3"
+jsonwebtoken = {version = "9", default-features = false }
 js-sys = "0.3.60"
 kafka-protocol = "0.10.0"
 lazy_static = "1.4"

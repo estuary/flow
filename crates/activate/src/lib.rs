@@ -268,19 +268,21 @@ async fn converge_task_changes(
 ) -> anyhow::Result<Vec<Change>> {
     let (list_shards, list_recovery) = list_task_request(task_type, task_name);
 
-    let (ops_logs_name, ops_log) =
+    let (ops_logs_name, ops_logs_change) =
         converge_ops_journal(journal_client, task_type, task_name, ops_logs_template);
-    let (ops_stats_name, ops_stat) =
+    let (ops_stats_name, ops_stats_change) =
         converge_ops_journal(journal_client, task_type, task_name, ops_stats_template);
 
-    let (shards, recovery, ops_log, ops_stat) = futures::join!(
+    let (shards, recovery, ops_logs_change, ops_stats_change) = futures::join!(
         shard_client.list(list_shards),
         journal_client.list(list_recovery),
-        ops_log,
-        ops_stat,
+        ops_logs_change,
+        ops_stats_change,
     );
     let shards = unpack_shard_listing(shards?)?;
     let recovery = unpack_journal_listing(recovery?)?;
+    let ops_logs_change = ops_logs_change?;
+    let ops_stats_change = ops_stats_change?;
 
     let mut changes = task_changes(
         template,
@@ -290,8 +292,13 @@ async fn converge_task_changes(
         &ops_logs_name,
         &ops_stats_name,
     )?;
-    changes.extend(ops_log?);
-    changes.extend(ops_stat?);
+
+    // If (and only if) the task is being upserted,
+    // then ensure the creation of its ops collection partitions.
+    if template.is_some() {
+        changes.extend(ops_logs_change.into_iter());
+        changes.extend(ops_stats_change.into_iter());
+    }
 
     Ok(changes)
 }

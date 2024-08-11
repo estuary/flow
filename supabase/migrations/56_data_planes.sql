@@ -15,7 +15,7 @@ create table data_planes (
   status        json not null default '{}'::json,
   logs_token    uuid not null default gen_random_uuid(),
   error         text,
-  hmac_key      text not null,
+  hmac_keys     text[] not null,
 
   unique (data_plane_name),
   unique (fqdn)
@@ -42,8 +42,36 @@ grant select (
 on data_planes to authenticated;
 
 
-alter table discovers add column data_plane_name text not null default '';
+alter table discovers add column data_plane_name text not null default 'public/data-planes/us-central1-v1';
+alter table publications add column data_plane_name text not null default 'public/data-planes/us-central1-v1';
 
-alter table publications add column data_plane_name text not null default '';
-
+-- TODO replace with actual data-plane ID for cronut.
 alter table live_specs add column data_plane_id flowid not null default '00:00:00:00:00:00:00:00';
+
+
+
+create or replace function internal.task_roles(
+  task_name_or_prefix text,
+  min_capability grant_capability default 'x_00'
+)
+returns table (role_prefix catalog_prefix, capability grant_capability) as $$
+
+  with recursive
+  all_roles(role_prefix, capability) as (
+      select g.object_role, g.capability from role_grants g
+      where starts_with(task_name_or_prefix, g.subject_role)
+        and g.capability >= min_capability
+    union
+      -- Recursive case: for each object_role granted as 'admin',
+      -- project through grants where object_role acts as the subject_role.
+      select g.object_role, g.capability
+      from role_grants g, all_roles a
+      where starts_with(a.role_prefix, g.subject_role)
+        and g.capability >= min_capability
+        and a.capability = 'admin'
+  )
+  select role_prefix, max(capability) from all_roles
+  group by role_prefix
+  order by role_prefix;
+
+$$ language sql stable;

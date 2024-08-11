@@ -98,8 +98,6 @@ impl TestHarness {
             system_user_id,
             publisher.clone(),
             id_gen.clone(),
-            url::Url::parse("http://not-used.test/").unwrap(),
-            url::Url::parse("http://not-used.test/").unwrap(),
         );
         let controllers = ControllerHandler::new(TestControlPlane::new(control_plane));
         let mut harness = Self {
@@ -178,7 +176,7 @@ impl TestHarness {
                     fqdn,
                     broker_address,
                     reactor_address,
-                    hmac_key
+                    hmac_keys
                 ) values (
                     'public/test-data-plane',
                     'ops/logs',
@@ -186,7 +184,7 @@ impl TestHarness {
                     'fqdn.data-plane.com',
                     'broker:address',
                     'reactor:address',
-                    'secret-key'
+                    '{secret-key}'
                 ) on conflict do nothing
             )
             select 1 as "something: bool";
