@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,7 +49,7 @@ type authCacheKey struct {
 
 type authCacheValue struct {
 	token   string
-	issuer  string
+	address string
 	err     error
 	expires time.Time
 }
@@ -110,17 +111,17 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 
 	// Attempt to fetch an authorization token from the control plane.
 	// Cache errors for a period of time to prevent thundering herds on errors.
-	if token, issuer, expiresAt, err := doAuthFetch(a.authAPI, claims, a.delegate.Keys[0]); err != nil {
+	if token, address, expiresAt, err := doAuthFetch(a.authAPI, claims, a.delegate.Keys[0]); err != nil {
 		value = authCacheValue{
 			token:   "",
-			issuer:  "",
+			address: "",
 			err:     err,
 			expires: now.Add(time.Second * 10), // time.Minute),
 		}
 	} else {
 		value = authCacheValue{
 			token:   token,
-			issuer:  issuer,
+			address: address,
 			err:     nil,
 			expires: expiresAt,
 		}
@@ -142,22 +143,31 @@ func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (str
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to self-sign authorization request: %w", err)
 	}
+	token = `{"token":"` + token + `"}`
 
 	// logrus.WithFields(logrus.Fields{"token": token}).Info("AUTHORIZE REQUEST")
 
-	resp, err := http.Post(authAPI, "application/text", strings.NewReader(token))
+	httpResp, err := http.Post(authAPI, "application/json", strings.NewReader(token))
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to POST to authorization server: %w", err)
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to read authorization server response: %w", err)
 	}
-	if resp.StatusCode != 200 {
-		return "", "", time.Time{}, fmt.Errorf("authorization failed (%s): %s %s", resp.Status, string(respBody), token)
+	if httpResp.StatusCode != 200 {
+		return "", "", time.Time{}, fmt.Errorf("authorization failed (%s): %s %s", httpResp.Status, string(respBody), token)
 	}
-	token = string(respBody)
+
+	var response struct {
+		Token         string
+		BrokerAddress string
+	}
+	if err = json.Unmarshal(respBody, &response); err != nil {
+		return "", "", time.Time{}, fmt.Errorf("failed to decode response: %w", err)
+	}
+	token = response.Token
 
 	claims = pb.Claims{}
 	if _, _, err = jwt.NewParser().ParseUnverified(token, &claims); err != nil {
@@ -172,7 +182,7 @@ func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (str
 
 	logrus.WithFields(logrus.Fields{"claims": claims, "token": token, "err": err}).Info("AUTHORIZE RESPONSE")
 
-	return token, claims.Issuer, claims.ExpiresAt.Time, nil
+	return token, response.BrokerAddress, claims.ExpiresAt.Time, nil
 }
 
 var _ pb.Authorizer = &ControlPlaneAuthorizer{}

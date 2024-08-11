@@ -208,17 +208,6 @@ impl tables::CatalogResolver for Resolver {
             match result {
                 Ok((mut live, inferred_schemas)) => {
                     live.inferred_schemas = inferred_schemas;
-
-                    // TODO(johnny): Fetch actual storage mappings?
-                    live.storage_mappings.insert_row(
-                        models::Prefix::new(""),
-                        models::Id::zero(),
-                        vec![models::Store::Gcs(models::GcsBucketAndPrefix {
-                            bucket: "example-bucket".to_string(),
-                            prefix: None,
-                        })],
-                    );
-
                     live
                 }
                 Err(err) => {
@@ -239,9 +228,12 @@ impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
+        // NoOpCatalogResolver provides a storage mapping and data-plane fixture.
+        let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
+
         // If we're unauthenticated then return an empty LiveCatalog rather than an error.
         if !self.client.is_authenticated() {
-            return Ok(Default::default());
+            return Ok(live);
         }
 
         #[derive(serde::Deserialize)]
@@ -272,8 +264,6 @@ impl Resolver {
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<LiveSpec>>>()
             .await?;
-
-        let mut live = tables::LiveCatalog::default();
 
         for LiveSpec {
             id,
@@ -318,17 +308,6 @@ impl Resolver {
                 ),
             }
         }
-
-        // Singular data-plane for local build contexts.
-        live.data_planes.insert_row(
-            models::Id::zero(),
-            true,
-            models::Collection::new(""),
-            models::Collection::new(""),
-            String::new(),
-            String::new(),
-            String::new(),
-        );
 
         Ok(live)
     }

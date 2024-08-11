@@ -453,6 +453,7 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = tables::LiveCatalog> + Send + 'a>> {
         async move {
             let mut live = tables::LiveCatalog::default();
+
             live.storage_mappings.insert_row(
                 models::Prefix::new(""),
                 models::Id::zero(),
@@ -461,6 +462,19 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
                     prefix: None,
                 })],
             );
+
+            live.data_planes.insert_row(
+                models::Id::zero(),
+                "public/noop-data-plane".to_string(),
+                true,
+                "no-op.dp.estuary-data.com".to_string(),
+                vec!["hmac-key".to_string()],
+                models::Collection::new("ops/logs"),
+                models::Collection::new("ops/stats"),
+                "broker:address".to_string(),
+                "reactor:address".to_string(),
+            );
+
             live
         }
         .boxed()

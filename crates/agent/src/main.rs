@@ -26,6 +26,7 @@ struct Args {
     #[clap(long = "database-ca", env = "DATABASE_CA")]
     database_ca: Option<String>,
     /// URL of the data-plane Gazette broker.
+    /// TODO(johnny): Deprecated and should be removed with federated data-planes.
     #[clap(
         long = "broker-address",
         env = "BROKER_ADDRESS",
@@ -33,6 +34,7 @@ struct Args {
     )]
     broker_address: url::Url,
     /// URL of the data-plane Flow consumer.
+    /// TODO(johnny): Deprecated and should be removed with federated data-planes.
     #[clap(
         long = "consumer-address",
         env = "CONSUMER_ADDRESS",
@@ -51,6 +53,9 @@ struct Args {
     /// Allow local connectors. True for local stacks, and false otherwise.
     #[clap(long = "allow-local")]
     allow_local: bool,
+    /// The port to listen on for API requests.
+    #[clap(long, default_value = "8675", env = "API_PORT")]
+    api_port: u16,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -134,10 +139,23 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         system_user_id,
         publisher.clone(),
         id_gen.clone(),
-        args.broker_address.clone(),
-        args.consumer_address.clone(),
     );
 
+    // Share-able future which completes when the agent should exit.
+    let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
+
+    // Wire up the agent's API server.
+    let api_app = agent::api::App {
+        pool: pg_pool.clone(),
+    };
+    let api_listener = std::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+        .context("failed to bind server port")?;
+    let api_server = axum::Server::from_tcp(api_listener)
+        .unwrap()
+        .serve(agent::api::build_router(api_app.into()).into_make_service())
+        .with_graceful_shutdown(shutdown.clone());
+
+    // Wire up the agent's job execution loop.
     let serve_fut = agent::serve(
         vec![
             Box::new(publisher),
@@ -157,11 +175,15 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             Box::new(agent::controllers::ControllerHandler::new(control_plane)),
         ],
         pg_pool.clone(),
-        tokio::signal::ctrl_c().map(|_| ()),
+        shutdown,
     );
 
     std::mem::drop(logs_tx);
-    let ((), ()) = tokio::try_join!(serve_fut, logs_sink.map_err(Into::into))?;
+    let ((), (), ()) = tokio::try_join!(
+        serve_fut,
+        api_server.map_err(|err| anyhow::anyhow!(err)),
+        logs_sink.map_err(Into::into)
+    )?;
 
     Ok(())
 }

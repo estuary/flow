@@ -151,10 +151,6 @@ pub struct PGControlPlane {
     pub system_user_id: Uuid,
     pub publications_handler: Publisher,
     pub id_generator: models::IdGenerator,
-
-    // These should be looked up dynamically once federated data planes are implemented
-    broker_address: url::Url,
-    consumer_address: url::Url,
 }
 
 impl PGControlPlane {
@@ -163,16 +159,12 @@ impl PGControlPlane {
         system_user_id: Uuid,
         publications_handler: Publisher,
         id_generator: models::IdGenerator,
-        broker_address: url::Url,
-        consumer_address: url::Url,
     ) -> Self {
         Self {
             pool,
             system_user_id,
             publications_handler,
             id_generator,
-            broker_address,
-            consumer_address,
         }
     }
 
@@ -182,8 +174,8 @@ impl PGControlPlane {
     ) -> anyhow::Result<(
         shard::Client,
         journal::Client,
-        broker::JournalSpec,
-        broker::JournalSpec,
+        broker::JournalSpec, // ops logs template.
+        broker::JournalSpec, // ops stats template.
     )> {
         let mut fetched = agent_sql::data_plane::fetch_data_planes(
             &self.pool,
@@ -207,16 +199,36 @@ impl PGControlPlane {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        let foobar = "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJjYXAiOjYsImV4cCI6MTgyMTY2MjEyMiwiaWF0IjoxNzIxNjYyMTIyfQ.f2-oMir2dQuF64ppZXyFdak1l3cWgX2BR1JfhNLc3lftZxnCmFFz8xQVYccMFnrH";
-        let auth = gazette::Auth::new(Some(foobar.to_string()))?;
+        let unix_ts = jsonwebtoken::get_current_timestamp();
+
+        // Sign short-lived claims for activating journals and shards into the data-plane.
+        let claims = proto_gazette::Claims {
+            sel: Default::default(),
+            cap: proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
+            sub: String::new(),
+            iat: unix_ts,
+            exp: unix_ts + 60,
+            iss: data_plane.fqdn.clone(),
+        };
+
+        let mut bearer_token = None;
+        if let Some(hmac_key) = data_plane.hmac_keys.first() {
+            let hmac_key = jsonwebtoken::EncodingKey::from_base64_secret(hmac_key)
+                .context("hmac key is invalid")?;
+
+            bearer_token = Some(
+                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &hmac_key)
+                    .context("failed to encode authorization")?,
+            );
+        }
+        let auth = gazette::Auth::new(bearer_token)?;
 
         // Create the journal and shard clients that are used for interacting with the data plane
         let journal_router =
-            gazette::journal::Router::new(self.broker_address.as_str(), auth.clone(), "local")?;
+            gazette::journal::Router::new(&data_plane.broker_address, auth.clone(), "local")?;
         let journal_client =
             gazette::journal::Client::new(reqwest::Client::default(), journal_router);
-        let shard_router =
-            gazette::shard::Router::new(self.consumer_address.as_str(), auth, "local")?;
+        let shard_router = gazette::shard::Router::new(&data_plane.reactor_address, auth, "local")?;
         let shard_client = gazette::shard::Client::new(shard_router);
 
         Ok((

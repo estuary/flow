@@ -70,12 +70,23 @@ tables!(
     table DataPlanes (row DataPlane, sql "data_planes") {
         // Control-plane identifier for this data-plane.
         key id: models::Id,
+        // Name of this data-plane under the catalog namespace.
+        // This is used for authorization and not much else.
+        val data_plane_name: String,
         // When true, this DataPlane is to be used for created specifications.
         val is_default: bool,
+        // Unique and fully-qualified domain name of this data-plane.
+        val fqdn: String,
+        // HMAC-256 keys for this data-plane.
+        // The first is used for signing, and any key may validate.
+        val hmac_keys: Vec<String>,
+        // Name of the collection for ops logs of the data-plane.
         val ops_logs_name: models::Collection,
+        // Name of the collection for ops stats of the data-plane.
         val ops_stats_name: models::Collection,
-        val hmac_key: String,
+        // Address of brokers within the data-plane.
         val broker_address: String,
+        // Address of reactors within the data-plane.
         val reactor_address: String,
     }
 
@@ -342,6 +353,7 @@ string_wrapper_types!(
 );
 
 json_sql_types!(
+    Vec<String>,
     Vec<models::Store>,
     models::CaptureDef,
     models::CollectionDef,
