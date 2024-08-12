@@ -61,7 +61,7 @@ pub enum Command {
     ///
     /// A publication only occurs if tests pass.
     /// Once published, your draft is deleted.
-    Publish,
+    Publish(Publish),
     /// Select a draft to work on.
     ///
     /// You must provide an ID of the draft to select, which can be found via `list`.
@@ -73,7 +73,15 @@ pub enum Command {
     /// your change. It verifies the end-to-end effects of your changes to
     /// prevent accidental disruptions due to behavior changes or incompatible
     /// schemas.
-    Test,
+    Test(Publish),
+}
+
+#[derive(Debug, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Publish {
+    /// Data-plane into which created specifications will be placed.
+    #[clap(long, default_value = "public/data-planes/gcp-us-central1-v1")]
+    default_data_plane: String,
 }
 
 #[derive(Debug, clap::Args)]
@@ -92,9 +100,9 @@ impl Draft {
             Command::Describe => do_describe(ctx).await,
             Command::Develop(develop) => do_develop(ctx, develop).await,
             Command::List => do_list(ctx).await,
-            Command::Publish => do_publish(ctx, false).await,
+            Command::Publish(publish) => do_publish(ctx, &publish.default_data_plane, false).await,
             Command::Select(select) => do_select(ctx, select).await,
-            Command::Test => do_publish(ctx, true).await,
+            Command::Test(publish) => do_publish(ctx, &publish.default_data_plane, true).await,
         }
     }
 }
@@ -329,11 +337,15 @@ async fn do_select(
     do_list(ctx).await
 }
 
-async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Result<()> {
+async fn do_publish(
+    ctx: &mut crate::CliContext,
+    data_plane_name: &str,
+    dry_run: bool,
+) -> anyhow::Result<()> {
     let draft_id = ctx.config().cur_draft()?;
     let client = ctx.controlplane_client().await?;
 
-    publish(client, dry_run, draft_id).await?;
+    publish(client, data_plane_name, draft_id, dry_run).await?;
 
     if !dry_run {
         ctx.config_mut().draft.take();
@@ -343,8 +355,9 @@ async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Resul
 
 pub async fn publish(
     client: Client,
-    dry_run: bool,
+    default_data_plane_name: &str,
     draft_id: models::Id,
+    dry_run: bool,
 ) -> Result<(), anyhow::Error> {
     #[derive(Deserialize)]
     struct Row {
@@ -357,6 +370,7 @@ pub async fn publish(
             .select("id,logs_token")
             .insert(
                 serde_json::json!({
+                    "data_plane_name": default_data_plane_name,
                     "detail": &format!("Published via flowctl"),
                     "draft_id": draft_id,
                     "dry_run": dry_run,

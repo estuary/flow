@@ -42,8 +42,8 @@ grant select (
 on data_planes to authenticated;
 
 
-alter table discovers add column data_plane_name text not null default 'public/data-planes/us-central1-v1';
-alter table publications add column data_plane_name text not null default 'public/data-planes/us-central1-v1';
+alter table discovers add column data_plane_name text not null default 'public/data-planes/gcp-us-central1-v1';
+alter table publications add column data_plane_name text not null default 'public/data-planes/gcp-us-central1-v1';
 
 -- TODO replace with actual data-plane ID for cronut.
 alter table live_specs add column data_plane_id flowid not null default '00:00:00:00:00:00:00:00';
