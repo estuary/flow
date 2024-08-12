@@ -106,7 +106,7 @@ insert into data_planes (
   reactor_address,
   hmac_keys
 ) values (
-  'public/data-planes/us-central1-v1',
+  'public/data-planes/gcp-us-central1-v1',
   'ops.us-central1.v1/logs',
   'ops.us-central1.v1/stats',
   'localhost', -- 'us-central1-v1.dp.estuary-data.com',

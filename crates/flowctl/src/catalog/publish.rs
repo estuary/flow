@@ -12,6 +12,9 @@ pub struct Publish {
     /// This flag is required if running flowctl non-interactively, such as in a shell script.
     #[clap(long)]
     auto_approve: bool,
+    /// Data-plane into which created specifications will be placed.
+    #[clap(long, default_value = "public/data-planes/gcp-us-central1-v1")]
+    default_data_plane: String,
 }
 
 pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<()> {
@@ -61,7 +64,8 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     }
     println!("Proceeding to publish...");
 
-    let publish_result = draft::publish(client.clone(), false, draft.id).await;
+    let publish_result =
+        draft::publish(client.clone(), &args.default_data_plane, draft.id, false).await;
     // The draft will have been deleted automatically if the publish was successful.
     if let Err(err) = publish_result.as_ref() {
         tracing::error!(draft_id = %draft.id, error = %err, "publication error");

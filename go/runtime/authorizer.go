@@ -13,7 +13,6 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/auth"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/metadata"
@@ -49,7 +48,7 @@ type authCacheKey struct {
 
 type authCacheValue struct {
 	token   string
-	address string
+	address pb.Endpoint
 	err     error
 	expires time.Time
 }
@@ -133,12 +132,23 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 
 	if value.err != nil {
 		return nil, value.err
-	} else {
-		return metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", value.token)), nil
 	}
+
+	// Often the request will already have an opinion on routing due to dynamic
+	// route discovery. If it doesn't, then inject the advertised base service
+	// address of the resolved data-plane.
+	if route, _, ok := pb.GetDispatchRoute(ctx); !ok || len(route.Members) == 0 {
+		ctx = pb.WithDispatchRoute(ctx, pb.Route{
+			Members:   []pb.ProcessSpec_ID{{Zone: "", Suffix: string(value.address)}},
+			Primary:   0,
+			Endpoints: []pb.Endpoint{pb.Endpoint(value.address)},
+		}, pb.ProcessSpec_ID{})
+	}
+
+	return metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", value.token)), nil
 }
 
-func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (string, string, time.Time, error) {
+func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (string, pb.Endpoint, time.Time, error) {
 	var token, err = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(key)
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to self-sign authorization request: %w", err)
@@ -162,7 +172,7 @@ func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (str
 
 	var response struct {
 		Token         string
-		BrokerAddress string
+		BrokerAddress pb.Endpoint
 	}
 	if err = json.Unmarshal(respBody, &response); err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to decode response: %w", err)
@@ -180,7 +190,7 @@ func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (str
 		return "", "", time.Time{}, fmt.Errorf("authorization server did not include an expires-at claim")
 	}
 
-	logrus.WithFields(logrus.Fields{"claims": claims, "token": token, "err": err}).Info("AUTHORIZE RESPONSE")
+	// logrus.WithFields(logrus.Fields{"claims": claims, "token": token, "err": err}).Info("AUTHORIZE RESPONSE")
 
 	return token, response.BrokerAddress, claims.ExpiresAt.Time, nil
 }

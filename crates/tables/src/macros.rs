@@ -54,9 +54,6 @@ pub trait SqlRow: Row {
     fn scan<'stmt>(row: &rusqlite::Row<'stmt>) -> rusqlite::Result<Self>;
 }
 
-/// TableObj is the object-safe portion of a concrete Table type.
-pub trait TableObj: std::fmt::Debug {}
-
 #[cfg(feature = "persist")]
 /// SqlTableObj is the object-safe portion of a concrete Table's SQL support.
 pub trait SqlTableObj {
@@ -79,7 +76,6 @@ pub trait SqlTableObj {
 
 /// Table is a collection of Rows.
 pub struct Table<R: Row>(Vec<R>);
-impl<R: Row> TableObj for Table<R> {}
 
 impl<R: Row> Table<R> {
     /// New returns an empty Table.
