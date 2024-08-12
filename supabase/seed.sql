@@ -109,8 +109,26 @@ insert into data_planes (
   'public/data-planes/gcp-us-central1-v1',
   'ops.us-central1.v1/logs',
   'ops.us-central1.v1/stats',
-  'localhost', -- 'us-central1-v1.dp.estuary-data.com',
+  'first.dp.estuary-data.com',
   'http://localhost:8080',
   'http://localhost:9000',
-  '{b3RoZXItc2VjcmV0, c2VjcmV0}' -- Compare to values in Tiltfile.
+  '{b3RoZXItc2VjcmV0, c2VjcmV0}'
+);
+
+insert into data_planes (
+  data_plane_name,
+  ops_logs_name,
+  ops_stats_name,
+  fqdn,
+  broker_address,
+  reactor_address,
+  hmac_keys
+) values (
+  'public/data-planes/second',
+  'ops.us-central1.v2/logs',
+  'ops.us-central1.v2/stats',
+  'second.dp.estuary-data.com',
+  'http://localhost:8085',
+  'http://localhost:9005',
+  '{aGVsbG8=}'
 );
