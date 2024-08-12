@@ -7,9 +7,9 @@ os.putenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
 
 # Secret(s) used to sign Authorizations within a data plane.
 # Testing values here are the base64 encoding of "secret" and "other-secret".
-AUTH_KEYS="c2VjcmV0,b3RoZXItc2VjcmV0"
-os.putenv("CONSUMER_AUTH_KEYS", AUTH_KEYS)
-os.putenv("BROKER_AUTH_KEYS", AUTH_KEYS)
+#AUTH_KEYS="c2VjcmV0,b3RoZXItc2VjcmV0"
+#os.putenv("CONSUMER_AUTH_KEYS", AUTH_KEYS)
+#os.putenv("BROKER_AUTH_KEYS", AUTH_KEYS)
 
 
 REPO_BASE= '%s/..' % os.getcwd()
@@ -49,11 +49,13 @@ local_resource('etcd', serve_cmd='%s/flow/.build/package/bin/etcd \
         http_get=http_get_action(port=2379, path='/health')
     ))
 
-local_resource('gazette', serve_cmd='%s/flow/.build/package/bin/gazette serve \
+local_resource('gazette-1', serve_cmd='%s/flow/.build/package/bin/gazette serve \
+    --etcd.prefix=/gazette/cluster-one \
     --broker.port=8080 \
     --broker.host=localhost \
     --broker.disable-stores \
     --broker.max-replication=1 \
+    --broker.auth-keys=c2VjcmV0,b3RoZXItc2VjcmV0 \
     --log.level=info' % REPO_BASE,
     links='http://localhost:8080/debug/pprof',
     resource_deps=['etcd'],
@@ -62,18 +64,62 @@ local_resource('gazette', serve_cmd='%s/flow/.build/package/bin/gazette serve \
         http_get=http_get_action(port=8080, path='/debug/ready')
     ))
 
-local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
+local_resource('gazette-2', serve_cmd='%s/flow/.build/package/bin/gazette serve \
+    --etcd.prefix=/gazette/cluster-two \
+    --broker.port=8085 \
+    --broker.host=localhost \
+    --broker.disable-stores \
+    --broker.max-replication=1 \
+    --broker.auth-keys=aGVsbG8= \
+    --log.level=info' % REPO_BASE,
+    links='http://localhost:8080/debug/pprof',
+    resource_deps=['etcd'],
+    readiness_probe=probe(
+        initial_delay_secs=5,
+        http_get=http_get_action(port=8080, path='/debug/ready')
+    ))
+
+local_resource('reactor-1', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
     --flow.allow-local \
     --broker.address http://localhost:8080 \
     --broker.cache.size 128 \
+    --broker.auth-keys=c2VjcmV0,b3RoZXItc2VjcmV0 \
+    --consumer.auth-keys=c2VjcmV0,b3RoZXItc2VjcmV0 \
     --consumer.host localhost \
     --consumer.limit 1024 \
     --consumer.max-hot-standbys 0 \
     --consumer.port 9000 \
     --etcd.address http://localhost:2379 \
+    --etcd.prefix=/reactor/one \
     --flow.builds-root file://%s/ \
-    --flow.enable-schema-inference \
     --flow.network supabase_network_flow \
+    --flow.control-api http://localhost:8675 \
+    --flow.data-plane-fqdn first.dp.estuary-data.com \
+    --log.format text \
+    --log.level info' % (REPO_BASE, FLOW_BUILDS_DIR),
+    links='http://localhost:9000/debug/pprof',
+    resource_deps=['etcd'],
+    readiness_probe=probe(
+        initial_delay_secs=5,
+        http_get=http_get_action(port=9000, path='/debug/ready')
+    ))
+
+local_resource('reactor-2', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
+    --flow.allow-local \
+    --broker.address http://localhost:8085 \
+    --broker.cache.size 128 \
+    --broker.auth-keys=aGVsbG8= \
+    --consumer.auth-keys=aGVsbG8= \
+    --consumer.host localhost \
+    --consumer.limit 1024 \
+    --consumer.max-hot-standbys 0 \
+    --consumer.port 9005 \
+    --etcd.address http://localhost:2379 \
+    --etcd.prefix=/reactor/two \
+    --flow.builds-root file://%s/ \
+    --flow.network supabase_network_flow \
+    --flow.control-api http://localhost:8675 \
+    --flow.data-plane-fqdn second.dp.estuary-data.com \
     --log.format text \
     --log.level info' % (REPO_BASE, FLOW_BUILDS_DIR),
     links='http://localhost:9000/debug/pprof',
@@ -90,7 +136,7 @@ local_resource('agent', serve_cmd='%s/flow/.build/package/bin/agent \
     --consumer-address=http://localhost:9000 \
     --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, REPO_BASE),
     deps=[],
-    resource_deps=['reactor', 'gazette'])
+    resource_deps=['reactor-1', 'gazette-1'])
 
 local_resource('config-encryption', serve_cmd='%s/config-encryption/target/debug/flow-config-encryption \
     --gcp-kms %s' % (REPO_BASE, TEST_KMS_KEY),
@@ -135,5 +181,5 @@ local_resource('data-plane-gateway',
             DPG_TLS_CERT_PATH
         ),
     links='https://localhost:28318/',
-    resource_deps=['gazette', 'reactor', 'dpg-tls-cert'])
+    resource_deps=['gazette-1', 'reactor-1', 'dpg-tls-cert'])
 

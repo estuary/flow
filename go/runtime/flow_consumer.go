@@ -28,12 +28,13 @@ import (
 type FlowConsumerConfig struct {
 	runconsumer.BaseConfig
 	Flow struct {
-		AllowLocal          bool   `long:"allow-local" description:"Allow local connectors. True for local stacks, and false otherwise."`
-		BuildsRoot          string `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
-		BrokerRoot          string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
-		Network             string `long:"network" description:"The Docker network that connector containers are given access to, defaults to the bridge network"`
-		TestAPIs            bool   `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
-		DeprecatedInference bool   `long:"enable-schema-inference" description:"This flag is deprecated and will be removed." `
+		AllowLocal    bool        `long:"allow-local" description:"Allow local connectors. True for local stacks, and false otherwise."`
+		BrokerRoot    string      `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+		BuildsRoot    string      `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
+		ControlAPI    pb.Endpoint `long:"control-api" description:"Address of the control-plane API"`
+		DataPlaneFQDN string      `long:"data-plane-fqdn" description:"Fully-qualified domain name of the data-plane to which this reactor belongs"`
+		Network       string      `long:"network" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
+		TestAPIs      bool        `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
@@ -195,8 +196,8 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		// Wrap the underlying Authorizer for brokered control-plane authorizations.
 		args.Service.Authorizer = NewControlPlaneAuthorizer(
 			args.Service.Authorizer.(*auth.KeyedAuth),
-			"localhost",
-			"http://localhost:8675/authorize",
+			config.Flow.DataPlaneFQDN,
+			config.Flow.ControlAPI,
 		)
 
 		// Unwrap the raw JournalClient from its current AuthJournalClient,

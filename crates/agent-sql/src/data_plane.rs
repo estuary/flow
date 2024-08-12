@@ -42,14 +42,13 @@ pub async fn fetch_data_planes(
     let r = sqlx::query_as!(
         tables::DataPlane,
         r#"
-        with auth_check as (
-            select 1 from internal.user_roles($3, 'read') r
-            where starts_with($2, r.role_prefix)
-        )
         select
             id as "id: Id",
             data_plane_name,
-            data_plane_name = $2 and exists(select 1 from auth_check) as "is_default!: bool",
+            data_plane_name = $2 and exists(
+                select 1 from internal.user_roles($3, 'read') r
+                where starts_with($2, r.role_prefix)
+            ) as "is_default!: bool",
             hmac_keys,
             fqdn,
             broker_address,
@@ -57,7 +56,7 @@ pub async fn fetch_data_planes(
             ops_logs_name as "ops_logs_name: models::Collection",
             ops_stats_name as "ops_stats_name: models::Collection"
         from data_planes
-        where id in (select id from unnest($1::flowid[]))
+        where id in (select id from unnest($1::flowid[]) id)
            or data_plane_name = $2
         "#,
         &data_plane_ids as &[Id],

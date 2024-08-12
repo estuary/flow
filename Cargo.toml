@@ -209,3 +209,8 @@ debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugge
 [patch.'crates-io']
 rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
 librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
+
+# Recommended by sqlx authors to speed up build-time checks.
+# https://github.com/launchbadge/sqlx#compile-time-verification
+[profile.dev.package.sqlx-macros]
+opt-level = 3

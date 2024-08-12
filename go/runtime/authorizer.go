@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -19,9 +20,9 @@ import (
 )
 
 type ControlPlaneAuthorizer struct {
-	authAPI   string
-	dataplane string
-	delegate  *auth.KeyedAuth
+	controlAPI    pb.Endpoint
+	dataplaneFQDN string
+	delegate      *auth.KeyedAuth
 
 	cache struct {
 		m  map[authCacheKey]authCacheValue
@@ -29,11 +30,11 @@ type ControlPlaneAuthorizer struct {
 	}
 }
 
-func NewControlPlaneAuthorizer(delegate *auth.KeyedAuth, dataplane string, authAPI string) *ControlPlaneAuthorizer {
+func NewControlPlaneAuthorizer(delegate *auth.KeyedAuth, dataplaneFQDN string, controlAPI pb.Endpoint) *ControlPlaneAuthorizer {
 	var a = &ControlPlaneAuthorizer{
-		authAPI:   authAPI,
-		dataplane: dataplane,
-		delegate:  delegate,
+		controlAPI:    controlAPI,
+		dataplaneFQDN: dataplaneFQDN,
+		delegate:      delegate,
 	}
 	a.cache.m = make(map[authCacheKey]authCacheValue)
 
@@ -51,6 +52,21 @@ type authCacheValue struct {
 	address pb.Endpoint
 	err     error
 	expires time.Time
+}
+
+func (v *authCacheValue) apply(ctx context.Context) (context.Context, error) {
+	// Often the request will already have an opinion on routing due to dynamic
+	// route discovery. If it doesn't, then inject the advertised base service
+	// address of the resolved data-plane.
+	if route, _, ok := pb.GetDispatchRoute(ctx); !ok || len(route.Members) == 0 {
+		ctx = pb.WithDispatchRoute(ctx, pb.Route{
+			Members:   []pb.ProcessSpec_ID{{Zone: "", Suffix: string(v.address)}},
+			Primary:   0,
+			Endpoints: []pb.Endpoint{pb.Endpoint(v.address)},
+		}, pb.ProcessSpec_ID{})
+	}
+
+	return metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", v.token)), nil
 }
 
 func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims, exp time.Duration) (context.Context, error) {
@@ -78,21 +94,17 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 
 	var now = time.Now()
 
-	if !ok || value.expires.Before(now) {
-		// Must refresh.
-	} else if value.err != nil {
-		// Return a cached error for a period of time, to avoid any potential
-		// accidental DoS of the authorization server due to a thundering herd.
-		return nil, value.err
-	} else {
-		return metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", value.token)), nil
+	// Respond with a cached result, if available.
+	// Note that we cache and return errors for a period of time, to avoid any potential
+	// accidental DoS of the authorization server due to a thundering herd.
+	if ok && !value.expires.Before(now) {
+		return value.apply(ctx)
 	}
 
 	// We must issue a new request to the authorization server.
-
 	// Begin by self-signing our request as a JWT.
 
-	claims.Issuer = a.dataplane
+	claims.Issuer = a.dataplaneFQDN
 	claims.Subject = shardID
 	claims.Capability |= pf.Capability_AUTHORIZE // Required for delegated authorization.
 	claims.IssuedAt = &jwt.NumericDate{Time: now}
@@ -110,7 +122,7 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 
 	// Attempt to fetch an authorization token from the control plane.
 	// Cache errors for a period of time to prevent thundering herds on errors.
-	if token, address, expiresAt, err := doAuthFetch(a.authAPI, claims, a.delegate.Keys[0]); err != nil {
+	if token, address, expiresAt, err := doAuthFetch(a.controlAPI, claims, a.delegate.Keys[0]); err != nil {
 		value = authCacheValue{
 			token:   "",
 			address: "",
@@ -130,34 +142,23 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 	a.cache.m[key] = value
 	a.cache.mu.Unlock()
 
-	if value.err != nil {
-		return nil, value.err
-	}
-
-	// Often the request will already have an opinion on routing due to dynamic
-	// route discovery. If it doesn't, then inject the advertised base service
-	// address of the resolved data-plane.
-	if route, _, ok := pb.GetDispatchRoute(ctx); !ok || len(route.Members) == 0 {
-		ctx = pb.WithDispatchRoute(ctx, pb.Route{
-			Members:   []pb.ProcessSpec_ID{{Zone: "", Suffix: string(value.address)}},
-			Primary:   0,
-			Endpoints: []pb.Endpoint{pb.Endpoint(value.address)},
-		}, pb.ProcessSpec_ID{})
-	}
-
-	return metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", value.token)), nil
+	return value.apply(ctx)
 }
 
-func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (string, pb.Endpoint, time.Time, error) {
+func doAuthFetch(controlAPI pb.Endpoint, claims pb.Claims, key jwt.VerificationKey) (string, pb.Endpoint, time.Time, error) {
 	var token, err = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(key)
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to self-sign authorization request: %w", err)
 	}
 	token = `{"token":"` + token + `"}`
 
+	// Invoke the /authorize route.
+	var url = controlAPI.URL()
+	url.Path = path.Join(url.Path, "authorize")
+
 	// logrus.WithFields(logrus.Fields{"token": token}).Info("AUTHORIZE REQUEST")
 
-	httpResp, err := http.Post(authAPI, "application/json", strings.NewReader(token))
+	httpResp, err := http.Post(url.String(), "application/json", strings.NewReader(token))
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to POST to authorization server: %w", err)
 	}
@@ -190,7 +191,7 @@ func doAuthFetch(authAPI string, claims pb.Claims, key jwt.VerificationKey) (str
 		return "", "", time.Time{}, fmt.Errorf("authorization server did not include an expires-at claim")
 	}
 
-	// logrus.WithFields(logrus.Fields{"claims": claims, "token": token, "err": err}).Info("AUTHORIZE RESPONSE")
+	// logrus.WithFields(logrus.Fields{"claims": claims, "token": token, "addr": response.BrokerAddress, "err": err}).Info("AUTHORIZE RESPONSE")
 
 	return token, response.BrokerAddress, claims.ExpiresAt.Time, nil
 }
