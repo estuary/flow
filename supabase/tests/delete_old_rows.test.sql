@@ -16,8 +16,8 @@ begin
   insert into connector_tags (id, connector_id, image_tag) values
     (test_connector_tag_id, '33:33:33:33:33:33:33:97', ':v0');
 
-  insert into drafts (user_id, updated_at) values (test_user_id, now() - '11 days'::interval) returning id into old_draft_id; 
-  insert into drafts (user_id) values (test_user_id) returning id into new_draft_id; 
+  insert into drafts (user_id, updated_at) values (test_user_id, now() - '11 days'::interval) returning id into old_draft_id;
+  insert into drafts (user_id) values (test_user_id) returning id into new_draft_id;
 
   insert into draft_specs (draft_id, catalog_name, spec, spec_type) values
     (old_draft_id, 'a/b/c', '{}', 'capture'),
@@ -47,8 +47,8 @@ begin
 
   --return query select ok(internal.delete_old_drafts() = 1, 'one draft should have been deleted');
   return query select results_eq(
-    $i$ select internal.delete_old_rows() $i$,
-    $i$ values ('{"drafts": 1, "log_lines": 2, "catalog_stats_hourly": 2}'::jsonb) $i$
+    $i$ select internal.delete_old_drafts() $i$,
+    $i$ values (1) $i$
   );
 
   return query select results_eq(
@@ -80,6 +80,11 @@ begin
   );
 
   return query select results_eq(
+    $i$ select internal.delete_old_hourly_stats() $i$,
+    $i$ values (2) $i$
+  );
+
+  return query select results_eq(
     $i$ select flow_document->>'should'
           from catalog_stats_hourly
           where flow_document->>'should' is not null
@@ -89,9 +94,12 @@ begin
   );
 
   return query select results_eq(
+    $i$ select internal.delete_old_log_lines() $i$,
+    $i$ values (2) $i$
+  );
+  return query select results_eq(
     $i$ select log_line from internal.log_lines where log_line like 'should %' order by log_line $i$,
     $i$ values ('should keep line'), ('should keep line too') $i$
   );
 end;
 $$ language plpgsql;
-
