@@ -79,6 +79,20 @@ In either case, the names of the destination resources will remain the same. For
 
 Also in either case, only the specific bindings that had incompatible changes will be affected. Other bindings will remain untouched, and will not re-backfill.
 
+The `onIncompatibleSchemaChange` field in materialization specs provides granular control over responses to incompatible schema changes.
+This field can be set at the top level of a materialization spec or within each binding.
+If not specified at the binding level, the top-level setting applies by default.
+The `onIncompatibleSchemaChange` field offers four options:
+
+- backfill (default if unspecified): Increments the backfill counter for affected bindings, recreating the destination resources to fit the new schema and backfilling them.
+- disableBinding: Disables the affected bindings, requiring manual intervention to re-enable and resolve the incompatible fields.
+- disableTask: Disables the entire materialization, necessitating human action to re-enable and address the incompatible fields.
+- abort: Halts any automated action, leaving the resolution decision to a human.
+
+These behaviors are triggered only when an automated action detects an incompatible schema change.
+Manual changes via the UI will ignore `onIncompatibleSchemaChange`.
+This feature can be configured using `flowctl` or the "Advanced specification editor".
+
 ## What causes breaking schema changes?
 
 Though changes to the collection `key` or logical partition can happen, the most common cause of a breaking change is a change to the collection schema.
