@@ -48,6 +48,13 @@ struct Args {
     /// Allow local connectors. True for local stacks, and false otherwise.
     #[clap(long = "allow-local")]
     allow_local: bool,
+    /// Maximum number of concurrent validations to run as part of builds
+    #[clap(
+        long = "max-concurrent-validations",
+        env = "MAX_CONCURRENT_VALIDATIONS",
+        default_value = "6"
+    )]
+    max_concurrent_validations: usize,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -125,6 +132,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         &logs_tx,
         pg_pool.clone(),
         id_gen.clone(),
+        args.max_concurrent_validations,
     );
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),

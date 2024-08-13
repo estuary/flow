@@ -13,6 +13,7 @@ pub async fn build_catalog(
     draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
     connector_network: String,
+    max_concurrent_validations: usize,
     pub_id: Id,
     build_id: Id,
     tmpdir: &path::Path,
@@ -50,9 +51,9 @@ pub async fn build_catalog(
         format!("build/{build_id_str}"),
     );
     let connectors = if cfg!(test) {
-        Connectors::new(runtime).with_noop_validations()
+        Connectors::new(runtime, max_concurrent_validations).with_noop_validations()
     } else {
-        Connectors::new(runtime)
+        Connectors::new(runtime, max_concurrent_validations)
     };
 
     let build_result = tokio_context

@@ -74,6 +74,11 @@ async fn validate(
     draft: tables::DraftCatalog,
     network: &str,
 ) -> (tables::DraftCatalog, tables::Validations) {
+    // The maximum number of concurrent validations to run as part of the build.
+    // This is hard coded for now, though it may make sense to make it adjustable
+    // in the future.
+    const MAX_CONCURRENT_VALIDATIONS: usize = 4;
+
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
@@ -96,6 +101,7 @@ async fn validate(
             noop_captures,
             noop_derivations,
             noop_materializations,
+            MAX_CONCURRENT_VALIDATIONS,
             &project_root,
             draft,
             live,

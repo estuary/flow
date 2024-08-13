@@ -101,6 +101,7 @@ pub struct Publisher {
     logs_tx: logs::Tx,
     build_id_gen: models::IdGenerator,
     db: sqlx::PgPool,
+    max_concurrent_validations: usize,
 }
 
 impl Publisher {
@@ -112,6 +113,7 @@ impl Publisher {
         logs_tx: &logs::Tx,
         pool: sqlx::PgPool,
         build_id_gen: models::IdGenerator,
+        max_concurrent_validations: usize,
     ) -> Self {
         Self {
             allow_local,
@@ -121,6 +123,7 @@ impl Publisher {
             logs_tx: logs_tx.clone(),
             build_id_gen,
             db: pool,
+            max_concurrent_validations,
         }
     }
 }
@@ -308,6 +311,7 @@ impl Publisher {
             draft,
             live_catalog,
             self.connector_network.clone(),
+            self.max_concurrent_validations,
             publication_id,
             build_id,
             tmpdir,

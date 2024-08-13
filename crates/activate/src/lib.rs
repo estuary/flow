@@ -561,6 +561,7 @@ mod test {
             false, // don't no-op validations
             false, // don't no-op validations
             false, // don't no-op validations
+            4,     // max_concurrent_validations
             &build::project_root(&source),
             draft,
             live,

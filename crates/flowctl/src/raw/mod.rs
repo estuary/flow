@@ -125,6 +125,13 @@ pub struct Build {
     /// Source file or URL from which to load the draft catalog.
     #[clap(long)]
     source: String,
+    /// Maximum number of concurrent connector validations
+    #[clap(
+        long = "max-concurrent-validations",
+        env = "MAX_CONCURRENT_VALIDATIONS",
+        default_value = "4"
+    )]
+    max_concurrent_validations: usize,
 }
 
 #[derive(Debug, clap::Args)]
@@ -246,6 +253,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         connector_network,
         file_root,
         source,
+        max_concurrent_validations,
     } = build.clone();
 
     let source_url = build::arg_source_to_url(&source, false)?;
@@ -267,6 +275,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
         false, // Don't no-op materializations.
+        max_concurrent_validations,
         &project_root,
         draft,
         live,

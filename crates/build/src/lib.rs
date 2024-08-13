@@ -4,7 +4,9 @@ use proto_flow::{capture, derive, flow, materialize};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+    sync::Arc,
 };
+use tokio::sync::Semaphore;
 
 /// Map a "--source" argument to a corresponding URL, optionally creating an empty
 /// file if one doesn't exist, which is required when producing a canonical file:///
@@ -103,6 +105,7 @@ pub async fn validate(
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
+    max_concurrent_validations: usize,
     project_root: &url::Url,
     mut draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
@@ -121,11 +124,13 @@ pub async fn validate(
         None,
         format!("build/{build_id:#}"),
     );
+    let concurrency_limit = Arc::new(Semaphore::new(max_concurrent_validations));
     let connectors = Connectors {
         noop_captures,
         noop_derivations,
         noop_materializations,
         runtime,
+        concurrency_limit,
     };
 
     let built = validation::validate(
@@ -361,15 +366,18 @@ pub struct Connectors<L: runtime::LogHandler> {
     noop_derivations: bool,
     noop_materializations: bool,
     runtime: runtime::Runtime<L>,
+    concurrency_limit: Arc<Semaphore>,
 }
 
 impl<L: runtime::LogHandler> Connectors<L> {
-    pub fn new(runtime: runtime::Runtime<L>) -> Self {
+    pub fn new(runtime: runtime::Runtime<L>, max_concurrent_jobs: usize) -> Self {
+        let concurrency_limit = Arc::new(Semaphore::new(max_concurrent_jobs));
         Self {
             noop_captures: false,
             noop_derivations: false,
             noop_materializations: false,
             runtime,
+            concurrency_limit,
         }
     }
 
@@ -379,6 +387,7 @@ impl<L: runtime::LogHandler> Connectors<L> {
             noop_derivations: true,
             noop_materializations: true,
             runtime: self.runtime,
+            concurrency_limit: self.concurrency_limit,
         }
     }
 }
@@ -392,11 +401,18 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
             if self.noop_captures {
                 validation::NoOpConnectors.validate_capture(request).await
             } else {
-                Ok(self
+                let permit = self
+                    .concurrency_limit
+                    .acquire()
+                    .await
+                    .context("failed to acquire permit")?;
+                let response = self
                     .runtime
                     .clone()
                     .unary_capture(request, CONNECTOR_TIMEOUT)
-                    .await?)
+                    .await?;
+                std::mem::drop(permit); // ensure that permit is held for the entire duration
+                Ok(response)
             }
         }
         .boxed()
@@ -412,11 +428,18 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
                     .validate_derivation(request)
                     .await
             } else {
-                Ok(self
+                let permit = self
+                    .concurrency_limit
+                    .acquire()
+                    .await
+                    .context("failed to acquire permit")?;
+                let response = self
                     .runtime
                     .clone()
                     .unary_derive(request, CONNECTOR_TIMEOUT)
-                    .await?)
+                    .await?;
+                std::mem::drop(permit); // ensure that permit is held for the entire duration
+                Ok(response)
             }
         }
         .boxed()
@@ -432,11 +455,18 @@ impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
                     .validate_materialization(request)
                     .await
             } else {
-                Ok(self
+                let permit = self
+                    .concurrency_limit
+                    .acquire()
+                    .await
+                    .context("failed to acquire permit")?;
+                let response = self
                     .runtime
                     .clone()
                     .unary_materialize(request, CONNECTOR_TIMEOUT)
-                    .await?)
+                    .await?;
+                std::mem::drop(permit); // ensure that permit is held for the entire duration
+                Ok(response)
             }
         }
         .boxed()

@@ -91,6 +91,7 @@ impl TestHarness {
             &logs_tx,
             pool.clone(),
             id_gen.clone(),
+            1, // max_concurrent_validations is irrelevant for tests b/c they no-op validations
         );
 
         let control_plane = PGControlPlane::new(
@@ -483,7 +484,14 @@ impl TestHarness {
         auto_evolve: bool,
     ) -> ScenarioResult {
         let system_user = self.control_plane().inner.system_user_id;
-        self.async_publication(system_user, "test auto-discover publication", draft, auto_evolve, true).await
+        self.async_publication(
+            system_user,
+            "test auto-discover publication",
+            draft,
+            auto_evolve,
+            true,
+        )
+        .await
     }
 
     /// Runs a publication by inserting into the `publications` table and
