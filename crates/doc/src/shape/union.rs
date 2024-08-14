@@ -205,9 +205,30 @@ impl NumericShape {
             },
         ) = (lhs, rhs);
 
-        // Take the least-restrictive bounds of both.
-        let min = lhs_min.and(rhs_min).and(lhs_min.min(rhs_min));
-        let max = lhs_max.and(rhs_max).and(lhs_max.max(rhs_max));
+        // Take the least-restrictive bounds of both. We must be careful here to always prefer
+        // a float value over an integer value if the two are otherwise equal (the `Ord` impl for
+        // `Number` ignores such differences). For example, we prefer 5.0 over 5. This ensures that
+        // the minimum/maximum values are consistent with the `type` in inferred schemas.
+        let min = if let Some((lmin, rmin)) = lhs_min.zip(rhs_min) {
+            match lmin.cmp(&rmin) {
+                std::cmp::Ordering::Less => Some(lmin),
+                std::cmp::Ordering::Equal if lmin.is_float() => Some(lmin),
+                std::cmp::Ordering::Equal => Some(rmin),
+                std::cmp::Ordering::Greater => Some(rmin),
+            }
+        } else {
+            None
+        };
+        let max = if let Some((lmax, rmax)) = lhs_max.zip(rhs_max) {
+            match lmax.cmp(&rmax) {
+                std::cmp::Ordering::Less => Some(rmax),
+                std::cmp::Ordering::Equal if lmax.is_float() => Some(lmax),
+                std::cmp::Ordering::Equal => Some(rmax),
+                std::cmp::Ordering::Greater => Some(lmax),
+            }
+        } else {
+            None
+        };
 
         Self {
             minimum: min,
@@ -323,4 +344,49 @@ fn union_enum(lhs: Option<Vec<Value>>, rhs: Option<Vec<Value>>) -> Option<Vec<Va
             })
             .collect::<Vec<_>>(),
     )
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn numeric_shape_union() {
+        let actual = NumericShape::union(
+            NumericShape {
+                minimum: Some(json::Number::Signed(-5)),
+                maximum: Some(json::Number::Unsigned(5)),
+            },
+            NumericShape {
+                minimum: Some(json::Number::Signed(-4)),
+                maximum: Some(json::Number::Float(5.0)),
+            },
+        );
+        assert_eq!(
+            NumericShape {
+                minimum: Some(json::Number::Signed(-5)),
+                maximum: Some(json::Number::Float(5.0)),
+            },
+            actual
+        );
+        assert!(actual.maximum.is_some_and(|m| m.is_float()));
+
+        let actual = NumericShape::union(
+            NumericShape {
+                minimum: None,
+                maximum: Some(json::Number::Unsigned(500)),
+            },
+            NumericShape {
+                minimum: Some(json::Number::Signed(-4)),
+                maximum: None,
+            },
+        );
+        assert_eq!(
+            NumericShape {
+                minimum: None,
+                maximum: None,
+            },
+            actual
+        );
+    }
 }
