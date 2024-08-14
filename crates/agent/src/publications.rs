@@ -99,7 +99,7 @@ pub struct Publisher {
     builds_root: url::Url,
     connector_network: String,
     logs_tx: logs::Tx,
-    build_id_gen: models::IdGenerator,
+    build_id_gen: std::sync::Arc<std::sync::Mutex<models::IdGenerator>>,
     db: sqlx::PgPool,
 }
 
@@ -119,7 +119,7 @@ impl Publisher {
             builds_root: builds_root.clone(),
             connector_network: connector_network.to_string(),
             logs_tx: logs_tx.clone(),
-            build_id_gen,
+            build_id_gen: std::sync::Mutex::new(build_id_gen.into()).into(),
             db: pool,
         }
     }
@@ -202,7 +202,7 @@ impl Publisher {
 
     #[tracing::instrument(level = "info", skip(self, draft))]
     pub async fn build(
-        &mut self,
+        &self,
         user_id: Uuid,
         publication_id: models::Id,
         detail: Option<String>,
@@ -211,7 +211,7 @@ impl Publisher {
         default_data_plane_name: &str,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = Utc::now();
-        let build_id = self.build_id_gen.next();
+        let build_id = self.build_id_gen.lock().unwrap().next();
 
         // Ensure that all the connector images are allowed. It's critical that we do this before
         // calling `build_catalog` in order to prevent the user from running arbitrary images

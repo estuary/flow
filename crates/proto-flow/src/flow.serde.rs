@@ -12,6 +12,7 @@ impl serde::Serialize for AdvanceTimeRequest {
         let mut struct_ser = serializer.serialize_struct("flow.AdvanceTimeRequest", len)?;
         if self.advance_seconds != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("advanceSeconds", ToString::to_string(&self.advance_seconds).as_str())?;
         }
         struct_ser.end()
@@ -1171,7 +1172,7 @@ impl serde::Serialize for collection_spec::Derivation {
             let v = self.shuffle_key_types.iter().cloned().map(|v| {
                 collection_spec::derivation::ShuffleType::try_from(v)
                     .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
-                }).collect::<Result<Vec<_>, _>>()?;
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("shuffleKeyTypes", &v)?;
         }
         if let Some(v) = self.shard_template.as_ref() {
@@ -2005,6 +2006,7 @@ impl serde::Serialize for DocsAndBytes {
         }
         if self.bytes != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytes", &self.bytes)?;
         }
         struct_ser.end()
@@ -5226,6 +5228,7 @@ impl serde::Serialize for TaskNetworkProxyRequest {
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
         }
         struct_ser.end()
@@ -5484,6 +5487,7 @@ impl serde::Serialize for TaskNetworkProxyResponse {
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
         }
         struct_ser.end()
@@ -6169,10 +6173,12 @@ impl serde::Serialize for UuidParts {
         let mut struct_ser = serializer.serialize_struct("flow.UUIDParts", len)?;
         if self.node != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("node", ToString::to_string(&self.node).as_str())?;
         }
         if self.clock != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("clock", ToString::to_string(&self.clock).as_str())?;
         }
         struct_ser.end()

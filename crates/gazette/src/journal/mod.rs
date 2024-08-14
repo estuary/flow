@@ -68,7 +68,7 @@ impl crate::Router<SubClient> {
                     let endpoint = &endpoint.connect_timeout(std::time::Duration::from_secs(5));
                     let channel = if endpoint.uri().scheme_str() == Some("unix") {
                         endpoint
-                            .connect_with_connector(tower::service_fn(move |uri: Uri| {
+                            .connect_with_connector(tower::util::service_fn(|uri: Uri| {
                                 connect_unix(uri)
                             }))
                             .await?

@@ -48,6 +48,7 @@ impl serde::Serialize for Request {
         }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
@@ -1165,6 +1166,7 @@ impl serde::Serialize for Response {
         }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()

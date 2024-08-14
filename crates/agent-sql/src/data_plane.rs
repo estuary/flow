@@ -43,14 +43,14 @@ pub async fn fetch_data_planes(
         tables::DataPlane,
         r#"
         select
-            id as "id: Id",
+            id as "control_id: Id",
             data_plane_name,
             data_plane_name = $2 and exists(
                 select 1 from internal.user_roles($3, 'read') r
                 where starts_with($2, r.role_prefix)
             ) as "is_default!: bool",
             hmac_keys,
-            fqdn,
+            data_plane_fqdn,
             broker_address,
             reactor_address,
             ops_logs_name as "ops_logs_name: models::Collection",
@@ -78,18 +78,18 @@ pub async fn fetch_data_plane_by_task_and_fqdn(
         tables::DataPlane,
         r#"
         select
-            d.id as "id: Id",
+            d.id as "control_id: Id",
             d.data_plane_name,
+            d.data_plane_fqdn,
             false as "is_default!: bool",
             d.hmac_keys,
-            d.fqdn,
             d.broker_address,
             d.reactor_address,
             d.ops_logs_name as "ops_logs_name: models::Collection",
             d.ops_stats_name as "ops_stats_name: models::Collection"
         from data_planes d
         join live_specs t on t.data_plane_id = d.id
-        where d.fqdn = $2 and starts_with($1::text, t.catalog_name)
+        where d.data_plane_fqdn = $2 and starts_with($1::text, t.catalog_name)
         "#,
         task_shard,
         task_data_plane_fqdn,

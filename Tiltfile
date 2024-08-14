@@ -39,6 +39,14 @@ local_resource('ops-catalog',
     trigger_mode=TRIGGER_MODE_MANUAL,
     resource_deps=['agent'])
 
+# New command to start the ops/stats materialization.
+# Can only be run after the first data-plane is created.
+local_resource('local-ops-view',
+    cmd='./local/ops-publication.sh "../ops-catalog-new/local-view.flow.yaml" | psql "%s"' % DATABASE_URL,
+    auto_init=False,
+    trigger_mode=TRIGGER_MODE_MANUAL,
+    resource_deps=['agent'])
+
 local_resource('etcd', serve_cmd='%s/flow/.build/package/bin/etcd \
     --data-dir %s \
     --log-level info \
@@ -94,7 +102,7 @@ local_resource('reactor-1', serve_cmd='%s/flow/.build/package/bin/flowctl-go ser
     --flow.builds-root file://%s/ \
     --flow.network supabase_network_flow \
     --flow.control-api http://localhost:8675 \
-    --flow.data-plane-fqdn first.dp.estuary-data.com \
+    --flow.data-plane-fqdn local-cluster.dp.estuary-data.com \
     --log.format text \
     --log.level info' % (REPO_BASE, FLOW_BUILDS_DIR),
     links='http://localhost:9000/debug/pprof',
@@ -119,7 +127,7 @@ local_resource('reactor-2', serve_cmd='%s/flow/.build/package/bin/flowctl-go ser
     --flow.builds-root file://%s/ \
     --flow.network supabase_network_flow \
     --flow.control-api http://localhost:8675 \
-    --flow.data-plane-fqdn second.dp.estuary-data.com \
+    --flow.data-plane-fqdn c0ec1d909b2d26fb.dp.estuary-data.com \
     --log.format text \
     --log.level info' % (REPO_BASE, FLOW_BUILDS_DIR),
     links='http://localhost:9000/debug/pprof',

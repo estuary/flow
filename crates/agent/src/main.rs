@@ -5,7 +5,7 @@ use agent::publications::Publisher;
 use anyhow::Context;
 use clap::Parser;
 use derivative::Derivative;
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use rand::Rng;
 use serde::Deserialize;
 
@@ -120,6 +120,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     // Start a logs sink into which agent loops may stream logs.
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
+    let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
@@ -146,14 +147,17 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     // Wire up the agent's API server.
     let api_app = agent::api::App {
-        pool: pg_pool.clone(),
+        pg_pool: pg_pool.clone(),
+        system_user_id,
+        publisher: publisher.clone(),
+        id_generator: id_gen.clone().into(),
     };
-    let api_listener = std::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+        .await
         .context("failed to bind server port")?;
-    let api_server = axum::Server::from_tcp(api_listener)
-        .unwrap()
-        .serve(agent::api::build_router(api_app.into()).into_make_service())
-        .with_graceful_shutdown(shutdown.clone());
+    let api_router = agent::api::build_router(api_app.into());
+    let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
+    let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
     // Wire up the agent's job execution loop.
     let serve_fut = agent::serve(
@@ -179,11 +183,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     );
 
     std::mem::drop(logs_tx);
-    let ((), (), ()) = tokio::try_join!(
-        serve_fut,
-        api_server.map_err(|err| anyhow::anyhow!(err)),
-        logs_sink.map_err(Into::into)
-    )?;
+    let ((), (), ()) = tokio::try_join!(serve_fut, api_server, logs_sink)?;
 
     Ok(())
 }

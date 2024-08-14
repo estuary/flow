@@ -808,7 +808,7 @@ fn json_test<
 
 fn proto_test<M: prost::Message + PartialEq + std::fmt::Debug + Default>(msg: M) -> String {
     let encoded = msg.encode_to_vec();
-    let recovered = M::decode::<&[u8]>(&encoded).unwrap();
+    let recovered = M::decode(encoded.as_slice()).unwrap();
     assert_eq!(msg, recovered);
 
     hexdump::hexdump_iter(&encoded)

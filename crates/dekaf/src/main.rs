@@ -68,12 +68,13 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Build a server which listens and serves supported schema registry requests.
-    let schema_listener = std::net::TcpListener::bind(format!("[::]:{}", cli.schema_registry_port))
-        .context("failed to bind server port")?;
+    let schema_listener =
+        tokio::net::TcpListener::bind(format!("[::]:{}", cli.schema_registry_port))
+            .await
+            .context("failed to bind server port")?;
+    let schema_router = dekaf::registry::build_router(app.clone());
 
-    let schema_server_task = axum::Server::from_tcp(schema_listener)
-        .unwrap()
-        .serve(dekaf::registry::build_router(app.clone()).into_make_service());
+    let schema_server_task = axum::serve(schema_listener, schema_router);
     tokio::spawn(async move { schema_server_task.await.unwrap() });
 
     // Build a listener for Kafka sessions.

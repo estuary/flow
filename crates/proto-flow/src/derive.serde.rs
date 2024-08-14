@@ -54,6 +54,7 @@ impl serde::Serialize for Request {
         }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
@@ -595,6 +596,7 @@ impl serde::Serialize for request::read::Shuffle {
         }
         if !self.packed.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("packed", pbjson::private::base64::encode(&self.packed).as_str())?;
         }
         if self.hash != 0 {
@@ -1032,7 +1034,7 @@ impl serde::Serialize for request::Validate {
             let v = self.shuffle_key_types.iter().cloned().map(|v| {
                 super::flow::collection_spec::derivation::ShuffleType::try_from(v)
                     .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
-                }).collect::<Result<Vec<_>, _>>()?;
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("shuffleKeyTypes", &v)?;
         }
         if !self.project_root.is_empty() {
@@ -1433,6 +1435,7 @@ impl serde::Serialize for Response {
         }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()

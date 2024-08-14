@@ -141,6 +141,7 @@ impl serde::Serialize for FnodeSegments {
         let mut struct_ser = serializer.serialize_struct("recoverylog.FnodeSegments", len)?;
         if self.fnode != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("fnode", ToString::to_string(&self.fnode).as_str())?;
         }
         if !self.segments.is_empty() {
@@ -387,6 +388,7 @@ impl serde::Serialize for RecordedOp {
         let mut struct_ser = serializer.serialize_struct("recoverylog.RecordedOp", len)?;
         if self.seq_no != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("seqNo", ToString::to_string(&self.seq_no).as_str())?;
         }
         if self.checksum != 0 {
@@ -397,10 +399,12 @@ impl serde::Serialize for RecordedOp {
         }
         if self.first_offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("firstOffset", ToString::to_string(&self.first_offset).as_str())?;
         }
         if self.last_offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastOffset", ToString::to_string(&self.last_offset).as_str())?;
         }
         if !self.log.is_empty() {
@@ -728,6 +732,7 @@ impl serde::Serialize for recorded_op::Link {
         let mut struct_ser = serializer.serialize_struct("recoverylog.RecordedOp.Link", len)?;
         if self.fnode != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("fnode", ToString::to_string(&self.fnode).as_str())?;
         }
         if !self.path.is_empty() {
@@ -842,14 +847,17 @@ impl serde::Serialize for recorded_op::Write {
         let mut struct_ser = serializer.serialize_struct("recoverylog.RecordedOp.Write", len)?;
         if self.fnode != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("fnode", ToString::to_string(&self.fnode).as_str())?;
         }
         if self.offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("offset", ToString::to_string(&self.offset).as_str())?;
         }
         if self.length != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("length", ToString::to_string(&self.length).as_str())?;
         }
         struct_ser.end()
@@ -991,10 +999,12 @@ impl serde::Serialize for Segment {
         }
         if self.first_seq_no != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("firstSeqNo", ToString::to_string(&self.first_seq_no).as_str())?;
         }
         if self.first_offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("firstOffset", ToString::to_string(&self.first_offset).as_str())?;
         }
         if self.first_checksum != 0 {
@@ -1002,10 +1012,12 @@ impl serde::Serialize for Segment {
         }
         if self.last_seq_no != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastSeqNo", ToString::to_string(&self.last_seq_no).as_str())?;
         }
         if self.last_offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastOffset", ToString::to_string(&self.last_offset).as_str())?;
         }
         if !self.log.is_empty() {

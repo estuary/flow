@@ -171,17 +171,25 @@ impl TestHarness {
             default_data_plane as (
                 insert into data_planes (
                     data_plane_name,
+                    data_plane_fqdn,
                     ops_logs_name,
                     ops_stats_name,
-                    fqdn,
+                    ops_l1_inferred_name,
+                    ops_l1_stats_name,
+                    ops_l2_inferred_transform,
+                    ops_l2_stats_transform,
                     broker_address,
                     reactor_address,
                     hmac_keys
                 ) values (
-                    'public/test-data-plane',
+                    'ops/dp/public/test',
+                    'test.dp.estuary-data.com',
                     'ops/logs',
                     'ops/stats',
-                    'fqdn.data-plane.com',
+                    'ops/L1/inferred',
+                    'ops/L1/stats',
+                    'from-L1-inferred',
+                    'from-L1-stats',
                     'broker:address',
                     'reactor:address',
                     '{secret-key}'
@@ -538,7 +546,7 @@ impl TestHarness {
             auto_evolve,
             detail.clone(),
             background,
-            "public/test-data-plane".to_string(),
+            "ops/dp/public/test".to_string(),
         )
         .await
         .expect("failed to create publication");
@@ -882,7 +890,7 @@ impl ControlPlane for TestControlPlane {
                 detail,
                 draft,
                 logs_token,
-                "public/test-data-plane",
+                "ops/dp/public/test",
             )
             .await?;
 

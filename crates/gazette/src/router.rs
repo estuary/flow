@@ -125,7 +125,7 @@ where
 
 pub(crate) async fn connect_unix(
     uri: tonic::transport::Uri,
-) -> std::io::Result<tokio::net::UnixStream> {
+) -> std::io::Result<hyper_util::rt::TokioIo<tokio::net::UnixStream>> {
     let path = uri.path();
     // Wait until the filesystem path exists, because it's hard to tell from
     // the error so that we can re-try. This is expected to be cut short by the
@@ -137,8 +137,9 @@ pub(crate) async fn connect_unix(
         }
         tokio::time::sleep(std::time::Duration::from_millis(20 * i)).await;
     }
-
-    tokio::net::UnixStream::connect(path).await
+    Ok(hyper_util::rt::TokioIo::new(
+        tokio::net::UnixStream::connect(path).await?,
+    ))
 }
 
 fn pick<Client>(

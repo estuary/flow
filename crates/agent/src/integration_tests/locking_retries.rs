@@ -34,7 +34,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("wrong expect_pub_ids".to_string()),
             wrong_expect_pub_ids,
             Uuid::new_v4(),
-            "public/test-data-plane",
+            "ops/dp/public/test",
         )
         .await
         .expect("build failed");
@@ -74,7 +74,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("pub a".to_string()),
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
-            "public/test-data-plane",
+            "ops/dp/public/test",
         )
         .await
         .expect("build a failed");
@@ -88,7 +88,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("pub b".to_string()),
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
-            "public/test-data-plane",
+            "ops/dp/public/test",
         )
         .await
         .expect("build b failed");
@@ -133,7 +133,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("cheese pub".to_string()),
             cheese_draft,
             Uuid::new_v4(),
-            "public/test-data-plane",
+            "ops/dp/public/test",
         )
         .await
         .expect("cheese build failed");
@@ -156,7 +156,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("seeds pub".to_string()),
             seeds_draft,
             Uuid::new_v4(),
-            "public/test-data-plane",
+            "ops/dp/public/test",
         )
         .await
         .expect("seeds build failed");

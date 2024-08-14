@@ -1,0 +1,413 @@
+# These tests exist for local testing with flowctl-go. They must not be published.
+
+import:
+  - data-plane-template.flow.yaml
+
+tests:
+  doNotPublish/tests/catalog-stats:
+    steps:
+      - ingest:
+          collection: ops/tasks/BASE_NAME/stats
+          documents:
+            # Capture
+            - shard:
+                kind: capture
+                name: tenant/test/cap
+                keyBegin: "aabbccdd"
+                rClockBegin: "00112233"
+              ts: "2022-04-03T02:02:03.45678Z"
+              capture: &captureTaskStats1
+                tenant/test/collection:
+                  right: { docsTotal: 1, bytesTotal: 15 }
+                  out: { docsTotal: 2, bytesTotal: 20 }
+                # Capture task with multiple bound collections.
+                tenant/test/otherCaptureCollection:
+                  right: { docsTotal: 5, bytesTotal: 55 }
+                  out: { docsTotal: 6, bytesTotal: 65 }
+              txnCount: 2
+              openSecondsTotal: 0.012
+            # Same capture at a different hour, but the same day & month.
+            - shard:
+                kind: capture
+                name: tenant/test/cap
+                keyBegin: "aabbccdd"
+                rClockBegin: "00112233"
+              ts: "2022-04-03T03:02:03.45678Z"
+              capture: &captureTaskStats2
+                tenant/test/collection:
+                  right: { docsTotal: 3, bytesTotal: 35 }
+                  out: { docsTotal: 4, bytesTotal: 45 }
+              txnCount: 2
+              openSecondsTotal: 0.012
+
+            # Materialization
+            # Sources from the same collection that the capture writes to, but on a different day &
+            # hour during the same month.
+            - shard:
+                kind: materialization
+                name: tenant/test/mat
+                keyBegin: "aabbccdd"
+                rClockBegin: "00112233"
+              ts: "2022-04-04T03:02:03.45678Z"
+              materialize:
+                tenant/test/collection:
+                  right: { docsTotal: 10, bytesTotal: 150 }
+                # Materialization task with multiple bound collections.
+                tenant/test/otherMaterializationCollection:
+                  right: { docsTotal: 5, bytesTotal: 75 }
+              txnCount: 2
+              openSecondsTotal: 0.012
+
+            # Derivation
+            - shard:
+                kind: derivation
+                name: tenant/test/collection # Same collection as the materialization & derivation use.
+                keyBegin: "aabbccdd"
+                rClockBegin: "00112233"
+              ts: "2022-04-05T05:12:23.45678Z" # Same month but different day & hour than the materialization / derivation.
+              derive:
+                transforms:
+                  transform1:
+                    source: "tenant/test/source-collection1" # This collection is read from.
+                    input: { docsTotal: 5, bytesTotal: 20 }
+                    update:
+                      out: { docsTotal: 1, bytesTotal: 1 }
+                      secondsTotal: 1
+                  transform2:
+                    source: "tenant/test/source-collection2" # This collection is also read from.
+                    input: { docsTotal: 6, bytesTotal: 30 }
+                    publish:
+                      out: { docsTotal: 2, bytesTotal: 2 }
+                      secondsTotal: 2
+                  transform3:
+                    source: "tenant/test/source-collection1" # Different transform, reading from the same collection as another one.
+                    input: { docsTotal: 7, bytesTotal: 40 }
+                    publish:
+                      out: { docsTotal: 2, bytesTotal: 2 }
+                      secondsTotal: 2
+                out: { docsTotal: 7, bytesTotal: 75 } # What was written to the collection.
+              txnCount: 2
+              openSecondsTotal: 0.012
+
+      - ingest:
+          collection: ops/tasks/BASE_NAME/logs
+          documents:
+            # Logs of the capture task
+            - shard: &shard
+                kind: capture
+                name: tenant/test/cap
+                keyBegin: "aabbccdd"
+                rClockBegin: "00112233"
+              ts: "2022-04-03T02:02:03.45678Z"
+              level: warn
+              message: whoops
+            - {
+                shard: *shard,
+                ts: "2022-04-03T02:02:04Z",
+                level: error,
+                message: ouch,
+              }
+            - {
+                shard: *shard,
+                ts: "2022-04-03T02:02:05Z",
+                level: error,
+                message: shard failed,
+              }
+            - {
+                shard: *shard,
+                ts: "2022-04-03T02:02:06Z",
+                level: warn,
+                # Message is deliberately omitted.
+              }
+
+      - verify:
+          collection:
+            name: ops/rollups/L1/BASE_NAME/catalog-stats
+
+          documents: &docs # Capture task
+            - catalogName: "tenant/test/cap"
+              grain: "daily"
+              ts: "2022-04-03T00:00:00.000Z"
+              statsSummary:
+                writtenByMe: { bytesTotal: 130, docsTotal: 12 }
+                warnings: 2
+                errors: 1
+                failures: 1
+            - catalogName: "tenant/test/cap"
+              grain: "hourly"
+              ts: "2022-04-03T02:00:00.000Z"
+              statsSummary:
+                writtenByMe: { bytesTotal: 85, docsTotal: 8 }
+              # Expect the raw capture stats were passed through.
+              taskStats:
+                capture: *captureTaskStats1
+            - catalogName: "tenant/test/cap"
+              grain: "hourly"
+              ts: "2022-04-03T03:00:00.000Z"
+              statsSummary:
+                writtenByMe: { bytesTotal: 45, docsTotal: 4 }
+              taskStats:
+                capture: *captureTaskStats2
+            - catalogName: "tenant/test/cap"
+              grain: "monthly"
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                writtenByMe: { bytesTotal: 130, docsTotal: 12 }
+
+              # Collection & derivation combo entity
+            - catalogName: "tenant/test/collection"
+              grain: "daily"
+              ts: "2022-04-03T00:00:00.000Z" # Capture day
+              statsSummary:
+                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
+            - catalogName: "tenant/test/collection"
+              grain: "daily"
+              ts: "2022-04-04T00:00:00.000Z" # Materialization day
+              statsSummary:
+                readFromMe: { bytesTotal: 150, docsTotal: 10 }
+            - catalogName: "tenant/test/collection"
+              grain: "daily"
+              ts: "2022-04-05T00:00:00.000Z" # Derivation day
+              statsSummary:
+                readByMe: { bytesTotal: 90, docsTotal: 18 }
+                writtenByMe: { bytesTotal: 75, docsTotal: 7 }
+                writtenToMe: { bytesTotal: 75, docsTotal: 7 }
+            - catalogName: "tenant/test/collection"
+              grain: "hourly"
+              ts: "2022-04-03T02:00:00.000Z" # Capture hour 1
+              statsSummary:
+                writtenToMe: { bytesTotal: 20, docsTotal: 2 }
+            - catalogName: "tenant/test/collection"
+              grain: "hourly"
+              ts: "2022-04-03T03:00:00.000Z" # Capture hour 2
+              statsSummary:
+                writtenToMe: { bytesTotal: 45, docsTotal: 4 }
+            - catalogName: "tenant/test/collection"
+              grain: "hourly"
+              ts: "2022-04-04T03:00:00.000Z" # Materialization hour
+              statsSummary:
+                readFromMe: { bytesTotal: 150, docsTotal: 10 }
+            - catalogName: "tenant/test/collection"
+              grain: "hourly"
+              ts: "2022-04-05T05:00:00.000Z" # Derivation hour
+              statsSummary:
+                readByMe: { bytesTotal: 90, docsTotal: 18 }
+                writtenByMe: { bytesTotal: 75, docsTotal: 7 }
+                writtenToMe: { bytesTotal: 75, docsTotal: 7 }
+            - catalogName: "tenant/test/collection"
+              grain: "monthly"
+              ts: "2022-04-01T00:00:00.000Z" # Same month for capture, materialization, and derivation.
+              statsSummary:
+                readByMe: { bytesTotal: 90, docsTotal: 18 }
+                writtenByMe: { bytesTotal: 75, docsTotal: 7 }
+                readFromMe: { bytesTotal: 150, docsTotal: 10 }
+                writtenToMe: { bytesTotal: 140, docsTotal: 13 }
+
+              # The materialization task.
+            - catalogName: "tenant/test/mat"
+              grain: "daily"
+              ts: "2022-04-04T00:00:00.000Z"
+              statsSummary:
+                readByMe: { bytesTotal: 225, docsTotal: 15 }
+            - catalogName: "tenant/test/mat"
+              grain: "hourly"
+              ts: "2022-04-04T03:00:00.000Z"
+              statsSummary:
+                readByMe: { bytesTotal: 225, docsTotal: 15 }
+            - catalogName: "tenant/test/mat"
+              grain: "monthly"
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                readByMe: { bytesTotal: 225, docsTotal: 15 }
+
+              # The "other" bound capture collection.
+            - catalogName: "tenant/test/otherCaptureCollection"
+              grain: "daily"
+              ts: "2022-04-03T00:00:00.000Z"
+              statsSummary:
+                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
+            - catalogName: "tenant/test/otherCaptureCollection"
+              grain: "hourly"
+              ts: "2022-04-03T02:00:00.000Z"
+              statsSummary:
+                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
+            - catalogName: "tenant/test/otherCaptureCollection"
+              grain: "monthly"
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
+
+              # The "other" bound materialization collection.
+            - catalogName: "tenant/test/otherMaterializationCollection"
+              grain: "daily"
+              ts: "2022-04-04T00:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 75, docsTotal: 5 }
+            - catalogName: "tenant/test/otherMaterializationCollection"
+              grain: "hourly"
+              ts: "2022-04-04T03:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 75, docsTotal: 5 }
+            - catalogName: "tenant/test/otherMaterializationCollection"
+              grain: "monthly"
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 75, docsTotal: 5 }
+
+              # Source collections for the derivation.
+            - catalogName: "tenant/test/source-collection1"
+              grain: "daily"
+              ts: "2022-04-05T00:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 60, docsTotal: 12 }
+            - catalogName: "tenant/test/source-collection1"
+              grain: "hourly"
+              ts: "2022-04-05T05:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 60, docsTotal: 12 }
+            - catalogName: "tenant/test/source-collection1"
+              grain: "monthly"
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 60, docsTotal: 12 }
+            - catalogName: "tenant/test/source-collection2"
+              grain: "daily"
+              ts: "2022-04-05T00:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 30, docsTotal: 6 }
+            - catalogName: "tenant/test/source-collection2"
+              grain: "hourly"
+              ts: "2022-04-05T05:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 30, docsTotal: 6 }
+            - catalogName: "tenant/test/source-collection2"
+              grain: "monthly"
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                readFromMe: { bytesTotal: 30, docsTotal: 6 }
+
+      - verify:
+          # L2 derivation passed through docs as-is.
+          collection: ops.us-central1.v1/catalog-stats-L2
+          documents: *docs
+
+  doNotPublish/tests/interval-rollup:
+    steps:
+      - ingest:
+          description: Two documents representing intervals of elapsed time, one hour apart.
+          collection: ops/tasks/BASE_NAME/stats
+          documents:
+            - shard: &shard
+                kind: capture
+                name: tenant/task
+                keyBegin: "0000aaaa"
+                rClockBegin: "00000000"
+              ts: "2022-04-03T02:01:00Z"
+              interval:
+                uptimeSeconds: 300
+                usageRate: 1.5
+            - shard: *shard
+              ts: "2022-04-03T03:01:00Z"
+              interval:
+                uptimeSeconds: 600
+                usageRate: 0.5
+
+      - verify:
+          description: Expect we rolled-up a usageSeconds aggregate, as well as uptimeSeconds.
+          collection:
+            name: ops/rollups/L1/BASE_NAME/catalog-stats
+          documents: &docs
+            - catalogName: tenant/task
+              grain: daily
+              ts: "2022-04-03T00:00:00.000Z"
+              statsSummary:
+                usageSeconds: 750
+              taskStats:
+                interval:
+                  uptimeSeconds: 900
+                  usageRate: 0.5 # Last-write-wins.
+            - catalogName: tenant/task
+              grain: hourly
+              ts: "2022-04-03T02:00:00.000Z"
+              statsSummary:
+                usageSeconds: 450
+              taskStats:
+                interval:
+                  uptimeSeconds: 300
+                  usageRate: 1.5
+            - catalogName: tenant/task
+              grain: hourly
+              ts: "2022-04-03T03:00:00.000Z"
+              statsSummary:
+                usageSeconds: 300
+              taskStats:
+                interval:
+                  uptimeSeconds: 600
+                  usageRate: 0.5
+            - catalogName: tenant/task
+              grain: monthly
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                usageSeconds: 750
+              taskStats:
+                interval:
+                  uptimeSeconds: 900
+                  usageRate: 0.5
+
+      - verify:
+          # L2 derivation passed through docs as-is.
+          collection: ops.us-central1.v1/catalog-stats-L2
+          documents: *docs
+
+  doNotPublish/tests/inferred-schemas:
+    steps:
+      - ingest:
+          collection: ops/tasks/BASE_NAME/logs
+          documents:
+            - shard: &shard
+                kind: capture
+                name: tenant/test/cap
+                keyBegin: "aabbccdd"
+                rClockBegin: "00112233"
+              ts: "2022-04-03T02:02:03.45678Z"
+              level: info
+              message: inferred schema updated
+              fields:
+                collection_name: acmeCo/integers
+                schema:
+                  type: integer
+                  minimum: 32
+                  maximum: 42
+
+            - shard: *shard
+              ts: "2022-04-03T02:02:04Z"
+              level: info
+              message: inferred schema updated
+              fields:
+                collection_name: acmeCo/integers
+                schema:
+                  type: integer
+                  minimum: 42
+                  maximum: 52
+
+            - shard: *shard
+              ts: "2022-04-03T02:02:05Z"
+              level: info
+              message: inferred schema updated
+              fields:
+                collection_name: acmeCo/booleans
+                schema:
+                  type: boolean
+
+      - verify:
+          collection:
+            name: ops.us-central1.v1/inferred-schemas/L2
+          documents:
+            - collection_name: acmeCo/booleans
+              schema:
+                type: boolean
+            - collection_name: acmeCo/integers
+              schema:
+                type: integer
+                minimum: 32
+                maximum: 52

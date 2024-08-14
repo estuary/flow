@@ -69,14 +69,14 @@ tables!(
 
     table DataPlanes (row DataPlane, sql "data_planes") {
         // Control-plane identifier for this data-plane.
-        key id: models::Id,
+        key control_id: models::Id,
         // Name of this data-plane under the catalog namespace.
         // This is used for authorization and not much else.
         val data_plane_name: String,
+        // Unique and fully-qualified domain name of this data-plane.
+        val data_plane_fqdn: String,
         // When true, this DataPlane is to be used for created specifications.
         val is_default: bool,
-        // Unique and fully-qualified domain name of this data-plane.
-        val fqdn: String,
         // HMAC-256 keys for this data-plane.
         // The first is used for signing, and any key may validate.
         val hmac_keys: Vec<String>,
