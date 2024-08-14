@@ -414,11 +414,18 @@ pub mod test {
             match expect {
                 Ok(expect) => {
                     let (reduced, _delete) = reduced.unwrap();
+
+                    // Assert that the serialized string representations are identical.
+                    // This catches differences like `1.0` vs `1`, which `compare` would
+                    // ignore.
+                    let expect_str = serde_json::to_string(&expect).unwrap();
+                    let actual_str =
+                        serde_json::to_string(&SerPolicy::noop().on(&reduced)).unwrap();
                     assert_eq!(
-                        crate::compare(&reduced, &expect),
-                        std::cmp::Ordering::Equal,
-                        "reduced: {reduced:?} expected: {expect:?}",
+                        expect_str, actual_str,
+                        "comparison failed:\nreduced:\n{actual_str}\nexpected:\n{expect_str}\n"
                     );
+
                     lhs = Some(reduced)
                 }
                 Err(expect) => {

@@ -115,4 +115,71 @@ mod test {
             ],
         )
     }
+
+    #[test]
+    fn test_merge_json_schema_numeric_bounds_floats_vs_integers() {
+        // This scenario comes up when schemas are inferred for data having a mix of numeric values
+        // like `1` vs `1.0`. Inference will include the `.0` if the input was a float, but not if it
+        // was an integer. When we reduce the schemas, we should always prefer the decimal value if the
+        // two are otherwise equal. In reality, we ought never see `type: integer` with minimum/maximum
+        // values that are decimals. But that is technically possible, which this test demonstrates.
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "jsonSchemaMerge" } }),
+            vec![
+                Partial {
+                    rhs: json!({
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 4
+                    }),
+                    expect: Ok(json!({
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 4
+                    })),
+                },
+                Partial {
+                    rhs: json!({
+                        "type": "integer",
+                        "maximum": 5.0,
+                        "minimum": 4.0
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "integer",
+                        "maximum": 5.0,
+                        "minimum": 4.0
+                    })),
+                },
+                // Further reductions of integer values should keep the decimal
+                Partial {
+                    rhs: json!({
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 4
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "integer",
+                        "maximum": 5.0,
+                        "minimum": 4.0
+                    })),
+                },
+                // Except when the integer values are less restrictive than the decimals
+                Partial {
+                    rhs: json!({
+                        "type": "integer",
+                        "maximum": 6,
+                        "minimum": 3
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "integer",
+                        "maximum": 6,
+                        "minimum": 3
+                    })),
+                },
+            ],
+        )
+    }
 }
