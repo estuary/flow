@@ -25,6 +25,12 @@ fn ex_projections() -> Vec<flow::Projection> {
                 max_length: 12345,
             }),
             types: vec!["integer".to_string(), "string".to_string()],
+            numeric: Some(inference::Numeric {
+                has_minimum: true,
+                minimum: -1000.0,
+                has_maximum: false,
+                maximum: 0.0,
+            }),
         }),
     }]
 }

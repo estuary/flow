@@ -121,6 +121,24 @@ message Inference {
   bool secret = 7;
   // Existence of this document location.
   Exists exists = 8;
+  // Numeric type-specific inferences. Will be nil if types doesn't include
+  // "integer" or "number", or if the specification was built prior to numeric
+  // inference existing in the protocol.
+  message Numeric {
+    // True if there is an inferred minimum value available for the projection,
+    // otherwise False.
+    bool has_minimum = 1;
+    // Minimum value when the projection is of "integer" or "number" type. See
+    // has_minimum for if a zero value should be interpreted as 0 or unknown.
+    double minimum = 2;
+    // True if there is an inferred maximum value available for the projection,
+    // otherwise False.
+    bool has_maximum = 3;
+    // Maximum value when the projection is of "integer" or "number" type. See
+    // has_maximum for if a zero value should be interpreted as 0 or unknown.
+    double maximum = 4;
+  }
+  Numeric numeric = 9;
 }
 
 message NetworkPort {

@@ -50,7 +50,11 @@ expression: json_test(msg)
                 "title": "title",
                 "description": "desc",
                 "default": {"def":"ault"},
-                "exists": "MUST"
+                "exists": "MUST",
+                "numeric": {
+                  "hasMinimum": true,
+                  "minimum": -1000.0
+                }
               }
             }
           ],
@@ -133,7 +137,11 @@ expression: json_test(msg)
                   "title": "title",
                   "description": "desc",
                   "default": {"def":"ault"},
-                  "exists": "MUST"
+                  "exists": "MUST",
+                  "numeric": {
+                    "hasMinimum": true,
+                    "minimum": -1000.0
+                  }
                 }
               }
             ],
@@ -264,7 +272,11 @@ expression: json_test(msg)
                   "title": "title",
                   "description": "desc",
                   "default": {"def":"ault"},
-                  "exists": "MUST"
+                  "exists": "MUST",
+                  "numeric": {
+                    "hasMinimum": true,
+                    "minimum": -1000.0
+                  }
                 }
               }
             ],
