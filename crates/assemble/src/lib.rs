@@ -56,6 +56,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         } else {
             None
         },
+        numeric: None,
     }
 }
 
