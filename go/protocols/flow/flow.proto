@@ -121,6 +121,17 @@ message Inference {
   bool secret = 7;
   // Existence of this document location.
   Exists exists = 8;
+  // Numeric type-specific inferences, or nil iff types doesn't include
+  // "integer" or "number".
+  message Numeric {
+    // Minimum value when the projection is of "integer" or "number" type. Zero
+    // may mean a minimum of 0 or no inferred minimum.
+    double minimum = 1;
+    // Maximum value when the projection is of "integer" or "number" type. Zero
+    // may mean a maximum of 0 or no inferred maximum.
+    double maximum = 2;
+  }
+  Numeric numeric = 9;
 }
 
 message NetworkPort {
