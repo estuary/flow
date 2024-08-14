@@ -56,7 +56,13 @@ pub async fn validate(
     let default_plane_id = live
         .data_planes
         .iter()
-        .filter_map(|p| if p.is_default { Some(p.id) } else { None })
+        .filter_map(|p| {
+            if p.is_default {
+                Some(p.control_id)
+            } else {
+                None
+            }
+        })
         .next();
 
     storage_mapping::walk_all_storage_mappings(&live.storage_mappings, &mut errors);

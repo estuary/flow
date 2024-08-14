@@ -51,7 +51,7 @@ async fn test_forbidden_connector() {
             None,
             draft,
             Uuid::new_v4(),
-            "public/test-data-plane",
+            "ops/dp/public/test",
         )
         .await
         .expect("build failed");

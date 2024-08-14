@@ -38,8 +38,8 @@ begin
     (new_draft_id, ops_user_id, 'publishing ops catalog for local development');
 
     -- Queue a publication of the draft.
-    insert into publications (id, user_id, draft_id) values
-    (publication_id, ops_user_id, new_draft_id);
+    insert into publications (id, user_id, draft_id, data_plane_name) values
+    (publication_id, ops_user_id, new_draft_id, 'ops/dp/public/local-cluster');
 
     insert into draft_specs (draft_id, catalog_name, spec_type, spec)
     select new_draft_id, "key", 'collection'::catalog_spec_type, "value"

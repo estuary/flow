@@ -3,10 +3,15 @@ create table data_planes (
   like internal._model including all,
 
   data_plane_name  catalog_name not null,
-  ops_logs_name  catalog_name not null,
-  ops_stats_name catalog_name not null,
+  data_plane_fqdn  text not null,
 
-  fqdn              text not null,
+  ops_logs_name        catalog_name not null,
+  ops_stats_name       catalog_name not null,
+
+  ops_l1_inferred_name catalog_name not null,
+  ops_l1_stats_name    catalog_name not null,
+  ops_l2_inferred_transform    text not null,
+  ops_l2_stats_transform       text not null,
 
   broker_address    text not null,
   reactor_address   text not null,
@@ -18,7 +23,7 @@ create table data_planes (
   hmac_keys     text[] not null,
 
   unique (data_plane_name),
-  unique (fqdn)
+  unique (data_plane_fqdn)
 );
 alter table data_planes enable row level security;
 
@@ -31,7 +36,7 @@ create policy "Users must be read-authorized to data planes"
 grant select (
   id,
   data_plane_name,
-  fqdn,
+  data_plane_fqdn,
   created_at,
   updated_at,
   broker_address,

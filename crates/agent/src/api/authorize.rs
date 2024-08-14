@@ -24,10 +24,10 @@ pub async fn authorize(
     axum::Json(request): axum::Json<Request>,
     // TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Bearer>>,
 ) -> axum::response::Response {
-    super::wrap(async move { do_authorize(&app, &request.token).await }).await
+    super::wrap(async move { do_authorize(&app, &request).await }).await
 }
 
-async fn do_authorize(app: &App, token: &str) -> anyhow::Result<Response> {
+async fn do_authorize(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
     let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
 
     let jsonwebtoken::TokenData { header, mut claims }: jsonwebtoken::TokenData<
@@ -47,6 +47,14 @@ async fn do_authorize(app: &App, token: &str) -> anyhow::Result<Response> {
     let Some((task_type, task_shard)) = claims.sub.split_once('/') else {
         anyhow::bail!("invalid claims subject {}", claims.sub);
     };
+    // Map task-type from shard prefix naming, to ops log naming.
+    let task_type = match task_type {
+        "capture" => "capture",
+        "derivation" => "derivation",
+        "materialize" => "materialization",
+        _ => anyhow::bail!("invalid shard task type {task_type}"),
+    };
+
     let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")?;
 
     // Validate and match the requested capabilities to a corresponding role.
@@ -68,7 +76,7 @@ async fn do_authorize(app: &App, token: &str) -> anyhow::Result<Response> {
 
     // Resolve the identified data-plane through its task assignment (which is verified) and FQDN.
     let Some(task_data_plane) = agent_sql::data_plane::fetch_data_plane_by_task_and_fqdn(
-        &app.pool,
+        &app.pg_pool,
         task_shard,
         &claims.iss,
     )
@@ -100,7 +108,7 @@ async fn do_authorize(app: &App, token: &str) -> anyhow::Result<Response> {
     // Query for a task => collection pair with the status of RBAC authorization.
     let (task_name, collection_name, collection_data_plane_id, mut authorized) =
         agent_sql::data_plane::verify_task_authorization(
-            &app.pool,
+            &app.pg_pool,
             task_shard,
             journal_name_or_prefix,
             required_role,
@@ -125,6 +133,21 @@ async fn do_authorize(app: &App, token: &str) -> anyhow::Result<Response> {
         ))
     {
         authorized = true;
+    } else if !authorized {
+        let want = format!(
+            "/kind={task_type}/name={}/pivot=00",
+            labels::percent_encoding(&task_name).to_string(),
+        );
+        tracing::error!(
+            authorized,
+            required_role,
+            %collection_name,
+            %task_data_plane.ops_logs_name,
+            %task_data_plane.ops_stats_name,
+            %want,
+            journal_name_or_prefix,
+            "FAILED TO AUTHORIZE"
+        )
     }
 
     if !authorized {
@@ -137,7 +160,7 @@ async fn do_authorize(app: &App, token: &str) -> anyhow::Result<Response> {
     // I'm not doing this yet to keep the code path simpler while we're testing.
 
     let collection_data_plane = agent_sql::data_plane::fetch_data_planes(
-        &app.pool,
+        &app.pg_pool,
         vec![collection_data_plane_id],
         "",
         uuid::Uuid::nil(),
@@ -146,7 +169,7 @@ async fn do_authorize(app: &App, token: &str) -> anyhow::Result<Response> {
     .pop()
     .context("collection data-plane does not exist")?;
 
-    claims.iss = collection_data_plane.fqdn;
+    claims.iss = collection_data_plane.data_plane_fqdn;
     claims.iat = jsonwebtoken::get_current_timestamp();
     claims.exp = claims.iat + 3_600; // One hour.
 

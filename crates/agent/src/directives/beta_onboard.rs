@@ -290,7 +290,11 @@ mod test {
           },
           {
             "cap": "read",
-            "roleGrantObj": "public/"
+            "roleGrantObj": "ops/dp/public/"
+          },
+          {
+            "cap": "read",
+            "roleGrantObj": "ops/dp/private/AcmeTenant/"
           },
           {
             "prefix": "AcmeTenant/",

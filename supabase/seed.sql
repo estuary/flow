@@ -48,11 +48,21 @@ insert into applied_directives (directive_id, user_id, user_claims)
     from directives d, accounts_root_user a
     where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
 
+insert into role_grants (subject_role, object_role, capability) values
+  ('ops/rollups/L1/', 'ops/tasks/', 'read'),
+  ('ops/rollups/L1/', 'ops/rollups/L1/', 'write'),
+  ('ops.us-central1.v1/', 'ops/rollups/L1/', 'read');
+
+-- THIS IS IMPORTANT! estuary-flow-poc and not estuary-trial .
+insert into storage_mappings (catalog_prefix, spec) values
+  ('ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc", "prefix": "collection-data/"}]}'),
+  ('recovery/ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc"}]}');
+
 -- Give support@estuary.dev the `estuary_support/` role, so that it may perform automatic publications
 insert into user_grants (user_id, object_role, capability) values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'estuary_support/', 'admin');
 
--- Give support@estuary.dev the `public/` role for access to public data-planes.
-insert into user_grants (user_id, object_role, capability) values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'public/', 'read');
+-- Give support@estuary.dev the admin role for `ops/` management.
+insert into user_grants (user_id, object_role, capability) values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ops/', 'admin');
 
 -- Seed a small number of connectors. This is a small list, separate from our
 -- production connectors, because each is pulled onto your dev machine.
@@ -96,6 +106,7 @@ $$ language plpgsql;
 
 commit;
 
+/*
 -- Install a seed data-plane which matches the configuration in Tiltfile.
 insert into data_planes (
   data_plane_name,
@@ -132,3 +143,4 @@ insert into data_planes (
   'http://localhost:9005',
   '{aGVsbG8=}'
 );
+*/

@@ -465,9 +465,9 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
 
             live.data_planes.insert_row(
                 models::Id::zero(),
-                "public/noop-data-plane".to_string(),
+                "ops/dp/public/noop".to_string(),
+                "noop.dp.estuary-data.com".to_string(),
                 true,
-                "no-op.dp.estuary-data.com".to_string(),
                 vec!["hmac-key".to_string()],
                 models::Collection::new("ops/logs"),
                 models::Collection::new("ops/stats"),

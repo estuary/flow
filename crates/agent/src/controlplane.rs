@@ -208,7 +208,7 @@ impl PGControlPlane {
             sub: String::new(),
             iat: unix_ts,
             exp: unix_ts + 60,
-            iss: data_plane.fqdn.clone(),
+            iss: data_plane.data_plane_fqdn.clone(),
         };
 
         let mut bearer_token = None;
