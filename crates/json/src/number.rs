@@ -101,6 +101,13 @@ impl PartialEq for Number {
 impl Eq for Number {}
 
 impl Number {
+    pub fn is_float(&self) -> bool {
+        match self {
+            Float(_) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_multiple_of(&self, d: &Self) -> bool {
         use Number::*;
 
