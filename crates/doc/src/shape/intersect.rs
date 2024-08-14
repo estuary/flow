@@ -185,10 +185,28 @@ impl NumericShape {
             },
         ) = (lhs, rhs);
 
-        // Take the most-restrictive bounds.
-        let min = lhs_min.max(rhs_min);
-        let max = if lhs_max.and(rhs_max).is_some() {
-            lhs_max.min(rhs_max)
+        // Take the most-restrictive bounds. Integers are considered more restrictive than
+        // floats here, even though for example `5.0` and `5` are considered equal. This helps
+        // ensure that the minimum/maximum value representations stay in line with the `type`,
+        // since the intersection of `type: number` and `integer` is the narrower `integer` type.
+        let min = if let Some((lmin, rmin)) = lhs_min.zip(rhs_min) {
+            match lmin.cmp(&rmin) {
+                std::cmp::Ordering::Less => Some(rmin),
+                std::cmp::Ordering::Equal if !lmin.is_float() => Some(lmin),
+                std::cmp::Ordering::Equal => Some(rmin),
+                std::cmp::Ordering::Greater => Some(lmin),
+            }
+        } else {
+            lhs_min.max(rhs_min)
+        };
+
+        let max = if let Some((lmax, rmax)) = rhs_max.zip(lhs_max) {
+            match lmax.cmp(&rmax) {
+                std::cmp::Ordering::Less => Some(lmax),
+                std::cmp::Ordering::Equal if !lmax.is_float() => Some(lmax),
+                std::cmp::Ordering::Equal => Some(rmax),
+                std::cmp::Ordering::Greater => Some(rmax),
+            }
         } else {
             lhs_max.or(rhs_max)
         };
@@ -308,4 +326,70 @@ fn filter_enums_to_types<I: Iterator<Item = Value>>(
     it: I,
 ) -> impl Iterator<Item = Value> {
     it.filter(move |val| type_.overlaps(types::Set::for_value(val)))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn numeric_shape_intersection() {
+        let actual = NumericShape::intersect(
+            NumericShape {
+                minimum: Some(json::Number::Signed(-5)),
+                maximum: Some(json::Number::Float(5.0)),
+            },
+            NumericShape {
+                minimum: Some(json::Number::Float(-5.0)),
+                maximum: Some(json::Number::Unsigned(5)),
+            },
+        );
+        assert_eq!(
+            NumericShape {
+                minimum: Some(json::Number::Signed(-5)),
+                maximum: Some(json::Number::Unsigned(5)),
+            },
+            actual
+        );
+        assert!(actual.minimum.is_some_and(|m| !m.is_float()));
+        assert!(actual.maximum.is_some_and(|m| !m.is_float()));
+
+        let actual = NumericShape::intersect(
+            NumericShape {
+                minimum: Some(json::Number::Float(-5.0)),
+                maximum: Some(json::Number::Unsigned(5)),
+            },
+            NumericShape {
+                minimum: Some(json::Number::Signed(-5)),
+                maximum: Some(json::Number::Float(5.0)),
+            },
+        );
+        assert_eq!(
+            NumericShape {
+                minimum: Some(json::Number::Signed(-5)),
+                maximum: Some(json::Number::Unsigned(5)),
+            },
+            actual
+        );
+        assert!(actual.minimum.is_some_and(|m| !m.is_float()));
+        assert!(actual.maximum.is_some_and(|m| !m.is_float()));
+
+        let actual = NumericShape::intersect(
+            NumericShape {
+                minimum: None,
+                maximum: Some(json::Number::Unsigned(500)),
+            },
+            NumericShape {
+                minimum: Some(json::Number::Signed(-4)),
+                maximum: None,
+            },
+        );
+        assert_eq!(
+            NumericShape {
+                minimum: Some(json::Number::Signed(-4)),
+                maximum: Some(json::Number::Unsigned(500)),
+            },
+            actual
+        );
+    }
 }
