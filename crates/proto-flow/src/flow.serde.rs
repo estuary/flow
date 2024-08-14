@@ -2568,6 +2568,9 @@ impl serde::Serialize for Inference {
         if self.exists != 0 {
             len += 1;
         }
+        if self.numeric.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.Inference", len)?;
         if !self.types.is_empty() {
             struct_ser.serialize_field("types", &self.types)?;
@@ -2592,6 +2595,9 @@ impl serde::Serialize for Inference {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.exists)))?;
             struct_ser.serialize_field("exists", &v)?;
         }
+        if let Some(v) = self.numeric.as_ref() {
+            struct_ser.serialize_field("numeric", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -2610,6 +2616,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
             "default",
             "secret",
             "exists",
+            "numeric",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2621,6 +2628,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
             DefaultJson,
             Secret,
             Exists,
+            Numeric,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2649,6 +2657,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             "default" | "default_json" => Ok(GeneratedField::DefaultJson),
                             "secret" => Ok(GeneratedField::Secret),
                             "exists" => Ok(GeneratedField::Exists),
+                            "numeric" => Ok(GeneratedField::Numeric),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2675,6 +2684,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                 let mut default_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut secret__ = None;
                 let mut exists__ = None;
+                let mut numeric__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Types => {
@@ -2719,6 +2729,12 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             }
                             exists__ = Some(map_.next_value::<inference::Exists>()? as i32);
                         }
+                        GeneratedField::Numeric => {
+                            if numeric__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("numeric"));
+                            }
+                            numeric__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(Inference {
@@ -2729,6 +2745,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                     default_json: default_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     secret: secret__.unwrap_or_default(),
                     exists: exists__.unwrap_or_default(),
+                    numeric: numeric__,
                 })
             }
         }
@@ -2813,6 +2830,118 @@ impl<'de> serde::Deserialize<'de> for inference::Exists {
             }
         }
         deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for inference::Numeric {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.minimum != 0. {
+            len += 1;
+        }
+        if self.maximum != 0. {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("flow.Inference.Numeric", len)?;
+        if self.minimum != 0. {
+            struct_ser.serialize_field("minimum", &self.minimum)?;
+        }
+        if self.maximum != 0. {
+            struct_ser.serialize_field("maximum", &self.maximum)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for inference::Numeric {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "minimum",
+            "maximum",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Minimum,
+            Maximum,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "minimum" => Ok(GeneratedField::Minimum),
+                            "maximum" => Ok(GeneratedField::Maximum),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = inference::Numeric;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct flow.Inference.Numeric")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<inference::Numeric, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut minimum__ = None;
+                let mut maximum__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Minimum => {
+                            if minimum__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("minimum"));
+                            }
+                            minimum__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Maximum => {
+                            if maximum__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("maximum"));
+                            }
+                            maximum__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(inference::Numeric {
+                    minimum: minimum__.unwrap_or_default(),
+                    maximum: maximum__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("flow.Inference.Numeric", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for inference::String {

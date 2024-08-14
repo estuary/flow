@@ -83,6 +83,8 @@ pub struct Inference {
     /// Existence of this document location.
     #[prost(enumeration = "inference::Exists", tag = "8")]
     pub exists: i32,
+    #[prost(message, optional, tag = "9")]
+    pub numeric: ::core::option::Option<inference::Numeric>,
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
@@ -103,6 +105,20 @@ pub mod inference {
         /// limit.
         #[prost(uint32, tag = "6")]
         pub max_length: u32,
+    }
+    /// Numeric type-specific inferences, or nil iff types doesn't include
+    /// "integer" or "number".
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Numeric {
+        /// Minimum value when the projection is of "integer" or "number" type. Zero
+        /// may mean a minimum of 0 or no inferred minimum.
+        #[prost(double, tag = "1")]
+        pub minimum: f64,
+        /// Maximum value when the projection is of "integer" or "number" type. Zero
+        /// may mean a maximum of 0 or no inferred maximum.
+        #[prost(double, tag = "2")]
+        pub maximum: f64,
     }
     /// Exists enumerates the possible states of existence for a location.
     #[derive(

@@ -21,6 +21,7 @@ expression: "&[out1, out2]"
         default_json: "{\"hello\":\"world\"}",
         secret: true,
         exists: Must,
+        numeric: None,
     },
     Inference {
         types: [
@@ -32,5 +33,6 @@ expression: "&[out1, out2]"
         default_json: "{\"hello\":\"world\"}",
         secret: true,
         exists: May,
+        numeric: None,
     },
 ]

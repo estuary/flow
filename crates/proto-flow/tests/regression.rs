@@ -25,6 +25,7 @@ fn ex_projections() -> Vec<flow::Projection> {
                 max_length: 12345,
             }),
             types: vec!["integer".to_string(), "string".to_string()],
+            numeric: None,
         }),
     }]
 }
