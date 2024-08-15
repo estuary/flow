@@ -1,9 +1,0 @@
-name,kind,level,message
-test/hello-world/ssh-postgresl,materialization,info,initialized catalog task term
-test/hello-world/ssh-postgresl,materialization,info,connector-init started
-test/hello-world/ssh-postgresl,materialization,info,connector exited
-test/hello-world/ssh-postgresl,materialization,info,network-tunnel ready
-examples/source-test,capture,info,initialized catalog task term
-examples/source-test,capture,info,connector-init started
-examples/source-test,capture,info,connector exited
-examples/source-test,capture,info,connector exited
