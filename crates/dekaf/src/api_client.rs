@@ -460,7 +460,10 @@ impl KafkaApiClient {
 
                 let coord_url = format!("tcp://{}:{}", coord_host.to_string(), coord_port);
 
-                Ok(if coord_url.eq(self.url.as_str()) {
+                Ok(
+                    if coord_url.eq(self.url.as_str())
+                        || (coord_host.len() == 0 && coord_port == -1)
+                    {
                     coordinators.insert(key.to_string(), self.clone());
                     self.to_owned()
                 } else {
@@ -468,7 +471,8 @@ impl KafkaApiClient {
                     coord.coordinators = self.coordinators.clone();
                     coordinators.insert(key.to_string(), coord.clone());
                     coord
-                })
+                    },
+                )
             }
             Some(coord) => Ok(coord.clone()),
         }
