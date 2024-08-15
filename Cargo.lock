@@ -62,6 +62,7 @@ version = "0.0.0"
 dependencies = [
  "activate",
  "agent-sql",
+ "allocator",
  "anyhow",
  "async-process",
  "async-trait",

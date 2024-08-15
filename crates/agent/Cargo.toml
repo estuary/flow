@@ -13,6 +13,7 @@ license.workspace = true
 [dependencies]
 activate = { path = "../activate" }
 agent-sql = { path = "../agent-sql" }
+allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
 build = { path = "../build" }
 doc = { path = "../doc" }

@@ -1,3 +1,6 @@
+// Links in the allocator crate, which sets the global allocator to jemalloc
+extern crate allocator;
+
 use agent::publications::Publisher;
 use anyhow::Context;
 use clap::Parser;
