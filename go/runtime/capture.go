@@ -25,10 +25,10 @@ import (
 type Capture struct {
 	*taskBase[*pf.CaptureSpec]
 	client       pc.Connector_CaptureClient
-	isRestart    bool          // Marks the current consumer transaction is a restart.
-	pollCh       chan struct{} // Coordinates polls of the client.
-	restarts     message.Clock // Increments for each restart.
-	transactions message.Clock // Increments for each transaction.
+	isRestart    bool             // Marks the current consumer transaction is a restart.
+	pollCh       chan pf.OpFuture // Coordinates polls of the client.
+	restarts     message.Clock    // Increments for each restart.
+	transactions message.Clock    // Increments for each transaction.
 }
 
 var _ Application = (*Capture)(nil)
@@ -45,8 +45,8 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 		return nil, fmt.Errorf("starting capture stream: %w", err)
 	}
 
-	var pollCh = make(chan struct{}, 1)
-	pollCh <- struct{}{}
+	var pollCh = make(chan pf.OpFuture, 1)
+	pollCh <- pf.FinishedOperation(nil)
 
 	return &Capture{
 		taskBase:     base,
@@ -153,7 +153,7 @@ func pollLoop(
 	client pc.Connector_CaptureClient,
 	container *atomic.Pointer[pr.Container],
 	eofJournal, txnJournal *pf.JournalSpec,
-	pollCh chan struct{},
+	pollCh chan pf.OpFuture,
 	restarts, transactions *message.Clock, // Exclusively owned while running.
 	shardCtx, termCtx context.Context,
 ) (__err error) {
@@ -177,6 +177,8 @@ func pollLoop(
 
 	for {
 		// Wait for cancellation or the next polling token.
+		var op pf.OpFuture
+
 		select {
 		case <-termCtx.Done():
 			var err = termCtx.Err()
@@ -190,7 +192,12 @@ func pollLoop(
 			}
 			return err
 
-		case <-pollCh:
+		case op = <-pollCh:
+		}
+
+		// Wait for the prior commit's OpFuture to resolve succesfully.
+		if err := op.Err(); err != nil {
+			return err
 		}
 
 		if err := doSend[pc.Response](client, &pc.Request{
@@ -206,11 +213,11 @@ func pollLoop(
 
 		switch polledExt.Checkpoint.PollResult {
 		case pr.CaptureResponseExt_NOT_READY:
-			pollCh <- struct{}{} // Yield the polling token for next attempt.
+			pollCh <- op // Yield the polling token for next attempt.
 
 		case pr.CaptureResponseExt_COOL_OFF:
 			container.Store(nil) // Connector is no longer running.
-			pollCh <- struct{}{}
+			pollCh <- op
 
 		case pr.CaptureResponseExt_READY:
 			transactions.Tick()
@@ -354,7 +361,7 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 }
 
 func (c *Capture) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
-	c.pollCh <- struct{}{} // Yield polling token to begin next transaction.
+	c.pollCh <- op // Yield transaction's commit future as the next polling token.
 }
 
 func (c *Capture) Destroy() {
