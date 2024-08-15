@@ -292,11 +292,13 @@ impl Shape {
             Node::Null => apply_type(types::NULL),
             Node::Float(f) => self.numeric.widen(
                 Number::Float(f),
-                apply_type(if f.fract() != 0.0 {
-                    types::INT_OR_FRAC // Equivalent to "type: number".
-                } else {
-                    types::INTEGER
-                }),
+                apply_type(
+                    if f.fract() != 0.0 || f > u64::MAX as f64 || f < i64::MIN as f64 {
+                        types::INT_OR_FRAC // Equivalent to "type: number".
+                    } else {
+                        types::INTEGER
+                    },
+                ),
             ),
             Node::PosInt(f) => self
                 .numeric
@@ -1124,25 +1126,73 @@ mod test {
 
     #[test]
     fn test_widening_numeric() {
-        let schema = r#"
-            type: []
-        "#;
-        // We preserve an enum if it's only widened with strings and exact matches.
+        // Integers and non-fractional floats are `type: integer`.
         widening_snapshot_helper(
-            Some(schema),
+            None,
             r#"
-            type: number
+            type: integer
             minimum: 1
             maximum: 100
             "#,
             &[
                 (true, json!(3)),
                 (false, json!(4)),
+                (false, json!(5.0)),
                 (true, json!(30)),
-                (false, json!(31)),
-                (true, json!(30.14159)),
-                (false, json!(30.2)),
+                (false, json!(99.0)),
             ],
+        );
+
+        // A fractional float widens to `type: number`.
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: number
+            minimum: -10
+            maximum: -1
+            "#,
+            &[
+                (true, json!(-3)),
+                (false, json!(-4)),
+                (true, json!(-4.5)),
+                (false, json!(-7.1)),
+                (false, json!(-8)),
+            ],
+        );
+
+        // Non-fractional floats which are within the bounds of u64/i64 continue to be integers.
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: integer
+            minimum: -1e19
+            maximum: 1e20
+            "#,
+            &[
+                (true, json!(1)),
+                (true, json!(u64::MAX as f64)),
+                (true, json!(i64::MIN as f64)),
+            ],
+        );
+
+        // However, they widen to number if they exceed what a native integer can represent.
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: number
+            minimum: 1
+            maximum: 1e20
+            "#,
+            &[(true, json!(1)), (true, json!(u64::MAX as f64 + 1e10))],
+        );
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: number
+            minimum: -1e19
+            maximum: 0
+            "#,
+            &[(true, json!(0)), (true, json!(i64::MIN as f64 - 1e10))],
         );
     }
 
