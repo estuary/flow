@@ -44,6 +44,6 @@ tracing-subscriber = { workspace = true }
 typestate = { workspace = true }
 url = { workspace = true }
 webpki-roots = { workspace = true }
-bb8 = { workspace = true }
+deadpool = { workspace = true }
 regex = { workspace = true }
 # hexdump = { workspace = true }
