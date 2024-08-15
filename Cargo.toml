@@ -49,6 +49,7 @@ console_error_panic_hook = { version = "0.1.6" }
 crossterm = "0.25"
 csv = "1.1"
 dirs = "4.0"
+deadpool = "0.12.1"
 encoding_rs = { version = "0.8", features = ["serde"] }
 exponential-backoff = "1.1.0"
 fancy-regex = "0.10"
@@ -107,6 +108,8 @@ rocksdb = { version = "0.22", default-features = false, features = [
     "rtti",
 ] }
 rkyv = { version = "0.7", features = ["archive_le"] }
+# TODO: Switch back to crates.io version of rsasl when this PR is merged:
+# https://github.com/dequbed/rsasl/pull/48
 rsasl = { version = "2", default-features = false, features = [
     "provider",
     "config_builder",
@@ -114,7 +117,7 @@ rsasl = { version = "2", default-features = false, features = [
     "scram-sha-1",
     "scram-sha-2",
     "plain",
-] }
+], git = "https://github.com/WenyXu/rsasl.git", branch = "feat/support-sha512" }
 rusqlite = { version = "0.29", features = ["bundled-full"] }
 rustyline = "11.0"
 schemars = "0.8"
@@ -144,7 +147,7 @@ webpki-roots = "0.26"
 tempfile = "3.3"
 portpicker = "0.1.1"
 tempdir = "0.3"
-thiserror = "1.0"
+thiserror = "1.0.63"
 time = { version = "0.3", features = [
     "serde-well-known",
     "macros",
@@ -202,7 +205,6 @@ criterion = "0.3"
 glob = "0.3"
 insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
 pretty_assertions = "1.4.0"
-bb8 = "0.8"
 rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = { version = "0.4" }
 serial_test = "0.9"

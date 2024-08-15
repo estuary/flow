@@ -1,22 +1,26 @@
 use anyhow::{anyhow, bail, Context};
 use bytes::{Bytes, BytesMut};
-use futures::{lock::Mutex, Sink, StreamExt, TryFutureExt};
+use deadpool::managed::{self, Manager, Metrics, PoolError, RecycleResult};
+use futures::{lock::Mutex, Sink, StreamExt};
 use futures::{SinkExt, Stream, TryStreamExt};
 use kafka_protocol::{
+    error::ParseResponseErrorCode,
     indexmap::IndexMap,
     messages::{
-        api_versions_response::ApiVersion, create_topics_request::CreatableTopic,
+        api_versions_response::ApiVersion,
+        create_topics_request::CreatableTopic,
         find_coordinator_request::FindCoordinatorRequestBuilder,
-        metadata_request::MetadataRequestTopic,
+        metadata_request::{MetadataRequestBuilder, MetadataRequestTopic},
+        request_header::RequestHeaderBuilder,
         sasl_authenticate_request::SaslAuthenticateRequestBuilder,
-        sasl_handshake_request::SaslHandshakeRequestBuilder, ApiKey, ApiVersionsRequest,
-        ApiVersionsResponse, CreateTopicsRequest, FindCoordinatorRequest, MetadataRequest,
-        RequestHeader, ResponseHeader, TopicName,
+        sasl_handshake_request::SaslHandshakeRequestBuilder,
+        ApiKey, ApiVersionsRequest, ApiVersionsResponse, CreateTopicsRequest,
+        FindCoordinatorRequest, MetadataRequest, RequestHeader, ResponseHeader, TopicName,
     },
     protocol::{Builder, Decodable, Encodable, Request, StrBytes},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
-use std::{boxed::Box, collections::HashMap, fmt::Debug, io, ops::DerefMut, pin, time::Duration};
+use std::{boxed::Box, collections::HashMap, fmt::Debug, io, time::Duration};
 use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_rustls::{
@@ -285,87 +289,29 @@ struct KafkaConnectionParams {
     sasl_config: Arc<SASLConfig>,
 }
 
-impl bb8::ManageConnection for KafkaConnectionParams {
-    type Connection = BoxedKafkaConnection;
+impl Manager for KafkaConnectionParams {
+    type Type = BoxedKafkaConnection;
+    type Error = anyhow::Error;
 
-    type Error = io::Error;
-
-    #[tracing::instrument(skip_all)]
-    #[doc = " Attempts to create a new connection."]
-    #[must_use]
-    #[allow(clippy::type_complexity, clippy::type_repetition_in_bounds)]
-    fn connect<'life0, 'async_trait>(
-        &'life0 self,
-    ) -> ::core::pin::Pin<
-        Box<
-            dyn ::core::future::Future<Output = Result<Self::Connection, Self::Error>>
-                + ::core::marker::Send
-                + 'async_trait,
-        >,
-    >
-    where
-        'life0: 'async_trait,
-        Self: 'async_trait,
-    {
+    async fn create(&self) -> Result<BoxedKafkaConnection, anyhow::Error> {
         tracing::debug!("Attempting to establish a new connection!");
-        Box::pin(
-            async move {
-                let mut conn = async_connect(&self.broker_url).await?;
-                tracing::debug!("Authenticating opened connection");
-                sasl_auth(&mut conn, self).await?;
-                tracing::debug!("Finished authenticating opened connection");
-                Ok(conn)
-            }
-            .map_err(|e: anyhow::Error| match e.downcast::<io::Error>() {
-                Ok(io_error) => io_error,
-                Err(e) => io::Error::other(e),
-            }),
-        )
+        let mut conn = async_connect(&self.broker_url).await?;
+        tracing::debug!("Authenticating opened connection");
+        sasl_auth(&mut conn, self).await?;
+        tracing::debug!("Finished authenticating opened connection");
+        Ok(conn)
     }
 
-    #[tracing::instrument(skip_all)]
-    #[doc = " Determines if the connection is still connected to the database."]
-    #[must_use]
-    #[allow(clippy::type_complexity, clippy::type_repetition_in_bounds)]
-    fn is_valid<'life0, 'life1, 'async_trait>(
-        &'life0 self,
-        conn: &'life1 mut Self::Connection,
-    ) -> ::core::pin::Pin<
-        Box<
-            dyn ::core::future::Future<Output = Result<(), Self::Error>>
-                + ::core::marker::Send
-                + 'async_trait,
-        >,
-    >
-    where
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        Self: 'async_trait,
-    {
-        tracing::debug!("Validating connection");
-        Box::pin(
-            async move { sasl_auth(conn, &self).await }.map_err(|e: anyhow::Error| match e
-                .downcast::<io::Error>()
-            {
-                Ok(io_error) => io_error,
-                Err(e) => io::Error::other(e),
-            }),
-        )
-    }
-
-    #[doc = " Synchronously determine if the connection is no longer usable, if possible."]
-    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
-        // let peekable = conn.peekable();
-        // pin_mut!(peekable);
-        // Box::pin(async move {
-        //     match peekable.peek().await {
-        //         Some(Err(_)) => true,
-        //         _ => false,
-        //     }
-        // })
-        false
+    async fn recycle(
+        &self,
+        _: &mut BoxedKafkaConnection,
+        _: &Metrics,
+    ) -> RecycleResult<anyhow::Error> {
+        Ok(())
     }
 }
+
+type Pool = managed::Pool<KafkaConnectionParams>;
 
 /// Exposes a low level Kafka wire protocol client. Used when we need to
 /// make API calls at the wire protocol level, as opposed to higher-level producer/consumer
@@ -374,7 +320,7 @@ impl bb8::ManageConnection for KafkaConnectionParams {
 #[derive(Clone)]
 pub struct KafkaApiClient {
     /// A raw IO stream to the Kafka broker.
-    pool: bb8::Pool<KafkaConnectionParams>,
+    pool: Pool,
     url: String,
     sasl_config: Arc<SASLConfig>,
     versions: ApiVersionsResponse,
@@ -385,19 +331,34 @@ impl KafkaApiClient {
     #[instrument(name = "api_client_connect", skip(sasl_config))]
     pub async fn connect(broker_url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
         tracing::debug!("Creating connection pool");
-        let pool = bb8::Pool::builder()
-            .max_size(1)
-            .retry_connection(false)
-            .test_on_check_out(false)
-            .connection_timeout(Duration::from_secs(10))
-            .build(KafkaConnectionParams {
-                broker_url: broker_url.to_owned(),
-                sasl_config: sasl_config.clone(),
-            })
-            .await?;
+        let pool = Pool::builder(KafkaConnectionParams {
+            broker_url: broker_url.to_owned(),
+            sasl_config: sasl_config.clone(),
+        })
+        .build()?;
 
-        let mut conn = pool.get().await?;
-        let versions = send_request(conn.deref_mut(), ApiVersionsRequest::default(), None).await?;
+        let mut conn = match pool.get().await {
+            Ok(c) => c,
+            Err(PoolError::Backend(e)) => return Err(e),
+            Err(e) => {
+                anyhow::bail!(e)
+            }
+        };
+
+        let versions = send_request(
+            conn.as_mut(),
+            ApiVersionsRequest::builder()
+                .client_software_name(StrBytes::from_static_str("Dekaf"))
+                .client_software_version(StrBytes::from_static_str("1.0"))
+                .build()
+                .unwrap(),
+            None,
+        )
+        .await?;
+        match versions.error_code.err() {
+            None => {}
+            Some(e) => bail!("Error connecting to broker: {e}"),
+        };
         tracing::debug!(versions=?versions,"Got supported versions");
         drop(conn);
 
@@ -421,9 +382,15 @@ impl KafkaApiClient {
         header: Option<RequestHeader>,
     ) -> anyhow::Result<Req::Response> {
         // TODO: This could be optimized by pipelining.
-        let mut conn = self.pool.get().await?;
+        let mut conn = match self.pool.get().await {
+            Ok(c) => c,
+            Err(PoolError::Backend(e)) => return Err(e),
+            Err(e) => {
+                anyhow::bail!(e)
+            }
+        };
 
-        send_request(conn.deref_mut(), req, header).await
+        send_request(conn.as_mut(), req, header).await
     }
 
     #[instrument(skip(self))]
@@ -464,13 +431,13 @@ impl KafkaApiClient {
                     if coord_url.eq(self.url.as_str())
                         || (coord_host.len() == 0 && coord_port == -1)
                     {
-                    coordinators.insert(key.to_string(), self.clone());
-                    self.to_owned()
-                } else {
-                    let mut coord = Self::connect(&coord_url, self.sasl_config.clone()).await?;
-                    coord.coordinators = self.coordinators.clone();
-                    coordinators.insert(key.to_string(), coord.clone());
-                    coord
+                        coordinators.insert(key.to_string(), self.clone());
+                        self.to_owned()
+                    } else {
+                        let mut coord = Self::connect(&coord_url, self.sasl_config.clone()).await?;
+                        coord.coordinators = self.coordinators.clone();
+                        coordinators.insert(key.to_string(), coord.clone());
+                        coord
                     },
                 )
             }
