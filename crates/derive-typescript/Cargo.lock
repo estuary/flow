@@ -153,9 +153,9 @@ checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
 
 [[package]]
 name = "bytes"
-version = "1.4.0"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89b2fd2a0dcf38d7971e2194b6b6eebab45ae01067456a7fd93d5547a61b70be"
+checksum = "8318a53db07bb3f8dca91a600466bdb3f2eaadeedfdbcf02e1accbad9271ba50"
 
 [[package]]
 name = "caseless"
@@ -240,9 +240,10 @@ dependencies = [
 [[package]]
 name = "doc"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "base64 0.13.1",
+ "bigdecimal",
  "bumpalo",
  "bytes",
  "fancy-regex",
@@ -251,6 +252,7 @@ dependencies = [
  "itertools 0.10.5",
  "json",
  "lz4",
+ "proto-gazette",
  "rkyv",
  "schemars",
  "serde",
@@ -604,7 +606,7 @@ checksum = "af150ab688ff2122fcef229be89cb50dd66af9e01a4ff320cc137eecc9bacc38"
 [[package]]
 name = "json"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "addr",
  "bigdecimal",
@@ -627,10 +629,13 @@ dependencies = [
 [[package]]
 name = "labels"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
+ "doc",
+ "percent-encoding",
  "proto-flow",
  "proto-gazette",
+ "serde_json",
  "thiserror",
 ]
 
@@ -714,7 +719,7 @@ checksum = "5486aed0026218e61b8a01d5fbd5a0a134649abb71a0e53b7bc088529dced86e"
 [[package]]
 name = "models"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "caseless",
  "humantime-serde",
@@ -941,7 +946,7 @@ checksum = "c55e02e35260070b6f716a2423c2ff1c3bb1642ddca6f99e1f26d06268a0e2d2"
 dependencies = [
  "bytes",
  "heck",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "log",
  "multimap",
  "once_cell",
@@ -962,7 +967,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "efb6c9a1dd1def8e2124d17e83a20af56f1570d6c2d2bd9e266ccb768df3840e"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.29",
@@ -980,7 +985,7 @@ dependencies = [
 [[package]]
 name = "proto-flow"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "bytes",
  "pbjson",
@@ -995,13 +1000,15 @@ dependencies = [
 [[package]]
 name = "proto-gazette"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "bytes",
  "pbjson",
  "pbjson-types",
  "prost",
  "serde",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -1311,7 +1318,7 @@ checksum = "62bb4feee49fdd9f707ef802e22365a35de4b7b299de4763d44bfea899442ff9"
 [[package]]
 name = "sources"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1365,11 +1372,12 @@ dependencies = [
 [[package]]
 name = "tables"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "anyhow",
  "bytes",
  "doc",
+ "itertools 0.10.5",
  "json",
  "labels",
  "models",
@@ -1556,7 +1564,7 @@ dependencies = [
 [[package]]
 name = "tuple"
 version = "0.0.0"
-source = "git+https://github.com/estuary/flow?branch=master#ee10964f867da373b476204c9ee9619d2a805197"
+source = "git+https://github.com/estuary/flow?branch=master#f50987da07162582f6acf944da9417673ba81924"
 dependencies = [
  "memchr",
  "serde_json",
