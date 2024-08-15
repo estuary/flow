@@ -478,6 +478,28 @@ impl KafkaApiClient {
         }
     }
 
+    #[instrument(skip(self))]
+    pub async fn connect_to_controller(&self) -> anyhow::Result<KafkaApiClient> {
+        let req = MetadataRequestBuilder::default().build().unwrap();
+        let resp = self.send_request(req, None).await?;
+
+        let controller = resp
+            .brokers
+            .get(&resp.controller_id)
+            .context("Failed to find controller")?;
+
+        let controller_url = format!("tcp://{}:{}", controller.host.to_string(), controller.port);
+
+        Ok(if controller_url.eq(self.url.as_str()) {
+            self.to_owned()
+        } else {
+            let mut controller_client =
+                Self::connect(&controller_url, self.sasl_config.clone()).await?;
+            controller_client.coordinators = self.coordinators.clone();
+            controller_client
+        })
+    }
+
     pub fn supported_versions<R: Request>(&self) -> anyhow::Result<ApiVersion> {
         let api_key = R::KEY;
 
@@ -506,7 +528,9 @@ impl KafkaApiClient {
             ))
             .allow_auto_topic_creation(true)
             .build()?;
-        let resp = self.send_request(req, None).await?;
+
+        let coord = self.connect_to_controller().await?;
+        let resp = coord.send_request(req, None).await?;
         tracing::debug!(metadata=?resp, "Got metadata response");
 
         if resp
@@ -520,15 +544,14 @@ impl KafkaApiClient {
             for topic_name in topic_names.into_iter() {
                 topics_map.insert(
                     topic_name,
-                    // error=Some(InvalidReplicationFactor) replication factor must be 3
                     CreatableTopic::builder()
-                        .replication_factor(3)
+                        .replication_factor(2)
                         .num_partitions(-1)
                         .build()?,
                 );
             }
             let create_req = CreateTopicsRequest::builder().topics(topics_map).build()?;
-            let create_resp = self.send_request(create_req, None).await?;
+            let create_resp = coord.send_request(create_req, None).await?;
             tracing::debug!(create_response=?create_resp, "Got create response");
 
             for (name, topic) in create_resp.topics {
