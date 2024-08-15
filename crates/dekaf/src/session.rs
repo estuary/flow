@@ -866,6 +866,8 @@ impl Session {
         let mut resp = self
             .app
             .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?
             .send_request(mutated_req, Some(header))
             .await?;
 
@@ -898,6 +900,8 @@ impl Session {
         let mut resp = self
             .app
             .kafka_client
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?
             .send_request(mutated_req, Some(header))
             .await?;
 
