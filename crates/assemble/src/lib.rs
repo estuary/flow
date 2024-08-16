@@ -56,7 +56,16 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         } else {
             None
         },
-        numeric: None,
+        numeric: if shape.type_.overlaps(types::INT_OR_FRAC) {
+            Some(flow::inference::Numeric {
+                has_minimum: shape.numeric.minimum.is_some(),
+                minimum: shape.numeric.minimum.map(Into::into).unwrap_or_default(),
+                has_maximum: shape.numeric.maximum.is_some(),
+                maximum: shape.numeric.maximum.map(Into::into).unwrap_or_default(),
+            })
+        } else {
+            None
+        },
     }
 }
 
@@ -551,7 +560,7 @@ pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
 #[cfg(test)]
 mod test {
     use super::*;
-    use doc::shape::StringShape;
+    use doc::shape::{NumericShape, StringShape};
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
@@ -570,14 +579,20 @@ mod test {
                 min_length: 10,
                 max_length: Some(123),
             },
+            numeric: NumericShape {
+                minimum: None,
+                maximum: Some(json::Number::Unsigned(1000)),
+            },
             ..Shape::anything()
         };
 
         let out1 = inference(&shape, Exists::Must);
         shape.type_ = types::BOOLEAN;
         let out2 = inference(&shape, Exists::May);
+        shape.type_ = types::INTEGER | types::STRING;
+        let out3 = inference(&shape, Exists::May);
 
-        insta::assert_debug_snapshot!(&[out1, out2]);
+        insta::assert_debug_snapshot!(&[out1, out2, out3]);
     }
 
     #[test]
