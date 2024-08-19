@@ -1,4 +1,3 @@
-
 # MongoDB
 
 This connector captures data from your MongoDB collections into Flow collections.
@@ -18,9 +17,9 @@ collection.
 
 You'll need:
 
-* Credentials for connecting to your MongoDB instance and database
+- Credentials for connecting to your MongoDB instance and database
 
-* Read access to your MongoDB database(s), see [Role-Based Access
+- Read access to your MongoDB database(s), see [Role-Based Access
   Control](https://www.mongodb.com/docs/manual/core/authorization/) for more information.
 
 :::tip Configuration Tip
@@ -28,11 +27,11 @@ If you are using a user with access to all databases, then in your mongodb addre
 `?authSource=admin` parameter so that authentication is done through your admin database.
 :::
 
-* ReplicaSet enabled on your database, see [Deploy a Replica
+- ReplicaSet enabled on your database, see [Deploy a Replica
   Set](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set/).
 
-* If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting of IPs, you need to
-  whitelist Estuary's IP `34.121.207.128`.
+- If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting of IPs, you need to
+  whitelist Estuary's IPs `34.121.207.128, 35.226.75.135, 34.68.62.148`.
 
 ## Configuration
 
@@ -46,19 +45,18 @@ MongoDB source connector.
 #### Endpoint
 
 | Property        | Title    | Description                                                                                                                        | Type   | Required/Default |
-|-----------------|----------|------------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
+| --------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
 | **`/address`**  | Address  | Host and port of the database. Optionally can specify scheme for the URL such as mongodb+srv://host.                               | string | Required         |
 | **`/user`**     | User     | Database user to connect as.                                                                                                       | string | Required         |
 | **`/password`** | Password | Password for the specified database user.                                                                                          | string | Required         |
 | `/database`     | Database | Optional comma-separated list of the databases to discover. If not provided will discover all available databases in the instance. | string |                  |
 
-
 #### Bindings
 
-| Property          | Title    | Description     | Type      | Required/Default |
-| -------           | ------   | ------          | --------- | --------         |
-| **`/database`**   | Database | Database name   | string    | Required         |
-| **`/collection`** | Stream   | Collection name | string    | Required         |
+| Property          | Title    | Description     | Type   | Required/Default |
+| ----------------- | -------- | --------------- | ------ | ---------------- |
+| **`/database`**   | Database | Database name   | string | Required         |
+| **`/collection`** | Stream   | Collection name | string | Required         |
 
 ### Sample
 
@@ -86,7 +84,6 @@ As an alternative to connecting to your MongoDB instance directly, you can allow
 1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
 2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
-
 
 ## Backfill and real-time updates
 

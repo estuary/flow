@@ -54,7 +54,7 @@ or any other public image registry provider.
 To interface with a connector, the Flow runtime needs to know:
 
 1. The specific image to use, through an image name such as `ghcr.io/estuary/source-postgres:dev`.
-  Notice that the image name also conveys the specific image registry and version tag to use.
+   Notice that the image name also conveys the specific image registry and version tag to use.
 
 2. Endpoint configuration such as a database address and account, with meaning that is specific to the connector.
 
@@ -153,8 +153,9 @@ user: postgres
 </Tabs>
 
 Storing configuration in separate files serves two important purposes:
- * Re-use of configuration across multiple captures or materializations
- * The ability to protect sensitive credentials
+
+- Re-use of configuration across multiple captures or materializations
+- The ability to protect sensitive credentials
 
 ### Protecting secrets
 
@@ -208,13 +209,13 @@ host: ENC[AES256_GCM,data:K/clly65pThTg2U=,iv:1bNmY8wjtjHFBcXLR1KFcsNMGVXRl5LGTd
 password: ENC[AES256_GCM,data:IDDY+fl0/gAcsH+6tjRdww+G,iv:Ye8st7zJ9wsMRMs6BoAyWlaJeNc9qeNjkkjo6BPp/tE=,tag:EPS9Unkdg4eAFICGujlTfQ==,type:str]
 user: ENC[AES256_GCM,data:w+F7MMwQhw==,iv:amHhNCJWAJnJaGujZgjhzVzUZAeSchEpUpBau7RVeCg=,tag:62HguhnnSDqJdKdwYnj7mQ==,type:str]
 sops:
-    # Some items omitted for brevity:
-    gcp_kms:
-        - resource_id: projects/your-project-id/locations/us-central1/keyRings/your-ring/cryptoKeys/your-key-name
-          created_at: "2022-01-05T15:49:45Z"
-          enc: CiQAW8BC2GDYWrJTp3ikVGkTI2XaZc6F4p/d/PCBlczCz8BZiUISSQCnySJKIptagFkIl01uiBQp056c
-    lastmodified: "2022-01-05T15:49:45Z"
-    version: 3.7.1
+  # Some items omitted for brevity:
+  gcp_kms:
+    - resource_id: projects/your-project-id/locations/us-central1/keyRings/your-ring/cryptoKeys/your-key-name
+      created_at: "2022-01-05T15:49:45Z"
+      enc: CiQAW8BC2GDYWrJTp3ikVGkTI2XaZc6F4p/d/PCBlczCz8BZiUISSQCnySJKIptagFkIl01uiBQp056c
+  lastmodified: "2022-01-05T15:49:45Z"
+  version: 3.7.1
 ```
 
 You then use this `config.yaml` within your Flow specification.
@@ -235,6 +236,7 @@ which is:
 ```
 flow-258@helpful-kingdom-273219.iam.gserviceaccount.com
 ```
+
 :::
 
 #### Example: Protect portions of a configuration
@@ -259,21 +261,21 @@ Next, encrypt only values which have that suffix:
 $ sops --encrypt --in-place --encrypted-suffix "_sops" --gcp-kms projects/your-project-id/locations/us-central1/keyRings/your-ring/cryptoKeys/your-key-name config.yaml
 ```
 
-`sops` re-writes the file, wrapping only values having a "_sops" suffix and adding its `sops` metadata section:
+`sops` re-writes the file, wrapping only values having a "\_sops" suffix and adding its `sops` metadata section:
 
 ```yaml title="config.yaml"
 host: my.hostname
 password_sops: ENC[AES256_GCM,data:dlfidMrHfDxN//nWQTPCsjoG,iv:DHQ5dXhyOOSKI6ZIzcUM67R6DD/2MSE4LENRgOt6GPY=,tag:FNs2pTlzYlagvz7vP/YcIQ==,type:str]
 user: my-user
 sops:
-    # Some items omitted for brevity:
-    encrypted_suffix: _sops
-    gcp_kms:
-        - resource_id: projects/your-project-id/locations/us-central1/keyRings/your-ring/cryptoKeys/your-key-name
-          created_at: "2022-01-05T16:06:36Z"
-          enc: CiQAW8BC2Au779CGdMFUjWPhNleCTAj9rL949sBvPQ6eyAC3EdESSQCnySJKD3eWX8XrtrgHqx327
-    lastmodified: "2022-01-05T16:06:37Z"
-    version: 3.7.1
+  # Some items omitted for brevity:
+  encrypted_suffix: _sops
+  gcp_kms:
+    - resource_id: projects/your-project-id/locations/us-central1/keyRings/your-ring/cryptoKeys/your-key-name
+      created_at: "2022-01-05T16:06:36Z"
+      enc: CiQAW8BC2Au779CGdMFUjWPhNleCTAj9rL949sBvPQ6eyAC3EdESSQCnySJKD3eWX8XrtrgHqx327
+  lastmodified: "2022-01-05T16:06:37Z"
+  version: 3.7.1
 ```
 
 You then use this `config.yaml` within your Flow specification.
@@ -286,7 +288,7 @@ In some cases, your source or destination endpoint may be within a secure networ
 to allow direct access to its port due to your organization's security policy.
 
 :::tip
-If permitted by your organization, a quicker solution is to whitelist the Estuary IP address, `34.121.207.128`.
+If permitted by your organization, a quicker solution is to whitelist the Estuary IP addresses, `34.121.207.128, 35.226.75.135, 34.68.62.148`.
 For help completing this task on different cloud hosting platforms,
 see the documentation for the [connector](../reference/Connectors/README.md) you're using.
 :::
@@ -352,10 +354,10 @@ Users are empowered to write their own connectors for esoteric systems not alrea
 
 Furthermore, implementing a Docker-based community specification brings other important qualities to Estuary connectors:
 
-* Cross-platform interoperability between Flow, Airbyte, and any other platform that supports the protocol
-* The abilities to write connectors in any language and run them on any machine
-* Built-in solutions for version management (through image tags) and distribution
-* The ability to integrate connectors from different sources at will, without the centralized control of a single company, thanks to container image registries
+- Cross-platform interoperability between Flow, Airbyte, and any other platform that supports the protocol
+- The abilities to write connectors in any language and run them on any machine
+- Built-in solutions for version management (through image tags) and distribution
+- The ability to integrate connectors from different sources at will, without the centralized control of a single company, thanks to container image registries
 
 :::info
 In order to be reflected in the Flow web app and used on the managed Flow platform,

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 6
 ---
+
 # Google Cloud SQL for PostgreSQL
 
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
@@ -14,55 +15,57 @@ This connector supports PostgreSQL versions 10.0 and later.
 ## Prerequisites
 
 You'll need a PostgreSQL database setup with the following:
-* [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
-* [User role](https://www.postgresql.org/docs/current/sql-createrole.html) with `REPLICATION` attribute
-* A [replication slot](https://www.postgresql.org/docs/current/warm-standby.html#STREAMING-REPLICATION-SLOTS). This represents a “cursor” into the PostgreSQL write-ahead log from which change events can be read.
-    * Optional; if none exist, one will be created by the connector.
-    * If you wish to run multiple captures from the same database, each must have its own slot.
+
+- [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
+- [User role](https://www.postgresql.org/docs/current/sql-createrole.html) with `REPLICATION` attribute
+- A [replication slot](https://www.postgresql.org/docs/current/warm-standby.html#STREAMING-REPLICATION-SLOTS). This represents a “cursor” into the PostgreSQL write-ahead log from which change events can be read.
+  - Optional; if none exist, one will be created by the connector.
+  - If you wish to run multiple captures from the same database, each must have its own slot.
     You can create these slots yourself, or by specifying a name other than the default in the advanced [configuration](#configuration).
-* A [publication](https://www.postgresql.org/docs/current/sql-createpublication.html). This represents the set of tables for which change events will be reported.
-    * In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
-* A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
-    * In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
+- A [publication](https://www.postgresql.org/docs/current/sql-createpublication.html). This represents the set of tables for which change events will be reported.
+  - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
+- A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
+  - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
 
 ## Setup
 
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
-       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
+
+      - [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128, 35.226.75.135, 34.68.62.148` as authorized IP addresses.
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+      - Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
+      - When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. On Google Cloud, navigate to your instance's Overview page. Click "Edit configuration". Scroll down to the Flags section. Click "ADD FLAG". Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your Cloud SQL PostgreSQL instance.
 
 3. In your PostgreSQL client, connect to your instance and issue the following commands to create a new user for the capture with appropriate permissions,
-and set up the watermarks table and publication.
+   and set up the watermarks table and publication.
 
-  ```sql
-  CREATE USER flow_capture WITH REPLICATION
-  IN ROLE cloudsqlsuperuser LOGIN PASSWORD 'secret';
-  GRANT SELECT ON ALL TABLES IN SCHEMA public TO flow_capture;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
-  CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
-  GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-  CREATE PUBLICATION flow_publication;
-  ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
-  ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
-  ```
+```sql
+CREATE USER flow_capture WITH REPLICATION
+IN ROLE cloudsqlsuperuser LOGIN PASSWORD 'secret';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO flow_capture;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
+CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
+```
 
-  where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
-  setting is recommended (because most users will want changes to a partitioned table to be captured
-  under the name of the root table) but is not required.
+where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+setting is recommended (because most users will want changes to a partitioned table to be captured
+under the name of the root table) but is not required.
 
 4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `5432`.
-Together, you'll use the host:port as the `address` property when you configure the connector.
+   Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Backfills and performance considerations
 
-When the a PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the a PostgreSQL capture is initiated, by default, the connector first _backfills_, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
 This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
@@ -79,7 +82,7 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 #### Endpoint
 
 | Property                        | Title               | Description                                                                                                                                 | Type    | Required/Default           |
-|---------------------------------|---------------------|---------------------------------------------------------------------------------------------------------------------------------------------|---------|----------------------------|
+| ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------- |
 | **`/address`**                  | Address             | The host or host:port at which the database can be reached.                                                                                 | string  | Required                   |
 | **`/database`**                 | Database            | Logical database name to capture from.                                                                                                      | string  | Required, `"postgres"`     |
 | **`/user`**                     | User                | The database user to authenticate as.                                                                                                       | string  | Required, `"flow_capture"` |
@@ -90,12 +93,12 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 | `/advanced/skip_backfills`      | Skip Backfills      | A comma-separated list of fully-qualified table names which should not be backfilled.                                                       | string  |                            |
 | `/advanced/slotName`            | Slot Name           | The name of the PostgreSQL replication slot to replicate from.                                                                              | string  | `"flow_slot"`              |
 | `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
-| `/advanced/sslmode`     | SSL Mode    | Overrides SSL connection behavior by setting the 'sslmode' parameter. | string  |  |
+| `/advanced/sslmode`             | SSL Mode            | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                       | string  |                            |
 
 #### Bindings
 
 | Property         | Title     | Description                                                                                | Type   | Required/Default |
-|------------------|-----------|--------------------------------------------------------------------------------------------|--------|------------------|
+| ---------------- | --------- | ------------------------------------------------------------------------------------------ | ------ | ---------------- |
 | **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required         |
 | **`/stream`**    | Stream    | Table name.                                                                                | string | Required         |
 | **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                            | string | Required         |
@@ -122,6 +125,7 @@ captures:
           syncMode: incremental
         target: ${PREFIX}/${COLLECTION_NAME}
 ```
+
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
 [Learn more about capture definitions.](../../../../concepts/captures.md#pull-captures)
@@ -154,7 +158,7 @@ If you encounter an issue that you suspect is due to TOASTed values, try the fol
 
 - Ensure your collection's schema is using the merge [reduction strategy](../../../../concepts/schemas.md#reduce-annotations).
 - [Set REPLICA IDENTITY to FULL](https://www.postgresql.org/docs/9.4/sql-altertable.html) for the table. This circumvents the problem by forcing the
-WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
+  WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
 - [Contact Estuary support](mailto:support@estuary.dev) for assistance.
 
 ## Publications
