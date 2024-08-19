@@ -203,6 +203,9 @@ The versions made available in Flow have been adapted for compatibility.
 - Paypal Transaction
   - [Configuration](./paypal-transaction.md)
   - Package - ghrc.io/estuary/source-paypal-transaction.dev
+- Pendo
+  - [Configuration](./pendo.md)
+  - Package - ghcr.io/estuary/source-pendo:dev
 - Recharge
   - [Configuration](./recharge.md)
   - Package - ghcr.io/estuary/source-recharge:dev
