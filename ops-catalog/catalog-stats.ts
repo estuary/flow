@@ -1,6 +1,6 @@
-import { Document, IDerivation, SourceLogs, SourceStats } from "flow/ops.us-central1.v1/catalog-stats-L1.ts";
+import { Document, IDerivation, SourceLogs, SourceStats } from "flow/ops/rollups/L1/BASE_NAME/catalog-stats.ts";
 
-// Implementation for derivation ops.us-central1.v1/catalog-stats-L1.
+// Implementation for derivation ops/rollups/L1/BASE_NAME/catalog-stats.
 export class Derivation extends IDerivation {
     logs(read: { doc: SourceLogs }): Document[] {
         const source = read.doc;

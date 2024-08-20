@@ -3,32 +3,11 @@ use anyhow::Context;
 use std::sync::Arc;
 use validator::Validate;
 
-/*
-#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum Provider {
-    AWS,
-    Vultr,
-    GCP,
-    Local,
-}
-*/
-
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Category {
     Managed,
     Manual(Manual),
-}
-
-impl Validate for Category {
-    fn validate(&self) -> Result<(), validator::ValidationErrors> {
-        if let Self::Manual(manual) = &self {
-            manual.validate()
-        } else {
-            Ok(())
-        }
-    }
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema, Validate)]
@@ -60,7 +39,7 @@ pub struct Request {
 #[serde(rename_all = "camelCase")]
 pub struct Response {}
 
-async fn do_upsert_data_plane(
+async fn do_create_data_plane(
     App {
         pg_pool,
         system_user_id,
@@ -73,7 +52,7 @@ async fn do_upsert_data_plane(
         category,
     }: Request,
 ) -> anyhow::Result<Response> {
-    let (data_plane_fqdn, base_name) = match private {
+    let (data_plane_fqdn, base_name) = match &private {
         None => (
             format!("{name}.dp.estuary-data.com"),
             format!("public/{name}"),
@@ -96,7 +75,6 @@ async fn do_upsert_data_plane(
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
     let ops_l2_inferred_transform = format!("{data_plane_fqdn}");
     let ops_l2_stats_transform = format!("{data_plane_fqdn}");
-
     let ops_logs_name = format!("ops/tasks/{base_name}/logs");
     let ops_stats_name = format!("ops/tasks/{base_name}/stats");
 
@@ -118,8 +96,24 @@ async fn do_upsert_data_plane(
         }
     };
 
-    // Create the data-plane row:
-    let upsert = sqlx::query!(
+    // Grant a private tenant access to their data-plane and task logs & stats.
+    // These grants are always safe to create for every tenant, but we only
+    // bother to do it for tenants which are actively creating private data-planes.
+    if let Some(prefix) = &private {
+        sqlx::query!(
+            r#"
+            insert into role_grants (subject_role, object_role, capability, detail) values
+                ($1::text, 'ops/dp/private/' || $1, 'read', 'private data-plane'),
+                ($1::text, 'ops/tasks/private/' || $1, 'read', 'private data-plane')
+            on conflict do nothing
+            "#,
+            &prefix as &str,
+        )
+        .execute(pg_pool)
+        .await?;
+    }
+
+    let insert = sqlx::query!(
         r#"
         insert into data_planes (
             data_plane_name,
@@ -136,18 +130,6 @@ async fn do_upsert_data_plane(
         ) values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
         )
-        on conflict (data_plane_name)
-        do update set
-            data_plane_fqdn = $2,
-            ops_logs_name = $3,
-            ops_stats_name = $4,
-            ops_l1_inferred_name = $5,
-            ops_l1_stats_name = $6,
-            ops_l2_inferred_transform = $7,
-            ops_l2_stats_transform = $8,
-            broker_address = $9,
-            reactor_address = $10,
-            hmac_keys = $11
         returning logs_token
         ;
         "#,
@@ -166,90 +148,11 @@ async fn do_upsert_data_plane(
     .fetch_one(pg_pool)
     .await?;
 
-    let ops_template = include_str!("../../../../ops-catalog-new/data-plane-template.bundle.json");
-    let mut ops_draft: tables::DraftCatalog =
-        serde_json::from_str::<models::Catalog>(&ops_template.replace("BASE_NAME", &base_name))
-            .unwrap()
-            .into();
-
-    // Fetch names and transforms of L1 => L2 reporting roll-ups.
-    let bindings = sqlx::query!(
-        r#"
-        select
-            ops_l1_inferred_name  as "ops_l1_inferred_name: models::Collection",
-            ops_l2_inferred_transform,
-            ops_l1_stats_name     as "ops_l1_stats_name:    models::Collection",
-            ops_l2_stats_transform
-        from data_planes
-        order by data_plane_name asc;
-        "#,
-    )
-    .fetch_all(pg_pool)
-    .await?;
-
-    let l2_inferred_bindings = &mut ops_draft
-        .collections
-        .get_mut_by_key(&models::Collection::new(
-            "ops.us-central1.v1/inferred-schemas/L2",
-        ))
-        .expect("L2 inferred-schemas derivation must be included in bundle")
-        .model
-        .as_mut()
+    let draft_str = include_str!("../../../../ops-catalog/data-plane-template.bundle.json")
+        .replace("BASE_NAME", &base_name);
+    let draft: tables::DraftCatalog = serde_json::from_str::<models::Catalog>(&draft_str)
         .unwrap()
-        .derive
-        .as_mut()
-        .unwrap()
-        .transforms;
-
-    l2_inferred_bindings.clear();
-    for b in &bindings {
-        l2_inferred_bindings.push(models::TransformDef {
-            backfill: 0,
-            disable: false,
-            lambda: models::RawValue::from_value(&serde_json::json!(
-                "select json($flow_document);"
-            )),
-            name: models::Transform::new(&b.ops_l2_inferred_transform),
-            priority: 0,
-            read_delay: None,
-            shuffle: models::Shuffle::Key(models::CompositeKey::new([models::JsonPointer::new(
-                "/collection_name",
-            )])),
-            source: models::Source::Collection(b.ops_l1_inferred_name.clone()),
-        });
-    }
-
-    let l2_stats_bindings = &mut ops_draft
-        .collections
-        .get_mut_by_key(&models::Collection::new(
-            "ops.us-central1.v1/catalog-stats-L2",
-        ))
-        .expect("L2 catalog-stats derivation must be included in bundle")
-        .model
-        .as_mut()
-        .unwrap()
-        .derive
-        .as_mut()
-        .unwrap()
-        .transforms;
-
-    l2_stats_bindings.clear();
-    for b in &bindings {
-        l2_stats_bindings.push(models::TransformDef {
-            backfill: 0,
-            disable: false,
-            lambda: models::RawValue::from_value(&serde_json::json!(
-                "select json($flow_document);"
-            )),
-            name: models::Transform::new(&b.ops_l2_stats_transform),
-            priority: 0,
-            read_delay: None,
-            shuffle: models::Shuffle::Key(models::CompositeKey::new([models::JsonPointer::new(
-                "/catalogName",
-            )])),
-            source: models::Source::Collection(b.ops_l1_stats_name.clone()),
-        });
-    }
+        .into();
 
     let pub_id = id_generator.lock().unwrap().next();
     let built = publisher
@@ -257,8 +160,8 @@ async fn do_upsert_data_plane(
             *system_user_id,
             pub_id,
             Some(format!("system publication for data-plane {base_name}")),
-            ops_draft,
-            upsert.logs_token,
+            draft,
+            insert.logs_token,
             &data_plane_name,
         )
         .await?;
@@ -285,8 +188,7 @@ async fn do_upsert_data_plane(
         ops_stats_name,
         broker_address,
         reactor_address,
-        ?hmac_keys,
-        "UPSERT DATA PLANE"
+        "data-plane created"
     );
 
     Ok(Response {})
@@ -294,10 +196,112 @@ async fn do_upsert_data_plane(
 
 //#[tracing::instrument(skip(app))]
 #[axum::debug_handler]
-pub async fn upsert_data_plane(
+pub async fn create_data_plane(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     super::Request(request): super::Request<Request>,
     // TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Bearer>>,
 ) -> axum::response::Response {
-    super::wrap(async move { do_upsert_data_plane(&app, request).await }).await
+    super::wrap(async move { do_create_data_plane(&app, request).await }).await
 }
+
+impl Validate for Category {
+    fn validate(&self) -> Result<(), validator::ValidationErrors> {
+        if let Self::Manual(manual) = &self {
+            manual.validate()
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/*
+#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    AWS,
+    Vultr,
+    GCP,
+    Local,
+}
+*/
+
+/*
+// Fetch names and transforms of L1 => L2 reporting roll-ups.
+let bindings = sqlx::query!(
+    r#"
+    select
+        ops_l1_inferred_name  as "ops_l1_inferred_name: models::Collection",
+        ops_l2_inferred_transform,
+        ops_l1_stats_name     as "ops_l1_stats_name:    models::Collection",
+        ops_l2_stats_transform
+    from data_planes
+    order by data_plane_name asc;
+    "#,
+)
+.fetch_all(pg_pool)
+.await?;
+
+let l2_inferred_bindings = &mut ops_draft
+    .collections
+    .get_mut_by_key(&models::Collection::new(
+        "ops.us-central1.v1/inferred-schemas/L2",
+    ))
+    .expect("L2 inferred-schemas derivation must be included in bundle")
+    .model
+    .as_mut()
+    .unwrap()
+    .derive
+    .as_mut()
+    .unwrap()
+    .transforms;
+
+l2_inferred_bindings.clear();
+for b in &bindings {
+    l2_inferred_bindings.push(models::TransformDef {
+        backfill: 0,
+        disable: false,
+        lambda: models::RawValue::from_value(&serde_json::json!(
+            "select json($flow_document);"
+        )),
+        name: models::Transform::new(&b.ops_l2_inferred_transform),
+        priority: 0,
+        read_delay: None,
+        shuffle: models::Shuffle::Key(models::CompositeKey::new([models::JsonPointer::new(
+            "/collection_name",
+        )])),
+        source: models::Source::Collection(b.ops_l1_inferred_name.clone()),
+    });
+}
+
+let l2_stats_bindings = &mut ops_draft
+    .collections
+    .get_mut_by_key(&models::Collection::new(
+        "ops.us-central1.v1/catalog-stats-L2",
+    ))
+    .expect("L2 catalog-stats derivation must be included in bundle")
+    .model
+    .as_mut()
+    .unwrap()
+    .derive
+    .as_mut()
+    .unwrap()
+    .transforms;
+
+l2_stats_bindings.clear();
+for b in &bindings {
+    l2_stats_bindings.push(models::TransformDef {
+        backfill: 0,
+        disable: false,
+        lambda: models::RawValue::from_value(&serde_json::json!(
+            "select json($flow_document);"
+        )),
+        name: models::Transform::new(&b.ops_l2_stats_transform),
+        priority: 0,
+        read_delay: None,
+        shuffle: models::Shuffle::Key(models::CompositeKey::new([models::JsonPointer::new(
+            "/catalogName",
+        )])),
+        source: models::Source::Collection(b.ops_l1_stats_name.clone()),
+    });
+}
+*/

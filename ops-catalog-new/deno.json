@@ -1,5 +1,0 @@
-{
-  "imports": {
-    "flow/": "./flow_generated/typescript/"
-  }
-}

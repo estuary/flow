@@ -49,20 +49,34 @@ insert into applied_directives (directive_id, user_id, user_claims)
     where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
 
 insert into role_grants (subject_role, object_role, capability) values
+  -- L1 roll-ups can read task logs & stats.
   ('ops/rollups/L1/', 'ops/tasks/', 'read'),
+  -- L1 roll-ups tasks can write to themselves.
   ('ops/rollups/L1/', 'ops/rollups/L1/', 'write'),
-  ('ops.us-central1.v1/', 'ops/rollups/L1/', 'read');
+  -- L2 roll-ups can read L1 roll-ups.
+  ('ops.us-central1.v1/', 'ops/rollups/L1/', 'read'),
+  -- L2 roll-ups can write to themselves.
+  ('ops.us-central1.v1/', 'ops.us-central1.v1/', 'write')
+  ;
 
 -- THIS IS IMPORTANT! estuary-flow-poc and not estuary-trial .
 insert into storage_mappings (catalog_prefix, spec) values
   ('ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc", "prefix": "collection-data/"}]}'),
-  ('recovery/ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc"}]}');
+  ('recovery/ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc"}]}'),
+  -- For access within local stack contexts:
+  ('ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]}'),
+  ('recovery/ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}')
+  ;
 
--- Give support@estuary.dev the `estuary_support/` role, so that it may perform automatic publications
-insert into user_grants (user_id, object_role, capability) values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'estuary_support/', 'admin');
-
--- Give support@estuary.dev the admin role for `ops/` management.
-insert into user_grants (user_id, object_role, capability) values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ops/', 'admin');
+-- Give support@estuary.dev the admin role for `ops/` and `ops.us-central1.v1/` management.
+insert into user_grants (user_id, object_role, capability) values
+  -- TODO: currently required for control-plane automation.
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'estuary_support/', 'admin'),
+  -- support@estuary.dev manages `ops/`.
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ops/', 'admin'),
+  -- support@estuary.dev manages legacy `ops.us-central1.v1/` L2 roll-ups and materialization.
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'ops.us-central1.v1/', 'admin')
+  ;
 
 -- Seed a small number of connectors. This is a small list, separate from our
 -- production connectors, because each is pulled onto your dev machine.
