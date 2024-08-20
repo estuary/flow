@@ -802,7 +802,7 @@ mod test {
 
         let tables::BuiltCollection { spec, .. } = built
             .built_collections
-            .get_key(&models::Collection::new("ops.us-central1.v1/logs"))
+            .get_key(&models::Collection::new("ops/tasks/BASE_NAME/logs"))
             .unwrap();
 
         let Some(flow::CollectionSpec {

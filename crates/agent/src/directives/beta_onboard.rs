@@ -293,10 +293,6 @@ mod test {
             "roleGrantObj": "ops/dp/public/"
           },
           {
-            "cap": "read",
-            "roleGrantObj": "ops/dp/private/AcmeTenant/"
-          },
-          {
             "prefix": "AcmeTenant/",
             "storageMapping": {
               "stores": [

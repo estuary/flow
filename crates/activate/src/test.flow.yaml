@@ -1,5 +1,5 @@
 import:
- - ../../../ops-catalog/base-collections.flow.yaml
+  - ../../../ops-catalog/data-plane-template.flow.yaml
 
 collections:
   example/collection:

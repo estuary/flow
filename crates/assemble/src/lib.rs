@@ -4,9 +4,6 @@ use proto_flow::flow;
 use proto_gazette::{broker, consumer};
 use std::time::Duration;
 
-mod ops;
-pub use ops::generate_ops_collections;
-
 pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json = shape
         .default

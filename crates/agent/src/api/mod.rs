@@ -1,14 +1,6 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, thiserror::Error)]
-pub enum Rejection {
-    #[error(transparent)]
-    ValidationError(#[from] validator::ValidationErrors),
-    #[error(transparent)]
-    JsonError(#[from] axum::extract::rejection::JsonRejection),
-}
-
 pub struct App {
     pub pg_pool: sqlx::PgPool,
     pub system_user_id: uuid::Uuid,
@@ -17,10 +9,41 @@ pub struct App {
 }
 
 mod authorize;
-mod data_plane;
+mod create_data_plane;
+mod update_l2_reporting;
 
+// Request wraps a JSON-deserialized request type T which
+// also implements the validator::Validate trait.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Request<T>(pub T);
+
+// Build an axum::Router for the agent API.
+pub fn build_router(app: Arc<App>) -> axum::Router<()> {
+    use axum::routing::post;
+
+    let schema_router = axum::Router::new()
+        .route("/authorize", post(authorize::authorize))
+        .route(
+            "/admin/create-data-plane",
+            post(create_data_plane::create_data_plane),
+        )
+        .route(
+            "/admin/update-l2-reporting",
+            post(update_l2_reporting::update_l2_reporting),
+        )
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .with_state(app);
+
+    schema_router
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Rejection {
+    #[error(transparent)]
+    ValidationError(#[from] validator::ValidationErrors),
+    #[error(transparent)]
+    JsonError(#[from] axum::extract::rejection::JsonRejection),
+}
 
 #[axum::async_trait]
 impl<T, S> axum::extract::FromRequest<S> for Request<T>
@@ -37,19 +60,6 @@ where
         value.validate()?;
         Ok(Request(value))
     }
-}
-
-// Build an axum::Router for the agent API.
-pub fn build_router(app: Arc<App>) -> axum::Router<()> {
-    use axum::routing::{post, put};
-
-    let schema_router = axum::Router::new()
-        .route("/authorize", post(authorize::authorize))
-        .route("/admin/data-plane", put(data_plane::upsert_data_plane))
-        .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(app);
-
-    schema_router
 }
 
 impl axum::response::IntoResponse for Rejection {

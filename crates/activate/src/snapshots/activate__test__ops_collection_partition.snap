@@ -10,7 +10,7 @@ expression: "json!([\"list_req\", list_req, \"spec\", spec])"
         "labels": [
           {
             "name": "name",
-            "value": "ops.us-central1.v1/logs/2020202020202020/kind=capture/name=the%2Ftask%2Fname/pivot=00"
+            "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=capture/name=the%2Ftask%2Fname/pivot=00"
           }
         ]
       }
@@ -44,7 +44,7 @@ expression: "json!([\"list_req\", list_req, \"spec\", spec])"
         },
         {
           "name": "estuary.dev/collection",
-          "value": "ops.us-central1.v1/logs"
+          "value": "ops/tasks/BASE_NAME/logs"
         },
         {
           "name": "estuary.dev/field/kind",
@@ -65,7 +65,7 @@ expression: "json!([\"list_req\", list_req, \"spec\", spec])"
       ]
     },
     "maxAppendRate": "4194304",
-    "name": "ops.us-central1.v1/logs/2020202020202020/kind=capture/name=the%2Ftask%2Fname/pivot=00",
+    "name": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=capture/name=the%2Ftask%2Fname/pivot=00",
     "replication": 3
   }
 ]
