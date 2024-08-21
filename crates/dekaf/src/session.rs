@@ -1,10 +1,13 @@
 use super::{fetch_all_collection_names, App, Collection, Read};
-use crate::{sanitize_topic_name, unsanitize_topic_name};
+use crate::{
+    from_downstream_topic_name, from_upstream_topic_name, to_downstream_topic_name,
+    to_upstream_topic_name, ConfigOptions,
+};
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
 use gazette::broker;
 use kafka_protocol::{
-    error::ResponseError,
+    error::{ParseResponseErrorCode, ResponseError},
     indexmap::IndexMap,
     messages::{
         self,
@@ -30,16 +33,23 @@ pub struct Session {
     client: postgrest::Postgrest,
     reads: HashMap<(TopicName, i32), PendingRead>,
     listed_offsets: HashMap<TopicName, HashMap<i32, Option<(i64, i64)>>>,
+    /// ID of the authenticated user
+    uid: Option<String>,
+    config: Option<ConfigOptions>,
+    secret: String,
 }
 
 impl Session {
-    pub fn new(app: Arc<App>) -> Self {
+    pub fn new(app: Arc<App>, secret: String) -> Self {
         let client = app.anon_client.clone();
         Self {
             app,
             client,
             reads: HashMap::new(),
             listed_offsets: HashMap::new(),
+            uid: None,
+            config: None,
+            secret,
         }
     }
 
@@ -73,8 +83,10 @@ impl Session {
         let password = it.next().context("expected SASL passwd")??;
 
         let response = match self.app.authenticate(authcid, password).await {
-            Ok(client) => {
+            Ok((client, config, uid)) => {
                 self.client = client;
+                self.config.replace(config);
+                self.uid.replace(uid);
 
                 let mut response = messages::SaslAuthenticateResponse::default();
                 response.session_lifetime_ms = 60 * 60 * 60 * 24; // TODO(johnny): Access token expiry.
@@ -138,7 +150,7 @@ impl Session {
             .into_iter()
             .map(|name| {
                 (
-                    TopicName(StrBytes::from_string(name)),
+                    self.encode_topic_name(name),
                     MetadataResponseTopic::builder()
                         .is_internal(false)
                         .partitions(vec![MetadataResponsePartition::builder()
@@ -165,9 +177,12 @@ impl Session {
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                let name = topic.name.unwrap_or_default();
-                let maybe_collection = Collection::new(client, name.as_str()).await?;
-                Ok((name, maybe_collection))
+                let maybe_collection = Collection::new(
+                    client,
+                    from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
+                )
+                .await?;
+                Ok((topic.name.unwrap_or_default(), maybe_collection))
             }))
             .await;
 
@@ -176,7 +191,7 @@ impl Session {
         for (name, maybe_collection) in collections? {
             let Some(collection) = maybe_collection else {
                 topics.insert(
-                    name,
+                    self.encode_topic_name(name.to_string()),
                     MetadataResponseTopic::builder()
                         .error_code(ResponseError::UnknownTopicOrPartition.code())
                         .build()
@@ -250,7 +265,11 @@ impl Session {
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
         let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<(i64, i64)>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
-                let maybe_collection = Collection::new(client, &topic.name.clone()).await?;
+                let maybe_collection = Collection::new(
+                    client,
+                    from_downstream_topic_name(topic.name.clone()).as_str(),
+                )
+                .await?;
 
                 let Some(collection) = maybe_collection else {
                     return Ok((
@@ -364,7 +383,7 @@ impl Session {
 
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
-            let mut key = (topic_request.topic.clone(), 0);
+            let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
 
             let latest_topic_requested = self.listed_offsets.get(&key.0);
 
@@ -392,8 +411,11 @@ impl Session {
                     // power their data preview UI. Since our offsets represent bytes and not documents,
                     // we have to hack this up in order to send them some valid documents to show.
                     if diff == -12 {
-                        let maybe_collection =
-                            Collection::new(client, &topic_request.topic.to_owned()).await?;
+                        let maybe_collection = Collection::new(
+                            client,
+                            &from_downstream_topic_name(topic_request.topic.clone()).to_owned(),
+                        )
+                        .await?;
 
                         if let Some(collection) = maybe_collection {
                             let part = collection
@@ -485,7 +507,7 @@ impl Session {
         let mut topic_responses = Vec::with_capacity(topic_requests.len());
 
         for topic_request in &topic_requests {
-            let mut key = (topic_request.topic.clone(), 0);
+            let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
             let mut partition_responses = Vec::with_capacity(topic_request.partitions.len());
 
             for partition_request in &topic_request.partitions {
@@ -669,7 +691,7 @@ impl Session {
             consumer_protocol_subscription_msg
                 .topics
                 .iter_mut()
-                .for_each(|topic| *topic = sanitize_topic_name(topic.to_owned().into()).into());
+                .for_each(|topic| *topic = self.encrypt_topic_name(topic.to_owned().into()).into());
 
             let mut new_protocol_subscription = BytesMut::new();
 
@@ -704,7 +726,7 @@ impl Session {
             consumer_protocol_subscription_msg
                 .topics
                 .iter_mut()
-                .for_each(|topic| *topic = unsanitize_topic_name(topic.to_owned().into()).into());
+                .for_each(|topic| *topic = self.decrypt_topic_name(topic.to_owned().into()).into());
 
             let mut new_protocol_subscription = BytesMut::new();
 
@@ -737,6 +759,7 @@ impl Session {
         Ok(response)
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn list_groups(
         &mut self,
         req: messages::ListGroupsRequest,
@@ -745,7 +768,22 @@ impl Session {
         // Redpanda seems to randomly disconnect this?
         let r = self.app.kafka_client.send_request(req, Some(header)).await;
         match r {
-            Ok(e) => Ok(e),
+            Ok(mut e) => {
+                if let Some(err) = e.error_code.err() {
+                    tracing::warn!(err = ?err, "Error listing groups!");
+                } else {
+                    tracing::debug!(resp=?e, "Got groups listing");
+                }
+                e.groups = vec![]; //e
+                                   // .groups
+                                   // .into_iter()
+                                   // .filter(|grp| !grp.group_id.starts_with("amazon.msk"))
+                                   // .collect_vec();
+
+                tracing::debug!(resp=?e, "Responding");
+
+                return Ok(e);
+            }
             Err(e) => {
                 tracing::warn!(e=?e, "Failed to list_groups");
                 Ok(ListGroupsResponse::builder()
@@ -785,7 +823,7 @@ impl Session {
             consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
                 .assigned_partitions
                 .into_iter()
-                .map(|(name, item)| (sanitize_topic_name(name.to_owned().into()).into(), item))
+                .map(|(name, item)| (self.encrypt_topic_name(name.to_owned().into()).into(), item))
                 .collect();
 
             let mut new_protocol_assignment = BytesMut::new();
@@ -816,7 +854,7 @@ impl Session {
         consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
             .assigned_partitions
             .into_iter()
-            .map(|(name, item)| (unsanitize_topic_name(name.to_owned().into()).into(), item))
+            .map(|(name, item)| (self.decrypt_topic_name(name.to_owned().into()).into(), item))
             .collect();
 
         let mut new_protocol_assignment = BytesMut::new();
@@ -860,7 +898,7 @@ impl Session {
     ) -> anyhow::Result<messages::OffsetCommitResponse> {
         let mut mutated_req = req.clone();
         for topic in &mut mutated_req.topics {
-            topic.name = sanitize_topic_name(topic.name.clone())
+            topic.name = self.encrypt_topic_name(topic.name.clone())
         }
 
         let mut resp = self
@@ -872,7 +910,7 @@ impl Session {
             .await?;
 
         for topic in resp.topics.iter_mut() {
-            topic.name = unsanitize_topic_name(topic.name.to_owned());
+            topic.name = self.decrypt_topic_name(topic.name.to_owned());
         }
 
         Ok(resp)
@@ -884,10 +922,11 @@ impl Session {
         req: messages::OffsetFetchRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
+        tracing::debug!(req=?req, "Got req");
         let mut mutated_req = req.clone();
         if let Some(ref mut topics) = mutated_req.topics {
             for topic in topics {
-                topic.name = sanitize_topic_name(topic.name.clone())
+                topic.name = self.encrypt_topic_name(topic.name.clone())
             }
         }
 
@@ -906,7 +945,7 @@ impl Session {
             .await?;
 
         for topic in resp.topics.iter_mut() {
-            topic.name = unsanitize_topic_name(topic.name.to_owned());
+            topic.name = self.decrypt_topic_name(topic.name.to_owned());
         }
 
         tracing::debug!(resp=?resp, "Got Response");
@@ -944,7 +983,11 @@ impl Session {
             .insert(ApiKey::MetadataKey as i16, version::<MetadataRequest>());
         res.api_keys.insert(
             ApiKey::FindCoordinatorKey as i16,
-            version::<FindCoordinatorRequest>(),
+            ApiVersion::builder()
+                .min_version(0)
+                .max_version(2)
+                .build()
+                .unwrap(),
         );
         res.api_keys.insert(
             ApiKey::ListOffsetsKey as i16,
@@ -963,10 +1006,6 @@ impl Session {
                 .max_version(11)
                 .build()
                 .unwrap(),
-        );
-        res.api_keys.insert(
-            ApiKey::OffsetCommitKey as i16,
-            version::<OffsetCommitRequest>(),
         );
 
         // Needed by `kaf`.
@@ -1065,11 +1104,33 @@ impl Session {
         );
         res.api_keys.insert(
             ApiKey::OffsetFetchKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<OffsetFetchRequest>()?,
+            ApiVersion::builder()
+                .min_version(0)
+                .max_version(7)
+                .build()
+                .unwrap(),
         );
 
         Ok(res)
+    }
+
+    fn encrypt_topic_name(&self, name: TopicName) -> TopicName {
+        to_upstream_topic_name(name, self.secret.to_owned())
+    }
+    fn decrypt_topic_name(&self, name: TopicName) -> TopicName {
+        from_upstream_topic_name(name, self.secret.to_owned())
+    }
+
+    fn encode_topic_name(&self, name: String) -> TopicName {
+        if self
+            .config
+            .as_ref()
+            .expect("should have config already")
+            .strict_topic_names
+        {
+            to_downstream_topic_name(TopicName(StrBytes::from_string(name)))
+        } else {
+            TopicName(StrBytes::from_string(name))
+        }
     }
 }
