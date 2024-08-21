@@ -130,6 +130,12 @@ async fn do_create_data_plane(
         ) values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
         )
+        on conflict (data_plane_name) do update set
+            broker_address = $9,
+            reactor_address = $10,
+            -- Don't replace non-empty hmac_keys with empty ones.
+            hmac_keys = case when array_length($11, 1) > 0 then $11
+                        else data_planes.hmac_keys end
         returning logs_token
         ;
         "#,

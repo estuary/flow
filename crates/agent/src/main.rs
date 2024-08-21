@@ -81,6 +81,12 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn async_main(args: Args) -> Result<(), anyhow::Error> {
+    // Bind early in the application lifecycle, to not fail requests which may dispatch
+    // as soon as the process is up (for example, Tilt on local stacks).
+    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+        .await
+        .context("failed to bind server port")?;
+
     let bindir = std::fs::canonicalize(args.bindir)
         .context("canonicalize --bin-dir")?
         .into_os_string()
@@ -152,9 +158,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         publisher: publisher.clone(),
         id_generator: id_gen.clone().into(),
     };
-    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
-        .await
-        .context("failed to bind server port")?;
     let api_router = agent::api::build_router(api_app.into());
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };

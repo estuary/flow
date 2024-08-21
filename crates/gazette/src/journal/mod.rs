@@ -1,8 +1,6 @@
-use crate::router::connect_unix;
-use futures::FutureExt;
 use proto_gazette::broker;
 use std::sync::Arc;
-use tonic::transport::Uri;
+use tonic::transport::Channel;
 
 mod list;
 mod read;
@@ -12,26 +10,27 @@ pub use read_json_lines::{ReadJsonLine, ReadJsonLines};
 
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::broker::journal_client::JournalClient<
-    tonic::service::interceptor::InterceptedService<tonic::transport::Channel, crate::auth::Auth>,
+    tonic::service::interceptor::InterceptedService<Channel, crate::Auth>,
 >;
-pub type Router = crate::Router<SubClient>;
 
 #[derive(Clone)]
 pub struct Client {
+    auth: crate::Auth,
     http: reqwest::Client,
-    router: Arc<Router>,
+    router: Arc<crate::Router>,
 }
 
 impl Client {
-    pub fn new(http: reqwest::Client, router: Router) -> Self {
+    pub fn new(http: reqwest::Client, router: crate::Router, auth: crate::Auth) -> Self {
         Self {
+            auth,
             http,
             router: Arc::new(router),
         }
     }
 
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
-        let mut client = self.router.route(None, false).await?;
+        let mut client = self.into_sub(self.router.route(None, false).await?);
 
         let resp = client
             .apply(req)
@@ -46,7 +45,7 @@ impl Client {
         &self,
         req: broker::FragmentsRequest,
     ) -> crate::Result<broker::FragmentsResponse> {
-        let mut client = self.router.route(None, false).await?;
+        let mut client = self.into_sub(self.router.route(None, false).await?);
 
         let resp = client
             .list_fragments(req)
@@ -56,36 +55,11 @@ impl Client {
 
         check_ok(resp.status(), resp)
     }
-}
 
-impl crate::Router<SubClient> {
-    pub fn new(endpoint: &str, interceptor: crate::Auth, zone: &str) -> Result<Self, crate::Error> {
-        Router::delegated_new(
-            move |endpoint| {
-                let interceptor = interceptor.clone();
-
-                async move {
-                    let endpoint = &endpoint.connect_timeout(std::time::Duration::from_secs(5));
-                    let channel = if endpoint.uri().scheme_str() == Some("unix") {
-                        endpoint
-                            .connect_with_connector(tower::util::service_fn(|uri: Uri| {
-                                connect_unix(uri)
-                            }))
-                            .await?
-                    } else {
-                        endpoint.connect().await?
-                    };
-                    Ok(
-                        proto_grpc::broker::journal_client::JournalClient::with_interceptor(
-                            channel,
-                            interceptor.clone(),
-                        ),
-                    )
-                }
-                .boxed()
-            },
-            endpoint,
-            zone,
+    fn into_sub(&self, channel: Channel) -> SubClient {
+        proto_grpc::broker::journal_client::JournalClient::with_interceptor(
+            channel,
+            self.auth.clone(),
         )
     }
 }

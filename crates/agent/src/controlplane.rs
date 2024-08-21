@@ -224,12 +224,11 @@ impl PGControlPlane {
         let auth = gazette::Auth::new(bearer_token)?;
 
         // Create the journal and shard clients that are used for interacting with the data plane
-        let journal_router =
-            gazette::journal::Router::new(&data_plane.broker_address, auth.clone(), "local")?;
+        let journal_router = gazette::Router::new(&data_plane.broker_address, "local")?;
         let journal_client =
-            gazette::journal::Client::new(reqwest::Client::default(), journal_router);
-        let shard_router = gazette::shard::Router::new(&data_plane.reactor_address, auth, "local")?;
-        let shard_client = gazette::shard::Client::new(shard_router);
+            gazette::journal::Client::new(reqwest::Client::default(), journal_router, auth.clone());
+        let shard_router = gazette::Router::new(&data_plane.reactor_address, "local")?;
+        let shard_client = gazette::shard::Client::new(shard_router, auth);
 
         Ok((
             shard_client,

@@ -1,4 +1,4 @@
-use super::{check_ok, Client, Router};
+use super::{check_ok, Client};
 use crate::Error;
 use futures::TryStreamExt;
 use proto_gazette::broker;
@@ -7,7 +7,7 @@ impl Client {
     /// List journals that match the ListRequest.
     pub async fn list(&self, mut req: broker::ListRequest) -> crate::Result<broker::ListResponse> {
         assert!(!req.watch, "list() requires ListRequest.watch is not set");
-        let mut stream = start_list(&self.router, &req).await?;
+        let mut stream = self.start_list(&self.router, &req).await?;
         recv_snapshot(&mut req, &mut stream).await
     }
 
@@ -21,7 +21,7 @@ impl Client {
 
         coroutines::coroutine(move |mut co| async move {
             loop {
-                let mut stream = match start_list(&self.router, &req).await {
+                let mut stream = match self.start_list(&self.router, &req).await {
                     Ok(stream) => stream,
                     Err(err) => {
                         () = co.yield_(Err(err)).await;
@@ -45,14 +45,15 @@ impl Client {
             }
         })
     }
-}
 
-async fn start_list(
-    router: &Router,
-    req: &broker::ListRequest,
-) -> crate::Result<tonic::Streaming<broker::ListResponse>> {
-    let mut client = router.route(None, false).await?;
-    Ok(client.list(req.clone()).await?.into_inner())
+    async fn start_list(
+        &self,
+        router: &crate::Router,
+        req: &broker::ListRequest,
+    ) -> crate::Result<tonic::Streaming<broker::ListResponse>> {
+        let mut client = self.into_sub(router.route(None, false).await?);
+        Ok(client.list(req.clone()).await?.into_inner())
+    }
 }
 
 async fn recv_snapshot(
