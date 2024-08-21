@@ -12,7 +12,6 @@ create table connectors (
 
   external_url           text not null,
   image_name             text unique not null,
-  capture_interval text,
   title                  jsonb_internationalized_value not null,
   short_description      jsonb_internationalized_value not null,
   logo_url               jsonb_internationalized_value not null,
@@ -24,8 +23,6 @@ create table connectors (
   --
   constraint "image_name must be a container image without a tag"
     check (image_name ~ '^(?:.+/)?([^:]+)$'),
-  constraint "capture_interval must be a number with the format following"
-    check (capture_interval ~ '^\d+(s|m|h)$')
 );
 -- Public, no RLS.
 
@@ -52,12 +49,10 @@ comment on column public.connectors.title is
   'The title of this connector. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the title string as values';
 comment on column public.connectors.short_description is
   'A short description of this connector, at most a few sentences. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the description string as values';
-comment on column connectors.capture_interval is
-  'The default value for the interval property for a Capture. This is ONLY used for non-streaming connectors';
 
 -- don't expose details of oauth2 secret
 -- authenticated may select other columns for all connectors connectors.
-grant select(id, capture_interval, detail, updated_at, created_at, image_name, external_url, title, short_description, logo_url, recommended, oauth2_client_id) on table connectors to authenticated;
+grant select(id, detail, updated_at, created_at, image_name, external_url, title, short_description, logo_url, recommended, oauth2_client_id) on table connectors to authenticated;
 
 -- TODO: make auto_discover_interval specific to captures
 create table connector_tags (
