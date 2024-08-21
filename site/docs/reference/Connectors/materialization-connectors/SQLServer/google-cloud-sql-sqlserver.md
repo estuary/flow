@@ -1,3 +1,7 @@
+---
+description: This connector materializes Flow collections into tables in a Google Cloud SQL for SQLServer database.
+---
+
 # Google Cloud SQL for SQLServer
 
 This connector materializes Flow collections into tables in a Microsoft SQLServer database.

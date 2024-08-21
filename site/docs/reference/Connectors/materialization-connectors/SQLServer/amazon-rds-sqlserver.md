@@ -1,3 +1,7 @@
+---
+description: This connector materializes Flow collections into tables in a Amazon RDS for SQL Server database.
+---
+
 # Amazon RDS for SQL Server
 
 This connector materializes Flow collections into tables in a Microsoft SQLServer database.

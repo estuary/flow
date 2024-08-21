@@ -1,3 +1,6 @@
+---
+description: This connector materializes delta updates of Flow collections into an S3 bucket in the Apache Parquet format.
+---
 
 # Apache Parquet Files in Amazon S3
 
