@@ -22,7 +22,7 @@ create table connectors (
   oauth2_spec            jsonb_obj,
   --
   constraint "image_name must be a container image without a tag"
-    check (image_name ~ '^(?:.+/)?([^:]+)$'),
+    check (image_name ~ '^(?:.+/)?([^:]+)$')
 );
 -- Public, no RLS.
 
