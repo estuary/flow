@@ -1,3 +1,5 @@
+# Neon PostgreSQL
+
 Neon's logical replication feature allows you to replicate data from your Neon Postgres database to external destinations.
 
 ## Prerequisites
@@ -48,7 +50,7 @@ The following CLI command creates a role. To view the CLI documentation for this
 neon roles create --name <role>
 ```
 
-The following Neon API method creates a role. To view the API documentation for this method, refer to the [Neon API reference](/docs/reference/cli-roles).
+The following Neon API method creates a role. To view the API documentation for this method, refer to the Neon API reference.
 
 ```bash
 curl 'https://console.neon.tech/api/v2/projects/hidden-cell-763301/branches/br-blue-tooth-671580/roles' \
@@ -108,7 +110,6 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
    ```bash
    postgres://alex:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
    ```
-
    Enter the details for **your connection string** into the source connector fields. Based on the sample connection string above, the values would be specified as shown below. Your values will differ.
    
    - **Name: **: Name of the Capture connector
@@ -117,12 +118,8 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
    - **Password**: Click **Add a new secret...**, then specify a name for that secret and `AbC123dEf` as its value
    - **Database**: dbname
 
-   ![Creating a source connector in Estuary Flow](/docs/guides/estuary_create_source_connector.png)
-
 3. Click **Next**. Estuary Flow will now scan the source database for all the tables that can be replicated. Select one or more table(s) by checking the checkbox next to their name.
 Optionally, you can change the name of the destination name for each table. You can also take a look at the schema of each stream by clicking on the **Collection** tab.
-
-   ![Selecting source tables in Estuary Flow](/docs/guides/estuary_select_source_tables.png)
 
 4. Click **Save and Publish** to provision the connector and kick off the automated backfill process.
 
