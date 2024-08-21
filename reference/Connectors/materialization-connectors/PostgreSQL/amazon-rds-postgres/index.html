@@ -6,8 +6,8 @@
 <title data-rh="true">Amazon RDS for PostgreSQL | Estuary Flow</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/reference/Connectors/materialization-connectors/PostgreSQL/amazon-rds-postgres/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Amazon RDS for PostgreSQL | Estuary Flow"><meta data-rh="true" name="description" content="This connector materializes Flow collections into tables in a PostgreSQL database."><meta data-rh="true" property="og:description" content="This connector materializes Flow collections into tables in a PostgreSQL database."><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/reference/Connectors/materialization-connectors/PostgreSQL/amazon-rds-postgres/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/reference/Connectors/materialization-connectors/PostgreSQL/amazon-rds-postgres/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/reference/Connectors/materialization-connectors/PostgreSQL/amazon-rds-postgres/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.c8d40a73.js" defer="defer"></script>
-<script src="/assets/js/main.aa89b5c8.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.4c68a862.js" defer="defer"></script>
+<script src="/assets/js/main.4d436f79.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -28,14 +28,15 @@ The connector will create new tables in the database per your specification. Tab
 There are two ways to do this: by granting direct access to Flow&#x27;s IP or by creating an SSH tunnel.</p>
 <h3 class="anchor anchorWithStickyNavbar_LWe7" id="connect-directly-with-amazon-rds-or-amazon-aurora">Connect Directly With Amazon RDS or Amazon Aurora<a class="hash-link" aria-label="Direct link to Connect Directly With Amazon RDS or Amazon Aurora" title="Direct link to Connect Directly With Amazon RDS or Amazon Aurora" href="/reference/Connectors/materialization-connectors/PostgreSQL/amazon-rds-postgres/#connect-directly-with-amazon-rds-or-amazon-aurora">​</a></h3>
 <ol>
-<li>Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.<!-- -->
+<li>
+<p>Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.</p>
 <ol>
 <li>
-<p><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html" target="_blank" rel="noopener noreferrer">Modify the instance</a>, choosing <strong>Publicly accessible</strong> in the <strong>Connectivity</strong> settings.  See the instructions below to use SSH Tunneling instead of enabling public access.</p>
+<p><a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html" target="_blank" rel="noopener noreferrer">Modify the instance</a>, choosing <strong>Publicly accessible</strong> in the <strong>Connectivity</strong> settings. See the instructions below to use SSH Tunneling instead of enabling public access.</p>
 </li>
 <li>
 <p>Refer to the <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create" target="_blank" rel="noopener noreferrer">steps in the Amazon documentation</a>.
-Create a new inbound rule and a new outbound rule that allow all traffic from the IP address <code>34.121.207.128</code>.</p>
+Create a new inbound rule and a new outbound rule that allow all traffic from the IP addresses: <code>34.121.207.128, 35.226.75.135, 34.68.62.148</code>.</p>
 </li>
 </ol>
 </li>
@@ -105,7 +106,7 @@ Flow considers all the reserved words that are marked as &quot;reserved&quot; in
 editing always upgrades your materialization to the latest connector version.</strong></p>
 <h4 class="anchor anchorWithStickyNavbar_LWe7" id="v4-2022-11-30">V4: 2022-11-30<a class="hash-link" aria-label="Direct link to V4: 2022-11-30" title="Direct link to V4: 2022-11-30" href="/reference/Connectors/materialization-connectors/PostgreSQL/amazon-rds-postgres/#v4-2022-11-30">​</a></h4>
 <p>This version includes breaking changes to materialized table columns.
-These  provide more consistent column names and types, but tables created from previous versions of the connector may
+These provide more consistent column names and types, but tables created from previous versions of the connector may
 not be compatible with this version.</p>
 <ul>
 <li>
