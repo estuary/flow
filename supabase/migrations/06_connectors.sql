@@ -13,7 +13,6 @@ create table connectors (
   external_url           text not null,
   image_name             text unique not null,
   capture_interval text,
-  disable_backfill boolean not null default false,
   title                  jsonb_internationalized_value not null,
   short_description      jsonb_internationalized_value not null,
   logo_url               jsonb_internationalized_value not null,
@@ -55,13 +54,10 @@ comment on column public.connectors.short_description is
   'A short description of this connector, at most a few sentences. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the description string as values';
 comment on column connectors.capture_interval is
   'The default value for the interval property for a Capture. This is ONLY used for non-streaming connectors';
-comment on column connectors.disable_backfill is
-  'Controls if the UI will hide the backfill button for a connector.';
-
 
 -- don't expose details of oauth2 secret
 -- authenticated may select other columns for all connectors connectors.
-grant select(id, capture_interval, disable_backfill, detail, updated_at, created_at, image_name, external_url, title, short_description, logo_url, recommended, oauth2_client_id) on table connectors to authenticated;
+grant select(id, capture_interval, detail, updated_at, created_at, image_name, external_url, title, short_description, logo_url, recommended, oauth2_client_id) on table connectors to authenticated;
 
 -- TODO: make auto_discover_interval specific to captures
 create table connector_tags (
@@ -111,4 +107,3 @@ grant select on table connector_tags to authenticated;
 
 create unique index idx_connector_tags_id_where_queued on connector_tags(id)
   where job_status->>'type' = 'queued';
-
