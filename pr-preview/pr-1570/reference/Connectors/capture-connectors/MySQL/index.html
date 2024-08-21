@@ -6,8 +6,8 @@
 <title data-rh="true">MySQL | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/pr-preview/pr-1570/reference/Connectors/capture-connectors/MySQL/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="MySQL | Estuary Flow Documentation"><meta data-rh="true" name="description" content="This is a change data capture (CDC) connector that captures change events from a MySQL database via the Binary Log."><meta data-rh="true" property="og:description" content="This is a change data capture (CDC) connector that captures change events from a MySQL database via the Binary Log."><link data-rh="true" rel="icon" href="/pr-preview/pr-1570/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/pr-preview/pr-1570/reference/Connectors/capture-connectors/MySQL/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1570/reference/Connectors/capture-connectors/MySQL/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1570/reference/Connectors/capture-connectors/MySQL/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/pr-preview/pr-1570/assets/css/styles.7552b07e.css">
-<script src="/pr-preview/pr-1570/assets/js/runtime~main.7e885753.js" defer="defer"></script>
-<script src="/pr-preview/pr-1570/assets/js/main.eabfb115.js" defer="defer"></script>
+<script src="/pr-preview/pr-1570/assets/js/runtime~main.843a7b8d.js" defer="defer"></script>
+<script src="/pr-preview/pr-1570/assets/js/main.b63ffec5.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -42,7 +42,7 @@ specifically) to ensure accuracy when backfilling preexisting table contents.<!-
 <ul>
 <li>The default name is <code>&quot;flow.watermarks&quot;</code>, but this can be overridden in <code>config.json</code>.</li>
 <li>The watermark table will only ever have one row per capture from that database and that row is updated once per 50k rows scanned in each table during the initial backfill for MySQL databases.</li>
-<li>As each table backfills, the previous watermark record will be replaced.  After the initial backfill, watermark records are updated approximately once per minute.  At no time does a watermark table have more than one record.</li>
+<li>As each table backfills, the previous watermark record will be replaced. After the initial backfill, watermark records are updated approximately once per minute. At no time does a watermark table have more than one record.</li>
 </ul>
 </li>
 <li>A database user with appropriate permissions:<!-- -->
@@ -58,7 +58,7 @@ must be set to an IANA zone name or numerical offset or the capture configured w
 </ul>
 <div class="theme-admonition theme-admonition-tip admonition_xJq3 alert alert--success"><div class="admonitionHeading_Gvgb"><span class="admonitionIcon_Rf37"><svg viewBox="0 0 12 16"><path fill-rule="evenodd" d="M6.5 0C3.48 0 1 2.19 1 5c0 .92.55 2.25 1 3 1.34 2.25 1.78 2.78 2 4v1h5v-1c.22-1.22.66-1.75 2-4 .45-.75 1-2.08 1-3 0-2.81-2.48-5-5.5-5zm3.64 7.48c-.25.44-.47.8-.67 1.11-.86 1.41-1.25 2.06-1.45 3.23-.02.05-.02.11-.02.17H5c0-.06 0-.13-.02-.17-.2-1.17-.59-1.83-1.45-3.23-.2-.31-.42-.67-.67-1.11C2.44 6.78 2 5.65 2 5c0-2.2 2.02-4 4.5-4 1.22 0 2.36.42 3.22 1.19C10.55 2.94 11 3.94 11 5c0 .66-.44 1.78-.86 2.48zM4 14h5c-.23 1.14-1.3 2-2.5 2s-2.27-.86-2.5-2z"></path></svg></span>Configuration Tip</div><div class="admonitionContent_BuS1"><p>To configure this connector to capture data from databases hosted on your internal network, you must set up SSH tunneling. For more specific instructions on setup, see <a href="/pr-preview/pr-1570/guides/connect-network/">configure connections with SSH tunneling</a>.</p></div></div>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="setup">Setup<a class="hash-link" aria-label="Direct link to Setup" title="Direct link to Setup" href="/pr-preview/pr-1570/reference/Connectors/capture-connectors/MySQL/#setup">​</a></h2>
-<p>To meet these requirements, follow the steps for  your hosting type.</p>
+<p>To meet these requirements, follow the steps for your hosting type.</p>
 <ul>
 <li><a href="/pr-preview/pr-1570/reference/Connectors/capture-connectors/MySQL/#self-hosted-mysql">Self-hosted MySQL</a></li>
 <li><a href="/pr-preview/pr-1570/reference/Connectors/capture-connectors/MySQL/amazon-rds-mysql/">Amazon RDS</a></li>
@@ -96,7 +96,7 @@ For each step, take note of which entity you&#x27;re working with.</p>
 <p>To allow direct access:</p>
 <ul>
 <li><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance" target="_blank" rel="noopener noreferrer">Modify the instance</a>, choosing <strong>Publicly accessible</strong> in the <strong>Connectivity</strong> settings.</li>
-<li>Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance as described in <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create" target="_blank" rel="noopener noreferrer">the Amazon documentation</a>. Create a new inbound rule and a new outbound rule that allow all traffic from the IP address <code>34.121.207.128</code>.</li>
+<li>Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance as described in <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create" target="_blank" rel="noopener noreferrer">the Amazon documentation</a>. Create a new inbound rule and a new outbound rule that allow all traffic from the IP addresses <code>34.121.207.128, 35.226.75.135, 34.68.62.148</code>.</li>
 </ul>
 </li>
 <li>
@@ -128,7 +128,7 @@ Create a unique name and description and set the following properties:</p>
 </ul>
 </li>
 <li>
-<p><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.AssociatingCluster" target="_blank" rel="noopener noreferrer">Associate the  parameter group</a>
+<p><a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.AssociatingCluster" target="_blank" rel="noopener noreferrer">Associate the parameter group</a>
 with the DB cluster.
 While you&#x27;re modifying the cluster, also set <a href="https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Managing.Backups.html" target="_blank" rel="noopener noreferrer">Backup Retention Period</a> to 7 days.</p>
 </li>
@@ -158,7 +158,7 @@ and set up the watermarks table:</p>
 <li>
 <p>To allow direct access:</p>
 <ul>
-<li>Create a new <a href="https://docs.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created" target="_blank" rel="noopener noreferrer">firewall rule</a> that grants access to the IP address <code>34.121.207.128</code>.</li>
+<li>Create a new <a href="https://docs.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created" target="_blank" rel="noopener noreferrer">firewall rule</a> that grants access to the IP addresses <code>34.121.207.128, 35.226.75.135, 34.68.62.148</code>.</li>
 </ul>
 </li>
 <li>
