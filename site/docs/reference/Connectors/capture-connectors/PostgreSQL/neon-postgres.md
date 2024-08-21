@@ -1,3 +1,5 @@
+# Neon PostgreSQL
+
 Neon's logical replication feature allows you to replicate data from your Neon Postgres database to external destinations.
 
 ## Prerequisites
