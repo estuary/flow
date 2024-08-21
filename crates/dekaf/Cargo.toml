@@ -46,4 +46,6 @@ url = { workspace = true }
 webpki-roots = { workspace = true }
 deadpool = { workspace = true }
 regex = { workspace = true }
-# hexdump = { workspace = true }
+hex = { workspace = true }
+simple_crypt = { workspace = true }
+percent-encoding = { workspace = true }
