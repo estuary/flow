@@ -11,7 +11,6 @@ use kafka_protocol::{
         create_topics_request::CreatableTopic,
         find_coordinator_request::FindCoordinatorRequestBuilder,
         metadata_request::{MetadataRequestBuilder, MetadataRequestTopic},
-        request_header::RequestHeaderBuilder,
         sasl_authenticate_request::SaslAuthenticateRequestBuilder,
         sasl_handshake_request::SaslHandshakeRequestBuilder,
         ApiKey, ApiVersionsRequest, ApiVersionsResponse, CreateTopicsRequest,

@@ -1,10 +1,12 @@
 use super::App;
+use crate::{from_downstream_topic_name, to_downstream_topic_name};
 use anyhow::Context;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use axum_extra::{headers, TypedHeader};
+use itertools::Itertools;
+use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 use std::sync::Arc;
 
 // Build an axum::Router which implements a subset of the Confluent Schema Registry API,
@@ -32,11 +34,24 @@ async fn all_subjects(
     TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Basic>>,
 ) -> Response {
     wrap(async move {
-        let client = app.authenticate(auth.username(), auth.password()).await?;
+        let (client, config, _uid) = app.authenticate(auth.username(), auth.password()).await?;
 
         super::fetch_all_collection_names(&client)
             .await
             .context("failed to list collections from the control plane")
+            .map(|names| {
+                names
+                    .into_iter()
+                    .map(|name| {
+                        if config.strict_topic_names {
+                            to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
+                                .to_string()
+                        } else {
+                            name
+                        }
+                    })
+                    .collect_vec()
+            })
     })
     .await
 }
@@ -49,7 +64,7 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let client = app.authenticate(auth.username(), auth.password()).await?;
+        let (client, _config, _uid) = app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
@@ -59,10 +74,15 @@ async fn get_subject_latest(
             anyhow::bail!("expected subject to end with -key or -value")
         };
 
-        let collection = super::Collection::new(&client, collection)
-            .await
-            .context("failed to fetch collection metadata")?
-            .with_context(|| format!("collection {collection} does not exist"))?;
+        let collection = super::Collection::new(
+            &client,
+            &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
+                collection.to_string(),
+            ))),
+        )
+        .await
+        .context("failed to fetch collection metadata")?
+        .with_context(|| format!("collection {collection} does not exist"))?;
 
         let (key_id, value_id) = collection
             .registered_schema_ids(&client)
@@ -95,7 +115,7 @@ async fn get_schema_by_id(
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let client = app.authenticate(auth.username(), auth.password()).await?;
+        let (client, _config, _uid) = app.authenticate(auth.username(), auth.password()).await?;
 
         #[derive(serde::Deserialize)]
         struct Row {
