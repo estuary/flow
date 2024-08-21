@@ -161,12 +161,12 @@ pub async fn test_catalog(
     let build_id = format!("{build_id}");
 
     // Activate all derivations.
-    let journal_router =
-        gazette::journal::Router::new(&broker_sock, gazette::Auth::new(None)?, "local")?;
-    let journal_client = gazette::journal::Client::new(reqwest::Client::default(), journal_router);
-    let shard_router =
-        gazette::shard::Router::new(&consumer_sock, gazette::Auth::new(None)?, "local")?;
-    let shard_client = gazette::shard::Client::new(shard_router);
+    let auth = gazette::Auth::new(None).unwrap();
+    let journal_router = gazette::Router::new(&broker_sock, "local")?;
+    let journal_client =
+        gazette::journal::Client::new(Default::default(), journal_router, auth.clone());
+    let shard_router = gazette::Router::new(&consumer_sock, "local")?;
+    let shard_client = gazette::shard::Client::new(shard_router, auth);
 
     for built in catalog
         .built
