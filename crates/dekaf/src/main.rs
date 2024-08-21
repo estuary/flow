@@ -54,6 +54,11 @@ pub struct Cli {
     /// The password for the default Kafka broker to use for serving group management APIs
     #[clap(long, env = "DEFAULT_BROKER_PASSWORD")]
     default_broker_password: String,
+
+    /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
+    /// to the upstream Kafka broker, e.g topic names in group management metadata.
+    #[clap(long, env = "ENCRYPTION_SECRET")]
+    encryption_secret: String,
 }
 
 #[tokio::main]
@@ -130,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
             accept = kafka_listener.accept() => {
                 let (socket, addr) = accept?;
 
-                tokio::spawn(serve(Session::new(app.clone()), socket, addr, stop.clone()));
+                tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
             }
             _ = &mut stop => break,
         }
