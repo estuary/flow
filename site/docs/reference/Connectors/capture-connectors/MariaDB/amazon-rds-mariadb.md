@@ -39,7 +39,7 @@ To use this connector, you'll need a MariaDB database setup with the following.
 
    2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-      Create a new inbound rule and a new outbound rule that allow all traffic from the IP addresses: `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+      Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:

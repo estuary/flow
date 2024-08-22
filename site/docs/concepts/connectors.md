@@ -288,13 +288,7 @@ In some cases, your source or destination endpoint may be within a secure networ
 to allow direct access to its port due to your organization's security policy.
 
 :::tip
-If permitted by your organization, a quicker solution is to whitelist the Estuary IP addresses:
-
-```
-34.121.207.128
-35.226.75.135
-34.68.62.148
-```
+If permitted by your organization, a quicker solution is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses)
 
 For help completing this task on different cloud hosting platforms,
 see the documentation for the [connector](../reference/Connectors/README.md) you're using.

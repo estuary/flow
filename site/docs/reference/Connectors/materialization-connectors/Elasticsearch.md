@@ -74,7 +74,7 @@ materializations:
 
 ## Setup
 
-You must configure your Elasticsearch cluster to allow connections from Estuary. It may be necessary to whitelist Estuary Flow's IP addresses `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+You must configure your Elasticsearch cluster to allow connections from Estuary. It may be necessary to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses).
 
 Alternatively, you can allow secure connections via SSH tunneling. To do so:
 
