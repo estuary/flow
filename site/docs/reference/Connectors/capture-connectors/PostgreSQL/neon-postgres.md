@@ -20,7 +20,7 @@ To enable logical replication in Neon:
 3. Select **Beta**.
 4. Click **Enable** to enable logical replication.
 
-You can verify that logical replication is enabled by running the following query from the [Neon SQL Editor](https://docs.neon.tech/docs/query-with-neon-sql-editor):
+You can verify that logical replication is enabled by running the following query from the [Neon SQL Editor](https://neon.tech/docs/get-started-with-neon/query-with-neon-sql-editor):
 
 ```sql
 SHOW wal_level;
@@ -98,8 +98,8 @@ To prevent storage bloat, **Neon automatically removes _inactive_ replication sl
 ## Allow Inbound Traffic
 
 If you are using Neon's **IP Allow** feature to limit the IP addresses that can connect to Neon, you will need to allow inbound traffic from Estuary Flow's IP addresses.
-Refer to the [Estuary Flow documentation](https://docs.estuary.dev/reference/regions-and-ip-addresses) for the list of IPs that need to be allowlisted for the Estuary Flow region of your account.
-For information about configuring allowed IPs in Neon, see [Configure IP Allow](https://docs.neon.tech/docs/manage/projects#configure-ip-allow).
+Refer to the [Estuary Flow documentation](https://docs.estuary.dev/reference/allow-ip-addresses) for the list of IPs that need to be allowlisted for the Estuary Flow region of your account.
+For information about configuring allowed IPs in Neon, see [Configure IP Allow](https://neon.tech/docs/introduction/ip-allow).
 
 ## Create a Postgres Source Connector in Estuary Flow
 
@@ -112,11 +112,11 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
    ```
    Enter the details for **your connection string** into the source connector fields. Based on the sample connection string above, the values would be specified as shown below. Your values will differ.
    
-   - **Name: **: Name of the Capture connector
-   - **Server Address**: ep-cool-darkness-123456.us-east-2.aws.neon.tech:5432
-   - **User**: cdc_role
-   - **Password**: Click **Add a new secret...**, then specify a name for that secret and `AbC123dEf` as its value
-   - **Database**: dbname
+   - Name: Name of the Capture connector
+   - Server Address: ep-cool-darkness-123456.us-east-2.aws.neon.tech:5432
+   - User: cdc_role
+   - Password: Click **Add a new secret...**, then specify a name for that secret and `AbC123dEf` as its value
+   - Database: dbname
 
 3. Click **Next**. Estuary Flow will now scan the source database for all the tables that can be replicated. Select one or more table(s) by checking the checkbox next to their name.
 Optionally, you can change the name of the destination name for each table. You can also take a look at the schema of each stream by clicking on the **Collection** tab.
