@@ -2,7 +2,7 @@ use anyhow::Context;
 use bytes::{BufMut, Bytes};
 use kafka_protocol::{
     messages::{self, ApiKey, TopicName},
-    protocol::{buf::ByteBuf, Builder, Decodable, Encodable, StrBytes},
+    protocol::{buf::ByteBuf, Decodable, Encodable, StrBytes},
 };
 use tracing::instrument;
 
@@ -189,10 +189,8 @@ async fn handle_api(
         ApiKey::SaslAuthenticateKey if *raw_sasl_auth => {
             *raw_sasl_auth = false;
 
-            let request = messages::SaslAuthenticateRequest::builder()
-                .auth_bytes(frame.freeze())
-                .build()
-                .unwrap();
+            let request =
+                messages::SaslAuthenticateRequest::default().with_auth_bytes(frame.freeze());
             let response = session.sasl_authenticate(request).await?;
 
             out.put_i32(response.auth_bytes.len() as i32);
@@ -424,5 +422,3 @@ fn decode_safe_name(safe_name: String) -> anyhow::Result<String> {
         .and_then(|decoded| Ok(decoded.into_owned()))
         .map_err(anyhow::Error::from)
 }
-
-const RESERVED_USERNAME_ERR : &str = "The configured username must be '{}' because Dekaf may use it for optional configuration in the future.";

@@ -7,16 +7,12 @@ use kafka_protocol::{
     error::ParseResponseErrorCode,
     indexmap::IndexMap,
     messages::{
-        api_versions_response::ApiVersion,
-        create_topics_request::CreatableTopic,
-        find_coordinator_request::FindCoordinatorRequestBuilder,
-        metadata_request::{MetadataRequestBuilder, MetadataRequestTopic},
-        sasl_authenticate_request::SaslAuthenticateRequestBuilder,
-        sasl_handshake_request::SaslHandshakeRequestBuilder,
-        ApiKey, ApiVersionsRequest, ApiVersionsResponse, CreateTopicsRequest,
-        FindCoordinatorRequest, MetadataRequest, RequestHeader, ResponseHeader, TopicName,
+        api_versions_response::ApiVersion, create_topics_request::CreatableTopic,
+        metadata_request::MetadataRequestTopic, ApiKey, ApiVersionsRequest, ApiVersionsResponse,
+        CreateTopicsRequest, FindCoordinatorRequest, MetadataRequest, RequestHeader,
+        ResponseHeader, SaslAuthenticateRequest, SaslHandshakeRequest, TopicName,
     },
-    protocol::{Builder, Decodable, Encodable, Request, StrBytes},
+    protocol::{Decodable, Encodable, Request, StrBytes},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
 use std::{boxed::Box, collections::HashMap, fmt::Debug, io, time::Duration};
@@ -143,7 +139,7 @@ async fn get_supported_sasl_mechanisms(
         .await
         .map_err(|e| io::Error::other(e))?;
 
-    let discovery_handshake_req = SaslHandshakeRequestBuilder::default().build()?;
+    let discovery_handshake_req = SaslHandshakeRequest::default();
 
     let handshake_resp = send_request(&mut new_conn, discovery_handshake_req, None).await?;
 
@@ -174,10 +170,9 @@ async fn send_request<Req: Request + Debug, S: StreamSink>(
 
     let request_header = match header {
         Some(h) => h,
-        None => RequestHeader::builder()
-            .request_api_key(Req::KEY)
-            .request_api_version(Req::VERSIONS.max)
-            .build()?,
+        None => RequestHeader::default()
+            .with_request_api_key(Req::KEY)
+            .with_request_api_version(Req::VERSIONS.max),
     };
 
     request_header.encode(
@@ -236,9 +231,8 @@ async fn sasl_auth<S: StreamSink>(
     tracing::debug!(mechamism=?selected_mechanism, "Starting SASL request with handshake");
 
     // Now we know which mechanism we want to request
-    let handshake_req = SaslHandshakeRequestBuilder::default()
-        .mechanism(StrBytes::from_utf8(Bytes::from(selected_mechanism))?)
-        .build()?;
+    let handshake_req = SaslHandshakeRequest::default()
+        .with_mechanism(StrBytes::from_utf8(Bytes::from(selected_mechanism))?);
 
     let handshake_resp = send_request(conn, handshake_req, None).await?;
 
@@ -257,9 +251,8 @@ async fn sasl_auth<S: StreamSink>(
 
     // SASL can happen over multiple steps
     while state.is_running() {
-        let authenticate_request = SaslAuthenticateRequestBuilder::default()
-            .auth_bytes(Bytes::from(state_buf.into_inner()?))
-            .build()?;
+        let authenticate_request = SaslAuthenticateRequest::default()
+            .with_auth_bytes(Bytes::from(state_buf.into_inner()?));
 
         let auth_resp = send_request(conn, authenticate_request, None).await?;
 
@@ -329,7 +322,6 @@ pub struct KafkaApiClient {
 impl KafkaApiClient {
     #[instrument(name = "api_client_connect", skip(sasl_config))]
     pub async fn connect(broker_url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
-        tracing::debug!("Creating connection pool");
         let pool = Pool::builder(KafkaConnectionParams {
             broker_url: broker_url.to_owned(),
             sasl_config: sasl_config.clone(),
@@ -346,11 +338,9 @@ impl KafkaApiClient {
 
         let versions = send_request(
             conn.as_mut(),
-            ApiVersionsRequest::builder()
-                .client_software_name(StrBytes::from_static_str("Dekaf"))
-                .client_software_version(StrBytes::from_static_str("1.0"))
-                .build()
-                .unwrap(),
+            ApiVersionsRequest::default()
+                .with_client_software_name(StrBytes::from_static_str("Dekaf"))
+                .with_client_software_version(StrBytes::from_static_str("1.0")),
             None,
         )
         .await?;
@@ -398,21 +388,18 @@ impl KafkaApiClient {
         match coordinators.get(key) {
             None => {
                 // RedPanda only support v3 of this request
-                let req = FindCoordinatorRequestBuilder::default()
-                    .key(StrBytes::from_string(key.to_string()))
+                let req = FindCoordinatorRequest::default()
+                    .with_key(StrBytes::from_string(key.to_string()))
                     // https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/FindCoordinatorRequest.java#L119
-                    .key_type(0) // 0: consumer, 1: transaction
-                    .build()?;
+                    .with_key_type(0); // 0: consumer, 1: transaction
 
                 let resp = self
                     .send_request(
                         req,
                         Some(
-                            RequestHeader::builder()
-                                .request_api_key(FindCoordinatorRequest::KEY)
-                                .request_api_version(3)
-                                .build()
-                                .expect("Request header shouldn't fail to build"),
+                            RequestHeader::default()
+                                .with_request_api_key(FindCoordinatorRequest::KEY)
+                                .with_request_api_version(3),
                         ),
                     )
                     .await?;
@@ -446,7 +433,7 @@ impl KafkaApiClient {
 
     #[instrument(skip(self))]
     pub async fn connect_to_controller(&self) -> anyhow::Result<KafkaApiClient> {
-        let req = MetadataRequestBuilder::default().build().unwrap();
+        let req = MetadataRequest::default();
         let resp = self.send_request(req, None).await?;
 
         let controller = resp
@@ -480,20 +467,14 @@ impl KafkaApiClient {
 
     #[instrument(skip_all)]
     pub async fn ensure_topics(&self, topic_names: Vec<TopicName>) -> anyhow::Result<()> {
-        let req = MetadataRequest::builder()
-            .topics(Some(
+        let req = MetadataRequest::default()
+            .with_topics(Some(
                 topic_names
                     .iter()
-                    .map(|name| {
-                        MetadataRequestTopic::builder()
-                            .name(Some(name.clone()))
-                            .build()
-                            .expect("failed to build MetadataRequestTopic")
-                    })
+                    .map(|name| MetadataRequestTopic::default().with_name(Some(name.clone())))
                     .collect(),
             ))
-            .allow_auto_topic_creation(true)
-            .build()?;
+            .with_allow_auto_topic_creation(true);
 
         let coord = self.connect_to_controller().await?;
         let resp = coord.send_request(req, None).await?;
@@ -510,13 +491,12 @@ impl KafkaApiClient {
             for topic_name in topic_names.into_iter() {
                 topics_map.insert(
                     topic_name,
-                    CreatableTopic::builder()
-                        .replication_factor(2)
-                        .num_partitions(-1)
-                        .build()?,
+                    CreatableTopic::default()
+                        .with_replication_factor(2)
+                        .with_num_partitions(-1),
                 );
             }
-            let create_req = CreateTopicsRequest::builder().topics(topics_map).build()?;
+            let create_req = CreateTopicsRequest::default().with_topics(topics_map);
             let create_resp = coord.send_request(create_req, None).await?;
             tracing::debug!(create_response=?create_resp, "Got create response");
 
