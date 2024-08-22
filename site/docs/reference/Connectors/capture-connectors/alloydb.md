@@ -24,8 +24,7 @@ You'll need a AlloyDB database setup with the following:
 * A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
     * In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
 
-You'll also need a virtual machine to connect securely to the instance via SSH tunnelling (AlloyDB
-doesn't support IP whitelisting).
+You'll also need a virtual machine to connect securely to the instance via SSH tunnelling (AlloyDB doesn't support IP allowlisting).
 
 ### Setup
 

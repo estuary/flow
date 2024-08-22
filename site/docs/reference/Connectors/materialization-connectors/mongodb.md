@@ -21,8 +21,8 @@ You'll need:
 - Read and write access to your MongoDB database and desired collections. See [Role-Based Access
   Control](https://www.mongodb.com/docs/manual/core/authorization/) for more information.
 
-- If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting
-  of IPs, you need to whitelist Estuary's IPs: `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+- If you are using MongoDB Atlas, or your MongoDB provider requires allowlisting
+  of IPs, you need to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses).
 
 ## Configuration
 

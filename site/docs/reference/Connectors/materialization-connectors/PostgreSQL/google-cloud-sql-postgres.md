@@ -19,7 +19,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
 
 ### Conenecting Directly to Google Cloud SQL
 
-1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128, 35.226.75.135, 34.68.62.148` as authorized IP addresses.
+1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add the [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
 
 ### Connect With SSH Tunneling
 
