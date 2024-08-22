@@ -124,6 +124,7 @@ impl Read {
         bail!("Unable to find next document")
     }
 
+    #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
     pub async fn next_batch(
         mut self,
         target_bytes: usize,
