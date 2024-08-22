@@ -8,7 +8,7 @@ materializations:
       minTxnDuration: "10s"
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:v4
+        image: ghcr.io/estuary/materialize-postgres:v5
         config: stats-production-endpoint.sops.yaml
 
     bindings:
