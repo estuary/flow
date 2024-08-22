@@ -39,8 +39,8 @@ async fn all_subjects(
         super::fetch_all_collection_names(&client)
             .await
             .context("failed to list collections from the control plane")
-            .map(|names| {
-                names
+            .map(|collections| {
+                collections
                     .into_iter()
                     .map(|name| {
                         if config.strict_topic_names {
@@ -49,6 +49,9 @@ async fn all_subjects(
                         } else {
                             name
                         }
+                    })
+                    .flat_map(|collection| {
+                        vec![format!("{collection}-key"), format!("{collection}-value")]
                     })
                     .collect_vec()
             })
