@@ -15,7 +15,7 @@ use kafka_protocol::{
         ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
         RequestHeader, TopicName,
     },
-    protocol::{buf::ByteBuf, Builder, Decodable, Encodable, StrBytes},
+    protocol::{buf::ByteBuf, Decodable, Encodable, StrBytes},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -92,13 +92,11 @@ impl Session {
                 response.session_lifetime_ms = 60 * 60 * 60 * 24; // TODO(johnny): Access token expiry.
                 response
             }
-            Err(err) => messages::SaslAuthenticateResponse::builder()
-                .error_code(ResponseError::SaslAuthenticationFailed.code())
-                .error_message(Some(StrBytes::from_string(format!(
+            Err(err) => messages::SaslAuthenticateResponse::default()
+                .with_error_code(ResponseError::SaslAuthenticationFailed.code())
+                .with_error_message(Some(StrBytes::from_string(format!(
                     "SASL authentication error: Authentication failed: {err:#}",
-                ))))
-                .build()
-                .unwrap(),
+                )))),
         };
 
         Ok(response)
@@ -112,7 +110,6 @@ impl Session {
         &mut self,
         mut request: messages::MetadataRequest,
     ) -> anyhow::Result<messages::MetadataResponse> {
-        tracing::debug!(req=?request, "Got metadata request");
         let topics = match request.topics.take() {
             Some(topics) if topics.len() > 0 => self.metadata_select_topics(topics).await,
             _ => self.metadata_all_topics().await,
@@ -122,20 +119,16 @@ impl Session {
         let mut brokers = kafka_protocol::indexmap::IndexMap::new();
         brokers.insert(
             messages::BrokerId(1),
-            messages::metadata_response::MetadataResponseBroker::builder()
-                .host(StrBytes::from_string(self.app.advertise_host.clone()))
-                .port(self.app.advertise_kafka_port as i32)
-                .build()
-                .unwrap(),
+            messages::metadata_response::MetadataResponseBroker::default()
+                .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
+                .with_port(self.app.advertise_kafka_port as i32),
         );
 
-        Ok(messages::MetadataResponse::builder()
-            .brokers(brokers)
-            .cluster_id(Some(StrBytes::from_static_str("estuary-dekaf")))
-            .controller_id(messages::BrokerId(1))
-            .topics(topics)
-            .build()
-            .unwrap())
+        Ok(messages::MetadataResponse::default()
+            .with_brokers(brokers)
+            .with_cluster_id(Some(StrBytes::from_static_str("estuary-dekaf")))
+            .with_controller_id(messages::BrokerId(1))
+            .with_topics(topics))
     }
 
     // Lists all read-able collections as Kafka topics. Omits partition metadata.
@@ -151,15 +144,11 @@ impl Session {
             .map(|name| {
                 (
                     self.encode_topic_name(name),
-                    MetadataResponseTopic::builder()
-                        .is_internal(false)
-                        .partitions(vec![MetadataResponsePartition::builder()
-                            .partition_index(0)
-                            .leader_id(0.into())
-                            .build()
-                            .unwrap()])
-                        .build()
-                        .unwrap(),
+                    MetadataResponseTopic::default()
+                        .with_is_internal(false)
+                        .with_partitions(vec![MetadataResponsePartition::default()
+                            .with_partition_index(0)
+                            .with_leader_id(0.into())]),
                 )
             })
             .collect();
@@ -192,10 +181,8 @@ impl Session {
             let Some(collection) = maybe_collection else {
                 topics.insert(
                     self.encode_topic_name(name.to_string()),
-                    MetadataResponseTopic::builder()
-                        .error_code(ResponseError::UnknownTopicOrPartition.code())
-                        .build()
-                        .unwrap(),
+                    MetadataResponseTopic::default()
+                        .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
                 );
                 continue;
             };
@@ -205,23 +192,19 @@ impl Session {
                 .iter()
                 .enumerate()
                 .map(|(index, _)| {
-                    messages::metadata_response::MetadataResponsePartition::builder()
-                        .partition_index(index as i32)
-                        .leader_id(messages::BrokerId(1))
-                        .replica_nodes(vec![messages::BrokerId(1)])
-                        .isr_nodes(vec![messages::BrokerId(1)])
-                        .build()
-                        .unwrap()
+                    messages::metadata_response::MetadataResponsePartition::default()
+                        .with_partition_index(index as i32)
+                        .with_leader_id(messages::BrokerId(1))
+                        .with_replica_nodes(vec![messages::BrokerId(1)])
+                        .with_isr_nodes(vec![messages::BrokerId(1)])
                 })
                 .collect();
 
             topics.insert(
                 name,
-                MetadataResponseTopic::builder()
-                    .is_internal(false)
-                    .partitions(partitions)
-                    .build()
-                    .unwrap(),
+                MetadataResponseTopic::default()
+                    .with_is_internal(false)
+                    .with_partitions(partitions),
             );
         }
 
@@ -237,22 +220,18 @@ impl Session {
             .coordinator_keys
             .iter()
             .map(|_key| {
-                messages::find_coordinator_response::Coordinator::builder()
-                    .node_id(messages::BrokerId(1))
-                    .host(StrBytes::from_string(self.app.advertise_host.clone()))
-                    .port(self.app.advertise_kafka_port as i32)
-                    .build()
-                    .unwrap()
+                messages::find_coordinator_response::Coordinator::default()
+                    .with_node_id(messages::BrokerId(1))
+                    .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
+                    .with_port(self.app.advertise_kafka_port as i32)
             })
             .collect();
 
-        Ok(messages::FindCoordinatorResponse::builder()
-            .node_id(messages::BrokerId(1))
-            .host(StrBytes::from_string(self.app.advertise_host.clone()))
-            .port(self.app.advertise_kafka_port as i32)
-            .coordinators(coordinators)
-            .build()
-            .unwrap())
+        Ok(messages::FindCoordinatorResponse::default()
+            .with_node_id(messages::BrokerId(1))
+            .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
+            .with_port(self.app.advertise_kafka_port as i32)
+            .with_coordinators(coordinators))
     }
 
     pub async fn list_offsets(
@@ -328,34 +307,25 @@ impl Session {
                     .into_iter()
                     .map(|(partition_index, maybe_offset)| {
                         let Some((offset, timestamp)) = maybe_offset else {
-                            return ListOffsetsPartitionResponse::builder()
-                                .partition_index(partition_index)
-                                .error_code(ResponseError::UnknownTopicOrPartition.code())
-                                .build()
-                                .unwrap();
+                            return ListOffsetsPartitionResponse::default()
+                                .with_partition_index(partition_index)
+                                .with_error_code(ResponseError::UnknownTopicOrPartition.code());
                         };
 
-                        ListOffsetsPartitionResponse::builder()
-                            .partition_index(partition_index)
-                            .offset(offset)
-                            .timestamp(timestamp)
-                            .build()
-                            .unwrap()
+                        ListOffsetsPartitionResponse::default()
+                            .with_partition_index(partition_index)
+                            .with_offset(offset)
+                            .with_timestamp(timestamp)
                     })
                     .collect();
 
-                ListOffsetsTopicResponse::builder()
-                    .name(topic_name)
-                    .partitions(partitions)
-                    .build()
-                    .unwrap()
+                ListOffsetsTopicResponse::default()
+                    .with_name(topic_name)
+                    .with_partitions(partitions)
             })
             .collect();
 
-        Ok(messages::ListOffsetsResponse::builder()
-            .topics(response)
-            .build()
-            .unwrap())
+        Ok(messages::ListOffsetsResponse::default().with_topics(response))
     }
 
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
@@ -364,8 +334,6 @@ impl Session {
         request: messages::FetchRequest,
     ) -> anyhow::Result<messages::FetchResponse> {
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
-
-        tracing::debug!(req=?request,"Got fetch request");
 
         let messages::FetchRequest {
             topics: topic_requests,
@@ -515,11 +483,9 @@ impl Session {
 
                 let Some(pending) = self.reads.get_mut(&key) else {
                     partition_responses.push(
-                        PartitionData::builder()
-                            .partition_index(partition_request.partition)
-                            .error_code(ResponseError::UnknownTopicOrPartition.code())
-                            .build()
-                            .unwrap(),
+                        PartitionData::default()
+                            .with_partition_index(partition_request.partition)
+                            .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
                     );
                     continue;
                 };
@@ -544,30 +510,24 @@ impl Session {
                 };
 
                 partition_responses.push(
-                    PartitionData::builder()
-                        .partition_index(partition_request.partition)
-                        .records(Some(batch))
-                        .high_watermark(pending.last_write_head) // Map to kafka cursor.
-                        .last_stable_offset(pending.last_write_head)
-                        .build()
-                        .unwrap(),
+                    PartitionData::default()
+                        .with_partition_index(partition_request.partition)
+                        .with_records(Some(batch))
+                        .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
+                        .with_last_stable_offset(pending.last_write_head),
                 );
             }
 
             topic_responses.push(
-                FetchableTopicResponse::builder()
-                    .topic(topic_request.topic.clone())
-                    .partitions(partition_responses)
-                    .build()
-                    .unwrap(),
+                FetchableTopicResponse::default()
+                    .with_topic(topic_request.topic.clone())
+                    .with_partitions(partition_responses),
             );
         }
 
-        Ok(messages::FetchResponse::builder()
-            .session_id(session_id)
-            .responses(topic_responses)
-            .build()
-            .unwrap())
+        Ok(messages::FetchResponse::default()
+            .with_session_id(session_id)
+            .with_responses(topic_responses))
     }
 
     /// DescribeConfigs lists configuration metadata of topics.
@@ -588,29 +548,22 @@ impl Session {
                 let configs = fixtures
                     .into_iter()
                     .map(|(name, value)| {
-                        DescribeConfigsResourceResult::builder()
-                            .name(StrBytes::from_static_str(name))
-                            .value(Some(StrBytes::from_static_str(value)))
-                            .read_only(true)
-                            .build()
-                            .unwrap()
+                        DescribeConfigsResourceResult::default()
+                            .with_name(StrBytes::from_static_str(name))
+                            .with_value(Some(StrBytes::from_static_str(value)))
+                            .with_read_only(true)
                     })
                     .collect();
 
                 results.push(
-                    DescribeConfigsResult::builder()
-                        .resource_name(resource.resource_name.clone())
-                        .configs(configs)
-                        .build()
-                        .unwrap(),
+                    DescribeConfigsResult::default()
+                        .with_resource_name(resource.resource_name.clone())
+                        .with_configs(configs),
                 )
             }
         }
 
-        Ok(DescribeConfigsResponse::builder()
-            .results(results)
-            .build()
-            .unwrap())
+        Ok(DescribeConfigsResponse::default().with_results(results))
     }
 
     /// Produce is assumed to be supported in various places, and clients using librdkafka
@@ -626,37 +579,29 @@ impl Session {
     ) -> anyhow::Result<messages::ProduceResponse> {
         use kafka_protocol::messages::produce_response::*;
 
-        let responses =
-            req.topic_data
-                .into_iter()
-                .map(|(k, v)| {
-                    (
-                        k,
-                        TopicProduceResponse::builder()
-                            .partition_responses(
-                                v.partition_data
-                                    .into_iter()
-                                    .map(|part| {
-                                        PartitionProduceResponse::builder()
-                                .index(part.index)
-                                .error_code(
-                                    kafka_protocol::error::ResponseError::InvalidRequest.code(),
-                                )
-                                .build()
-                                .unwrap()
-                                    })
-                                    .collect(),
-                            )
-                            .build()
-                            .unwrap(),
-                    )
-                })
-                .collect();
+        let responses = req
+            .topic_data
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k,
+                    TopicProduceResponse::default().with_partition_responses(
+                        v.partition_data
+                            .into_iter()
+                            .map(|part| {
+                                PartitionProduceResponse::default()
+                                    .with_index(part.index)
+                                    .with_error_code(
+                                        kafka_protocol::error::ResponseError::InvalidRequest.code(),
+                                    )
+                            })
+                            .collect(),
+                    ),
+                )
+            })
+            .collect();
 
-        Ok(ProduceResponse::builder()
-            .responses(responses)
-            .build()
-            .unwrap())
+        Ok(ProduceResponse::default().with_responses(responses))
     }
 
     #[instrument(skip_all)]
@@ -665,7 +610,6 @@ impl Session {
         req: messages::JoinGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
-        tracing::debug!("Got request");
         let client = self
             .app
             .kafka_client
@@ -680,13 +624,23 @@ impl Session {
                 .try_get_i16()
                 .context("failed to parse consumer protocol message")?;
 
+            tracing::debug!(
+                version = consumer_protocol_subscription_version,
+                remaining_bytes = consumer_protocol_subscription_raw.len(),
+                "Got consumer protocol message version"
+            );
+
             // TODO: validate acceptable version
+
+            let formatted = format!("{consumer_protocol_subscription_raw:?}");
 
             let mut consumer_protocol_subscription_msg = ConsumerProtocolSubscription::decode(
                 &mut consumer_protocol_subscription_raw,
-                consumer_protocol_subscription_version,
+                consumer_protocol_subscription_version, // Seems that sometimes v >=1 doesn't decode properly
             )
-            .context("failed to parse consumer protocol message")?;
+            .context(format!(
+                "failed to parse consumer protocol message: {formatted}"
+            ))?;
 
             consumer_protocol_subscription_msg
                 .topics
@@ -719,7 +673,7 @@ impl Session {
 
             let mut consumer_protocol_subscription_msg = ConsumerProtocolSubscription::decode(
                 &mut consumer_protocol_subscription_raw,
-                consumer_protocol_subscription_version,
+                consumer_protocol_subscription_version, // it seems that sometimes v >= 1 doesn't decode properly
             )
             .context("failed to parse consumer protocol message")?;
 
@@ -739,7 +693,6 @@ impl Session {
             member.metadata = new_protocol_subscription.into();
         }
 
-        tracing::debug!(response=?mutable_resp, "Got response");
         Ok(mutable_resp)
     }
 
@@ -755,7 +708,6 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
         let response = client.send_request(req, Some(header)).await?;
-        tracing::debug!(response=?response, "Got response");
         Ok(response)
     }
 
@@ -771,25 +723,20 @@ impl Session {
             Ok(mut e) => {
                 if let Some(err) = e.error_code.err() {
                     tracing::warn!(err = ?err, "Error listing groups!");
-                } else {
-                    tracing::debug!(resp=?e, "Got groups listing");
                 }
+                // Multiple systems had trouble when this returned the actual list of groups...
+                // and AFAICT nothing has any trouble when we return an empty list here.
                 e.groups = vec![]; //e
                                    // .groups
                                    // .into_iter()
                                    // .filter(|grp| !grp.group_id.starts_with("amazon.msk"))
                                    // .collect_vec();
 
-                tracing::debug!(resp=?e, "Responding");
-
                 return Ok(e);
             }
             Err(e) => {
                 tracing::warn!(e=?e, "Failed to list_groups");
-                Ok(ListGroupsResponse::builder()
-                    .groups(vec![])
-                    .build()
-                    .unwrap())
+                Ok(ListGroupsResponse::default().with_groups(vec![]))
             }
         }
     }
@@ -805,7 +752,6 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
-        tracing::debug!(req=?req, "Got request");
         let mut mutable_req = req.clone();
         for assignment in mutable_req.assignments.iter_mut() {
             let mut consumer_protocol_assignment_raw = assignment.assignment.clone();
@@ -814,11 +760,9 @@ impl Session {
                 .context("failed to parse consumer protocol message")?;
             // TODO: validate acceptable version
 
-            let mut consumer_protocol_assignment_msg = ConsumerProtocolAssignment::decode(
-                &mut consumer_protocol_assignment_raw,
-                consumer_protocol_assignment_version,
-            )
-            .context("failed to parse consumer protocol message")?;
+            let mut consumer_protocol_assignment_msg =
+                ConsumerProtocolAssignment::decode(&mut consumer_protocol_assignment_raw, 0)
+                    .context("failed to parse consumer protocol message")?;
 
             consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
                 .assigned_partitions
@@ -846,11 +790,9 @@ impl Session {
                 .context("failed to parse consumer protocol message")?;
         // TODO: validate acceptable version
 
-        let mut consumer_protocol_assignment_msg = ConsumerProtocolAssignment::decode(
-            &mut consumer_protocol_assignment_raw,
-            consumer_protocol_assignment_version,
-        )
-        .context("failed to parse consumer protocol message")?;
+        let mut consumer_protocol_assignment_msg =
+            ConsumerProtocolAssignment::decode(&mut consumer_protocol_assignment_raw, 0)
+                .context("failed to parse consumer protocol message")?;
         consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
             .assigned_partitions
             .into_iter()
@@ -866,7 +808,6 @@ impl Session {
         )?;
         mutable_resp.assignment = new_protocol_assignment.into();
 
-        tracing::debug!(response=?mutable_resp, "Got response");
         Ok(mutable_resp)
     }
 
@@ -922,7 +863,6 @@ impl Session {
         req: messages::OffsetFetchRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
-        tracing::debug!(req=?req, "Got req");
         let mut mutated_req = req.clone();
         if let Some(ref mut topics) = mutated_req.topics {
             for topic in topics {
@@ -948,7 +888,6 @@ impl Session {
             topic.name = self.decrypt_topic_name(topic.name.to_owned());
         }
 
-        tracing::debug!(resp=?resp, "Got Response");
         Ok(resp)
     }
 
@@ -983,11 +922,9 @@ impl Session {
             .insert(ApiKey::MetadataKey as i16, version::<MetadataRequest>());
         res.api_keys.insert(
             ApiKey::FindCoordinatorKey as i16,
-            ApiVersion::builder()
-                .min_version(0)
-                .max_version(2)
-                .build()
-                .unwrap(),
+            ApiVersion::default()
+                .with_min_version(0)
+                .with_max_version(2),
         );
         res.api_keys.insert(
             ApiKey::ListOffsetsKey as i16,
@@ -995,17 +932,15 @@ impl Session {
         );
         res.api_keys.insert(
             ApiKey::FetchKey as i16,
-            ApiVersion::builder()
+            ApiVersion::default()
                 // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
                 // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
                 // just the consequence of convergent development, where some implicit requirement got encoded both in the client
                 // and server without being explicitly documented anywhere.
-                .min_version(4)
+                .with_min_version(4)
                 // I don't understand why, but some kafka clients don't seem to be able to send flexver fetch requests correctly
                 // For example, `kcat` sends an empty topic name when >= v12. I'm 99% sure there's more to this however.
-                .max_version(11)
-                .build()
-                .unwrap(),
+                .with_max_version(11),
         );
 
         // Needed by `kaf`.
@@ -1016,11 +951,9 @@ impl Session {
 
         res.api_keys.insert(
             ApiKey::ProduceKey as i16,
-            ApiVersion::builder()
-                .min_version(3)
-                .max_version(9)
-                .build()
-                .unwrap(),
+            ApiVersion::default()
+                .with_min_version(3)
+                .with_max_version(9),
         );
 
         // UNIMPLEMENTED.
@@ -1104,11 +1037,9 @@ impl Session {
         );
         res.api_keys.insert(
             ApiKey::OffsetFetchKey as i16,
-            ApiVersion::builder()
-                .min_version(0)
-                .max_version(7)
-                .build()
-                .unwrap(),
+            ApiVersion::default()
+                .with_min_version(0)
+                .with_max_version(7),
         );
 
         Ok(res)
