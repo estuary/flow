@@ -85,8 +85,8 @@ finally:
     consumer.close()
 ```
 
-You can also use kcat (formerly known as kafkacat) to read messages from an Estuary Flow collection as if it were a
-Kafka topic.
+You can also use [kcat](https://github.com/edenhill/kcat) (formerly known as kafkacat) to test reading messages from an
+Estuary Flow collection as if it were a Kafka topic.
 
 ```shell
 kcat -C \
