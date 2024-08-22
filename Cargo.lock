@@ -2281,6 +2281,7 @@ dependencies = [
  "futures",
  "gazette",
  "humantime",
+ "insta",
  "itertools 0.10.5",
  "json",
  "labels",

@@ -5,6 +5,7 @@ use super::{
 use crate::{
     controllers::publication_status::PublicationStatus,
     publications::{PublicationResult, RejectedField},
+    resource_configs::ResourceSpecPointers,
 };
 use anyhow::Context;
 use itertools::Itertools;
@@ -335,7 +336,7 @@ impl SourceCaptureStatus {
             .get_connector_spec(config.image.clone())
             .await
             .context("failed to fetch connector spec")?;
-        let collection_name_pointer = crate::resource_configs::pointer_for_schema(
+        let resource_spec_pointers = crate::resource_configs::pointer_for_schema(
             connector_spec.resource_config_schema.get(),
         )?;
 
@@ -370,7 +371,7 @@ impl SourceCaptureStatus {
         draft_row.is_touch = false;
 
         update_linked_materialization(
-            collection_name_pointer,
+            resource_spec_pointers,
             &self.add_bindings,
             draft_row.model.as_mut().unwrap(),
         )?;
@@ -398,7 +399,7 @@ fn get_bindings_to_add(
 }
 
 fn update_linked_materialization(
-    resource_collection_name_ptr: doc::Pointer,
+    resource_spec_pointers: ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
     materialization: &mut models::MaterializationDef,
 ) -> anyhow::Result<()> {
@@ -406,7 +407,7 @@ fn update_linked_materialization(
         let mut resource_spec = serde_json::json!({});
         crate::resource_configs::update_materialization_resource_spec(
             &mut resource_spec,
-            &resource_collection_name_ptr,
+            &resource_spec_pointers,
             &collection_name,
         )?;
 
