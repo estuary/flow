@@ -168,7 +168,7 @@ impl TestHarness {
                     'materialization',
                     'http://test.test/',
                     '{"type": "object"}',
-                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}}}',
+                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string", "x-schema-name": true}}}',
                     '{/id}',
                     '{"type": "success"}'
                 ) on conflict do nothing
@@ -269,6 +269,12 @@ impl TestHarness {
             ),
             del_daily_stats as (
                 delete from catalog_stats_daily
+            ),
+            del_connectors as (
+                delete from connectors
+            ),
+            del_connector_tags as (
+                delete from connector_tags
             )
             delete from catalog_stats_monthly;"#,
             system_user_id
