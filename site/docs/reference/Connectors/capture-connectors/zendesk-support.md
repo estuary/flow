@@ -44,6 +44,14 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
+There are two different ways to authenticate with Zendesk Support when capturing data into Flow: using OAuth2 or providing an API token. The prerequisites for both authentication methods are listed below.
+
+### OAuth2 authentication
+
+* Subdomain of your Zendesk URL. In the URL `https://MY_SUBDOMAIN.zendesk.com/`, `MY_SUBDOMAIN` is the subdomain.
+
+### API token authentication
+
 * Subdomain of your Zendesk URL. In the URL `https://MY_SUBDOMAIN.zendesk.com/`, `MY_SUBDOMAIN` is the subdomain.
 * Email address associated with your Zendesk account.
 * A Zendesk API token. See the [Zendesk docs](https://support.zendesk.com/hc/en-us/articles/4408889192858-Generating-a-new-API-token) to enable tokens and generate a new token.
@@ -59,9 +67,12 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/credentials/api_token` | API Token | The value of the API token generated. | string |  |
-| `/credentials/credentials` | Credentials method | Type of credentials used. Set to `api-token` | string |  |
-| `/credentials/email` | Email | The user email for your Zendesk account. | string |  |
+| `/credentials/credentials` | Credentials method | Type of credentials used. Set to `api_token` or `oauth2.0`. | string | Required |
+| `/credentials/api_token` | API Token | The value of the API token generated. | string | Required for API token authentication |
+| `/credentials/email` | Email | The user email for your Zendesk account. | string | Required for API token authentication |
+| `/credentials/client_id` | OAuth Client ID | The OAuth app's client ID. | string | Required for OAuth2 authentication |
+| `/credentials/client_secret` | OAuth Client Secret | The OAuth app's client secret. | string | Required for OAuth2 authentication |
+| `/credentials/access_token` | Access Token | The access token received from the OAuth app. | string | Required for OAuth2 authentication |
 | **`/start_date`** | Start Date | The date from which you&#x27;d like to replicate data for Zendesk Support API, in the format YYYY-MM-DDT00:00:00Z. All data generated after this date will be replicated. | string | Required |
 | **`/subdomain`** | Subdomain | This is your Zendesk subdomain that can be found in your account URL. For example, in `https://MY_SUBDOMAIN.zendesk.com/`, where `MY_SUBDOMAIN` is the value of your subdomain. | string | Required |
 
