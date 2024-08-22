@@ -271,7 +271,6 @@ extra-ci-runner-setup:
 .PHONY: print-versions
 print-versions:
 	echo "Resolved repository version: ${FLOW_VERSION}" \
-		&& /usr/bin/ld.lld --version \
 		&& cargo version --verbose \
 		&& docker --version \
 		&& gcloud info \
