@@ -80,7 +80,7 @@ You can use this connector for MariaDB instances on Azure Database for MariaDB u
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
-      that grants access to the IP addresses: `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+      that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:

@@ -25,7 +25,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
-* \(Optional\) Whitelist Estuary's IP address if needed
+* \(Optional\) [allowlist the Estuary IP addresses](/reference/allow-ip-addresses) if needed
 * An API-only Marketo User Role
 * An Estuary Marketo API-only user
 * A Marketo API Custom Service

@@ -35,7 +35,7 @@ To connect securely, you can either enable direct access for Flows's IP or use a
 You must configure your database to allow connections from Estuary.
 There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-- **Connect Directly With Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the IP addresses: `34.121.207.128, 35.226.75.135, 34.68.62.148`
+- **Connect Directly With Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses)
 
 - **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](/guides/connect-network/#setup-for-azure).
 
@@ -162,7 +162,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
   2.  Per the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create),
       create a new inbound rule and a new outbound rule that allow all traffic from the IP addresses ``.
 
-- **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128, 35.226.75.135, 34.68.62.148` as authorized IP addresses. See the instructions below to use SSH Tunneling instead of enabling public access.
+- **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses. See the instructions below to use SSH Tunneling instead of enabling public access.
 
 - **Connect with SSH tunneling**
 
