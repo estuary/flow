@@ -127,12 +127,19 @@ pub async fn start(
     ];
 
     if publish_ports {
+        // Bind a random port, and then check what port was given to us.
+        let l = tokio::net::TcpListener::bind("0.0.0.0:0")
+            .await
+            .context("failed to bind random port")?;
+        let port = l.local_addr()?.port();
+        std::mem::drop(l); // Release so it can be re-bound.
+
         docker_args.append(&mut vec![
             // Support Docker Desktop in non-production contexts (for example, `flowctl`)
             // where the container IP is not directly addressable. As an alternative,
             // we ask Docker to provide mapped host ports that are then advertised
             // in the attached runtime::Container description.
-            format!("--publish=0.0.0.0:0:{CONNECTOR_INIT_PORT}"),
+            format!("--publish=0.0.0.0:{port}:{CONNECTOR_INIT_PORT}"),
             "--publish-all".to_string(),
         ])
     }
@@ -147,7 +154,7 @@ pub async fn start(
 
     tracing::debug!(docker_args=?docker_args, "invoking docker");
 
-    let mut process: async_process::Child = async_process::Command::new("docker")
+    let mut process: async_process::Child = async_process::Command::new(docker_cli())
         .args(docker_args)
         .stdin(async_process::Stdio::null())
         .stdout(async_process::Stdio::null())
@@ -271,11 +278,17 @@ fn unique_container_name() -> String {
     format!("fc_{:x}", n as u32)
 }
 
+fn docker_cli() -> String {
+    std::env::var("DOCKER_CLI")
+        .ok()
+        .unwrap_or_else(|| "docker".to_string())
+}
+
 async fn docker_cmd<S>(args: &[S]) -> anyhow::Result<Vec<u8>>
 where
     S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
 {
-    let output = async_process::output(async_process::Command::new("docker").args(args))
+    let output = async_process::output(async_process::Command::new(docker_cli()).args(args))
         .await
         .with_context(|| format!("failed to run docker command {args:?}"))?;
 
@@ -294,7 +307,7 @@ async fn inspect_container_network(
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "PascalCase", deny_unknown_fields)]
     struct HostPort {
-        host_ip: std::net::IpAddr,
+        host_ip: String,
         host_port: String,
     }
 
@@ -335,6 +348,19 @@ async fn inspect_container_network(
             if container_port.ends_with("/udp") {
                 continue; // Not supported.
             }
+
+            // `podman` inspect output will use an empty HostIp to represent
+            // dual-stack port bindings (either `::1` or `0.0.0.0`).
+            // `docker` will always emit a non-empty IP.
+            let host_ip = if host_ip.is_empty() {
+                "::1".to_string()
+            } else {
+                host_ip
+            };
+
+            let host_ip: std::net::IpAddr = host_ip
+                .parse()
+                .with_context(|| format!("failed to parse HostIp: {host_ip:?}"))?;
 
             // Technically, ports are allowed to appear without the '/tcp' suffix.
             let container_port = container_port
