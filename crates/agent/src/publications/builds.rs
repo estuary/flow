@@ -92,11 +92,19 @@ pub async fn build_catalog(
         "persist",
         &logs_tx,
         logs_token,
-        async_process::Command::new("gsutil")
-            .arg("-q")
-            .arg("cp")
-            .arg(&db_path)
-            .arg(dest_url.to_string()),
+        &mut if dest_url.scheme() == "file" {
+            // Allow tests to run in environments without `gsutil`.
+            let mut cmd = async_process::Command::new("cp");
+            cmd.arg(&db_path).arg(dest_url.path());
+            cmd
+        } else {
+            let mut cmd = async_process::Command::new("gsutil");
+            cmd.arg("-q")
+                .arg("cp")
+                .arg(&db_path)
+                .arg(dest_url.to_string());
+            cmd
+        },
     )
     .await
     .with_context(|| format!("persisting built sqlite DB {db_path:?}"))?;

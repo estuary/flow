@@ -64,6 +64,8 @@ jobs:
       - run: make print-versions
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "2404"
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
@@ -110,6 +112,8 @@ jobs:
       - run: make print-versions
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "2404"
 
       - run: go mod download
       - run: make rust-musl-test

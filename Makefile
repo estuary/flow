@@ -259,21 +259,26 @@ ${PKGDIR}/bin/agent: ${RUSTBIN}/agent | ${PKGDIR}
 ##########################################################################
 # Make targets used by CI:
 
-# We use LLVM for faster linking. See RUSTFLAGS in .github/workflows/main.yml
+# We use LLVM (lld) for faster linking. See RUSTFLAGS in .github/workflows/main.yml
 .PHONY: extra-ci-runner-setup
 extra-ci-runner-setup:
 	sudo apt install -y \
-		libssl-dev \
+		build-essential \
+		clang \
+		libsqlite3-dev \
+		lld \
+		musl \
+		musl-dev \
 		musl-tools \
-		pkg-config
-	sudo ln --force --symbolic /usr/bin/ld.lld-12 /usr/bin/ld.lld
+		python3-poetry \
+		python3-venv
 
 .PHONY: print-versions
 print-versions:
 	echo "Resolved repository version: ${FLOW_VERSION}" \
+		&& /usr/bin/ld.lld --version \
 		&& cargo version --verbose \
 		&& docker --version \
-		&& gcloud info \
 		&& go version \
 		&& jq --version \
 		&& node --version \
