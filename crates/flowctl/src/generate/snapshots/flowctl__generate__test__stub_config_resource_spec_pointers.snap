@@ -1,0 +1,8 @@
+---
+source: crates/flowctl/src/generate/mod.rs
+expression: cfg
+---
+{
+  "schema": "my-task",
+  "stream": "my-collection"
+}
