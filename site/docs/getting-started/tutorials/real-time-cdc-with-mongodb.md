@@ -105,7 +105,7 @@ In MongoDB Atlas, any of the built-in Roles will work for the tutorial, but Flow
 
 1. If you haven't already, make sure you deploy a Replica Set-type MongoDB cluster. **Change streams** require a replica set in order to work. A replica set is a group of MongoDB deployments that maintain the same data set. If you are working following along with a fresh MongoDB Atlas project, you shouldn’t need to configure anything manually for this, as the default free-tier instance is a cluster of 3 replicas. To learn more about replica sets, see the Replication Introduction in the [MongoDB manual](https://www.mongodb.com/docs/manual/replication/).
 
-2. Ensure that Estuary's IP addresses (`34.121.207.128, 35.226.75.135, 34.68.62.148`) are whitelisted to allow access. We’ll show you how to do this in the next section.
+2. Ensure that [Estuary's IP addresses are allowlisted](/reference/allow-ip-addresses) to allow access. We’ll show you how to do this in the next section.
 
 ### Configure MongoDB<a id="configure-mongodb"></a>
 
@@ -113,7 +113,7 @@ Let’s start by provisioning our database. As you can see, for this tutorial, y
 
 ![MongoDB deployment options](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//image12_664e3a1404/image12_664e3a1404.png)
 
-After the cluster has finished provisioning, we’ll need to make sure that Estuary Flow is able to connect to the database. For this, the only requirement with MongoDB Atlas is allowlisting the public IP's used by Flow, `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+After the cluster has finished provisioning, we’ll need to make sure that Estuary Flow is able to connect to the database. For this, the only requirement with MongoDB Atlas is allowlisting the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
 Navigate to the “Network Access” page using the left hand sidebar, and using the “Add new IP address” button, create the list entry which enables the communication between the two services.
 

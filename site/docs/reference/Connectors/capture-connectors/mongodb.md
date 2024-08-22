@@ -30,8 +30,8 @@ If you are using a user with access to all databases, then in your mongodb addre
 - ReplicaSet enabled on your database, see [Deploy a Replica
   Set](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set/).
 
-- If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting of IPs, you need to
-  whitelist Estuary's IPs: `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+- If you are using MongoDB Atlas, or your MongoDB provider requires allowlisting of IPs, you need to
+  [allowlist the Estuary IP addresses](/reference/allow-ip-addresses).
 
 ## Configuration
 

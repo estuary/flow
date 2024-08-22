@@ -33,7 +33,7 @@ You'll need a PostgreSQL database setup with the following:
 
    1. To allow direct access:
 
-      - [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128, 35.226.75.135, 34.68.62.148` as authorized IP addresses.
+      - [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add the [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
 
    2. To allow secure connections via SSH tunneling:
       - Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)

@@ -88,8 +88,8 @@ about how to configure this [here](../../materialization-sync-schedule.md).
 ## Setup
 
 You must configure your cluster to allow connections from Estuary. This can be accomplished by
-making your cluster accessible over the internet for Estuary Flow's IP addresses
-`34.121.207.128, 35.226.75.135, 34.68.62.148`, or using an SSH tunnel. Connecting to the S3
+making your cluster accessible over the internet for the
+[Estuary Flow IP addresses](/reference/allow-ip-addresses), or using an SSH tunnel. Connecting to the S3
 staging bucket does not use the network tunnel and connects over HTTPS only.
 
 Instructions for making a cluster accessible over the internet can be found
