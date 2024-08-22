@@ -15,24 +15,21 @@ RUN apt update -y \
      && apt upgrade -y \
      && DEBIAN_FRONTEND=noninteractive apt install --no-install-recommends -y \
      docker.io \
-     podman \
      google-cloud-cli \
      jq \
+     podman \
+     slirp4netns \
+     uidmap \
      && rm -rf /var/lib/apt/lists/*
 
-# Create a non-privileged "flow" user.
-RUN useradd flow --create-home --shell /usr/sbin/nologin
-
 # Install AWS CLI v2, taken from: https://lukewiwa.com/blog/add_the_aws_cli_to_a_dockerfile/
-COPY --from=amazon/aws-cli:latest /usr/local/aws-cli/ /usr/local/aws-cli/
+COPY --from=docker.io/amazon/aws-cli:latest /usr/local/aws-cli/ /usr/local/aws-cli/
 RUN ln -s /usr/local/aws-cli/v2/current/bin/aws \
         /usr/local/bin/aws && \
     ln -s /usr/local/aws-cli/v2/current/bin/aws_completer \
         /usr/local/bin/aws_completer
 
 # Copy binaries & libraries to the image, owned by root.
-USER root
 COPY bin/* /usr/local/bin/
 
-USER flow
-WORKDIR /home/flow/project
+WORKDIR /tmp
