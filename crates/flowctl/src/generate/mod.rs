@@ -393,7 +393,7 @@ fn stub_config(shape: &doc::Shape, collection: Option<&models::Collection>) -> s
         let mut properties = serde_json::Map::new();
 
         for p in &shape.object.properties {
-            if p.is_required {
+            if p.is_required || p.shape.annotations.get("x-schema-name").is_some() {
                 properties.insert(p.name.to_string(), stub_config(&p.shape, collection));
             }
         }
@@ -424,6 +424,17 @@ fn stub_config(shape: &doc::Shape, collection: Option<&models::Collection>) -> s
             .rsplit("/")
             .next()
             .expect("collection names always have a slash"))
+    } else if shape
+        .annotations
+        .get("x-schema-name")
+        .is_some_and(|v| matches!(v, serde_json::Value::Bool(true)))
+        && collection.is_some()
+    {
+        json!(collection
+            .unwrap()
+            .rsplit("/")
+            .nth(1)
+            .expect("collection names always have a slash"))
     } else if shape.type_.overlaps(types::STRING) {
         json!("")
     } else if shape.type_.overlaps(types::INTEGER) {
@@ -434,5 +445,49 @@ fn stub_config(shape: &doc::Shape, collection: Option<&models::Collection>) -> s
         json!(0.0)
     } else {
         json!(null)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use doc::Shape;
+
+    // Map a JSON schema, in YAML form, into a Shape.
+    fn shape_from(schema_yaml: &str) -> Shape {
+
+        let url = url::Url::parse("http://example/schema").unwrap();
+        let schema: serde_json::Value = serde_yaml::from_str(schema_yaml).unwrap();
+        let schema =
+            json::schema::build::build_schema::<doc::Annotation>(url.clone(), &schema).unwrap();
+
+        let mut index = json::schema::index::IndexBuilder::new();
+        index.add(&schema).unwrap();
+        index.verify_references().unwrap();
+        let index = index.into_index();
+
+        Shape::infer(index.must_fetch(&url).unwrap(), &index)
+    }
+
+    #[test]
+    fn test_stub_config_resource_spec_pointers() {
+        let obj = shape_from(
+            r#"
+        type: object
+        properties:
+            stream:
+                type: string
+                x-collection-name: true
+            schema:
+                type: string
+                x-schema-name: true
+        required:
+            - stream
+        "#,
+        );
+
+        let cfg = stub_config(&obj, Some(&models::Collection::new("my-tenant/my-task/my-collection")));
+
+        insta::assert_json_snapshot!(cfg);
     }
 }

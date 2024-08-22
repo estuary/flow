@@ -1796,6 +1796,7 @@ dependencies = [
  "extractors",
  "futures",
  "humantime",
+ "insta",
  "itertools 0.10.5",
  "journal-client",
  "json",
