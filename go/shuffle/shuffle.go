@@ -9,6 +9,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/types"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
 
@@ -33,10 +34,10 @@ type shuffle struct {
 	shuffleKey []string
 	// Partitioned projection fields which fully cover the shuffle key.
 	shuffleKeyPartitionFields []string
-	// Name of the sourced collection.
-	sourceCollection pf.Collection
 	// Partition selector of the sourced collection.
 	sourcePartitions pf.LabelSelector
+	// Sourced collection specification.
+	sourceSpec *pf.CollectionSpec
 	// JSON pointer of source document UUIDs.
 	sourceUuidPtr string
 	// Shuffle key is dynamically computed from derivation transform source documents.
@@ -47,6 +48,8 @@ type shuffle struct {
 	validateSchema json.RawMessage
 	// Non-ACK documents before or after these Clocks are filtered.
 	notBefore, notAfter message.Clock
+	// Returns the most-recent journal listing snapshot for this shuffle.
+	listing func() *pb.ListResponse
 }
 
 func derivationShuffles(task *pf.CollectionSpec) []shuffle {
@@ -68,8 +71,8 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 			readDelay:                 readDelay,
 			shuffleKey:                nil,
 			shuffleKeyPartitionFields: nil,
-			sourceCollection:          transform.Collection.Name,
 			sourcePartitions:          transform.PartitionSelector,
+			sourceSpec:                &transform.Collection,
 			sourceUuidPtr:             transform.Collection.UuidPtr,
 			usesLambda:                false,
 			usesSourceKey:             false,
@@ -130,8 +133,8 @@ func materializationShuffles(task *pf.MaterializationSpec) []shuffle {
 			readDelay:                 0,
 			shuffleKey:                binding.Collection.Key,
 			shuffleKeyPartitionFields: nil,
-			sourceCollection:          binding.Collection.Name,
 			sourcePartitions:          binding.PartitionSelector,
+			sourceSpec:                &binding.Collection,
 			sourceUuidPtr:             binding.Collection.UuidPtr,
 			usesLambda:                false,
 			usesSourceKey:             true,

@@ -6,6 +6,7 @@ import (
 
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"google.golang.org/grpc/codes"
@@ -33,12 +34,13 @@ func NewAPI(resolver *consumer.Resolver) *API {
 }
 
 // Shuffle implements the gRPC Shuffle endpoint.
-func (api *API) Shuffle(req *pr.ShuffleRequest, stream pr.Shuffler_ShuffleServer) error {
+func (api *API) Shuffle(claims pb.Claims, req *pr.ShuffleRequest, stream pr.Shuffler_ShuffleServer) error {
 	if err := req.Validate(); err != nil {
 		return err
 	}
 	var res, err = api.resolve(consumer.ResolveArgs{
 		Context:     stream.Context(),
+		Claims:      claims,
 		ShardID:     req.Coordinator,
 		MayProxy:    false,
 		ProxyHeader: req.Resolution,
