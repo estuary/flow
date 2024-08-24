@@ -128,8 +128,8 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 			} else if r, err = rb.buildReplayRead(journal, begin, end); err != nil {
 				return message.Envelope{}, err
 			} else {
-				r.start(ctx, attempt, rb.service.Resolver.Resolve,
-					pr.NewShufflerClient(rb.service.Loopback), nil)
+				var sc = pr.NewAuthShufflerClient(pr.NewShufflerClient(rb.service.Loopback), rb.service.Authorizer)
+				r.start(ctx, attempt, rb.service.Resolver.Resolve, sc, nil)
 			}
 
 			if env, err = r.next(); err == nil {
@@ -235,7 +235,7 @@ func (g *governor) poll(ctx context.Context) error {
 			return ctx.Err()
 		case result, ok = <-r.ch:
 			// Fall through.
-		case <-g.rb.journals.Update():
+		case <-g.rb.watchCh:
 			return g.onConverge(ctx)
 		case <-g.rb.drainCh:
 			return g.onConverge(ctx)
@@ -316,7 +316,7 @@ func (g *governor) poll(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-g.rb.journals.Update():
+	case <-g.rb.watchCh:
 		return g.onConverge(ctx)
 	case <-g.rb.drainCh:
 		return g.onConverge(ctx)
@@ -350,11 +350,11 @@ func (g *governor) onConverge(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("buildReads: %w", err)
 	}
+	var sc = pr.NewAuthShufflerClient(pr.NewShufflerClient(g.rb.service.Loopback), g.rb.service.Authorizer)
 
 	for _, r := range added {
 		var attempts = g.attempts[r.spec.Name]
-		r.start(ctx, attempts, g.rb.service.Resolver.Resolve,
-			pr.NewShufflerClient(g.rb.service.Loopback), g.readReadyCh)
+		r.start(ctx, attempts, g.rb.service.Resolver.Resolve, sc, g.readReadyCh)
 
 		g.attempts[r.spec.Name] = g.attempts[r.spec.Name] + 1
 		g.active[r.spec.Name] = r

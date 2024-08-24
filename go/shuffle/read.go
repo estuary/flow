@@ -14,6 +14,7 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -24,7 +25,7 @@ import (
 type ReadBuilder struct {
 	buildID   string
 	drainCh   <-chan struct{}
-	journals  flow.Journals
+	watchCh   <-chan error
 	publisher ops.Publisher
 	service   *consumer.Service
 	shardID   pc.ShardID
@@ -48,9 +49,9 @@ type ReadBuilder struct {
 // When |drainCh| closes, the ReadBuilder will gracefully converge
 // to a drained state with no active reads.
 func NewReadBuilder(
+	ctx context.Context,
+	jc pb.JournalClient,
 	buildID string,
-	drainCh <-chan struct{},
-	journals flow.Journals,
 	publisher ops.Publisher,
 	service *consumer.Service,
 	shardID pc.ShardID,
@@ -87,36 +88,75 @@ func NewReadBuilder(
 		return nil, fmt.Errorf("task %#v is not a derivation or materialization", task)
 	}
 
-	return &ReadBuilder{
-		buildID:         buildID,
-		drainCh:         drainCh,
-		journals:        journals,
-		members:         members,
-		publisher:       publisher,
-		service:         service,
-		shardID:         shardID,
-		shuffles:        shuffles,
-		derivation:      derivation,
-		materialization: materialization,
-	}, nil
+	if watchCh, err := startWatches(ctx, jc, shuffles); err != nil {
+		return nil, err
+	} else {
+		return &ReadBuilder{
+			buildID:         buildID,
+			drainCh:         ctx.Done(),
+			watchCh:         watchCh,
+			members:         members,
+			publisher:       publisher,
+			service:         service,
+			shardID:         shardID,
+			shuffles:        shuffles,
+			derivation:      derivation,
+			materialization: materialization,
+		}, nil
+	}
 }
 
-// ReadThrough filters the input |offsets| to those journals and offsets which are
-// actually read by this ReadBuilder. It powers the shard Stat RPC.
+func startWatches(ctx context.Context, jc pb.JournalClient, shuffles []shuffle) (chan error, error) {
+	var watchCh = make(chan error, 1)
+
+	// Initialize watches for all shuffle collection partitions.
+	for i := range shuffles {
+		shuffles[i].listing = client.NewWatchedList(
+			ctx,
+			jc,
+			flow.CollectionWatchRequest(shuffles[i].sourceSpec),
+			watchCh,
+		).List
+	}
+	// Block until all watches are ready, surfacing any errors during initialization.
+	// We log but don't fail on errors after fetching initial snapshots.
+	for ready := false; !ready; {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case err := <-watchCh:
+			if err != nil {
+				return nil, fmt.Errorf("initializing journal listing watch: %w", err)
+			}
+		}
+
+		ready = true
+		for i := range shuffles {
+			if shuffles[i].listing() == nil {
+				ready = false
+				break
+			}
+		}
+	}
+	return watchCh, nil
+}
+
+// ReadThrough filters the input `offsets` to remove shuffle partitions which
+// are known but explicitly filtered by the shuffle, while passing-through
+// offsets which are not filtered or which belong to journals not known to
+// this ReadBuilder.
+//
+// It powers the shard Stat RPC, which will await progress that reads through the given offset.
+// Note we may not (yet) know about a partition that we do in fact need to read,
+// and it's important that this API block to await progress against that partition.
 func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
-	var out = make(pb.Offsets, len(offsets))
-	var err = walkReads(rb.shardID, rb.members(), rb.journals, rb.shuffles,
-		func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, _ pc.ShardID) {
-			if offset := offsets[spec.Name]; offset != 0 {
-				// Prefer an offset that exactly matches our journal + metadata extension.
-				out[spec.Name] = offset
-			} else if offset = offsets[spec.Name.StripMeta()]; offset != 0 {
-				// Otherwise, if there's an offset that matches the Journal name,
-				// then project it to our metadata extension.
-				out[spec.Name] = offset
+	var err = walkReads(rb.shardID, rb.members(), rb.shuffles,
+		func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, _ pc.ShardID, filtered bool) {
+			if _, ok := offsets[spec.Name]; ok && filtered {
+				delete(offsets, spec.Name)
 			}
 		})
-	return out, err
+	return offsets, err
 }
 
 type read struct {
@@ -144,9 +184,9 @@ type read struct {
 
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
 	var out *read
-	var err = walkReads(rb.shardID, rb.members(), rb.journals, rb.shuffles,
-		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
-			if spec.Name != journal {
+	var err = walkReads(rb.shardID, rb.members(), rb.shuffles,
+		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool) {
+			if spec.Name != journal || filtered {
 				return
 			}
 
@@ -210,8 +250,12 @@ func (rb *ReadBuilder) buildReads(
 		return
 	}
 
-	err = walkReads(rb.shardID, rb.members(), rb.journals, rb.shuffles,
-		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
+	err = walkReads(rb.shardID, rb.members(), rb.shuffles,
+		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool) {
+			if filtered {
+				return
+			}
+
 			if r, ok := existing[spec.Name]; ok {
 				// A *read for this journal shuffle already exists.
 				// If it's coordinator is unchanged, keep it active (i.e., don't drain).
@@ -531,8 +575,8 @@ func (h *readHeap) Pop() interface{} {
 	return x
 }
 
-func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journals, shuffles []shuffle,
-	cb func(_ pf.RangeSpec, _ pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID)) error {
+func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, shuffles []shuffle,
+	cb func(_ pf.RangeSpec, _ pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool)) error {
 
 	var members, err = newShuffleMembers(shardSpecs)
 	if err != nil {
@@ -541,29 +585,24 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 	var index = sort.Search(len(members), func(i int) bool {
 		return id <= members[i].spec.Id
 	})
+
+	// If shard `id` isn't found among `members`, then it was deleted and
+	// we're in the process of shutting down.
 	if index == len(members) || id != members[index].spec.Id {
-		return fmt.Errorf("shard %s not found among shuffle members", id)
+		return nil
 	}
 
-	allJournals.Mu.RLock()
-	defer allJournals.Mu.RUnlock()
-
 	for shuffleIndex, shuffle := range shuffles {
-		var prefix = allocator.ItemKey(allJournals.KeySpace, shuffle.sourceCollection.String()) + "/"
-		var sources = allJournals.Prefixed(prefix)
-
-		for _, kv := range sources {
-			var source = kv.Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)
-
-			if !shuffle.sourcePartitions.Matches(source.LabelSet) {
-				continue
-			}
+		for _, listing := range shuffle.listing().Journals {
+			var source pb.JournalSpec = listing.Spec // Shallow by-value copy.
 
 			// start / stop is the range of `members` which are candidates for coordinating
 			// the read of this journal. We seek to select a start/stop range which minimizes
 			// data movement, making it as likely as possible that the coordinating shard will
 			// be directly responsible for handling documents of the journal.
 			var start, stop int
+			// filtered indicates that the partition is excluded and not read by this shard.
+			var filtered = !shuffle.sourcePartitions.Matches(source.LabelSet)
 
 			if len(shuffle.shuffleKeyPartitionFields) != 0 {
 				// This transform shuffles on a key which is covered by logical partitions.
@@ -582,7 +621,7 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 					// We don't cover keyHash, meaning this journal cannot
 					// contain documents which shuffle into our range,
 					// and we can skip reading it altogether.
-					continue
+					filtered = true
 				}
 			} else if shuffle.usesSourceKey {
 				// This transform uses the source's key, which means that the key ranges
@@ -614,12 +653,12 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 			}
 
 			// Augment JournalSpec to included the shuffle's read suffix as a metadata path segment.
-			var copied = *source
-			copied.Name = pb.Journal(fmt.Sprintf("%s;%s",
-				source.Name.String(), shuffle.journalReadSuffix))
+			// Note `source` is a shallow by-value copy, so we're not mutating the internals
+			// of the journal listing.
+			source.Name = pb.Journal(fmt.Sprintf("%s;%s", source.Name.String(), shuffle.journalReadSuffix))
 
-			var m = pickHRW(hrwHash(copied.Name.String()), members, start, stop)
-			cb(members[index].range_, copied, shuffleIndex, members[m].spec.Id)
+			var m = pickHRW(hrwHash(source.Name.String()), members, start, stop)
+			cb(members[index].range_, source, shuffleIndex, members[m].spec.Id, filtered)
 		}
 	}
 	return nil
