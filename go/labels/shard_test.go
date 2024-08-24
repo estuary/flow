@@ -23,9 +23,11 @@ func TestParsingShardLabels(t *testing.T) {
 		PortPublicPrefix+"9000", "true",
 		RClockBegin, "cccccccc",
 		RClockEnd, "dddddddd",
-		TaskName, "a-task",
+		TaskName, "a/task",
 		TaskType, ops.TaskType_capture.String(),
 		SplitSource, "a-source",
+		LogsJournal, "logs/journal",
+		StatsJournal, "stats/journal",
 	)
 	var out, err = ParseShardLabels(set)
 	require.NoError(t, err)
@@ -40,11 +42,23 @@ func TestParsingShardLabels(t *testing.T) {
 			RClockBegin: 0xcccccccc,
 			RClockEnd:   0xdddddddd,
 		},
-		SplitSource: "a-source",
-		SplitTarget: "",
-		TaskName:    "a-task",
-		TaskType:    ops.TaskType_capture,
+		SplitSource:  "a-source",
+		SplitTarget:  "",
+		TaskName:     "a/task",
+		TaskType:     ops.TaskType_capture,
+		LogsJournal:  "logs/journal",
+		StatsJournal: "stats/journal",
 	}, out)
+
+	// Case: logs & stats journals are ommitted and use legacy behavior.
+	set.Remove(LogsJournal)
+	set.Remove(StatsJournal)
+
+	out, err = ParseShardLabels(set)
+	require.NoError(t, err)
+
+	require.Equal(t, out.LogsJournal, pb.Journal("ops.us-central1.v1/logs/kind=capture/name=a%2Ftask/pivot=00"))
+	require.Equal(t, out.StatsJournal, pb.Journal("ops.us-central1.v1/stats/kind=capture/name=a%2Ftask/pivot=00"))
 
 	// Case: invalid log-level.
 	set.SetValue(LogLevel, "whoops")
