@@ -18,6 +18,7 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/stretchr/testify/require"
+	"go.gazette.dev/core/auth"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/brokertest"
@@ -105,7 +106,10 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
 	var coordinator = NewCoordinator(apiCtx, localPublisher, bk.Client())
 
-	pr.RegisterShufflerServer(srv.GRPCServer, &API{
+	var auth, err = auth.NewKeyedAuth("c2VjcmV0")
+	require.NoError(t, err)
+
+	var api pr.AuthShufflerServer = &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
 			require.Equal(t, args.ShardID, pc.ShardID("the-coordinator"))
 
@@ -114,9 +118,10 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 				Done:  func() {},
 			}, nil
 		},
-	})
+	}
+	pr.RegisterShufflerServer(srv.GRPCServer, pr.NewVerifiedShufflerServer(api, auth))
 
-	var shuffler = pr.NewShufflerClient(srv.GRPCLoopback)
+	var shuffler = pr.NewAuthShufflerClient(pr.NewShufflerClient(srv.GRPCLoopback), auth)
 	var tasks = task.NewGroup(apiCtx)
 	srv.QueueTasks(tasks)
 	tasks.GoRun()
