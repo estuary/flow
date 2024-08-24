@@ -42,10 +42,10 @@ pub struct Collection {
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
 pub struct Partition {
-    pub spec: broker::JournalSpec,
     pub create_revision: i64,
-    pub mod_revision: i64,
-    pub route: broker::Route,
+    pub spec: broker::JournalSpec,
+    pub _mod_revision: i64,
+    pub _route: broker::Route,
 }
 
 impl Collection {
@@ -159,9 +159,9 @@ impl Collection {
         for journal in response.journals {
             partitions.push(Partition {
                 create_revision: journal.create_revision,
-                mod_revision: journal.mod_revision,
-                route: journal.route.context("expected journal Route")?,
                 spec: journal.spec.context("expected journal Spec")?,
+                _mod_revision: journal.mod_revision,
+                _route: journal.route.context("expected journal Route")?,
             })
         }
 
@@ -264,13 +264,10 @@ impl Collection {
             "fetched data-plane token"
         );
 
-        let router = journal::Router::new(
-            &auth[0].gateway_url,
-            gazette::Auth::new(Some(auth[0].token.clone()))
-                .context("failed to build gazette router")?,
-            "dekaf",
-        )?;
-        let client = journal::Client::new(Default::default(), router);
+        let router = gazette::Router::new(&auth[0].gateway_url, "dekaf")?;
+        let auth = gazette::Auth::new(Some(auth[0].token.clone()))
+            .context("failed to build gazette router")?;
+        let client = journal::Client::new(Default::default(), router, auth);
 
         Ok(client)
     }

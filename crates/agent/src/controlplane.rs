@@ -1,6 +1,6 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use gazette::{journal, shard};
+use gazette::{broker, journal, shard};
 use models::CatalogType;
 use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;
@@ -54,6 +54,7 @@ pub trait ControlPlane: Send {
         &mut self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<()>;
 
     /// Deletes the given entity from the data plane.
@@ -61,13 +62,14 @@ pub trait ControlPlane: Send {
         &mut self,
         catalog_name: String,
         spec_type: CatalogType,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<()>;
 
     /// Triggers controller runs for all dependents of the given `catalog_name`.
     async fn notify_dependents(&mut self, catalog_name: String) -> anyhow::Result<()>;
 
     /// Attempts to publish the given draft, returning a result that indicates
-    /// whehter it was successful. Returns an `Err` only if there was an error
+    /// whether it was successful. Returns an `Err` only if there was an error
     /// executing the publication. Unsuccessful publications are represented by
     /// an `Ok`, where the `PublicationResult` has a non-success status.
     async fn publish(
@@ -149,15 +151,6 @@ pub struct PGControlPlane {
     pub system_user_id: Uuid,
     pub publications_handler: Publisher,
     pub id_generator: models::IdGenerator,
-
-    /// We create shard/journal clients once and then re-use them forever. This
-    /// is a temporary hack, to be replaced once we implement federated data
-    /// planes.
-    cached_clients: Option<(shard::Client, journal::Client)>,
-
-    // These should be looked up dynamically once federated data planes are implemented
-    broker_address: url::Url,
-    consumer_address: url::Url,
 }
 
 impl PGControlPlane {
@@ -166,43 +159,83 @@ impl PGControlPlane {
         system_user_id: Uuid,
         publications_handler: Publisher,
         id_generator: models::IdGenerator,
-        broker_address: url::Url,
-        consumer_address: url::Url,
     ) -> Self {
         Self {
             pool,
             system_user_id,
             publications_handler,
             id_generator,
-            broker_address,
-            consumer_address,
-            cached_clients: None,
         }
     }
 
-    fn get_data_plane_clients(&mut self) -> anyhow::Result<(&shard::Client, &journal::Client)> {
-        if self.cached_clients.is_none() {
-            // Create the journal and shard clients that are used for interacting with the data plane
-            let journal_router = gazette::journal::Router::new(
-                self.broker_address.as_str(),
-                gazette::Auth::new(None)?,
-                "local",
-            )?;
-            let journal_client =
-                gazette::journal::Client::new(reqwest::Client::default(), journal_router);
-            let shard_router = gazette::shard::Router::new(
-                self.consumer_address.as_str(),
-                gazette::Auth::new(None)?,
-                "local",
-            )?;
-            let shard_client = gazette::shard::Client::new(shard_router);
-            self.cached_clients = Some((shard_client, journal_client));
+    async fn build_data_plane_clients(
+        &self,
+        data_plane_id: models::Id,
+    ) -> anyhow::Result<(
+        shard::Client,
+        journal::Client,
+        broker::JournalSpec, // ops logs template.
+        broker::JournalSpec, // ops stats template.
+    )> {
+        let mut fetched = agent_sql::data_plane::fetch_data_planes(
+            &self.pool,
+            vec![data_plane_id],
+            "", // Don't fetch default data-plane.
+            uuid::Uuid::nil(),
+        )
+        .await?;
+
+        let Some(data_plane) = fetched.pop() else {
+            anyhow::bail!("data-plane {data_plane_id} does not exist");
+        };
+        let ops_logs_template = agent_sql::data_plane::fetch_ops_journal_template(
+            &self.pool,
+            &data_plane.ops_logs_name,
+        );
+        let ops_stats_template = agent_sql::data_plane::fetch_ops_journal_template(
+            &self.pool,
+            &data_plane.ops_stats_name,
+        );
+        let (ops_logs_template, ops_stats_template) =
+            futures::try_join!(ops_logs_template, ops_stats_template)?;
+
+        let unix_ts = jsonwebtoken::get_current_timestamp();
+
+        // Sign short-lived claims for activating journals and shards into the data-plane.
+        let claims = proto_gazette::Claims {
+            sel: Default::default(),
+            cap: proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
+            sub: String::new(),
+            iat: unix_ts,
+            exp: unix_ts + 60,
+            iss: data_plane.data_plane_fqdn.clone(),
+        };
+
+        let mut bearer_token = None;
+        if let Some(hmac_key) = data_plane.hmac_keys.first() {
+            let hmac_key = jsonwebtoken::EncodingKey::from_base64_secret(hmac_key)
+                .context("hmac key is invalid")?;
+
+            bearer_token = Some(
+                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &hmac_key)
+                    .context("failed to encode authorization")?,
+            );
         }
-        let clients = self
-            .cached_clients
-            .as_ref()
-            .expect("cached_clients must be Some");
-        Ok((&clients.0, &clients.1))
+        let auth = gazette::Auth::new(bearer_token)?;
+
+        // Create the journal and shard clients that are used for interacting with the data plane
+        let journal_router = gazette::Router::new(&data_plane.broker_address, "local")?;
+        let journal_client =
+            gazette::journal::Client::new(reqwest::Client::default(), journal_router, auth.clone());
+        let shard_router = gazette::Router::new(&data_plane.reactor_address, "local")?;
+        let shard_client = gazette::shard::Client::new(shard_router, auth);
+
+        Ok((
+            shard_client,
+            journal_client,
+            ops_logs_template,
+            ops_stats_template,
+        ))
     }
 }
 
@@ -273,7 +306,6 @@ impl ControlPlane for PGControlPlane {
             let Some(model_json) = row.spec.as_deref() else {
                 continue;
             };
-            let scope = tables::synthetic_scope(catalog_type, &row.catalog_name);
             let built_spec_json = row.built_spec.as_ref().ok_or_else(|| {
                 tracing::warn!(catalog_name = %row.catalog_name, id = %row.id, "got row with spec but not built_spec");
                 anyhow::anyhow!("missing built_spec for {:?}, but spec is non-null", row.catalog_name)
@@ -282,7 +314,8 @@ impl ControlPlane for PGControlPlane {
             live.add_spec(
                 catalog_type,
                 &row.catalog_name,
-                scope,
+                row.id.into(),
+                row.data_plane_id.into(),
                 row.last_pub_id.into(),
                 model_json,
                 built_spec_json,
@@ -342,6 +375,7 @@ impl ControlPlane for PGControlPlane {
                     detail.clone(),
                     draft,
                     logs_token,
+                    "", // No default data-plane.
                 )
                 .await?;
             if built.errors().next().is_some() {
@@ -370,18 +404,23 @@ impl ControlPlane for PGControlPlane {
         &mut self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<()> {
-        let (shard_client, journal_client) = self
-            .get_data_plane_clients()
+        let (shard_client, journal_client, ops_logs_template, ops_stats_template) = self
+            .build_data_plane_clients(data_plane_id)
+            .await
             .context("failed to create data plane clients")?;
+
         match spec {
             AnyBuiltSpec::Capture(s) => {
                 let name = models::Capture::new(catalog_name);
                 activate::activate_capture(
-                    journal_client,
-                    shard_client,
+                    &journal_client,
+                    &shard_client,
                     &name,
                     Some(s),
+                    Some(&ops_logs_template),
+                    Some(&ops_stats_template),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -389,10 +428,12 @@ impl ControlPlane for PGControlPlane {
             AnyBuiltSpec::Collection(s) => {
                 let name = models::Collection::new(catalog_name);
                 activate::activate_collection(
-                    journal_client,
-                    shard_client,
+                    &journal_client,
+                    &shard_client,
                     &name,
                     Some(s),
+                    Some(&ops_logs_template),
+                    Some(&ops_stats_template),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -400,10 +441,12 @@ impl ControlPlane for PGControlPlane {
             AnyBuiltSpec::Materialization(s) => {
                 let name = models::Materialization::new(catalog_name);
                 activate::activate_materialization(
-                    journal_client,
-                    shard_client,
+                    &journal_client,
+                    &shard_client,
                     &name,
                     Some(s),
+                    Some(&ops_logs_template),
+                    Some(&ops_stats_template),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -418,18 +461,23 @@ impl ControlPlane for PGControlPlane {
         &mut self,
         catalog_name: String,
         spec_type: CatalogType,
+        data_plane_id: models::Id,
     ) -> anyhow::Result<()> {
-        let (shard_client, journal_client) = self
-            .get_data_plane_clients()
-            .context("failed to create data plane clients")?;
+        let (shard_client, journal_client, ops_logs_template, ops_stats_template) = self
+            .build_data_plane_clients(data_plane_id)
+            .await
+            .context("failed to create data-plane clients")?;
+
         match spec_type {
             CatalogType::Capture => {
                 let name = models::Capture::new(catalog_name);
                 activate::activate_capture(
-                    journal_client,
-                    shard_client,
+                    &journal_client,
+                    &shard_client,
                     &name,
                     None,
+                    Some(&ops_logs_template),
+                    Some(&ops_stats_template),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -437,10 +485,12 @@ impl ControlPlane for PGControlPlane {
             CatalogType::Collection => {
                 let name = models::Collection::new(catalog_name);
                 activate::activate_collection(
-                    journal_client,
-                    shard_client,
+                    &journal_client,
+                    &shard_client,
                     &name,
                     None,
+                    Some(&ops_logs_template),
+                    Some(&ops_stats_template),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -448,10 +498,12 @@ impl ControlPlane for PGControlPlane {
             CatalogType::Materialization => {
                 let name = models::Materialization::new(catalog_name);
                 activate::activate_materialization(
-                    journal_client,
-                    shard_client,
+                    &journal_client,
+                    &shard_client,
                     &name,
                     None,
+                    Some(&ops_logs_template),
+                    Some(&ops_stats_template),
                     INITIAL_SPLITS,
                 )
                 .await

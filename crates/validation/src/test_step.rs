@@ -29,11 +29,11 @@ fn walk_test(
     built_collections: &tables::BuiltCollections,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltTest> {
-    let (test, scope, model, expect_pub_id, live_spec) = match walk_transition(pub_id, eob, errors)
-    {
-        Ok(ok) => ok,
-        Err(built) => return Some(built),
-    };
+    let (test, scope, model, control_id, _data_plane_id, expect_pub_id, live_spec) =
+        match walk_transition(pub_id, Some(models::Id::zero()), eob, errors) {
+            Ok(ok) => ok,
+            Err(built) => return Some(built),
+        };
     let scope = Scope::new(scope);
 
     let models::TestDef { steps, .. } = model;
@@ -63,6 +63,7 @@ fn walk_test(
     Some(tables::BuiltTest {
         test: test.clone(),
         scope: scope.flatten(),
+        control_id,
         expect_pub_id,
         model: Some(model.clone()),
         spec: Some(built_spec),

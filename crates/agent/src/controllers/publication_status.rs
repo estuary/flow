@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
-use super::{backoff_data_plane_activate, ControllerState, NextRun};
+use super::{backoff_data_plane_activate, ControllerState};
 
 /// Information about the dependencies of a live spec.
 pub struct Dependencies {
@@ -55,7 +55,7 @@ impl ActivationStatus {
             let name = state.catalog_name.clone();
             let built_spec = state.built_spec.as_ref().expect("built_spec must be Some");
             control_plane
-                .data_plane_activate(name, built_spec)
+                .data_plane_activate(name, built_spec, state.data_plane_id)
                 .await
                 .with_retry(backoff_data_plane_activate(state.failures))
                 .context("failed to activate")?;
@@ -320,12 +320,19 @@ impl PublicationStatus {
     }
 }
 
-fn draft_publication(state: &ControllerState, live_spec: &AnySpec) -> tables::DraftCatalog {
+fn draft_publication(state: &ControllerState, spec: &AnySpec) -> tables::DraftCatalog {
     let mut draft = tables::DraftCatalog::default();
-    draft.add_any_spec(
-        &state.catalog_name,
-        live_spec.clone(),
-        Some(state.last_pub_id),
-    );
+    let scope = tables::synthetic_scope(spec.catalog_type(), &state.catalog_name);
+
+    draft
+        .add_spec(
+            spec.catalog_type(),
+            &state.catalog_name,
+            scope,
+            Some(state.last_pub_id),
+            Some(&spec.to_raw_value()),
+        )
+        .unwrap(); // TODO error handling.
+
     draft
 }

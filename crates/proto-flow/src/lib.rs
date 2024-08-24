@@ -105,3 +105,9 @@ mod serde_ops {
 }
 // We don't generate serde support for the `runtime` protobuf package,
 // as it's not intended for JSON serialization.
+
+pub mod capability {
+    pub const AUTHORIZE: u32 = 1 << 16;
+    pub const SHUFFLE: u32 = 1 << 17;
+    pub const NETWORK_PROXY: u32 = 1 << 18;
+}

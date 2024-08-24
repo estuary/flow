@@ -66,6 +66,8 @@ pub struct ControllerState {
     /// The current `status` of the controller, which represents the before
     /// state during an update. This is just informational.
     pub current_status: Status,
+    /// ID of the data plane in which this specification lives.
+    pub data_plane_id: Id,
 }
 
 impl ControllerState {
@@ -140,6 +142,7 @@ impl ControllerState {
             logs_token: job.logs_token,
             controller_version: job.controller_version,
             current_status: status,
+            data_plane_id: job.data_plane_id.into(),
         };
         Ok(controller_state)
     }
@@ -287,7 +290,7 @@ fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
 
 impl Status {
     pub fn json_schema() -> schemars::schema::RootSchema {
-        let mut settings = schemars::gen::SchemaSettings::draft2019_09();
+        let settings = schemars::gen::SchemaSettings::draft2019_09();
         //settings.option_add_null_type = false;
         //settings.inline_subschemas = true;
         let generator = schemars::gen::SchemaGenerator::new(settings);
@@ -318,7 +321,11 @@ impl Status {
                 // sure that they can respond. The controller job row will be
                 // deleted automatically after we return.
                 control_plane
-                    .data_plane_delete(state.catalog_name.clone(), catalog_type)
+                    .data_plane_delete(
+                        state.catalog_name.clone(),
+                        catalog_type,
+                        state.data_plane_id,
+                    )
                     .await
                     .context("deleting from data-plane")
                     .with_retry(backoff_data_plane_activate(state.failures))?;

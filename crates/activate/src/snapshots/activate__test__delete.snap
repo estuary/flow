@@ -1,54 +1,64 @@
 ---
 source: crates/activate/src/lib.rs
-expression: "(partition_changes, shard_changes, log_changes)"
+expression: "(partition_changes, task_changes)"
 ---
 [
-  {
-    "changes": [
-      {
+  [
+    {
+      "Journal": {
         "expectModRevision": "111",
         "delete": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=10000000"
-      },
-      {
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "delete": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=40000000"
-      },
-      {
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "delete": "example/collection/2020202020202020/a_bool=%_false/a_str=other-val/pivot=00"
       }
-    ]
-  },
-  {
-    "changes": [
-      {
+    }
+  ],
+  [
+    {
+      "Shard": {
         "expectModRevision": "111",
         "delete": "derivation/example/derivation/2020202020202020/10000000-60000000"
-      },
-      {
+      }
+    },
+    {
+      "Shard": {
         "expectModRevision": "111",
         "delete": "derivation/example/derivation/2020202020202020/30000000-60000000"
-      },
-      {
+      }
+    },
+    {
+      "Shard": {
         "expectModRevision": "111",
         "delete": "derivation/example/derivation/2020202020202020/30000000-80000000"
       }
-    ]
-  },
-  {
-    "changes": [
-      {
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "delete": "recovery/derivation/example/derivation/2020202020202020/10000000-60000000"
-      },
-      {
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "delete": "recovery/derivation/example/derivation/2020202020202020/30000000-60000000"
-      },
-      {
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "delete": "recovery/derivation/example/derivation/2020202020202020/30000000-80000000"
       }
-    ]
-  }
+    }
+  ]
 ]

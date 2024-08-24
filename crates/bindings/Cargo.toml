@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [lib]
-crate_type = ["staticlib"]
+crate-type = ["staticlib"]
 
 [dependencies]
 allocator = { path = "../allocator" }

@@ -7,7 +7,9 @@ Outcome {
     built_collections: [
         BuiltCollection {
             collection: the/collection,
-            scope: flow://control/collections/the/collection,
+            scope: flow://collection/the/collection,
+            control_id: "1111111111111102",
+            data_plane_id: "1212121212121202",
             expect_pub_id: "1010101010101010",
             model: {
               "schema": {"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"type":"object","x-live":"pass-through"},
@@ -79,6 +81,8 @@ Outcome {
         BuiltCollection {
             collection: the/derivation,
             scope: test://example/catalog.yaml#/collections/the~1derivation,
+            control_id: "1111111111111103",
+            data_plane_id: "1212121212121203",
             expect_pub_id: "1010101010101010",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1derivation/schema","properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"},
@@ -571,7 +575,7 @@ Outcome {
     storage_mappings: [
         StorageMapping {
             catalog_prefix: ,
-            scope: flow://control/storage-mapping/default,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "S3",

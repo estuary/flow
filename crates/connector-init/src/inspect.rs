@@ -5,7 +5,6 @@ use std::collections::HashMap;
 #[serde(rename_all = "PascalCase")]
 pub struct Image {
     pub config: ImageConfig,
-    pub repo_tags: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize, Clone)]

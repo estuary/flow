@@ -1392,6 +1392,7 @@ impl serde::Serialize for stats::DocsAndBytes {
         }
         if self.bytes_total != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("bytesTotal", &self.bytes_total)?;
         }
         struct_ser.end()

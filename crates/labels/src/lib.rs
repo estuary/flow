@@ -196,7 +196,7 @@ pub fn percent_encoding<'s>(s: &'s str) -> percent_encoding::PercentEncode<'s> {
     percent_encoding::utf8_percent_encode(s, SET)
 }
 
-fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
+pub fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
     let value = expect_one(set, name)?;
 
     let (8, Ok(parsed)) = (value.len(), u32::from_str_radix(value, 16)) else {
@@ -208,7 +208,7 @@ fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
     Ok(parsed)
 }
 
-fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
+pub fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     let labels = values(set, name);
 
     if labels.len() != 1 {
@@ -220,7 +220,7 @@ fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     }
 }
 
-fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
+pub fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     let labels = values(set, name);
 
     if labels.len() > 1 {

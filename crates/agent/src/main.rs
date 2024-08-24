@@ -5,7 +5,7 @@ use agent::publications::Publisher;
 use anyhow::Context;
 use clap::Parser;
 use derivative::Derivative;
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use rand::Rng;
 use serde::Deserialize;
 
@@ -26,6 +26,7 @@ struct Args {
     #[clap(long = "database-ca", env = "DATABASE_CA")]
     database_ca: Option<String>,
     /// URL of the data-plane Gazette broker.
+    /// TODO(johnny): Deprecated and should be removed with federated data-planes.
     #[clap(
         long = "broker-address",
         env = "BROKER_ADDRESS",
@@ -33,6 +34,7 @@ struct Args {
     )]
     broker_address: url::Url,
     /// URL of the data-plane Flow consumer.
+    /// TODO(johnny): Deprecated and should be removed with federated data-planes.
     #[clap(
         long = "consumer-address",
         env = "CONSUMER_ADDRESS",
@@ -51,6 +53,9 @@ struct Args {
     /// Allow local connectors. True for local stacks, and false otherwise.
     #[clap(long = "allow-local")]
     allow_local: bool,
+    /// The port to listen on for API requests.
+    #[clap(long, default_value = "8675", env = "API_PORT")]
+    api_port: u16,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -76,6 +81,12 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn async_main(args: Args) -> Result<(), anyhow::Error> {
+    // Bind early in the application lifecycle, to not fail requests which may dispatch
+    // as soon as the process is up (for example, Tilt on local stacks).
+    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+        .await
+        .context("failed to bind server port")?;
+
     let bindir = std::fs::canonicalize(args.bindir)
         .context("canonicalize --bin-dir")?
         .into_os_string()
@@ -115,6 +126,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     // Start a logs sink into which agent loops may stream logs.
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
+    let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
@@ -134,10 +146,23 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         system_user_id,
         publisher.clone(),
         id_gen.clone(),
-        args.broker_address.clone(),
-        args.consumer_address.clone(),
     );
 
+    // Share-able future which completes when the agent should exit.
+    let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
+
+    // Wire up the agent's API server.
+    let api_app = agent::api::App {
+        pg_pool: pg_pool.clone(),
+        system_user_id,
+        publisher: publisher.clone(),
+        id_generator: id_gen.clone().into(),
+    };
+    let api_router = agent::api::build_router(api_app.into());
+    let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
+    let api_server = async move { anyhow::Result::Ok(api_server.await?) };
+
+    // Wire up the agent's job execution loop.
     let serve_fut = agent::serve(
         vec![
             Box::new(publisher),
@@ -157,11 +182,11 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             Box::new(agent::controllers::ControllerHandler::new(control_plane)),
         ],
         pg_pool.clone(),
-        tokio::signal::ctrl_c().map(|_| ()),
+        shutdown,
     );
 
     std::mem::drop(logs_tx);
-    let ((), ()) = tokio::try_join!(serve_fut, logs_sink.map_err(Into::into))?;
+    let ((), (), ()) = tokio::try_join!(serve_fut, api_server, logs_sink)?;
 
     Ok(())
 }

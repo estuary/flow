@@ -357,6 +357,7 @@ impl serde::Serialize for Request {
         }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
@@ -850,6 +851,7 @@ impl serde::Serialize for request::Load {
         }
         if !self.key_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("keyPacked", pbjson::private::base64::encode(&self.key_packed).as_str())?;
         }
         struct_ser.end()
@@ -1344,6 +1346,7 @@ impl serde::Serialize for request::Store {
         }
         if !self.key_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("keyPacked", pbjson::private::base64::encode(&self.key_packed).as_str())?;
         }
         if !self.values_json.is_empty() {
@@ -1351,6 +1354,7 @@ impl serde::Serialize for request::Store {
         }
         if !self.values_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("valuesPacked", pbjson::private::base64::encode(&self.values_packed).as_str())?;
         }
         if !self.doc_json.is_empty() {
@@ -1918,6 +1922,7 @@ impl serde::Serialize for Response {
         }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
