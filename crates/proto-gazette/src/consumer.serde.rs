@@ -18,6 +18,7 @@ impl serde::Serialize for ApplyRequest {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
@@ -129,6 +130,7 @@ impl serde::Serialize for apply_request::Change {
         let mut struct_ser = serializer.serialize_struct("consumer.ApplyRequest.Change", len)?;
         if self.expect_mod_revision != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("expectModRevision", ToString::to_string(&self.expect_mod_revision).as_str())?;
         }
         if let Some(v) = self.upsert.as_ref() {
@@ -266,6 +268,7 @@ impl serde::Serialize for ApplyResponse {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
@@ -501,10 +504,12 @@ impl serde::Serialize for checkpoint::ProducerState {
         let mut struct_ser = serializer.serialize_struct("consumer.Checkpoint.ProducerState", len)?;
         if self.last_ack != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastAck", ToString::to_string(&self.last_ack).as_str())?;
         }
         if self.begin != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("begin", ToString::to_string(&self.begin).as_str())?;
         }
         struct_ser.end()
@@ -616,6 +621,7 @@ impl serde::Serialize for checkpoint::Source {
         let mut struct_ser = serializer.serialize_struct("consumer.Checkpoint.Source", len)?;
         if self.read_through != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("readThrough", ToString::to_string(&self.read_through).as_str())?;
         }
         if !self.producers.is_empty() {
@@ -728,6 +734,7 @@ impl serde::Serialize for checkpoint::source::ProducerEntry {
         let mut struct_ser = serializer.serialize_struct("consumer.Checkpoint.Source.ProducerEntry", len)?;
         if !self.id.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("id", pbjson::private::base64::encode(&self.id).as_str())?;
         }
         if let Some(v) = self.state.as_ref() {
@@ -954,6 +961,7 @@ impl serde::Serialize for GetHintsRequest {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
@@ -1085,6 +1093,7 @@ impl serde::Serialize for GetHintsResponse {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
@@ -1322,6 +1331,7 @@ impl serde::Serialize for ListRequest {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
@@ -1447,6 +1457,7 @@ impl serde::Serialize for ListResponse {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
@@ -1589,6 +1600,7 @@ impl serde::Serialize for list_response::Shard {
         }
         if self.mod_revision != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("modRevision", ToString::to_string(&self.mod_revision).as_str())?;
         }
         if let Some(v) = self.route.as_ref() {
@@ -1599,6 +1611,7 @@ impl serde::Serialize for list_response::Shard {
         }
         if self.create_revision != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createRevision", ToString::to_string(&self.create_revision).as_str())?;
         }
         struct_ser.end()
@@ -2249,6 +2262,7 @@ impl serde::Serialize for shard_spec::Source {
         }
         if self.min_offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("minOffset", ToString::to_string(&self.min_offset).as_str())?;
         }
         struct_ser.end()
@@ -2375,6 +2389,7 @@ impl serde::Serialize for StatRequest {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
@@ -2536,6 +2551,7 @@ impl serde::Serialize for StatResponse {
         }
         if !self.extension.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("extension", pbjson::private::base64::encode(&self.extension).as_str())?;
         }
         struct_ser.end()
