@@ -1,9 +1,11 @@
 package flow
 
 import (
+	"github.com/estuary/flow/go/labels"
 	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/proto"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // BuildPartitionSpec builds a JournalSpec from the given |template| and |labels|.
@@ -66,4 +68,18 @@ func BuildShardSpec(template *pf.ShardSpec, labels pf.LabelSet) (*pf.ShardSpec, 
 	spec.Id = pf.ShardID(spec.Id.String() + "/" + suffix)
 
 	return spec, nil
+}
+
+// CollectionWatchRequest returns a ListRequest which watches all partitions of a collection.
+func CollectionWatchRequest(spec *pf.CollectionSpec) pb.ListRequest {
+	return pb.ListRequest{
+		Selector: pb.LabelSelector{
+			Include: pb.MustLabelSet(
+				// "name:prefix" allows brokers to utilize their index over names.
+				"name:prefix", spec.PartitionTemplate.Name.String()+"/",
+				labels.Collection, spec.Name.String(),
+			),
+		},
+		Watch: true,
+	}
 }

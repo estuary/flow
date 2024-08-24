@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"path"
 	"testing"
 
@@ -385,11 +386,16 @@ type mockJournals struct {
 	logs        map[string]*pb.ListResponse
 }
 
+type mockJournalsListStream struct {
+	out *pb.ListResponse
+	pb.Journal_ListClient
+}
+
 type mockShards struct {
 	tasks map[string]*pc.ListResponse
 }
 
-func (jc *mockJournals) List(ctx context.Context, in *pb.ListRequest, opts ...grpc.CallOption) (*pb.ListResponse, error) {
+func (jc *mockJournals) List(ctx context.Context, in *pb.ListRequest, opts ...grpc.CallOption) (pb.Journal_ListClient, error) {
 	var out *pb.ListResponse
 
 	if name := in.Selector.Include.ValueOf(labels.Collection); name != "" {
@@ -419,8 +425,20 @@ func (jc *mockJournals) List(ctx context.Context, in *pb.ListRequest, opts ...gr
 	for i := range out.Journals {
 		out.Journals[i].Route = pb.Route{Primary: -1}
 	}
-	return out, nil
+	return &mockJournalsListStream{out, nil}, nil
 }
+
+func (ls *mockJournalsListStream) Recv() (*pb.ListResponse, error) {
+	var out = ls.out
+	ls.out = nil
+
+	if out != nil {
+		return out, nil
+	} else {
+		return nil, io.EOF
+	}
+}
+func (ls *mockJournalsListStream) Context() context.Context { return context.Background() }
 
 func (sc *mockShards) List(ctx context.Context, in *pc.ListRequest, opts ...grpc.CallOption) (*pc.ListResponse, error) {
 	var out *pc.ListResponse
