@@ -187,6 +187,15 @@ expression: json_test(msg)
                   "value": "other-value"
                 }
               ]
+            },
+            "exclude": {
+              "labels": [
+                {
+                  "name": "my-label",
+                  "value": "prefix/",
+                  "prefix": true
+                }
+              ]
             }
           },
           "priority": 3,
@@ -350,6 +359,15 @@ expression: json_test(msg)
                 {
                   "name": "estuary.dev/bar",
                   "value": "other-value"
+                }
+              ]
+            },
+            "exclude": {
+              "labels": [
+                {
+                  "name": "my-label",
+                  "value": "prefix/",
+                  "prefix": true
                 }
               ]
             }
