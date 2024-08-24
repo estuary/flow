@@ -7,16 +7,20 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Driver executes test actions.
 type Driver interface {
-	// Apply one or more PendingStats of shards, which can now be expected to have completed.
-	Stat(context.Context, PendingStat) (readThrough *Clock, writeAt *Clock, _ error)
+	// Apply one or more PendingStats of shards, which can now be expected to complete.
+	// `readThrough` journals have a shuffle suffix, while `writeAt` journals do not.
+	Stat(context.Context, PendingStat) (readThrough pb.Offsets, writeAt pb.Offsets, _ error)
 	// Execute an "Ingest" TestSpec_Step.
-	Ingest(_ context.Context, _ *pf.TestSpec, testStep int) (writeAt *Clock, _ error)
+	// `writeAt` journals do not have a shuffle suffix.
+	Ingest(_ context.Context, _ *pf.TestSpec, testStep int) (writeAt pb.Offsets, _ error)
 	// Execute a "Verify" TestStep.
-	Verify(_ context.Context, _ *pf.TestSpec, testStep int, from, to *Clock) error
+	// `from` and `to` journals do not have a shuffle suffix.
+	Verify(_ context.Context, _ *pf.TestSpec, testStep int, from, to pb.Offsets) error
 	// Advance TestTime by the given delta.
 	Advance(context.Context, TestTime) error
 }
