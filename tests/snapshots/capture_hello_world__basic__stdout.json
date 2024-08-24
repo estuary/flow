@@ -2,6 +2,9 @@
   [
     "acmeCo/events",
     {
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      },
       "message": "Hello 0!",
       "ts": "redacted-timestamp"
     }
@@ -9,6 +12,9 @@
   [
     "acmeCo/events",
     {
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      },
       "message": "Hello 1!",
       "ts": "redacted-timestamp"
     }
@@ -16,6 +22,9 @@
   [
     "acmeCo/events",
     {
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      },
       "message": "Hello 2!",
       "ts": "redacted-timestamp"
     }
@@ -23,6 +32,9 @@
   [
     "acmeCo/events",
     {
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      },
       "message": "Hello 3!",
       "ts": "redacted-timestamp"
     }
@@ -30,6 +42,9 @@
   [
     "acmeCo/events",
     {
+      "_meta": {
+        "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+      },
       "message": "Hello 4!",
       "ts": "redacted-timestamp"
     }
