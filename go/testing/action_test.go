@@ -7,6 +7,7 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/mock"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestTestCaseExecution(t *testing.T) {
@@ -27,16 +28,16 @@ func TestTestCaseExecution(t *testing.T) {
 	var driver = new(mockDriver)
 
 	// Initial ingestion into A.
-	driver.On("Ingest", test, 0).Return(clockFixtureOne(1, "A/data", 1), nil).Once()
+	driver.On("Ingest", test, 0).Return(clockFixtureOne("A/data", 1), nil).Once()
 
 	// Stat of B from "A-to-B-fast" is immediately ready.
 	driver.On("Stat", PendingStat{
 		TaskName:    "B",
 		ReadyAt:     0,
-		ReadThrough: clockFixtureOne(1, "A/data;derive/B/A-to-B-fast", 1),
+		ReadThrough: clockFixtureOne("A/data;derive/B/A-to-B-fast", 1),
 	}).Return(
-		clockFixture(1, nil, nil),
-		clockFixture(1, nil, nil),
+		pb.Offsets{},
+		pb.Offsets{},
 		nil,
 	).Once()
 
@@ -47,10 +48,10 @@ func TestTestCaseExecution(t *testing.T) {
 	driver.On("Stat", PendingStat{
 		TaskName:    "Y",
 		ReadyAt:     TestTime(2 * time.Second),
-		ReadThrough: clockFixtureOne(1, "A/data;derive/Y/A-to-Y", 1),
+		ReadThrough: clockFixtureOne("A/data;derive/Y/A-to-Y", 1),
 	}).Return(
-		clockFixture(1, nil, nil),
-		clockFixture(1, nil, nil),
+		pb.Offsets{},
+		pb.Offsets{},
 		nil,
 	).Once()
 
@@ -60,17 +61,17 @@ func TestTestCaseExecution(t *testing.T) {
 	driver.On("Stat", PendingStat{
 		TaskName:    "B",
 		ReadyAt:     TestTime(3 * time.Second),
-		ReadThrough: clockFixtureOne(1, "A/data;derive/B/A-to-B-slow", 1),
+		ReadThrough: clockFixtureOne("A/data;derive/B/A-to-B-slow", 1),
 	}).Return(
-		clockFixture(1, nil, nil),
-		clockFixture(1, nil, nil),
+		pb.Offsets{},
+		pb.Offsets{},
 		nil,
 	).Once()
 
 	// We may verify B, as no dependent stats remain.
 	driver.On("Verify", test, 1,
-		clockFixture(0, nil, nil),
-		clockFixtureOne(1, "A/data", 1),
+		pb.Offsets{},
+		clockFixtureOne("A/data", 1),
 	).Return(nil).Once()
 
 	// No test steps remain, but we must still drain pending stats.
@@ -80,10 +81,10 @@ func TestTestCaseExecution(t *testing.T) {
 	driver.On("Stat", PendingStat{
 		TaskName:    "Z",
 		ReadyAt:     TestTime(5 * time.Second),
-		ReadThrough: clockFixtureOne(1, "A/data;derive/Z/A-to-Z", 1),
+		ReadThrough: clockFixtureOne("A/data;derive/Z/A-to-Z", 1),
 	}).Return(
-		clockFixture(1, nil, nil),
-		clockFixture(1, nil, nil),
+		pb.Offsets{},
+		pb.Offsets{},
 		nil,
 	).Once()
 
@@ -97,17 +98,17 @@ type mockDriver struct {
 
 var _ Driver = &mockDriver{}
 
-func (d *mockDriver) Stat(ctx context.Context, in PendingStat) (readThrough *Clock, writeAt *Clock, _ error) {
+func (d *mockDriver) Stat(ctx context.Context, in PendingStat) (readThrough pb.Offsets, writeAt pb.Offsets, _ error) {
 	var args = d.Called(in)
-	return args.Get(0).(*Clock), args.Get(1).(*Clock), args.Error(2)
+	return args.Get(0).(pb.Offsets), args.Get(1).(pb.Offsets), args.Error(2)
 }
 
-func (d *mockDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep int) (writeAt *Clock, _ error) {
+func (d *mockDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep int) (writeAt pb.Offsets, _ error) {
 	var args = d.Called(test, testStep)
-	return args.Get(0).(*Clock), args.Error(1)
+	return args.Get(0).(pb.Offsets), args.Error(1)
 }
 
-func (d *mockDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep int, from, to *Clock) error {
+func (d *mockDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep int, from, to pb.Offsets) error {
 	var args = d.Called(test, testStep, from, to)
 	return args.Error(0)
 }
