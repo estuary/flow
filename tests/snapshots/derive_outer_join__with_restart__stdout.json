@@ -1,27 +1,42 @@
 [
   {
     "Key": "key",
-    "LHS": 5
+    "LHS": 5,
+    "_meta": {
+      "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+    }
   },
   {
     "Key": "key",
     "LHS": 5,
     "RHS": [
       "hello"
-    ]
+    ],
+    "_meta": {
+      "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+    }
   },
   {
     "Key": "key",
-    "LHS": 6
+    "LHS": 6,
+    "_meta": {
+      "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+    }
   },
   {
     "Key": "key",
-    "LHS": 7
+    "LHS": 7,
+    "_meta": {
+      "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+    }
   },
   {
     "Key": "key",
     "RHS": [
       "world"
-    ]
+    ],
+    "_meta": {
+      "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+    }
   }
 ]
