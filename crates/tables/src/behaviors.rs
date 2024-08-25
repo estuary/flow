@@ -51,6 +51,12 @@ impl super::Import {
     }
 }
 
+impl super::StorageMapping {
+    pub fn scope(&self) -> url::Url {
+        crate::synthetic_scope("storageMapping", &self.catalog_prefix)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::super::{Import, Imports};

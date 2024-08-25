@@ -10,6 +10,8 @@ pub trait BuiltRow: crate::Row {
     fn new(
         catalog_name: Self::Key,
         scope: url::Url,
+        control_id: models::Id,
+        data_plane_id: models::Id,
         expect_pub_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
@@ -21,6 +23,10 @@ pub trait BuiltRow: crate::Row {
     fn catalog_name(&self) -> &Self::Key;
     // Scope of the built specification.
     fn scope(&self) -> &url::Url;
+    // Control-plane ID of this specification, or zero if un-assigned.
+    fn control_id(&self) -> models::Id;
+    // Data-plane ID of this specification.
+    fn data_plane_id(&self) -> models::Id;
     // Expected last publication ID for optimistic concurrency.
     fn expect_pub_id(&self) -> models::Id;
     // Model of the built specification.
@@ -56,6 +62,8 @@ impl BuiltRow for crate::BuiltCapture {
     fn new(
         catalog_name: Self::Key,
         scope: url::Url,
+        control_id: models::Id,
+        data_plane_id: models::Id,
         expect_pub_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
@@ -65,6 +73,8 @@ impl BuiltRow for crate::BuiltCapture {
         Self {
             capture: catalog_name,
             scope,
+            control_id,
+            data_plane_id,
             expect_pub_id,
             model,
             validated,
@@ -77,6 +87,12 @@ impl BuiltRow for crate::BuiltCapture {
     }
     fn scope(&self) -> &url::Url {
         &self.scope
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        self.data_plane_id
     }
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
@@ -103,6 +119,8 @@ impl BuiltRow for crate::BuiltCollection {
     fn new(
         catalog_name: Self::Key,
         scope: url::Url,
+        control_id: models::Id,
+        data_plane_id: models::Id,
         expect_pub_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
@@ -112,6 +130,8 @@ impl BuiltRow for crate::BuiltCollection {
         Self {
             collection: catalog_name,
             scope,
+            control_id,
+            data_plane_id,
             expect_pub_id,
             model,
             validated,
@@ -124,6 +144,12 @@ impl BuiltRow for crate::BuiltCollection {
     }
     fn scope(&self) -> &url::Url {
         &self.scope
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        self.data_plane_id
     }
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
@@ -150,6 +176,8 @@ impl BuiltRow for crate::BuiltMaterialization {
     fn new(
         catalog_name: Self::Key,
         scope: url::Url,
+        control_id: models::Id,
+        data_plane_id: models::Id,
         expect_pub_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
@@ -159,6 +187,8 @@ impl BuiltRow for crate::BuiltMaterialization {
         Self {
             materialization: catalog_name,
             scope,
+            control_id,
+            data_plane_id,
             expect_pub_id,
             model,
             validated,
@@ -171,6 +201,12 @@ impl BuiltRow for crate::BuiltMaterialization {
     }
     fn scope(&self) -> &url::Url {
         &self.scope
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        self.data_plane_id
     }
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
@@ -197,6 +233,8 @@ impl BuiltRow for crate::BuiltTest {
     fn new(
         catalog_name: Self::Key,
         scope: url::Url,
+        control_id: models::Id,
+        _data_plane_id: models::Id,
         expect_pub_id: models::Id,
         model: Option<Self::ModelDef>,
         _validated: Option<Self::Validated>,
@@ -206,6 +244,7 @@ impl BuiltRow for crate::BuiltTest {
         Self {
             test: catalog_name,
             scope,
+            control_id,
             expect_pub_id,
             model,
             spec,
@@ -217,6 +256,12 @@ impl BuiltRow for crate::BuiltTest {
     }
     fn scope(&self) -> &url::Url {
         &self.scope
+    }
+    fn control_id(&self) -> models::Id {
+        self.control_id
+    }
+    fn data_plane_id(&self) -> models::Id {
+        models::Id::zero()
     }
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
