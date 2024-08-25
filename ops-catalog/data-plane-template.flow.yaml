@@ -1,0 +1,81 @@
+# When editing this catalog, regenerate its bundle via:
+#  flowctl raw bundle --source ops-catalog/data-plane-template.flow.yaml  > ops-catalog/data-plane-template.bundle.json
+
+collections:
+  ops/tasks/BASE_NAME/logs:
+    schema: logs.schema.yaml
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/tasks/BASE_NAME/stats:
+    schema: stats.schema.yaml
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/rollups/L1/BASE_NAME/inferred-schemas:
+    schema: inferred-schemas.schema.yaml
+    key: [/collection_name]
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        - name: logs
+          source:
+            name: ops/tasks/BASE_NAME/logs
+            partitions:
+              include:
+                kind:
+                  - capture
+                  - derivation
+              exclude:
+                name:
+                  # Don't read our own inferences.
+                  - ops/rollups/L1/BASE_NAME/inferred-schemas
+                  # Don't read the global roll-up, if it happens to live in our data-plane.
+                  - ops.us-central1.v1/inferred-schemas/L2
+
+          shuffle:
+            key: [/shard/name] # Use partition-based shuffle.
+          lambda: |
+            select
+              $fields->>'collection_name' as collection_name,
+              $fields->'schema' as schema
+            where $message = 'inferred schema updated';
+
+      shards:
+        minTxnDuration: 10s
+
+  ops/rollups/L1/BASE_NAME/catalog-stats:
+    schema: catalog-stats.schema.yaml
+    key: [/catalogName, /grain, /ts]
+
+    derive:
+      using:
+        typescript:
+          module: catalog-stats.ts
+      transforms:
+        - name: logs
+          shuffle:
+            key: [/shard/name]
+          source:
+            name: ops/tasks/BASE_NAME/logs
+        - name: stats
+          shuffle:
+            key: [/shard/name]
+          source:
+            name: ops/tasks/BASE_NAME/stats
+
+      shards:
+        minTxnDuration: 5s
