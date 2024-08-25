@@ -23,6 +23,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
+hyper-util = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
