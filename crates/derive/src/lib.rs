@@ -1,59 +1,9 @@
 use anyhow::Context;
-use proto_flow::flow::DocsAndBytes;
 use serde::Serialize;
 
 pub mod extract_api;
 
 pub use extract_api::extract_uuid_parts;
-
-/// A type that can accumulate statistics that can be periodically drained.
-/// This trait exists primarily to help with readability and consistency. It doesn't get used as a
-/// type parameter or turned into a trait object, but instead serves to identify things that
-/// accumulate stats and have some ability to return them and reset.
-trait StatsAccumulator: Default {
-    /// The type of the stats returned by this accumulator.
-    type Stats;
-
-    /// Returns the accumulated stats and resets all of the internal accumulations to zero.
-    fn drain(&mut self) -> Self::Stats;
-
-    /// Consumes the accumulator and returns the final Stats. This is just a wrapper around `drain`
-    /// to help things read a little more nicely.
-    fn into_stats(mut self) -> Self::Stats {
-        self.drain()
-    }
-}
-
-/// A `StatsAccumulator` that corresponds to the `DocsAndBytes` type from the Flow protocol.
-/// This is composed in with many other accumulators.
-#[derive(Debug, Default, PartialEq)]
-pub struct DocCounter(DocsAndBytes);
-
-impl DocCounter {
-    pub fn new(docs: u32, bytes: u64) -> DocCounter {
-        DocCounter(DocsAndBytes { docs, bytes })
-    }
-
-    pub fn add(&mut self, other: &DocCounter) {
-        self.0.docs += other.0.docs;
-        self.0.bytes += other.0.bytes;
-    }
-
-    /// Add a single document of the given size, incrementing `docs` by 1 and `bytes` by
-    /// `doc_byte_len`.
-    pub fn increment(&mut self, doc_byte_len: usize) {
-        self.0.docs += 1;
-        self.0.bytes += doc_byte_len as u64;
-    }
-}
-
-impl StatsAccumulator for DocCounter {
-    type Stats = DocsAndBytes;
-
-    fn drain(&mut self) -> DocsAndBytes {
-        std::mem::replace(&mut self.0, DocsAndBytes::default())
-    }
-}
 
 /// DebugJson is a new-type wrapper around any Serialize implementation
 /// that wishes to support the Debug trait via JSON encoding itself.
