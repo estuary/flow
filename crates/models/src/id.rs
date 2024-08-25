@@ -1,3 +1,4 @@
+use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 use std::str::FromStr;
 
 // Estuary epoch is the first representable timestamp in generated IDs.
@@ -22,6 +23,10 @@ impl Id {
     }
     pub fn as_array(&self) -> [u8; 8] {
         self.0
+    }
+
+    pub fn from_hex(hex: &str) -> Result<Self, <Self as std::str::FromStr>::Err> {
+        Self::from_str(hex)
     }
 
     /// Constructs a new `Id` from the given parts, or panics if a part is out of range.
@@ -98,6 +103,37 @@ impl<'de> serde::Deserialize<'de> for Id {
         use serde::de::Error;
         let str_val = std::borrow::Cow::<'de, str>::deserialize(deserializer)?;
         Id::from_str(str_val.as_ref()).map_err(|err| D::Error::custom(format!("invalid id: {err}")))
+    }
+}
+
+impl Type<postgres::Postgres> for Id {
+    fn type_info() -> postgres::PgTypeInfo {
+        postgres::PgTypeInfo::with_name("flowid")
+    }
+    fn compatible(ty: &postgres::PgTypeInfo) -> bool {
+        *ty == Self::type_info() || ty.name() == "MACADDR8"
+    }
+}
+
+impl sqlx::postgres::PgHasArrayType for Id {
+    fn array_type_info() -> postgres::PgTypeInfo {
+        postgres::PgTypeInfo::with_name("_flowid")
+    }
+}
+
+impl Encode<'_, postgres::Postgres> for Id {
+    fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend_from_slice(&self.0);
+        sqlx::encode::IsNull::No
+    }
+}
+
+// TODO(johnny): This works fine for postgres binary format, but breaks for text format.
+// Fix with a proper decoder once blocking issue is resolved:
+//  https://github.com/launchbadge/sqlx/issues/1758
+impl Decode<'_, postgres::Postgres> for Id {
+    fn decode(value: postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        <i64 as Decode<'_, postgres::Postgres>>::decode(value).map(|i| Self(i.to_be_bytes()))
     }
 }
 
