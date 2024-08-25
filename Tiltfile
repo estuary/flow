@@ -4,6 +4,11 @@ os.putenv("DATABASE_URL", DATABASE_URL)
 os.putenv("RUST_LOG", "info")
 os.putenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
 
+# Secret used to sign Authorizations within a local data plane, as base64("secret").
+AUTH_KEYS="c2VjcmV0"
+os.putenv("CONSUMER_AUTH_KEYS", AUTH_KEYS)
+os.putenv("BROKER_AUTH_KEYS", AUTH_KEYS)
+
 
 REPO_BASE= '%s/..' % os.getcwd()
 TEST_KMS_KEY="projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/testing"
@@ -11,26 +16,20 @@ TEST_KMS_KEY="projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev
 HOME_DIR=os.getenv("HOME")
 FLOW_DIR=os.getenv("FLOW_DIR", os.path.join(HOME_DIR, "flow-local"))
 ETCD_DATA_DIR=os.path.join(FLOW_DIR, "etcd")
-FLOW_BUILDS_DIR=os.path.join(FLOW_DIR, "builds")
+
+FLOW_BUILDS_ROOT="file://"+os.path.join(FLOW_DIR, "builds")+"/"
+# Or alternatively, use an actual bucket when testing with external data-planes:
+# FLOW_BUILDS_ROOT="gs://example/builds/"
+
+# A token for the local-stack system user signed against the local-stack
+# supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).
+SYSTEM_USER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU"
 
 # Start supabase, which is needed in order to compile the agent
 local_resource('supabase', cmd='supabase start', links='http://localhost:5433')
 
 # Builds many of the binaries that we'll need
 local_resource('make', cmd='make', resource_deps=['supabase'])
-
-# The basic ops collections for logs and stats must be published before any other publication can
-# succeed. This does not include any of the ops-related tasks, which themselves will require these
-# collections to be present.
-local_resource('ops-collections',
-    cmd='./local/ops-publication.sh "base-collections.flow.yaml" | psql "%s"' % DATABASE_URL,
-    resource_deps=['agent'])
-
-local_resource('ops-catalog',
-    cmd='./local/ops-publication.sh "template-local.flow.yaml" | psql "%s"' % DATABASE_URL,
-    auto_init=False,
-    trigger_mode=TRIGGER_MODE_MANUAL,
-    resource_deps=['agent'])
 
 local_resource('etcd', serve_cmd='%s/flow/.build/package/bin/etcd \
     --data-dir %s \
@@ -64,11 +63,12 @@ local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve
     --consumer.max-hot-standbys 0 \
     --consumer.port 9000 \
     --etcd.address http://localhost:2379 \
-    --flow.builds-root file://%s/ \
-    --flow.enable-schema-inference \
+    --flow.builds-root %s \
     --flow.network supabase_network_flow \
+    --flow.control-api http://localhost:8675 \
+    --flow.data-plane-fqdn local-cluster.dp.estuary-data.com \
     --log.format text \
-    --log.level info' % (REPO_BASE, FLOW_BUILDS_DIR),
+    --log.level info' % (REPO_BASE, FLOW_BUILDS_ROOT),
     links='http://localhost:9000/debug/pprof',
     resource_deps=['etcd'],
     readiness_probe=probe(
@@ -79,11 +79,43 @@ local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve
 local_resource('agent', serve_cmd='%s/flow/.build/package/bin/agent \
     --connector-network supabase_network_flow \
     --allow-local \
-    --broker-address http://localhost:8080 \
-    --consumer-address=http://localhost:9000 \
-    --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, REPO_BASE),
+    --builds-root %s \
+    --api-port 8675 \
+    --serve-handlers \
+    --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, FLOW_BUILDS_ROOT, REPO_BASE),
     deps=[],
     resource_deps=['reactor', 'gazette'])
+
+local_resource('create-data-plane-local-cluster',
+    cmd='sleep 5 && curl -v \
+        -X POST \
+        -H "content-type: application/json" \
+        -H "authorization: bearer %s" \
+        --data-binary \'{ \
+            "name":"local-cluster",\
+            "category": {\
+                "manual": {\
+                    "brokerAddress": "http://localhost:8080",\
+                    "reactorAddress": "http://localhost:9000",\
+                    "hmacKeys": ["c2VjcmV0"]\
+                }\
+            }\
+        }\' http://localhost:8675/admin/create-data-plane' % SYSTEM_USER_TOKEN,
+    resource_deps=['agent'])
+
+local_resource('update-l2-reporting',
+    cmd='curl -v \
+        -X POST \
+        -H "content-type: application/json" \
+        -H "authorization: bearer %s" \
+        --data-binary \'{ \
+            "defaultDataPlane":"ops/dp/public/local-cluster"\
+        }\' http://localhost:8675/admin/update-l2-reporting' % SYSTEM_USER_TOKEN,
+    resource_deps=['create-data-plane-local-cluster'])
+
+local_resource('local-ops-view',
+    cmd='./local/ops-publication.sh ops-catalog/local-view.bundle.json | psql "%s"' % DATABASE_URL,
+    resource_deps=['update-l2-reporting'])
 
 local_resource('config-encryption', serve_cmd='%s/config-encryption/target/debug/flow-config-encryption \
     --gcp-kms %s' % (REPO_BASE, TEST_KMS_KEY),
