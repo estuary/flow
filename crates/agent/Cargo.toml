@@ -22,6 +22,7 @@ json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
 runtime = { path = "../runtime" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
@@ -29,6 +30,8 @@ validation = { path = "../validation" }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+axum = { workspace = true }
+axum-extra = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
@@ -38,6 +41,7 @@ derivative = { workspace = true }
 futures = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
+jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
@@ -50,10 +54,13 @@ tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
+uuid = { workspace = true }
 validator = { workspace = true }
+xxhash-rust = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

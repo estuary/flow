@@ -170,7 +170,7 @@ async fn test_dependencies_and_controllers() {
             next_pub,
             Some("test publication of owls/hoots".to_string()),
             Uuid::new_v4(),
-            tables::DraftCatalog::from(live),
+            super::live_to_draft(live),
         )
         .await
         .expect("publication failed");
