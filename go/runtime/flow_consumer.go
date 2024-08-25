@@ -14,6 +14,7 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
+	"go.gazette.dev/core/auth"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -27,12 +28,12 @@ import (
 type FlowConsumerConfig struct {
 	runconsumer.BaseConfig
 	Flow struct {
-		AllowLocal          bool   `long:"allow-local" description:"Allow local connectors. True for local stacks, and false otherwise."`
-		BuildsRoot          string `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
-		BrokerRoot          string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
-		Network             string `long:"network" description:"The Docker network that connector containers are given access to, defaults to the bridge network"`
-		TestAPIs            bool   `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
-		DeprecatedInference bool   `long:"enable-schema-inference" description:"This flag is deprecated and will be removed." `
+		AllowLocal    bool        `long:"allow-local" env:"ALLOW_LOCAL" description:"Allow local connectors. True for local stacks, and false otherwise."`
+		BuildsRoot    string      `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
+		ControlAPI    pb.Endpoint `long:"control-api" env:"CONTROL_API" description:"Address of the control-plane API"`
+		DataPlaneFQDN string      `long:"data-plane-fqdn" env:"DATA_PLANE_FQDN" description:"Fully-qualified domain name of the data-plane to which this reactor belongs"`
+		Network       string      `long:"network" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
+		TestAPIs      bool        `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
@@ -47,8 +48,6 @@ type FlowConsumer struct {
 	Config *FlowConsumerConfig
 	// Running consumer.Service.
 	Service *consumer.Service
-	// Watched broker journals.
-	Journals flow.Journals
 	// Shared catalog builds.
 	Builds *flow.BuildService
 	// Timepoint that regulates shuffled reads of started shards.
@@ -56,10 +55,10 @@ type FlowConsumer struct {
 		Now *flow.Timepoint
 		Mu  sync.Mutex
 	}
-	// LogAppendService is used to append log messages to the ops logs collections. It's important
-	// that we use an AppendService with a context that's scoped to the life of the process, rather
-	// than the lives of individual shards.
-	LogPublisher *message.Publisher
+	// OpsContext to use when appending messages to ops collections.
+	// It's important that we use a Context that's scoped to the life of the process,
+	// rather than the lives of individual shards, so we don't lose logs.
+	OpsContext context.Context
 }
 
 // Application is the interface implemented by Flow shard task stores.
@@ -192,33 +191,30 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return fmt.Errorf("catalog builds service: %w", err)
 	}
 
-	// Load journal keyspace, and queue task that watches for updates.
-	journals, err := flow.NewJournalsKeySpace(args.Tasks.Context(), args.Service.Etcd, config.Flow.BrokerRoot)
-	if err != nil {
-		return fmt.Errorf("loading journals keyspace: %w", err)
+	if keyedAuth, ok := args.Service.Authorizer.(*auth.KeyedAuth); ok && !config.Flow.TestAPIs {
+		// Wrap the underlying KeyedAuth Authorizer to use the control-plane's Authorize API.
+		args.Service.Authorizer = NewControlPlaneAuthorizer(
+			keyedAuth,
+			config.Flow.DataPlaneFQDN,
+			config.Flow.ControlAPI,
+		)
+
+		// Unwrap the raw JournalClient from its current AuthJournalClient,
+		// and then replace it with one built using our wrapped Authorizer.
+		var rawClient = args.Service.Journals.(*pb.ComposedRoutedJournalClient).JournalClient.(*pb.AuthJournalClient).Inner
+		args.Service.Journals.(*pb.ComposedRoutedJournalClient).JournalClient = pb.NewAuthJournalClient(rawClient, args.Service.Authorizer)
 	}
-	args.Tasks.Queue("journals.Watch", func() error {
-		if err := f.Journals.Watch(args.Tasks.Context(), args.Service.Etcd); err != context.Canceled {
-			return err
-		}
-		return nil
-	})
 
 	// Wrap Shard Hints RPC to support the Flow shard splitting workflow.
-	args.Service.ShardAPI.GetHints = func(c context.Context, s *consumer.Service, ghr *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
-		return shardGetHints(c, s, ghr)
-	}
-	// Wrap Shard Stat RPC to additionally synchronize on |journals| header.
-	args.Service.ShardAPI.Stat = func(ctx context.Context, svc *consumer.Service, req *pc.StatRequest) (*pc.StatResponse, error) {
-		return flow.ShardStat(ctx, svc, req, journals)
+	args.Service.ShardAPI.GetHints = func(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+		return shardGetHints(ctx, claims, svc, req)
 	}
 
-	f.LogPublisher = message.NewPublisher(client.NewAppendService(args.Context, args.Service.Journals), nil)
 	f.Config = &config
 	f.Service = args.Service
 	f.Builds = builds
-	f.Journals = journals
 	f.Timepoint.Now = flow.NewTimepoint(time.Now())
+	f.OpsContext = args.Context
 
 	// Start a ticker of the shared *Timepoint.
 	go func() {
@@ -228,17 +224,19 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	}()
 
 	if config.Flow.TestAPIs {
-		var ajc = client.NewAppendService(args.Context, args.Service.Journals)
-		if testing, err := NewFlowTesting(f, ajc); err != nil {
+		var ajc = client.NewAppendService(args.Tasks.Context(), args.Service.Journals)
+		if testing, err := NewFlowTesting(args.Tasks.Context(), f, ajc); err != nil {
 			return fmt.Errorf("creating testing service: %w", err)
 		} else {
 			pf.RegisterTestingServer(args.Server.GRPCServer, testing)
 		}
 	}
 
-	pr.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
+	pr.RegisterShufflerServer(args.Server.GRPCServer,
+		pr.NewVerifiedShufflerServer(shuffle.NewAPI(args.Service.Resolver), f.Service.Verifier))
 
-	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, &proxyServer{resolver: args.Service.Resolver})
+	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
+		pf.NewVerifiedNetworkProxyServer(&proxyServer{resolver: args.Service.Resolver}, f.Service.Verifier))
 
 	return nil
 }
