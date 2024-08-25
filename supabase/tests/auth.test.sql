@@ -41,7 +41,8 @@ returns setof text as $$
     ('aliceCo/stuff/', 'carolCo/shared/', 'read'),
     ('bobCo/alice-vendor/', 'aliceCo/bob-shared/', 'admin'),
     ('carolCo/shared/', 'carolCo/hidden/', 'read'),
-    ('daveCo/hidden/', 'carolCo/hidden/', 'admin')
+    ('daveCo/hidden/', 'carolCo/hidden/', 'admin'),
+    ('carolCo/hidden/', 'carolCo/even/more/hidden/', 'read')
   ;
 
   -- Assert Alice's present roles.
@@ -76,22 +77,27 @@ returns setof text as $$
   select set_authenticated_context('44444444-4444-4444-4444-444444444444');
   select results_eq(
     $i$ select role_prefix::text, capability::text from auth_roles() $i$,
-    $i$ values  ('aliceCo/dave-can-read/','read'), ('carolCo/hidden/', 'admin'), ('daveCo/', 'admin') $i$,
-    'carol roles'
+    $i$ values  ('aliceCo/dave-can-read/','read'),
+                ('carolCo/even/more/hidden/', 'read'),
+                ('carolCo/hidden/', 'admin'),
+                ('daveCo/', 'admin')
+    $i$,
+    'dave roles'
   );
 
   -- Make Carol an admin of carolCo/.
   set role postgres;
-  update user_grants
-  set capability = 'admin'
-  where object_role = 'carolCo/';
+  update user_grants set capability = 'admin' where object_role = 'carolCo/';
 
   -- Now Carol also receives the projected carolCo/hidden/ grant,
   -- which is technically redundant with her 'admin' grant.
   select set_authenticated_context('33333333-3333-3333-3333-333333333333');
   select results_eq(
     $i$ select role_prefix::text, capability::text from auth_roles() $i$,
-    $i$ values  ('carolCo/','admin'), ('carolCo/hidden/','read') $i$,
+    $i$ values  ('carolCo/','admin'),
+                ('carolCo/even/more/hidden/','read'),
+                ('carolCo/hidden/','read')
+    $i$,
     'carol roles'
   );
 
@@ -118,6 +124,27 @@ returns setof text as $$
     $i$,
     'alice role_grants visibility'
   );
+
+  set role postgres;
+
+  select results_eq(
+    $i$ select role_prefix::text, capability::text from internal.task_roles('aliceCo/anvils/thing') $i$,
+    $i$ values  ('carolCo/paper/','write')
+    $i$,
+    'aliceCo/anvils/thing roles'
+  );
+  select is_empty(
+    $i$ select role_prefix::text, capability::text from internal.task_roles('aliceCo/anvils/thing', 'admin') $i$,
+    'aliceCo/anvils/thing roles when admin'
+  );
+  select results_eq(
+    $i$ select role_prefix::text, capability::text from internal.task_roles('daveCo/hidden/task/') $i$,
+    $i$ values  ('carolCo/even/more/hidden/','read'),
+                ('carolCo/hidden/','admin')
+    $i$,
+    'daveCo/hidden/task roles'
+  );
+
 
 $$ language sql;
 
