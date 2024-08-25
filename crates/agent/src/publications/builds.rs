@@ -92,11 +92,19 @@ pub async fn build_catalog(
         "persist",
         &logs_tx,
         logs_token,
-        async_process::Command::new("gsutil")
-            .arg("-q")
-            .arg("cp")
-            .arg(&db_path)
-            .arg(dest_url.to_string()),
+        &mut if dest_url.scheme() == "file" {
+            // Allow tests to run in environments without `gsutil`.
+            let mut cmd = async_process::Command::new("cp");
+            cmd.arg(&db_path).arg(dest_url.path());
+            cmd
+        } else {
+            let mut cmd = async_process::Command::new("gsutil");
+            cmd.arg("-q")
+                .arg("cp")
+                .arg(&db_path)
+                .arg(dest_url.to_string());
+            cmd
+        },
     )
     .await
     .with_context(|| format!("persisting built sqlite DB {db_path:?}"))?;
@@ -161,12 +169,12 @@ pub async fn test_catalog(
     let build_id = format!("{build_id}");
 
     // Activate all derivations.
-    let journal_router =
-        gazette::journal::Router::new(&broker_sock, gazette::Auth::new(None)?, "local")?;
-    let journal_client = gazette::journal::Client::new(reqwest::Client::default(), journal_router);
-    let shard_router =
-        gazette::shard::Router::new(&consumer_sock, gazette::Auth::new(None)?, "local")?;
-    let shard_client = gazette::shard::Client::new(shard_router);
+    let auth = gazette::Auth::new(None).unwrap();
+    let journal_router = gazette::Router::new(&broker_sock, "local")?;
+    let journal_client =
+        gazette::journal::Client::new(Default::default(), journal_router, auth.clone());
+    let shard_router = gazette::Router::new(&consumer_sock, "local")?;
+    let shard_client = gazette::shard::Client::new(shard_router, auth);
 
     for built in catalog
         .built
@@ -197,6 +205,8 @@ pub async fn test_catalog(
             &shard_client,
             &built.collection,
             Some(&spec),
+            None, // Use "local" logging.
+            None,
             3, // use 3 splits to try to catch shuffle errors
         )
         .await
@@ -252,6 +262,8 @@ pub async fn test_catalog(
             &journal_client,
             &shard_client,
             &built.collection,
+            None,
+            None,
             None,
             1,
         )
