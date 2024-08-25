@@ -213,6 +213,15 @@ pub enum Error {
         ref_entity: &'static str,
         ref_name: String,
     },
+    #[error(
+        "{this_entity} doesn't have an assigned data-plane, and no default data-plane is available"
+    )]
+    MissingDefaultDataPlane { this_entity: String },
+    #[error("{this_entity} requires data plane {data_plane_id}, which was not found")]
+    MissingDataPlane {
+        this_entity: String,
+        data_plane_id: models::Id,
+    },
 }
 
 impl Error {

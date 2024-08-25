@@ -17,6 +17,7 @@ pub async fn walk_all_derivations(
     live_collections: &tables::LiveCollections,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
     imports: &tables::Imports,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
@@ -46,6 +47,7 @@ pub async fn walk_all_derivations(
                 eob,
                 built_collections,
                 connectors,
+                data_planes,
                 imports,
                 project_root,
                 storage_mappings,
@@ -75,6 +77,7 @@ async fn walk_derivation(
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
+    data_planes: &tables::DataPlanes,
     imports: &tables::Imports,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
@@ -296,6 +299,15 @@ async fn walk_derivation(
         errors,
     );
 
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let data_plane = reference::walk_data_plane(
+        scope,
+        &built_collection.collection,
+        built_collection.data_plane_id,
+        data_planes,
+        errors,
+    )?;
+
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
     if !errors.is_empty() {
@@ -325,9 +337,9 @@ async fn walk_derivation(
 
     // If shards are disabled, then don't ask the connector to validate.
     let response = if shard_template.disable {
-        NoOpConnectors.validate_derivation(wrapped_request)
+        NoOpConnectors.validate_derivation(wrapped_request, data_plane)
     } else {
-        connectors.validate_derivation(wrapped_request)
+        connectors.validate_derivation(wrapped_request, data_plane)
     }
     .await;
 
@@ -403,21 +415,19 @@ async fn walk_derivation(
         let read_delay_seconds = read_delay.map(|d| d.as_secs() as u32).unwrap_or_default();
 
         // Build a partition LabelSelector for this source.
-        let (source_name, source_partitions, not_before, not_after) = match source {
-            models::Source::Collection(name) => (name, None, None, None),
+        let (source_partitions, not_before, not_after) = match source {
+            models::Source::Collection(_name) => (None, None, None),
             models::Source::Source(models::FullSource {
-                name,
+                name: _,
                 partitions,
                 not_before,
                 not_after,
-            }) => (
-                name,
-                partitions.as_ref(),
-                not_before.as_ref(),
-                not_after.as_ref(),
-            ),
+            }) => (partitions.as_ref(), not_before.as_ref(), not_after.as_ref()),
         };
-        let partition_selector = Some(assemble::journal_selector(source_name, source_partitions));
+        let partition_selector = Some(assemble::journal_selector(
+            source_collection.as_ref().unwrap(),
+            source_partitions,
+        ));
 
         // Build a state key and read suffix using the transform name as it's resource path.
         let state_key = assemble::encode_state_key(&[&transform_name], backfill);
