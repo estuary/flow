@@ -27,6 +27,8 @@ pub const RCLOCK_END_MAX: &str = KEY_END_MAX;
 pub const SPLIT_TARGET: &str = "estuary.dev/split-target";
 pub const SPLIT_SOURCE: &str = "estuary.dev/split-source";
 pub const LOG_LEVEL: &str = "estuary.dev/log-level";
+pub const LOGS_JOURNAL: &str = "estuary.dev/logs-journal";
+pub const STATS_JOURNAL: &str = "estuary.dev/stats-journal";
 // Shard labels related to network connectivity to shards.
 pub const HOSTNAME: &str = "estuary.dev/hostname";
 pub const EXPOSE_PORT: &str = "estuary.dev/expose-port";
@@ -101,33 +103,44 @@ where
     I: IntoIterator<Item = (S, S)>,
     S: AsRef<str>,
 {
-    let mut labels: Vec<Label> = it
-        .into_iter()
-        .map(|(name, value)| Label {
-            name: name.as_ref().to_string(),
-            value: value.as_ref().to_string(),
-        })
-        .collect();
+    let mut set = LabelSet { labels: Vec::new() };
 
-    labels.sort_by(|l, r| l.name.cmp(&r.name));
-
-    LabelSet { labels }
+    for (name, value) in it {
+        set = add_value(set, name.as_ref(), value.as_ref());
+    }
+    set
 }
 
 /// Update a LabelSet, replacing all labels of `name` with a single label having `value`.
+/// If `name` has the special suffix ":prefix", the Label is marked as a prefix
+/// match. It's only valid to use ":prefix" within the context of a LabelSelector.
 pub fn set_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
+    let (name, prefix) = if name.ends_with(":prefix") {
+        (&name[..name.len() - 7], true)
+    } else {
+        (name, false)
+    };
+
     set.labels.splice(
         range(&set, name),
         [Label {
             name: name.to_string(),
             value: value.to_string(),
+            prefix,
         }],
     );
     set
 }
 
-/// Update a LabelSet, adding a new label of `name` and `value`.
+/// Add a Label `name` with `value`, retaining any existing Labels of `name`.
+/// If `name` has the special suffix ":prefix", the Label is marked as a prefix
+/// match. It's only valid to use ":prefix" within the context of a LabelSelector.
 pub fn add_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
+    let (name, prefix) = if name.ends_with(":prefix") {
+        (&name[..name.len() - 7], true)
+    } else {
+        (name, false)
+    };
     let r = range(&set, name);
 
     // Within the range of labels matching `name`, find the insertion point for `value`.
@@ -143,6 +156,7 @@ pub fn add_value(mut set: LabelSet, name: &str, value: &str) -> LabelSet {
         Label {
             name: name.to_string(),
             value: value.to_string(),
+            prefix,
         },
     );
     set
@@ -182,7 +196,7 @@ pub fn percent_encoding<'s>(s: &'s str) -> percent_encoding::PercentEncode<'s> {
     percent_encoding::utf8_percent_encode(s, SET)
 }
 
-fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
+pub fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
     let value = expect_one(set, name)?;
 
     let (8, Ok(parsed)) = (value.len(), u32::from_str_radix(value, 16)) else {
@@ -194,7 +208,7 @@ fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
     Ok(parsed)
 }
 
-fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
+pub fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     let labels = values(set, name);
 
     if labels.len() != 1 {
@@ -206,7 +220,7 @@ fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     }
 }
 
-fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
+pub fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     let labels = values(set, name);
 
     if labels.len() > 1 {
@@ -227,13 +241,13 @@ mod test {
     #[test]
     fn label_range_cases() {
         let set = crate::build_set([
-            ("a", ""),
-            ("b", ""),
-            ("b", ""),
-            ("d", ""),
-            ("e", ""),
-            ("e", ""),
-            ("e", ""),
+            ("a", "1"),
+            ("b", "2"),
+            ("b", "3"),
+            ("d", "4"),
+            ("e", "5"),
+            ("e", "6"),
+            ("e:prefix", "7"),
         ]);
 
         assert_eq!(range(&set, "_"), 0..0);
@@ -253,8 +267,8 @@ mod test {
         let mut set = crate::build_set([("a", "aa"), ("c", "cc"), ("d", "dd"), ("z", "")]);
 
         set = add_value(set, "a", "aa.2");
-        set = set_value(set, "d", "dd.2");
-        set = add_value(set, "b", "bb.1");
+        set = set_value(set, "d:prefix", "dd.2");
+        set = add_value(set, "b:prefix", "bb.1");
         set = remove(set, "c");
         set = remove(set, "z");
 
@@ -271,11 +285,13 @@ mod test {
             },
             {
               "name": "b",
-              "value": "bb.1"
+              "value": "bb.1",
+              "prefix": true
             },
             {
               "name": "d",
-              "value": "dd.2"
+              "value": "dd.2",
+              "prefix": true
             }
           ]
         }
@@ -315,11 +331,13 @@ mod test {
             },
             {
               "name": "b",
-              "value": "bb.1"
+              "value": "bb.1",
+              "prefix": true
             },
             {
               "name": "d",
-              "value": "dd.2"
+              "value": "dd.2",
+              "prefix": true
             }
           ]
         }

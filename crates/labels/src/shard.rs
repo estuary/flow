@@ -25,6 +25,9 @@ pub fn encode_labeling(mut set: LabelSet, labeling: &ops::ShardLabeling) -> Labe
     set = set_value(set, crate::TASK_NAME, &labeling.task_name);
     set = set_value(set, crate::TASK_TYPE, labeling.task_type().as_str_name());
 
+    set = set_value(set, crate::LOGS_JOURNAL, &labeling.logs_journal);
+    set = set_value(set, crate::STATS_JOURNAL, &labeling.stats_journal);
+
     set
 }
 
@@ -64,6 +67,9 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
         Some(e) => e,
     } as i32;
 
+    let logs_journal = maybe_one(set, crate::LOGS_JOURNAL)?.to_string();
+    let stats_journal = maybe_one(set, crate::STATS_JOURNAL)?.to_string();
+
     if !split_source.is_empty() && !split_target.is_empty() {
         return Err(Error::SplitSourceAndTarget(
             split_source.to_string(),
@@ -80,6 +86,8 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
         split_target,
         task_name,
         task_type,
+        logs_journal,
+        stats_journal,
     })
 }
 
@@ -154,6 +162,8 @@ mod test {
             split_target: "split/target".to_string(),
             task_name: "task/name".to_string(),
             task_type: ops::TaskType::Derivation as i32,
+            logs_journal: "logs/journal".to_string(),
+            stats_journal: "stats/journal".to_string(),
         };
 
         let set = encode_labeling(LabelSet::default(), &labeling);
@@ -182,6 +192,10 @@ mod test {
               "value": "info"
             },
             {
+              "name": "estuary.dev/logs-journal",
+              "value": "logs/journal"
+            },
+            {
               "name": "estuary.dev/rclock-begin",
               "value": "00000000"
             },
@@ -196,6 +210,10 @@ mod test {
             {
               "name": "estuary.dev/split-target",
               "value": "split/target"
+            },
+            {
+              "name": "estuary.dev/stats-journal",
+              "value": "stats/journal"
             },
             {
               "name": "estuary.dev/task-name",
@@ -233,6 +251,8 @@ mod test {
             (crate::SPLIT_SOURCE, "split/source"),
             (crate::TASK_NAME, "the/task"),
             (crate::TASK_TYPE, "capture"),
+            (crate::LOGS_JOURNAL, "logs/journal"),
+            (crate::STATS_JOURNAL, "stats/journal"),
         ]);
 
         insta::assert_json_snapshot!(
@@ -242,6 +262,7 @@ mod test {
           "build": "a-build",
           "hostname": "a.hostname",
           "logLevel": "info",
+          "logsJournal": "logs/journal",
           "range": {
             "keyBegin": 1,
             "keyEnd": 2,
@@ -249,6 +270,7 @@ mod test {
             "rClockEnd": 4
           },
           "splitSource": "split/source",
+          "statsJournal": "stats/journal",
           "taskName": "the/task",
           "taskType": "capture"
         }
@@ -264,6 +286,8 @@ mod test {
             crate::KEY_END,
             crate::RCLOCK_BEGIN,
             crate::RCLOCK_END,
+            crate::LOGS_JOURNAL,
+            crate::STATS_JOURNAL,
         ] {
             set = crate::remove(set, name);
         }
@@ -289,7 +313,7 @@ mod test {
         // Expected label has too many values.
         let set = crate::add_value(model.clone(), crate::BUILD, "other");
         insta::assert_json_snapshot!(case(set),
-            @r###""expected one label for estuary.dev/build (got [Label { name: \"estuary.dev/build\", value: \"a-build\" }, Label { name: \"estuary.dev/build\", value: \"other\" }])""###);
+            @r###""expected one label for estuary.dev/build (got [Label { name: \"estuary.dev/build\", value: \"a-build\", prefix: false }, Label { name: \"estuary.dev/build\", value: \"other\", prefix: false }])""###);
 
         // Invalid log level.
         let set = crate::set_value(model.clone(), crate::LOG_LEVEL, "invalid");
