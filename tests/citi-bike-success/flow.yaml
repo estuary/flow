@@ -2,7 +2,6 @@ import:
   - ../../examples/citi-bike/rides.flow.yaml
   - ../../examples/citi-bike/last-seen.flow.yaml
   - ../../examples/citi-bike/stations.flow.yaml
-  - ../materialize-logs.flow.yaml
 
 materializations:
   examples/citi-bike/views:
@@ -54,4 +53,3 @@ captures:
     bindings:
       - resource: { table: not_a_real_table }
         target: examples/citi-bike/rides
-

@@ -199,38 +199,6 @@ for table_expected in ${TEST_ROOT}/*.rows; do
     echo "Table ${table_id} matches expected rows"
 done
 
-# TODO(johnny): These are super flaky. Figure something else out.
-#
-# Logs from connector. In this case we don't do a full diff between all lines, we just check
-# that the expected logs exist among all the logs from the connector.
-#for table_expected in ${TEST_ROOT}/logs; do
-#    table_id="flow_logs"
-#    table_actual=${TESTDIR}/${table_id}
-#    columns=$(head -n 1 $table_expected | sed 's/,/","/g')
-#    psql_exec -c "SELECT \"$columns\" FROM $table_id;" --csv -P pager=off >> $table_actual
-#
-#    n_actual=$( cat $table_actual | grep --count --file=$table_expected )
-#    n_expect=$( cat $table_expected | wc -l )
-#
-#    if [ $n_actual -ne $n_expect ]; then
-#        echo "Expected ops logs were not matched ($n_actual actual vs $n_expect expected)"
-#        echo "Expected to see log rows:"
-#        cat $table_expected
-#        echo
-#        echo "Actually saw log rows:"
-#        cat $table_actual
-#        echo
-#        echo "Data-plane ouptut:"
-#        cat $TESTDIR/data-plane.out
-#
-#        cleanup
-#        echo "FAIL ${TEST}"
-#        exit 1
-#    fi
-#
-#    echo "Test logs ${table_expected} match the expectation"
-#done
-
 ###############################################################################
 # Delete built catalog from our data plane.
 
