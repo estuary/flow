@@ -1,0 +1,51 @@
+{
+  "materializations": {
+    "ops.us-central1.v1/stats-view": {
+      "endpoint": {
+        "connector": {
+          "image": "ghcr.io/estuary/materialize-postgres:dev",
+          "config": {"address":"supabase_db_flow.supabase_network_flow:5432","database":"postgres","password":"stats_loader_password","user":"stats_loader"}
+        }
+      },
+      "bindings": [
+        {
+          "resource": {"table":"inferred_schemas"},
+          "source": "ops.us-central1.v1/inferred-schemas/L2",
+          "fields": {
+            "include": {
+              "collection_name": {},
+              "flow_document": {},
+              "schema": {}
+            },
+            "recommended": false
+          }
+        },
+        {
+          "resource": {"table":"catalog_stats"},
+          "source": "ops.us-central1.v1/catalog-stats-L2",
+          "fields": {
+            "include": {
+              "bytes_read_by_me": {},
+              "bytes_read_from_me": {},
+              "bytes_written_by_me": {},
+              "bytes_written_to_me": {},
+              "catalog_name": {},
+              "docs_read_by_me": {},
+              "docs_read_from_me": {},
+              "docs_written_by_me": {},
+              "docs_written_to_me": {},
+              "errors": {},
+              "failures": {},
+              "flow_document": {},
+              "grain": {},
+              "ts": {},
+              "usage_seconds": {},
+              "warnings": {}
+            },
+            "recommended": false
+          }
+        }
+      ]
+    }
+  }
+}

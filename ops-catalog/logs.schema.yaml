@@ -1,0 +1,27 @@
+$schema: https://json-schema.org/draft-07/schema
+title: Flow task logs
+description: Logs related to the processing of a Flow capture, derivation, or materialization
+type: object
+properties:
+  shard:
+    $ref: shard.schema.yaml
+  ts:
+    description: Timestamp corresponding to the start of the transaction
+    type: string
+    format: date-time
+  level:
+    enum:
+      - error
+      - warn
+      - info
+      - debug
+      - trace
+  message:
+    type: string
+  fields:
+    description: Map of keys and values that are associated with this log entry.
+    type: object
+required:
+  - shard
+  - ts
+  - level
