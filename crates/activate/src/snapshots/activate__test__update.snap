@@ -1,11 +1,11 @@
 ---
 source: crates/activate/src/lib.rs
-expression: "(partition_changes, shard_changes, log_changes)"
+expression: "(partition_changes, task_changes)"
 ---
 [
-  {
-    "changes": [
-      {
+  [
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=10000000",
@@ -59,8 +59,10 @@ expression: "(partition_changes, shard_changes, log_changes)"
           "flags": 4,
           "maxAppendRate": "4194304"
         }
-      },
-      {
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=40000000",
@@ -114,8 +116,10 @@ expression: "(partition_changes, shard_changes, log_changes)"
           "flags": 4,
           "maxAppendRate": "4194304"
         }
-      },
-      {
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "name": "example/collection/2020202020202020/a_bool=%_false/a_str=other-val/pivot=00",
@@ -170,11 +174,11 @@ expression: "(partition_changes, shard_changes, log_changes)"
           "maxAppendRate": "4194304"
         }
       }
-    ]
-  },
-  {
-    "changes": [
-      {
+    }
+  ],
+  [
+    {
+      "Shard": {
         "expectModRevision": "111",
         "upsert": {
           "id": "derivation/example/derivation/2020202020202020/10000000-60000000",
@@ -207,6 +211,10 @@ expression: "(partition_changes, shard_changes, log_changes)"
                 "value": "info"
               },
               {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
                 "name": "estuary.dev/rclock-begin",
                 "value": "60000000"
               },
@@ -215,112 +223,8 @@ expression: "(partition_changes, shard_changes, log_changes)"
                 "value": "9fffffff"
               },
               {
-                "name": "estuary.dev/task-name",
-                "value": "example/derivation"
-              },
-              {
-                "name": "estuary.dev/task-type",
-                "value": "derivation"
-              }
-            ]
-          },
-          "ringBufferSize": 65536,
-          "readChannelSize": 4096
-        }
-      },
-      {
-        "expectModRevision": "111",
-        "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/30000000-60000000",
-          "recoveryLogPrefix": "recovery",
-          "hintPrefix": "/estuary/flow/hints",
-          "hintBackups": 2,
-          "maxTxnDuration": "60s",
-          "minTxnDuration": "0s",
-          "hotStandbys": 3,
-          "labels": {
-            "labels": [
-              {
-                "name": "app.gazette.dev/managed-by",
-                "value": "estuary.dev/flow"
-              },
-              {
-                "name": "estuary.dev/build",
-                "value": "0101010101010101"
-              },
-              {
-                "name": "estuary.dev/key-begin",
-                "value": "30000000"
-              },
-              {
-                "name": "estuary.dev/key-end",
-                "value": "3fffffff"
-              },
-              {
-                "name": "estuary.dev/log-level",
-                "value": "info"
-              },
-              {
-                "name": "estuary.dev/rclock-begin",
-                "value": "60000000"
-              },
-              {
-                "name": "estuary.dev/rclock-end",
-                "value": "7fffffff"
-              },
-              {
-                "name": "estuary.dev/task-name",
-                "value": "example/derivation"
-              },
-              {
-                "name": "estuary.dev/task-type",
-                "value": "derivation"
-              }
-            ]
-          },
-          "ringBufferSize": 65536,
-          "readChannelSize": 4096
-        }
-      },
-      {
-        "expectModRevision": "111",
-        "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/30000000-80000000",
-          "recoveryLogPrefix": "recovery",
-          "hintPrefix": "/estuary/flow/hints",
-          "hintBackups": 2,
-          "maxTxnDuration": "60s",
-          "minTxnDuration": "0s",
-          "hotStandbys": 3,
-          "labels": {
-            "labels": [
-              {
-                "name": "app.gazette.dev/managed-by",
-                "value": "estuary.dev/flow"
-              },
-              {
-                "name": "estuary.dev/build",
-                "value": "0101010101010101"
-              },
-              {
-                "name": "estuary.dev/key-begin",
-                "value": "30000000"
-              },
-              {
-                "name": "estuary.dev/key-end",
-                "value": "3fffffff"
-              },
-              {
-                "name": "estuary.dev/log-level",
-                "value": "info"
-              },
-              {
-                "name": "estuary.dev/rclock-begin",
-                "value": "80000000"
-              },
-              {
-                "name": "estuary.dev/rclock-end",
-                "value": "9fffffff"
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -336,11 +240,9 @@ expression: "(partition_changes, shard_changes, log_changes)"
           "readChannelSize": 4096
         }
       }
-    ]
-  },
-  {
-    "changes": [
-      {
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "name": "recovery/derivation/example/derivation/2020202020202020/10000000-60000000",
@@ -380,8 +282,74 @@ expression: "(partition_changes, shard_changes, log_changes)"
           "flags": 4,
           "maxAppendRate": "4194304"
         }
-      },
-      {
+      }
+    },
+    {
+      "Shard": {
+        "expectModRevision": "111",
+        "upsert": {
+          "id": "derivation/example/derivation/2020202020202020/30000000-60000000",
+          "recoveryLogPrefix": "recovery",
+          "hintPrefix": "/estuary/flow/hints",
+          "hintBackups": 2,
+          "maxTxnDuration": "60s",
+          "minTxnDuration": "0s",
+          "hotStandbys": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "30000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "3fffffff"
+              },
+              {
+                "name": "estuary.dev/log-level",
+                "value": "info"
+              },
+              {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
+                "name": "estuary.dev/rclock-begin",
+                "value": "60000000"
+              },
+              {
+                "name": "estuary.dev/rclock-end",
+                "value": "7fffffff"
+              },
+              {
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/derivation"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "ringBufferSize": 65536,
+          "readChannelSize": 4096
+        }
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "name": "recovery/derivation/example/derivation/2020202020202020/30000000-60000000",
@@ -421,8 +389,74 @@ expression: "(partition_changes, shard_changes, log_changes)"
           "flags": 4,
           "maxAppendRate": "4194304"
         }
-      },
-      {
+      }
+    },
+    {
+      "Shard": {
+        "expectModRevision": "111",
+        "upsert": {
+          "id": "derivation/example/derivation/2020202020202020/30000000-80000000",
+          "recoveryLogPrefix": "recovery",
+          "hintPrefix": "/estuary/flow/hints",
+          "hintBackups": 2,
+          "maxTxnDuration": "60s",
+          "minTxnDuration": "0s",
+          "hotStandbys": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "30000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "3fffffff"
+              },
+              {
+                "name": "estuary.dev/log-level",
+                "value": "info"
+              },
+              {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
+                "name": "estuary.dev/rclock-begin",
+                "value": "80000000"
+              },
+              {
+                "name": "estuary.dev/rclock-end",
+                "value": "9fffffff"
+              },
+              {
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/derivation"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "ringBufferSize": 65536,
+          "readChannelSize": 4096
+        }
+      }
+    },
+    {
+      "Journal": {
         "expectModRevision": "111",
         "upsert": {
           "name": "recovery/derivation/example/derivation/2020202020202020/30000000-80000000",
@@ -463,6 +497,6 @@ expression: "(partition_changes, shard_changes, log_changes)"
           "maxAppendRate": "4194304"
         }
       }
-    ]
-  }
+    }
+  ]
 ]

@@ -1,3 +1,6 @@
+import:
+  - ../../../ops-catalog/data-plane-template.flow.yaml
+
 collections:
   example/collection:
     schema: &schema
