@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{channel::mpsc, SinkExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{channel::mpsc, SinkExt, StreamExt, TryFutureExt};
 use proto_flow::flow;
 use proto_gazette::{broker, consumer};
 
@@ -147,9 +147,13 @@ impl Reader {
 
     async fn list_journals(
         source: &Source,
-        mut client: journal_client::Client,
+        client: gazette::journal::Client,
     ) -> anyhow::Result<Vec<broker::JournalSpec>> {
-        let listing = journal_client::list::list_journals(&mut client, &source.partition_selector)
+        let resp = client
+            .list(broker::ListRequest {
+                selector: Some(source.partition_selector.clone()),
+                ..Default::default()
+            })
             .await
             .with_context(|| {
                 format!(
@@ -158,64 +162,73 @@ impl Reader {
                 )
             })?;
 
+        let listing = resp
+            .journals
+            .into_iter()
+            .map(|j| j.spec.unwrap())
+            .collect::<Vec<_>>();
+
         if listing.is_empty() {
             anyhow::bail!(
                 "the collection '{}' has not had any data written to it",
                 &source.collection,
             );
         }
-
         Ok(listing)
     }
 
     fn read_journal_lines<'s>(
         binding: u32,
-        client: journal_client::Client,
+        client: gazette::journal::Client,
         journal: &'s String,
         resume: &consumer::Checkpoint,
         source: &Source,
-    ) -> impl futures::Stream<Item = anyhow::Result<(u32, String, &'s String, i64)>> {
-        use futures::AsyncBufReadExt;
-        use journal_client::read::uncommitted::{
-            ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader,
-        };
+    ) -> impl futures::Stream<Item = gazette::Result<(u32, String, &'s String, i64)>> {
+        use gazette::journal::ReadJsonLine;
 
-        let offset = resume
+        let mut offset = resume
             .sources
             .get(journal)
             .map(|s| s.read_through)
             .unwrap_or_default();
 
-        let read = JournalRead::new(journal.clone())
-            .starting_at(ReadStart::Offset(offset as u64))
-            .begin_mod_time(
-                source
-                    .not_before
-                    .as_ref()
-                    .map(|b| b.seconds)
-                    .unwrap_or_default(),
-            )
-            .read_until(ReadUntil::Forever);
+        let begin_mod_time = source
+            .not_before
+            .as_ref()
+            .map(|b| b.seconds)
+            .unwrap_or_default();
+
+        let mut lines = client.read_json_lines(
+            broker::ReadRequest {
+                journal: journal.clone(),
+                offset,
+                block: true,
+                begin_mod_time,
+                ..Default::default()
+            },
+            1,
+        );
+
+        let ser_policy = doc::SerPolicy::noop();
 
         coroutines::try_coroutine(move |mut co| async move {
-            let backoff = ExponentialBackoff::new(2);
-            let reader = Reader::start_read(client, read, backoff);
-            let mut reader = futures::io::BufReader::new(reader);
-
-            // Fill the buffer and establish the first read byte offset.
-            let buf_len = reader.fill_buf().await?.len();
-            let mut offset = reader.get_ref().current_offset() - buf_len as i64;
-
-            let mut lines = reader.lines();
-
-            loop {
-                let Some(doc_json) = lines.try_next().await? else {
-                    break;
+            while let Some(line) = lines.next().await {
+                let (root, next_offset) = match line {
+                    Ok(ReadJsonLine::Doc { root, next_offset }) => (root, next_offset),
+                    Ok(ReadJsonLine::Meta(meta)) => {
+                        offset = meta.offset;
+                        continue;
+                    }
+                    Err(err) if err.is_transient() => {
+                        tracing::warn!(%err, %journal, %binding, "transient error reading journal (will retry)");
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        continue;
+                    }
+                    Err(err) => return Err(err),
                 };
-                // Attempt to keep the offset up to date.
-                // TODO(johnny): This is subtly broken because it doesn't handle offset jumps.
-                // Fixing requires a deeper refactor of journal_client::Reader.
-                offset += doc_json.len() as i64 + 1;
+
+                // TODO(johnny): plumb through OwnedArchivedNode end-to-end.
+                let doc_json = serde_json::to_string(&ser_policy.on(root.get())).unwrap();
 
                 // TODO(johnny): This is pretty janky.
                 if doc_json.starts_with("{\"_meta\":{\"ack\":true,") {
@@ -223,6 +236,7 @@ impl Reader {
                 }
 
                 () = co.yield_((binding, doc_json, journal, offset)).await;
+                offset = next_offset;
             }
             Ok(())
         })
