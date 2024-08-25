@@ -1,5 +1,5 @@
 
-// Generated for published documents of derived collection ops.us-central1.v1/catalog-stats-L1.
+// Generated for published documents of derived collection ops/rollups/L1/BASE_NAME/catalog-stats.
 export type Document = /* Flow catalog task stats Statistics related to the processing of a Flow catalog. */ {
     catalogName: /* Name of the Flow catalog */ string;
     grain: /* Time grain that the stats are aggregated over */ "daily" | "hourly" | "monthly";
@@ -68,7 +68,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                     docsTotal: /* Total number of documents */ number;
                 };
                 out?: {
-                    bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
+                    bytesTotal?: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
                 };
                 right?: {
@@ -82,7 +82,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
 };
 
 
-// Generated for read documents of sourced collection ops.us-central1.v1/logs.
+// Generated for read documents of sourced collection ops/tasks/BASE_NAME/logs.
 export type SourceLogs = /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
     fields?: /* Map of keys and values that are associated with this log entry. */ Record<string, unknown>;
     level: "debug" | "error" | "info" | "trace" | "warn";
@@ -97,7 +97,7 @@ export type SourceLogs = /* Flow task logs Logs related to the processing of a F
 };
 
 
-// Generated for read documents of sourced collection ops.us-central1.v1/stats.
+// Generated for read documents of sourced collection ops/tasks/BASE_NAME/stats.
 export type SourceStats = /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
     capture?: /* Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection. */ {
         [k: string]: {
@@ -141,7 +141,7 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
                 docsTotal: /* Total number of documents */ number;
             };
             out?: {
-                bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
+                bytesTotal?: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
             };
             right?: {

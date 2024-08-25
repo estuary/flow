@@ -1,0 +1,64 @@
+{
+  "collections": {
+    "ops.us-central1.v1/catalog-stats-L2": {
+      "schema": {"$defs":{"__flowInline1":{"$defs":{"docsAndBytes":{"properties":{"bytesTotal":{"default":0,"description":"Total number of bytes representing the JSON encoded documents","reduce":{"strategy":"sum"},"type":"integer"},"docsTotal":{"default":0,"description":"Total number of documents","reduce":{"strategy":"sum"},"type":"integer"}},"reduce":{"strategy":"merge"},"required":["docsTotal","bytesTotal"],"type":"object"},"transformStats":{"description":"Stats for a specific transform of a derivation, which will have an update, publish, or both.","properties":{"input":{"$ref":"#/$defs/docsAndBytes","description":"The input documents that were fed into this transform."},"source":{"description":"The name of the collection that this transform sources from","type":"string"}},"reduce":{"strategy":"merge"},"required":["input"],"type":"object"}},"$id":"file:///home/johnny/estuary/flow/ops-catalog/stats.schema.yaml","$schema":"https://json-schema.org/draft-07/schema","description":"Statistics related to the processing of a Flow capture, derivation, or materialization","properties":{"capture":{"additionalProperties":{"properties":{"out":{"$ref":"#/$defs/docsAndBytes"},"right":{"$ref":"#/$defs/docsAndBytes","description":"Documents fed into the combiner from the source"}},"reduce":{"strategy":"merge"},"type":"object"},"description":"Capture stats, organized by collection. The keys of this object are the collection names, and the values are the stats for that collection.","reduce":{"strategy":"merge"},"type":"object"},"derive":{"properties":{"out":{"$ref":"#/$defs/docsAndBytes"},"published":{"$ref":"#/$defs/docsAndBytes"},"transforms":{"additionalProperties":{"$ref":"#/$defs/transformStats"},"description":"A map of each transform (transform name, not collection name) to stats for that transform","reduce":{"strategy":"merge"},"type":"object"}},"reduce":{"strategy":"merge"},"type":"object"},"interval":{"properties":{"uptimeSeconds":{"description":"Number of seconds that the task shard is metered as having been running","minimum":1,"reduce":{"strategy":"sum"},"type":"integer"},"usageRate":{"default":0,"description":"Usage rate which adjusts `uptimeSeconds` to determine the task's effective usage","minimum":0,"type":"number"}},"reduce":{"strategy":"merge"},"required":["uptimeSeconds"],"type":"object"},"materialize":{"additionalProperties":{"properties":{"left":{"$ref":"#/$defs/docsAndBytes"},"out":{"properties":{"bytesTotal":{"default":0,"description":"Total number of bytes representing the JSON encoded documents","reduce":{"strategy":"sum"},"type":"integer"},"docsTotal":{"default":0,"description":"Total number of documents","reduce":{"strategy":"sum"},"type":"integer"}},"reduce":{"strategy":"merge"},"required":["docsTotal"],"type":"object"},"right":{"$ref":"#/$defs/docsAndBytes"}},"reduce":{"strategy":"merge"},"type":"object"},"description":"A map of each binding source (collection name) to combiner stats for that binding","reduce":{"strategy":"merge"},"type":"object"},"openSecondsTotal":{"description":"Total time that the transaction was open before starting to commit","reduce":{"strategy":"sum"},"type":"number"},"shard":{"$ref":"shard.schema.yaml"},"ts":{"description":"Timestamp corresponding to the start of the transaction","format":"date-time","type":"string"},"txnCount":{"description":"Total number of transactions represented by this stats document","reduce":{"strategy":"sum"},"type":"integer"}},"reduce":{"strategy":"merge"},"required":["shard","ts"],"title":"Flow task stats","type":"object"},"__flowInline2":{"$id":"file:///home/johnny/estuary/flow/ops-catalog/shard.schema.yaml","$schema":"https://json-schema.org/draft-07/schema","description":"Identifies a specific shard of a task, which may be the source of a log message or metrics","properties":{"keyBegin":{"description":"The inclusive beginning of the shard's assigned key range","pattern":"[0-9a-f]{8}","type":"string"},"kind":{"description":"The type of the catalog task","enum":["capture","derivation","materialization"]},"name":{"description":"The name of the catalog task (without the task type prefix)","type":"string"},"rClockBegin":{"description":"The inclusive beginning of the shard's assigned rClock range","pattern":"[0-9a-f]{8}","type":"string"}},"required":["kind","name","keyBegin","rClockBegin"],"title":"Flow shard id","type":"object"},"logCount":{"default":0,"description":"Total number of matching log events","reduce":{"strategy":"sum"},"type":"integer"}},"$id":"file:///home/johnny/estuary/flow/ops-catalog/catalog-stats.schema.yaml","$schema":"https://json-schema.org/draft-07/schema","description":"Statistics related to the processing of a Flow catalog.","properties":{"catalogName":{"description":"Name of the Flow catalog","type":"string"},"grain":{"description":"Time grain that the stats are aggregated over","enum":["monthly","daily","hourly"]},"statsSummary":{"properties":{"errors":{"$ref":"#/$defs/logCount","description":"Total number of logged errors"},"failures":{"$ref":"#/$defs/logCount","description":"Total number of shard failures"},"readByMe":{"$ref":"stats.schema.yaml#/$defs/docsAndBytes"},"readFromMe":{"$ref":"stats.schema.yaml#/$defs/docsAndBytes"},"usageSeconds":{"default":0,"description":"Cumulative number of metered seconds of task usage","reduce":{"strategy":"sum"},"type":"integer"},"warnings":{"$ref":"#/$defs/logCount","description":"Total number of logged warnings"},"writtenByMe":{"$ref":"stats.schema.yaml#/$defs/docsAndBytes"},"writtenToMe":{"$ref":"stats.schema.yaml#/$defs/docsAndBytes"}},"reduce":{"strategy":"merge"},"type":"object"},"taskStats":{"properties":{"capture":{"$ref":"stats.schema.yaml#/properties/capture"},"derive":{"$ref":"stats.schema.yaml#/properties/derive"},"interval":{"$ref":"stats.schema.yaml#/properties/interval"},"materialize":{"$ref":"stats.schema.yaml#/properties/materialize"}},"reduce":{"strategy":"merge"},"type":"object"},"ts":{"description":"Timestamp of the catalog stat aggregate","format":"date-time","type":"string"}},"reduce":{"strategy":"merge"},"required":["catalogName","grain","ts","statsSummary"],"title":"Flow catalog task stats","type":"object"},
+      "key": [
+        "/catalogName",
+        "/grain",
+        "/ts"
+      ],
+      "projections": {
+        "bytes_read_by_me": "/statsSummary/readByMe/bytesTotal",
+        "bytes_read_from_me": "/statsSummary/readFromMe/bytesTotal",
+        "bytes_written_by_me": "/statsSummary/writtenByMe/bytesTotal",
+        "bytes_written_to_me": "/statsSummary/writtenToMe/bytesTotal",
+        "catalog_name": "/catalogName",
+        "docs_read_by_me": "/statsSummary/readByMe/docsTotal",
+        "docs_read_from_me": "/statsSummary/readFromMe/docsTotal",
+        "docs_written_by_me": "/statsSummary/writtenByMe/docsTotal",
+        "docs_written_to_me": "/statsSummary/writtenToMe/docsTotal",
+        "errors": "/statsSummary/errors",
+        "failures": "/statsSummary/failures",
+        "usage_seconds": "/statsSummary/usageSeconds",
+        "warnings": "/statsSummary/warnings"
+      },
+      "derive": {
+        "using": {
+          "typescript": {
+            "module": "import { IDerivation, Document, SourceFromBaseName } from 'flow/ops.us-central1.v1/catalog-stats-L2.ts';\n\n// Implementation for derivation ops.us-central1.v1/catalog-stats-L2.\nexport class Derivation extends IDerivation {\n    fromBaseName(read: { doc: SourceFromBaseName }): Document[] {\n        return [read.doc]\n    }\n}"
+          }
+        },
+        "transforms": [
+          {
+            "name": "from-base-name",
+            "source": "ops/rollups/L1/BASE_NAME/catalog-stats",
+            "shuffle": "any"
+          }
+        ]
+      }
+    },
+    "ops.us-central1.v1/inferred-schemas/L2": {
+      "schema": {"$id":"file:///home/johnny/estuary/flow/ops-catalog/inferred-schemas.schema.yaml","properties":{"collection_name":{"description":"The name of the collection that this schema was inferred for","type":"string"},"schema":{"description":"The inferred schema","reduce":{"strategy":"jsonSchemaMerge"},"type":"object"}},"reduce":{"strategy":"merge"},"required":["collection_name","schema"],"type":"object"},
+      "key": [
+        "/collection_name"
+      ],
+      "derive": {
+        "using": {
+          "sqlite": {}
+        },
+        "transforms": [
+          {
+            "name": "from-base-name",
+            "source": "ops/rollups/L1/BASE_NAME/inferred-schemas",
+            "shuffle": {
+              "key": [
+                "/collection_name"
+              ]
+            },
+            "lambda": "select json($flow_document);"
+          }
+        ]
+      }
+    }
+  }
+}

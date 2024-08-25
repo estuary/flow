@@ -1,0 +1,50 @@
+# When editing this catalog, regenerate its bundle via:
+#  flowctl raw bundle --source ops-catalog/reporting-L2-template.flow.yaml  > ops-catalog/reporting-L2-template.bundle.json
+
+collections:
+
+  ops.us-central1.v1/inferred-schemas/L2:
+    schema: inferred-schemas.schema.yaml
+    key: [/collection_name]
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        # Bindings of this derivation are dynamically generated over all current data-planes.
+        # This binding is ignored in production, and is used only for tests.
+        - name: from-base-name
+          source: ops/rollups/L1/BASE_NAME/inferred-schemas
+          shuffle:
+            key: [/collection_name]
+          lambda: select json($flow_document);
+
+  ops.us-central1.v1/catalog-stats-L2:
+    schema: catalog-stats.schema.yaml
+    key: [/catalogName, /grain, /ts]
+    projections:
+      catalog_name: /catalogName
+      bytes_written_by_me: /statsSummary/writtenByMe/bytesTotal
+      docs_written_by_me: /statsSummary/writtenByMe/docsTotal
+      bytes_read_by_me: /statsSummary/readByMe/bytesTotal
+      docs_read_by_me: /statsSummary/readByMe/docsTotal
+      bytes_written_to_me: /statsSummary/writtenToMe/bytesTotal
+      docs_written_to_me: /statsSummary/writtenToMe/docsTotal
+      bytes_read_from_me: /statsSummary/readFromMe/bytesTotal
+      docs_read_from_me: /statsSummary/readFromMe/docsTotal
+      usage_seconds: /statsSummary/usageSeconds
+      warnings: /statsSummary/warnings
+      errors: /statsSummary/errors
+      failures: /statsSummary/failures
+
+    derive:
+      using:
+        typescript:
+          module: catalog-stats-rollup.ts
+      transforms:
+        # Bindings of this derivation are dynamically generated over all current data-planes.
+        # This binding is ignored in production, and is used only for tests.
+        - name: from-base-name
+          source: ops/rollups/L1/BASE_NAME/catalog-stats
+          # TODO(johnny): Ideally, this would be shuffle: { key: [/catalogName] }
+          # However, while rolling out federated data-planes I'm minimizing churn.
+          shuffle: any

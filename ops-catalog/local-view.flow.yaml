@@ -1,12 +1,9 @@
-import:
-  - template-common.flow.yaml
-
 materializations:
   ops.us-central1.v1/stats-view:
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-postgres:dev
-        config: stats-local-endpoint.sops.yaml
+        config: local-endpoint.sops.yaml
 
     bindings:
       - source: ops.us-central1.v1/inferred-schemas/L2
