@@ -7,6 +7,8 @@ Outcome {
         BuiltCapture {
             capture: acmeCo/testCapture,
             scope: test://example/catalog.yaml#/captures/acmeCo~1testCapture,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -193,18 +195,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "acmeCo/foo",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -266,22 +272,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "acmeCo/testCapture",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -301,22 +312,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "acmeCo/testCapture",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -352,6 +368,8 @@ Outcome {
         BuiltCollection {
             collection: acmeCo/foo,
             scope: test://example/catalog.yaml#/collections/acmeCo~1foo,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/acmeCo~1foo/schema","properties":{"id":{"type":"integer"},"val":{"type":"string"}},"required":["id","val"],"type":"object"},
@@ -508,18 +526,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "acmeCo/foo",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -555,6 +577,8 @@ Outcome {
         BuiltMaterialization {
             materialization: acmeCo/testMaterialization,
             scope: test://example/catalog.yaml#/materializations/acmeCo~1testMaterialization,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -770,18 +794,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "acmeCo/foo",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -819,6 +847,7 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "acmeCo/foo",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -879,22 +908,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "acmeCo/testMaterialization",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -914,22 +948,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "acmeCo/testMaterialization",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1049,7 +1088,7 @@ Outcome {
     storage_mappings: [
         StorageMapping {
             catalog_prefix: ,
-            scope: flow://control/storage-mapping/default,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "S3",

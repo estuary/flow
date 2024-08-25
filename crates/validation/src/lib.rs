@@ -24,16 +24,19 @@ pub trait Connectors: Send + Sync {
     fn validate_capture<'a>(
         &'a self,
         request: proto_flow::capture::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::capture::Response>>;
 
     fn validate_derivation<'a>(
         &'a self,
         request: proto_flow::derive::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::derive::Response>>;
 
     fn validate_materialization<'a>(
         &'a self,
         request: proto_flow::materialize::Request,
+        data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::materialize::Response>>;
 }
 
@@ -48,12 +51,27 @@ pub async fn validate(
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
+    // Pluck out the default data-plane. It may not exist, which is an error
+    // only if a new specification needs a data-plane assignment.
+    let default_plane_id = live
+        .data_planes
+        .iter()
+        .filter_map(|p| {
+            if p.is_default {
+                Some(p.control_id)
+            } else {
+                None
+            }
+        })
+        .next();
+
     storage_mapping::walk_all_storage_mappings(&live.storage_mappings, &mut errors);
 
     // Build all local collections.
     let mut built_collections = collection::walk_all_collections(
         pub_id,
         build_id,
+        default_plane_id,
         &draft.collections,
         &live.collections,
         &live.inferred_schemas,
@@ -104,6 +122,8 @@ pub async fn validate(
         &live.captures,
         &built_collections,
         connectors,
+        &live.data_planes,
+        default_plane_id,
         &live.storage_mappings,
         &mut capture_errors,
     );
@@ -116,6 +136,7 @@ pub async fn validate(
         &live.collections,
         &built_collections,
         connectors,
+        &live.data_planes,
         &draft.imports,
         project_root,
         &live.storage_mappings,
@@ -130,6 +151,8 @@ pub async fn validate(
         &live.materializations,
         &built_collections,
         connectors,
+        &live.data_planes,
+        default_plane_id,
         &live.storage_mappings,
         &mut materialize_errors,
     );
@@ -186,6 +209,7 @@ pub async fn validate(
 
 fn walk_transition<'a, D, L, B>(
     pub_id: models::Id,
+    default_plane_id: Option<models::Id>,
     eob: EOB<&'a L, &'a D>,
     errors: &mut tables::Errors,
 ) -> Result<
@@ -194,6 +218,8 @@ fn walk_transition<'a, D, L, B>(
         &'a D::Key,               // Catalog name.
         &'a url::Url,             // Scope.
         &'a D::ModelDef,          // Model to validate.
+        models::Id,               // Live control-plane ID.
+        models::Id,               // Assigned data-plane.
         models::Id,               // Live publication ID.
         Option<&'a L::BuiltSpec>, // Live spec.
     ),
@@ -204,6 +230,7 @@ where
     D: tables::DraftRow,
     L: tables::LiveRow<Key = D::Key, ModelDef = D::ModelDef>,
     B: tables::BuiltRow<Key = D::Key, ModelDef = D::ModelDef, BuiltSpec = L::BuiltSpec>,
+    D::Key: AsRef<str>,
 {
     match eob {
         EOB::Left(live) => {
@@ -212,12 +239,14 @@ where
                     pub_id,
                     larger_id: live.last_pub_id(),
                 }
-                .push(Scope::new(live.scope()), errors);
+                .push(Scope::new(&live.scope()), errors);
             }
 
             Err(B::new(
                 live.catalog_name().clone(),
-                live.scope().clone(),
+                live.scope(),
+                live.control_id(),
+                live.data_plane_id(),
                 live.last_pub_id(),
                 Some(live.model().clone()),
                 None,
@@ -226,20 +255,37 @@ where
             ))
         }
         EOB::Right(draft) => {
-            let actual = models::Id::zero();
+            let last_pub_id = models::Id::zero(); // Not published.
 
             if let Some(expect) = draft.expect_pub_id() {
-                if expect != actual {
+                if expect != last_pub_id {
                     Error::ExpectPubIdNotMatched {
                         expect_id: expect,
-                        actual_id: actual,
+                        actual_id: last_pub_id,
                     }
                     .push(Scope::new(draft.scope()), errors);
                 }
             }
 
+            let default_plane_id = default_plane_id.unwrap_or_else(|| {
+                Error::MissingDefaultDataPlane {
+                    this_entity: draft.catalog_name().as_ref().to_string(),
+                }
+                .push(Scope::new(draft.scope()), errors);
+
+                models::Id::zero()
+            });
+
             match draft.model() {
-                Some(model) => Ok((draft.catalog_name(), draft.scope(), model, actual, None)),
+                Some(model) => Ok((
+                    draft.catalog_name(),
+                    draft.scope(),
+                    model,
+                    models::Id::zero(), // No control-plane ID.
+                    default_plane_id,   // Assign default data-plane.
+                    last_pub_id,        // Not published (zero).
+                    None,               // No live spec.
+                )),
                 None => {
                     Error::DeletedSpecDoesNotExist.push(Scope::new(draft.scope()), errors);
 
@@ -247,7 +293,9 @@ where
                     Err(B::new(
                         draft.catalog_name().clone(),
                         draft.scope().clone(),
-                        actual,
+                        models::Id::zero(), // No control-plane ID.
+                        models::Id::zero(), // Placeholder data-plane ID.
+                        last_pub_id,
                         None,
                         None,
                         None,
@@ -262,7 +310,7 @@ where
                     pub_id,
                     larger_id: live.last_pub_id(),
                 }
-                .push(Scope::new(live.scope()), errors);
+                .push(Scope::new(&live.scope()), errors);
             }
             match draft.expect_pub_id() {
                 Some(expect) if expect != live.last_pub_id() => {
@@ -280,6 +328,8 @@ where
                     draft.catalog_name(),
                     draft.scope(),
                     model,
+                    live.control_id(),
+                    live.data_plane_id(),
                     live.last_pub_id(),
                     Some(live.spec()),
                 )),
@@ -287,10 +337,12 @@ where
                 None => Err(B::new(
                     draft.catalog_name().clone(),
                     draft.scope().clone(),
+                    live.control_id(),
+                    live.data_plane_id(),
                     live.last_pub_id(),
-                    None,
-                    None,
-                    None,
+                    None, // Deletion has no draft model.
+                    None, // Deletion is not validated.
+                    None, // Deletion is not built into a spec.
                     Some(live.spec().clone()),
                 )),
             }

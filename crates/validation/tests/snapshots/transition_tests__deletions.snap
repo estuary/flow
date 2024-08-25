@@ -7,6 +7,8 @@ Outcome {
         BuiltCapture {
             capture: the/capture,
             scope: test://example/catalog.yaml#/captures/the~1capture,
+            control_id: "1111111111111101",
+            data_plane_id: "1212121212121201",
             expect_pub_id: "1010101010101010",
             model: NULL,
             validated: NULL,
@@ -52,6 +54,8 @@ Outcome {
         BuiltCollection {
             collection: the/collection,
             scope: test://example/catalog.yaml#/collections/the~1collection,
+            control_id: "1111111111111102",
+            data_plane_id: "1212121212121202",
             expect_pub_id: "1010101010101010",
             model: NULL,
             validated: NULL,
@@ -83,6 +87,8 @@ Outcome {
         BuiltCollection {
             collection: the/derivation,
             scope: test://example/catalog.yaml#/collections/the~1derivation,
+            control_id: "1111111111111103",
+            data_plane_id: "1212121212121203",
             expect_pub_id: "1010101010101010",
             model: NULL,
             validated: NULL,
@@ -151,6 +157,8 @@ Outcome {
         BuiltMaterialization {
             materialization: the/materialization,
             scope: test://example/catalog.yaml#/materializations/the~1materialization,
+            control_id: "1111111111111104",
+            data_plane_id: "1212121212121204",
             expect_pub_id: "1010101010101010",
             model: NULL,
             validated: NULL,
@@ -195,6 +203,7 @@ Outcome {
         BuiltTest {
             test: the/test,
             scope: test://example/catalog.yaml#/tests/the~1test,
+            control_id: "1111111111111105",
             expect_pub_id: "1010101010101010",
             model: NULL,
             spec: NULL,
@@ -254,7 +263,7 @@ Outcome {
     storage_mappings: [
         StorageMapping {
             catalog_prefix: ,
-            scope: flow://control/storage-mapping/default,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "S3",
