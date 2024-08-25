@@ -25,6 +25,11 @@ test://example/catalog.yaml:
               "": { type: string }
         required: [id]
       key: [/id]
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
 "##;
 
     let outcome = common::run(fixture, "{}");
@@ -52,6 +57,11 @@ test://example/catalog.yaml:
           id: {type: string}
           flow_document: {type: object}
         required: [id]
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
 "##;
 
     // Expect an implicit projection isn't created for `/flow_document`,
@@ -62,146 +72,7 @@ test://example/catalog.yaml:
 
 #[test]
 fn disabled_bindings_are_ignored() {
-    let fixture = r##"
-test://example/catalog.yaml:
-  collections:
-    testing/collection:
-      key: [/id]
-      schema:
-        type: object
-        properties:
-          id: {type: string}
-        required: [id]
-    testing/partly-disabled-derivation:
-      key: [/id]
-      schema:
-        type: object
-        properties:
-          id: {type: string}
-        required: [id]
-      derive:
-        using:
-          sqlite: {}
-        transforms:
-          - name: enabledTransform
-            shuffle: any
-            source: { name: testing/collection }
-            lambda: 'select $id, 1 as count;'
-          - name: disabledTransform
-            shuffle: any
-            source: { name: testing/collection }
-            lambda: 'select $id, 2 as count;'
-            disable: true
-    testing/fully-disabled-derivation:
-      key: [/id]
-      schema:
-        type: object
-        properties:
-          id: {type: string}
-        required: [id]
-      derive:
-        using:
-          sqlite: {}
-        transforms:
-          - name: disabledTransformA
-            source: { name: testing/collection }
-            lambda: select $id, 1 as count;
-            disable: true
-          - name: disabledTransformB
-            source: { name: testing/collection }
-            lambda: select $id, 2 as count;
-            disable: true
-
-
-  captures:
-    testing/partially-disabled-capture:
-      endpoint: { connector: { image: s3, config: {} }}
-      bindings:
-        - target: disabled/test/one
-          disable: true
-          resource: { stream: disabled-stream }
-        - target: testing/collection
-          resource: { stream: enabled-stream }
-    testing/fully-disabled-capture:
-      endpoint: { connector: { image: s3, config: {} }}
-      bindings:
-        - target: disabled/test/two
-          disable: true
-          resource: { stream: disabled-stream }
-        - target: disabled/test/three
-          disable: true
-          resource: { stream: another-disabled-stream }
-  materializations:
-    testing/partially-disabled-materialization:
-      endpoint: { connector: { image: s3, config: {} }}
-      bindings:
-        - source: testing/collection
-          disable: true
-          resource: { stream: disabled-stream }
-        - source: testing/collection
-          resource: { stream: enabled-stream }
-
-    testing/fully-disabled-materialization:
-      endpoint: { connector: { image: s3, config: {} }}
-      bindings:
-        - source: testing/collection
-          disable: true
-          resource: { stream: disabled-stream }
-
-driver:
-  derivations:
-    testing/partly-disabled-derivation:
-      connectorType: SQLITE
-      config: {}
-      transforms:
-        - readOnly: true
-      shuffleKeyTypes: []
-      generatedFiles: {}
-
-    testing/fully-disabled-derivation:
-      connectorType: SQLITE
-      config: {}
-      transforms: []
-      shuffleKeyTypes: []
-      generatedFiles: {}
-
-  captures:
-    testing/partially-disabled-capture:
-      connectorType: IMAGE
-      config:
-        image: s3
-        config: {}
-      bindings:
-        -  resourcePath: [ enabled-stream ]
-
-    testing/fully-disabled-capture:
-      connectorType: IMAGE
-      config:
-        image: s3
-        config: {}
-      bindings: []
-
-  materializations:
-    testing/partially-disabled-materialization:
-      connectorType: IMAGE
-      config:
-        image: s3
-        config: {}
-      bindings:
-        - resourcePath: [ enabled-stream ]
-          constraints:
-            flow_document: { type: 2, reason: "location required" }
-
-    testing/fully-disabled-materialization:
-      connectorType: IMAGE
-      config:
-        image: s3
-        config: {}
-      bindings: []
-
-"##;
-
-    let outcome = common::run(fixture, "{}");
+    let outcome = common::run(include_str!("disabled_bindings_are_ignored.yaml"), "{}");
     insta::assert_debug_snapshot!(outcome);
 }
 
@@ -639,51 +510,9 @@ driver:
 #[test]
 fn test_materialization_constraints_on_excluded_fields() {
     let outcome = common::run(
-        r#"
-test://example/catalog.yaml:
-  collections:
-    testing/constraints:
-      schema:
-        type: object
-        properties:
-          id: { type: string }
-          naughty_u: { type: string }
-          naughty_f: { type: string }
-        required: [id]
-      key: [/id]
-  materializations:
-    testing/db-views:
-      endpoint:
-        connector:
-          image: an/image:test
-          config: {}
-      bindings:
-        - source: testing/constraints
-          resource: {table: anything}
-          fields:
-            recommended: true
-            exclude:
-              - naughty_u
-              - naughty_f
-
-driver:
-  materializations:
-    testing/db-views:
-      connectorType: IMAGE
-      config:
-        image: an/image:test
-        config: {}
-      bindings:
-        - constraints:
-            flow_document: { type: 1, reason: "location required" }
-            id: { type: 1, reason: "location required" }
-            naughty_u: { type: 6, reason: "field unsatisfiable" }
-            naughty_f: { type: 5, reason: "field forbidden" }
-          resourcePath: [anything]
-"#,
+        include_str!("materialization_constraints_on_excluded_fields.yaml"),
         "{}",
     );
-
     // Expect no "naughty_" fields were selected.
     insta::assert_debug_snapshot!(outcome);
 }
@@ -1396,6 +1225,19 @@ driver:
     testing/from-array-key:
       generatedFiles:
         "this is not a URL! ": generated content
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_data_plane_not_found() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d": null
 "#,
     );
     insta::assert_debug_snapshot!(errors);

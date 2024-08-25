@@ -8,6 +8,8 @@ Outcome {
         BuiltCollection {
             collection: testing/schema_with_empty_properties,
             scope: test://example/catalog.yaml#/collections/testing~1schema_with_empty_properties,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_empty_properties/schema","properties":{"":{"type":"string"},"a":{"properties":{"":{"type":"string"}},"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
@@ -157,18 +159,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/schema_with_empty_properties",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -237,7 +243,7 @@ Outcome {
     storage_mappings: [
         StorageMapping {
             catalog_prefix: ,
-            scope: flow://control/storage-mapping/default,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "S3",

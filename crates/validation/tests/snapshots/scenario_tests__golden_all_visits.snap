@@ -7,6 +7,8 @@ Outcome {
         BuiltCapture {
             capture: testing/db-cdc,
             scope: test://example/int-string-captures#/captures/testing~1db-cdc,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -248,18 +250,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -321,42 +327,52 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "567",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "789",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
                                         value: "d7f4a9d02b48c1a",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-proto/789",
                                         value: "h2",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-public/567",
                                         value: "true",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-cdc",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -376,22 +392,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-cdc",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -436,6 +457,8 @@ Outcome {
         BuiltCapture {
             capture: testing/s3-source,
             scope: test://example/int-string-captures#/captures/testing~1s3-source,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -682,18 +705,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -901,18 +928,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string.v2",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -974,42 +1005,52 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "567",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "789",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
                                         value: "d4b08a40cd6dda6d",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-proto/789",
                                         value: "h2",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-public/567",
                                         value: "true",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/s3-source",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1029,22 +1070,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/s3-source",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "capture",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1091,6 +1137,8 @@ Outcome {
         BuiltCollection {
             collection: testing/array-key,
             scope: test://example/array-key#/collections/testing~1array-key,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/array-key.schema","properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
@@ -1271,18 +1319,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/array-key",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1316,6 +1368,8 @@ Outcome {
         BuiltCollection {
             collection: testing/from-array-key,
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema","properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
@@ -1492,18 +1546,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/from-array-key",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -1707,18 +1765,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/array-key",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -1756,6 +1818,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/array-key",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -1952,18 +2015,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/array-key",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -2001,6 +2068,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/array-key",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -2056,22 +2124,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
                                                 value: "info",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/from-array-key",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -2091,22 +2164,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "content-type",
                                                 value: "application/x-gazette-recoverylog",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/from-array-key",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -2142,6 +2220,8 @@ Outcome {
         BuiltCollection {
             collection: testing/int-halve,
             scope: test://example/int-halve#/collections/testing~1int-halve,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
@@ -2551,18 +2631,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-halve",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -2934,18 +3018,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/int-string-rw",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -2983,10 +3071,12 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string-rw",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/field/bit",
                                                         value: "%_true",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -2997,6 +3087,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/field/bit",
                                                         value: "%_false",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -3351,18 +3442,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/int-halve",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -3405,6 +3500,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-halve",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -3462,22 +3558,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
                                                 value: "info",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-halve",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -3497,22 +3598,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "content-type",
                                                 value: "application/x-gazette-recoverylog",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-halve",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -3548,6 +3654,8 @@ Outcome {
         BuiltCollection {
             collection: testing/int-reverse,
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
@@ -3751,18 +3859,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-reverse",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -3996,18 +4108,22 @@ Outcome {
                                                             Label {
                                                                 name: "app.gazette.dev/managed-by",
                                                                 value: "estuary.dev/flow",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "content-type",
                                                                 value: "application/x-ndjson",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
                                                                 value: "0101010101010101",
+                                                                prefix: false,
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/collection",
                                                                 value: "testing/int-string",
+                                                                prefix: false,
                                                             },
                                                         ],
                                                     },
@@ -4045,6 +4161,7 @@ Outcome {
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -4096,22 +4213,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/log-level",
                                                 value: "info",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-reverse",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -4131,22 +4253,27 @@ Outcome {
                                             Label {
                                                 name: "app.gazette.dev/managed-by",
                                                 value: "estuary.dev/flow",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "content-type",
                                                 value: "application/x-gazette-recoverylog",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
                                                 value: "0101010101010101",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-name",
                                                 value: "testing/int-reverse",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/task-type",
                                                 value: "derivation",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -4182,6 +4309,8 @@ Outcome {
         BuiltCollection {
             collection: testing/int-string,
             scope: test://example/int-string#/collections/testing~1int-string,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
@@ -4396,18 +4525,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -4441,6 +4574,8 @@ Outcome {
         BuiltCollection {
             collection: testing/int-string-inferred,
             scope: test://example/int-string#/collections/testing~1int-string-inferred,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
@@ -4647,18 +4782,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string-inferred",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -4692,6 +4831,8 @@ Outcome {
         BuiltCollection {
             collection: testing/int-string-inferred-not-found,
             scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
@@ -4931,18 +5072,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string-inferred-not-found",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -4976,6 +5121,8 @@ Outcome {
         BuiltCollection {
             collection: testing/int-string-rw,
             scope: test://example/int-string#/collections/testing~1int-string-rw,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
@@ -5326,18 +5473,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string-rw",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -5371,6 +5522,8 @@ Outcome {
         BuiltCollection {
             collection: testing/int-string.v2,
             scope: test://example/int-string#/collections/testing~1int-string.v2,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"}},"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
@@ -5553,18 +5706,22 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-ndjson",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
                                         value: "testing/int-string.v2",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -5600,6 +5757,8 @@ Outcome {
         BuiltMaterialization {
             materialization: testing/db-views,
             scope: test://example/db-views#/materializations/testing~1db-views,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -5848,18 +6007,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -5897,6 +6060,7 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -5953,22 +6117,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "warn",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-views",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -5988,22 +6157,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/db-views",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -6037,6 +6211,8 @@ Outcome {
         BuiltMaterialization {
             materialization: testing/webhook/deliveries,
             scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             model: {
               "endpoint": {
@@ -6353,18 +6529,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-string",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -6402,10 +6582,12 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/field/bit",
                                                 value: "%_true",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -6778,18 +6960,22 @@ Outcome {
                                                     Label {
                                                         name: "app.gazette.dev/managed-by",
                                                         value: "estuary.dev/flow",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "content-type",
                                                         value: "application/x-ndjson",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
                                                         value: "0101010101010101",
+                                                        prefix: false,
                                                     },
                                                     Label {
                                                         name: "estuary.dev/collection",
                                                         value: "testing/int-halve",
+                                                        prefix: false,
                                                     },
                                                 ],
                                             },
@@ -6832,6 +7018,7 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-halve",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -6895,42 +7082,52 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "567",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/expose-port",
                                         value: "789",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
                                         value: "7c018f7d92537c75",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-proto/789",
                                         value: "h2",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/port-public/567",
                                         value: "true",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/webhook/deliveries",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -6950,22 +7147,27 @@ Outcome {
                                     Label {
                                         name: "app.gazette.dev/managed-by",
                                         value: "estuary.dev/flow",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "content-type",
                                         value: "application/x-gazette-recoverylog",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/build",
                                         value: "0101010101010101",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
                                         value: "testing/webhook/deliveries",
+                                        prefix: false,
                                     },
                                     Label {
                                         name: "estuary.dev/task-type",
                                         value: "materialization",
+                                        prefix: false,
                                     },
                                 ],
                             },
@@ -7012,6 +7214,7 @@ Outcome {
         BuiltTest {
             test: testing/test,
             scope: test://example/int-string-tests#/tests/testing~1test,
+            control_id: "0000000000000000",
             expect_pub_id: "0000000000000000",
             model: {
               "steps": [
@@ -7061,6 +7264,7 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -7091,10 +7295,12 @@ Outcome {
                                             Label {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/int-string",
+                                                prefix: false,
                                             },
                                             Label {
                                                 name: "estuary.dev/field/bit",
                                                 value: "%_true",
+                                                prefix: false,
                                             },
                                         ],
                                     },
@@ -7763,7 +7969,7 @@ Outcome {
     storage_mappings: [
         StorageMapping {
             catalog_prefix: not-matched/,
-            scope: flow://control/storage-mapping/not-matched/,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "AZURE",
@@ -7776,7 +7982,7 @@ Outcome {
         },
         StorageMapping {
             catalog_prefix: recovery/testing/,
-            scope: flow://control/storage-mapping/recovery/testing/,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "GCS",
@@ -7787,7 +7993,7 @@ Outcome {
         },
         StorageMapping {
             catalog_prefix: testing/,
-            scope: flow://control/storage-mapping/testing/,
+            control_id: "0000000000000000",
             stores: [
               {
                 "provider": "S3",
