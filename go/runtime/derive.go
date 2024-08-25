@@ -25,6 +25,7 @@ type Derive struct {
 	*taskReader[*pf.CollectionSpec]
 	client pd.Connector_DeriveClient
 	sqlite *store_sqlite.Store
+	watch  *client.WatchedList
 }
 
 var _ Application = (*Derive)(nil)
@@ -74,6 +75,17 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
 	if err := d.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
+	}
+
+	// Note the prior watch is cancelled with the prior term context.
+	d.watch = client.NewWatchedList(
+		d.term.ctx,
+		shard.JournalClient(),
+		flow.CollectionWatchRequest(d.term.taskSpec),
+		nil,
+	)
+	if err := <-d.watch.UpdateCh(); err != nil {
+		return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
 	}
 
 	var requestExt = &pr.DeriveRequestExt{
@@ -130,7 +142,7 @@ func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 // FinalizeTxn finishes and drains the derive runtime transaction,
 // and publishes each document to the derived collection.
 func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
-	var mapper = flow.NewMapper(shard.Context(), d.host.Service.Etcd, d.host.Journals, shard.FQN())
+	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient())
 
 	_ = d.client.Send(&pd.Request{Flush: &pd.Request_Flush{}})
 
@@ -151,6 +163,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 				Doc:        response.Published.DocJson,
 				PackedKey:  responseExt.Published.KeyPacked,
 				Partitions: partitions,
+				List:       d.watch,
 			}); err != nil {
 				return fmt.Errorf("publishing document: %w", err)
 			}

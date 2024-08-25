@@ -25,10 +25,11 @@ import (
 type Capture struct {
 	*taskBase[*pf.CaptureSpec]
 	client       pc.Connector_CaptureClient
-	isRestart    bool             // Marks the current consumer transaction is a restart.
-	pollCh       chan pf.OpFuture // Coordinates polls of the client.
-	restarts     message.Clock    // Increments for each restart.
-	transactions message.Clock    // Increments for each transaction.
+	isRestart    bool                  // Marks the current consumer transaction is a restart.
+	pollCh       chan pf.OpFuture      // Coordinates polls of the client.
+	restarts     message.Clock         // Increments for each restart.
+	transactions message.Clock         // Increments for each transaction.
+	watches      []*client.WatchedList // Watches of binding journals.
 }
 
 var _ Application = (*Capture)(nil)
@@ -63,6 +64,24 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
 	if err := c.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
+	}
+
+	// Note that prior watches are cancelled with the prior term context.
+	c.watches = c.watches[:0] // Truncate.
+
+	for _, binding := range c.term.taskSpec.Bindings {
+		c.watches = append(c.watches, client.NewWatchedList(
+			c.term.ctx,
+			shard.JournalClient(),
+			flow.CollectionWatchRequest(&binding.Collection),
+			nil,
+		))
+	}
+	// Wait for all watches to perform their first update.
+	for _, watch := range c.watches {
+		if err := <-watch.UpdateCh(); err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
+		}
 	}
 
 	var requestExt = &pr.CaptureRequestExt{
@@ -275,7 +294,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		c.isRestart = true // This is not a transaction notification.
 		return nil
 	}
-	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
+	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient())
 	var stats *ops.Stats
 
 	// Transaction responses are completed with a final checkpoint that has stats.
@@ -300,6 +319,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 				Doc:        captured.DocJson,
 				PackedKey:  capturedExt.KeyPacked,
 				Partitions: partitions,
+				List:       c.watches[captured.Binding],
 			}); err != nil {
 				return fmt.Errorf("publishing document: %w", err)
 			}
