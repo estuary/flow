@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
@@ -76,6 +77,15 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Post-process shards to set logs and stats journals to `local` for this testing context.
+	for _, shard := range shards {
+		if shard.Upsert != nil {
+			shard.Upsert.LabelSet.SetValue(labels.LogsJournal, "local")
+			shard.Upsert.LabelSet.SetValue(labels.StatsJournal, "local")
+		}
+	}
+
 	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err == errNoChangesToApply {
 		log.Info("there are no changes to apply")
 	} else if err != nil {
@@ -171,12 +181,9 @@ func (cmd apiActivate) Execute(_ []string) error {
 }
 
 func newJournalClient(ctx context.Context, broker mbp.ClientConfig) (pb.RoutedJournalClient, *pb.Header_Etcd, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-
 	var jc = broker.MustRoutedJournalClient(ctx)
 
-	resp, err := jc.List(ctx, &pb.ListRequest{
+	var resp, err = client.ListAllJournals(ctx, jc, pb.ListRequest{
 		Selector: pb.LabelSelector{Include: pb.MustLabelSet("name", "this/collection/does/not/exist")},
 	})
 	if err != nil {
@@ -186,9 +193,6 @@ func newJournalClient(ctx context.Context, broker mbp.ClientConfig) (pb.RoutedJo
 }
 
 func newShardClient(ctx context.Context, consumer mbp.ClientConfig) (pc.ShardClient, *pb.Header_Etcd, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-
 	var sc = consumer.MustShardClient(ctx)
 
 	resp, err := sc.List(ctx, &pc.ListRequest{
