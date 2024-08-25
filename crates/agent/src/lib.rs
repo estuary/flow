@@ -1,3 +1,4 @@
+pub mod api;
 pub(crate) mod connector_tags;
 pub mod controllers;
 pub(crate) mod controlplane;

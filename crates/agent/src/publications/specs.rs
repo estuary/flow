@@ -2,7 +2,6 @@ use super::{LockFailure, UncommittedBuild};
 use agent_sql::publications::{LiveRevision, LiveSpecUpdate};
 use agent_sql::Capability;
 use anyhow::Context;
-use itertools::Itertools;
 use models::{split_image_tag, Id, ModelDef};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -15,28 +14,13 @@ pub async fn persist_updates(
 ) -> anyhow::Result<Vec<LockFailure>> {
     let UncommittedBuild {
         ref publication_id,
-        ref output,
-        ref mut live_spec_ids,
+        output,
         ref user_id,
         ref detail,
         ..
     } = uncommitted;
 
-    let live_spec_updates = update_live_specs(*publication_id, &output, txn).await?;
-    let lock_failures = live_spec_updates
-        .iter()
-        .filter_map(|r| {
-            if r.last_pub_id != r.expect_pub_id {
-                Some(LockFailure {
-                    catalog_name: r.catalog_name.clone(),
-                    last_pub_id: Some(r.last_pub_id.into()).filter(|id: &models::Id| !id.is_zero()),
-                    expect_pub_id: r.expect_pub_id.into(),
-                })
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let lock_failures = update_live_specs(*publication_id, output, txn).await?;
     if !lock_failures.is_empty() {
         return Ok(lock_failures);
     }
@@ -45,29 +29,7 @@ pub async fn persist_updates(
         return Ok(lock_failures);
     }
 
-    // Update `live_spec_ids` to include the ids of any newly created live specs
-    for update in live_spec_updates {
-        let LiveSpecUpdate {
-            catalog_name,
-            live_spec_id,
-            ..
-        } = update;
-        let prev_value = live_spec_ids
-            .get_mut(&catalog_name)
-            .ok_or_else(|| anyhow::anyhow!("missing live_spec_ids entry for {catalog_name:?} while processing LiveSpecUpdate for {live_spec_id}"))?;
-        if prev_value.is_zero() {
-            *prev_value = live_spec_id.into();
-        } else {
-            // Just a sanity check to ensure our handling of live spec ids is correct
-            assert_eq!(
-                *prev_value,
-                live_spec_id.into(),
-                "live_specs.id changed mid-publication for {catalog_name:?}"
-            );
-        }
-    }
-
-    update_drafted_live_spec_flows(live_spec_ids, output, txn)
+    update_drafted_live_spec_flows(output, txn)
         .await
         .context("updating live spec flows")?;
 
@@ -75,8 +37,7 @@ pub async fn persist_updates(
         *publication_id,
         *user_id,
         detail.as_ref(),
-        &*live_spec_ids,
-        output,
+        &output.built,
         txn,
     )
     .await
@@ -85,29 +46,26 @@ pub async fn persist_updates(
     Ok(Vec::new())
 }
 
-#[tracing::instrument(skip(model, live_spec_ids, txn))]
-async fn update_live_spec_flows<M: ModelDef>(
+#[tracing::instrument(skip(built, txn))]
+async fn update_live_spec_flows<B: tables::BuiltRow>(
     catalog_name: &str,
     catalog_type: agent_sql::CatalogType,
-    model: Option<&M>,
-    live_spec_ids: &BTreeMap<String, models::Id>,
+    built: &B,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
-    let live_spec_id = live_spec_ids
-        .get(catalog_name)
-        .ok_or_else(|| anyhow::anyhow!("missing live_spec_ids entry for {catalog_name:?}"))?;
-    let live_spec_id: agent_sql::Id = (*live_spec_id).into();
-    agent_sql::publications::delete_stale_flow(live_spec_id, catalog_type, txn).await?;
+    agent_sql::publications::delete_stale_flow(built.control_id().into(), catalog_type, txn)
+        .await?;
 
-    let Some(model) = model else {
+    let Some(model) = built.model() else {
         return Ok(());
     };
 
     let reads_from = model.reads_from();
     let writes_to = model.writes_to();
     let source_capture = model.materialization_source_capture();
+
     agent_sql::publications::insert_live_spec_flows(
-        live_spec_id,
+        built.control_id().into(),
         catalog_type,
         Some(reads_from.iter().map(|c| c.as_str()).collect::<Vec<_>>()).filter(|a| !a.is_empty()),
         Some(writes_to.iter().map(|c| c.as_str()).collect::<Vec<_>>()).filter(|a| !a.is_empty()),
@@ -119,7 +77,6 @@ async fn update_live_spec_flows<M: ModelDef>(
 }
 
 async fn update_drafted_live_spec_flows(
-    live_spec_ids: &BTreeMap<String, models::Id>,
     build: &build::Output,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
@@ -129,15 +86,9 @@ async fn update_drafted_live_spec_flows(
         .iter()
         .filter(|r| !r.is_unchanged())
     {
-        update_live_spec_flows(
-            &r.catalog_name(),
-            agent_sql::CatalogType::Capture,
-            r.model(),
-            live_spec_ids,
-            txn,
-        )
-        .await
-        .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
+        update_live_spec_flows(&r.catalog_name(), agent_sql::CatalogType::Capture, r, txn)
+            .await
+            .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
     }
     for r in build
         .built
@@ -148,8 +99,7 @@ async fn update_drafted_live_spec_flows(
         update_live_spec_flows(
             &r.catalog_name(),
             agent_sql::CatalogType::Collection,
-            r.model(),
-            live_spec_ids,
+            r,
             txn,
         )
         .await
@@ -164,33 +114,27 @@ async fn update_drafted_live_spec_flows(
         update_live_spec_flows(
             &r.catalog_name(),
             agent_sql::CatalogType::Materialization,
-            r.model(),
-            live_spec_ids,
+            r,
             txn,
         )
         .await
         .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
     }
     for r in build.built.built_tests.iter().filter(|r| !r.is_unchanged()) {
-        update_live_spec_flows(
-            &r.catalog_name(),
-            agent_sql::CatalogType::Test,
-            r.model(),
-            live_spec_ids,
-            txn,
-        )
-        .await
-        .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
+        update_live_spec_flows(&r.catalog_name(), agent_sql::CatalogType::Test, r, txn)
+            .await
+            .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
     }
     Ok(())
 }
 
 async fn update_live_specs(
     pub_id: Id,
-    output: &build::Output,
+    output: &mut build::Output,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<Vec<agent_sql::publications::LiveSpecUpdate>> {
+) -> anyhow::Result<Vec<LockFailure>> {
     let n_specs = output.built.spec_count();
+    let mut control_ids: BTreeMap<&str, &mut models::Id> = BTreeMap::new();
     let mut catalog_names = Vec::with_capacity(n_specs);
     let mut spec_types: Vec<agent_sql::CatalogType> = Vec::with_capacity(n_specs);
     let mut models = Vec::with_capacity(n_specs);
@@ -200,11 +144,12 @@ async fn update_live_specs(
     let mut writes_tos = Vec::with_capacity(n_specs);
     let mut images = Vec::with_capacity(n_specs);
     let mut image_tags = Vec::with_capacity(n_specs);
+    let mut data_plane_ids = Vec::with_capacity(n_specs);
 
     for r in output
         .built
         .built_captures
-        .iter()
+        .iter_mut()
         .filter(|r| !r.is_unchanged())
     {
         catalog_names.push(r.catalog_name().to_string());
@@ -217,11 +162,14 @@ async fn update_live_specs(
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
+        data_plane_ids.push(r.data_plane_id.into());
+
+        control_ids.insert(&r.capture, &mut r.control_id);
     }
     for r in output
         .built
         .built_collections
-        .iter()
+        .iter_mut()
         .filter(|r| !r.is_unchanged())
     {
         catalog_names.push(r.catalog_name().to_string());
@@ -238,11 +186,14 @@ async fn update_live_specs(
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
+        data_plane_ids.push(r.data_plane_id.into());
+
+        control_ids.insert(&r.collection, &mut r.control_id);
     }
     for r in output
         .built
         .built_materializations
-        .iter()
+        .iter_mut()
         .filter(|r| !r.is_unchanged())
     {
         catalog_names.push(r.catalog_name().to_string());
@@ -255,11 +206,14 @@ async fn update_live_specs(
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
+        data_plane_ids.push(r.data_plane_id.into());
+
+        control_ids.insert(&r.materialization, &mut r.control_id);
     }
     for r in output
         .built
         .built_tests
-        .iter()
+        .iter_mut()
         .filter(|r| !r.is_unchanged())
     {
         catalog_names.push(r.catalog_name().to_string());
@@ -272,6 +226,9 @@ async fn update_live_specs(
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
+        data_plane_ids.push(models::Id::zero().into());
+
+        control_ids.insert(&r.test, &mut r.control_id);
     }
 
     let updates = agent_sql::publications::update_live_specs(
@@ -285,11 +242,46 @@ async fn update_live_specs(
         &writes_tos,
         &images,
         &image_tags,
+        &data_plane_ids,
         txn,
     )
     .await?;
 
-    Ok(updates)
+    let mut lock_failures = Vec::new();
+
+    for update in updates {
+        let LiveSpecUpdate {
+            catalog_name,
+            expect_pub_id,
+            last_pub_id,
+            live_spec_id,
+        } = update;
+
+        let control_id = control_ids
+            .remove(catalog_name.as_str())
+            .ok_or_else(|| anyhow::anyhow!("missing ids entry for {catalog_name:?} while processing LiveSpecUpdate for {live_spec_id}"))?;
+
+        if control_id.is_zero() {
+            *control_id = live_spec_id.into();
+        } else {
+            // Just a sanity check to ensure our handling of live spec ids is correct
+            assert_eq!(
+                *control_id,
+                live_spec_id.into(),
+                "live_specs.id changed mid-publication for {catalog_name:?}"
+            );
+        }
+
+        if last_pub_id != expect_pub_id {
+            lock_failures.push(LockFailure {
+                catalog_name: catalog_name,
+                last_pub_id: Some(last_pub_id.into()).filter(|id: &models::Id| !id.is_zero()),
+                expect_pub_id: expect_pub_id.into(),
+            })
+        }
+    }
+
+    Ok(lock_failures)
 }
 
 pub async fn check_connector_images(
@@ -381,22 +373,13 @@ async fn insert_publication_specs(
     publication_id: models::Id,
     user_id: Uuid,
     detail: Option<&String>,
-    live_spec_ids: &BTreeMap<String, models::Id>,
-    built: &build::Output,
+    built: &tables::Validations,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
-    for r in built
-        .built
-        .built_captures
-        .iter()
-        .filter(|r| !r.is_unchanged())
-    {
-        let spec_id = *live_spec_ids
-            .get(r.catalog_name().as_str())
-            .expect("live_spec_id must be Some if spec is changed");
+    for r in built.built_captures.iter().filter(|r| !r.is_unchanged()) {
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
-            spec_id.into(),
+            r.control_id().into(),
             publication_id.into(),
             detail,
             &spec,
@@ -407,18 +390,10 @@ async fn insert_publication_specs(
         .await
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
-    for r in built
-        .built
-        .built_collections
-        .iter()
-        .filter(|r| !r.is_unchanged())
-    {
-        let spec_id = *live_spec_ids
-            .get(r.catalog_name().as_str())
-            .expect("live_spec_id must be Some if spec is changed");
+    for r in built.built_collections.iter().filter(|r| !r.is_unchanged()) {
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
-            spec_id.into(),
+            r.control_id().into(),
             publication_id.into(),
             detail,
             &spec,
@@ -430,17 +405,13 @@ async fn insert_publication_specs(
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
     for r in built
-        .built
         .built_materializations
         .iter()
         .filter(|r| !r.is_unchanged())
     {
-        let spec_id = *live_spec_ids
-            .get(r.catalog_name().as_str())
-            .expect("live_spec_id must be Some if spec is changed");
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
-            spec_id.into(),
+            r.control_id().into(),
             publication_id.into(),
             detail,
             &spec,
@@ -451,13 +422,10 @@ async fn insert_publication_specs(
         .await
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
-    for r in built.built.built_tests.iter().filter(|r| !r.is_unchanged()) {
-        let spec_id = *live_spec_ids
-            .get(r.catalog_name().as_str())
-            .expect("live_spec_id must be Some if spec is changed");
+    for r in built.built_tests.iter().filter(|r| !r.is_unchanged()) {
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
-            spec_id.into(),
+            r.control_id().into(),
             publication_id.into(),
             detail,
             &spec,
@@ -610,7 +578,8 @@ pub async fn resolve_live_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
-) -> anyhow::Result<(tables::LiveCatalog, BTreeMap<String, models::Id>)> {
+    default_data_plane_name: &str,
+) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
     // still contain information on the user and spec capabilities.
@@ -640,14 +609,13 @@ pub async fn resolve_live_specs(
         .await
         .context("fetching live specs")?;
 
-    let spec_ids = rows
-        .iter()
-        .map(|r| (r.catalog_name.clone(), r.id.into()))
-        .collect();
-
     // Check the user and spec authorizations.
     // Start by making an easy way to lookup whether each row was drafted or not.
     let drafted_names = draft.all_spec_names().collect::<HashSet<_>>();
+
+    // Gather IDs of data-planes in use by live specs.
+    let mut data_plane_ids = Vec::new();
+
     // AuthZ errors will be pushed to the live catalog
     let mut live = tables::LiveCatalog::default();
     for spec_row in rows {
@@ -731,11 +699,11 @@ pub async fn resolve_live_specs(
 
         if let Some(model) = spec_row.spec.as_ref() {
             let catalog_type: models::CatalogType = spec_row.spec_type.unwrap().into();
-            let scope = tables::synthetic_scope(catalog_type, &spec_row.catalog_name);
             live.add_spec(
                 catalog_type,
                 &spec_row.catalog_name,
-                scope,
+                spec_row.id.into(),
+                spec_row.data_plane_id.into(),
                 spec_row.last_pub_id.into(),
                 &model,
                 &spec_row
@@ -747,6 +715,8 @@ pub async fn resolve_live_specs(
             )
             .with_context(|| format!("adding live spec for {:?}", spec_row.catalog_name))?;
         }
+
+        data_plane_ids.push(spec_row.data_plane_id);
     }
 
     // Note that we don't need storage mappings for live specs, only the drafted ones.
@@ -756,30 +726,38 @@ pub async fn resolve_live_specs(
         .collect::<Vec<_>>();
     tenant_names.sort();
     tenant_names.dedup();
+
     let storage_rows = agent_sql::publications::resolve_storage_mappings(tenant_names, db).await?;
     for row in storage_rows {
-        let scope = tables::synthetic_scope("storage-mappings", &row.catalog_prefix);
         let store: models::StorageDef = match serde_json::from_value(row.spec) {
             Ok(s) => s,
             Err(err) => {
                 live.errors.push(tables::Error {
-                    scope: scope.clone(),
+                    scope: tables::synthetic_scope("storageMapping", &row.catalog_prefix),
                     error: anyhow::Error::from(err).context("deserializing storage mapping spec"),
                 });
                 continue;
             }
         };
         live.storage_mappings.insert(tables::StorageMapping {
+            control_id: row.id.into(),
             catalog_prefix: models::Prefix::new(row.catalog_prefix),
-            scope,
             stores: store.stores,
         });
     }
 
+    live.data_planes = agent_sql::data_plane::fetch_data_planes(
+        db,
+        data_plane_ids,
+        default_data_plane_name,
+        user_id,
+    )
+    .await?;
+
     // TODO(phil): remove once we no longer need to inline inferred schemas as part of validation
     resolve_inferred_schemas(draft, &mut live, db).await?;
 
-    Ok((live, spec_ids))
+    Ok(live)
 }
 
 /// Returns an option because `catalog_name` is from a drafted spec, and we've yet to
@@ -870,6 +848,7 @@ pub async fn load_draft(
 ) -> anyhow::Result<tables::DraftCatalog> {
     let rows = agent_sql::drafts::fetch_draft_specs(draft_id.into(), db).await?;
     let mut draft = tables::DraftCatalog::default();
+
     for row in rows {
         let Some(spec_type) = row.spec_type.map(Into::into) else {
             let scope = tables::synthetic_scope("deletion", &row.catalog_name);
@@ -883,12 +862,12 @@ pub async fn load_draft(
             continue;
         };
         let scope = tables::synthetic_scope(spec_type, &row.catalog_name);
-        let expect_pub_id = row.expect_pub_id.map(Into::into);
+
         if let Err(err) = draft.add_spec(
             spec_type,
             &row.catalog_name,
             scope,
-            expect_pub_id,
+            row.expect_pub_id.map(Into::into),
             row.spec.as_deref().map(|j| &**j),
         ) {
             draft.errors.push(err);
@@ -965,7 +944,6 @@ pub async fn add_built_specs_to_draft_specs(
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_null_bytes_in_json() {
