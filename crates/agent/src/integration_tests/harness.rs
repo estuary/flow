@@ -98,8 +98,6 @@ impl TestHarness {
             system_user_id,
             publisher.clone(),
             id_gen.clone(),
-            url::Url::parse("http://not-used.test/").unwrap(),
-            url::Url::parse("http://not-used.test/").unwrap(),
         );
         let controllers = ControllerHandler::new(TestControlPlane::new(control_plane));
         let mut harness = Self {
@@ -169,7 +167,35 @@ impl TestHarness {
                     '{/id}',
                     '{"type": "success"}'
                 ) on conflict do nothing
-            ) select 1 as "someting: bool";
+            ),
+            default_data_plane as (
+                insert into data_planes (
+                    data_plane_name,
+                    data_plane_fqdn,
+                    ops_logs_name,
+                    ops_stats_name,
+                    ops_l1_inferred_name,
+                    ops_l1_stats_name,
+                    ops_l2_inferred_transform,
+                    ops_l2_stats_transform,
+                    broker_address,
+                    reactor_address,
+                    hmac_keys
+                ) values (
+                    'ops/dp/public/test',
+                    'test.dp.estuary-data.com',
+                    'ops/logs',
+                    'ops/stats',
+                    'ops/L1/inferred',
+                    'ops/L1/stats',
+                    'from-L1-inferred',
+                    'from-L1-stats',
+                    'broker:address',
+                    'reactor:address',
+                    '{secret-key}'
+                ) on conflict do nothing
+            )
+            select 1 as "something: bool";
             "##).fetch_one(&self.pool).await.expect("failed to setup test connectors");
     }
 
@@ -405,7 +431,8 @@ impl TestHarness {
                 cj.logs_token,
                 cj.status as "status: TextJson<Box<RawValue>>",
                 cj.failures,
-                cj.error
+                cj.error,
+                ls.data_plane_id as "data_plane_id: agent_sql::Id"
             from live_specs ls
             join controller_jobs cj on ls.id = cj.live_spec_id
             where ls.catalog_name = $1;"#,
@@ -483,7 +510,14 @@ impl TestHarness {
         auto_evolve: bool,
     ) -> ScenarioResult {
         let system_user = self.control_plane().inner.system_user_id;
-        self.async_publication(system_user, "test auto-discover publication", draft, auto_evolve, true).await
+        self.async_publication(
+            system_user,
+            "test auto-discover publication",
+            draft,
+            auto_evolve,
+            true,
+        )
+        .await
     }
 
     /// Runs a publication by inserting into the `publications` table and
@@ -512,6 +546,7 @@ impl TestHarness {
             auto_evolve,
             detail.clone(),
             background,
+            "ops/dp/public/test".to_string(),
         )
         .await
         .expect("failed to create publication");
@@ -533,6 +568,7 @@ impl TestHarness {
         assert_ne!(publications::JobStatus::Queued, pub_result.status);
         pub_result
     }
+
     async fn get_publication_result(&mut self, publication_id: models::Id) -> ScenarioResult {
         let pub_id: agent_sql::Id = publication_id.into();
 
@@ -854,6 +890,7 @@ impl ControlPlane for TestControlPlane {
                 detail,
                 draft,
                 logs_token,
+                "ops/dp/public/test",
             )
             .await?;
 
@@ -887,6 +924,7 @@ impl ControlPlane for TestControlPlane {
         &mut self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
+        _data_plane_id: models::Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
@@ -909,6 +947,7 @@ impl ControlPlane for TestControlPlane {
         &mut self,
         catalog_name: String,
         catalog_type: CatalogType,
+        _data_plane_id: models::Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
