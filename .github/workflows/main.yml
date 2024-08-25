@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   gnu-binaries:
-    runs-on: ubuntu-2004-large
+    runs-on: ubuntu-2404-large
 
     steps:
       - uses: actions/checkout@v2
@@ -64,6 +64,8 @@ jobs:
       - run: make print-versions
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "2404"
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
@@ -90,7 +92,7 @@ jobs:
             target/x86_64-unknown-linux-gnu/release/librocksdb-exp/
 
   musl-binaries:
-    runs-on: ubuntu-2004-large
+    runs-on: ubuntu-2404-large
 
     steps:
       - uses: actions/checkout@v2
@@ -110,6 +112,8 @@ jobs:
       - run: make print-versions
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "2404"
 
       - run: go mod download
       - run: make rust-musl-test
@@ -123,7 +127,7 @@ jobs:
             .build/package/bin/*
 
   assembly:
-    runs-on: ubuntu-2004-large
+    runs-on: ubuntu-2404-large
     needs: [gnu-binaries, musl-binaries]
 
     services:
@@ -155,7 +159,7 @@ jobs:
 
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.21"
+          go-version: "1.23"
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2

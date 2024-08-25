@@ -67,6 +67,7 @@ iri-string = "0.6.0"
 jemallocator = { version = "0.3", features = ["profiling"] }
 jemalloc-ctl = "0.3"
 json-patch = "0.3"
+jsonwebtoken = {version = "9", default-features = false }
 js-sys = "0.3.60"
 kafka-protocol = "0.10.0"
 lazy_static = "1.4"
@@ -84,18 +85,18 @@ num-bigint = "0.4"
 open = "3"
 
 pathfinding = "3.0"
-pbjson = "0.6"
-pbjson-types = "0.6"
+pbjson = "0.7"
+pbjson-types = "0.7"
 percent-encoding = "2.1"
 pin-project-lite = "0.2"
 postgrest = "1.6"
 page-turner = "0.8.2"
-prost = "0.12"
+prost = "0.13"
 protobuf = "3.1"
 protobuf-json-mapping = "3.1"
 protobuf-parse = "3.1"
 regex = "1.5"
-reqwest = { version = "0.11", default_features = false, features = [
+reqwest = { version = "0.11", default-features = false, features = [
     "json",
     "rustls-tls",
     "stream",
@@ -151,9 +152,10 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tokio-util = { version = "0.7", features = ["io", "compat"] }
-tonic = { version = "0.10", features = ["tls", "tls-roots"] }
-tower = "0.4"
-tower-http = { version = "0.4", features = ["trace"] }
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+hyper-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
     "time",
@@ -194,12 +196,13 @@ wasm-bindgen-test = "0.3.13"
 
 # Used exclusively as build-dependencies
 cbindgen = "0.23"
-pbjson-build = "0.6"
-prost-build = "0.12"
-tonic-build = "0.10"
+pbjson-build = "0.7"
+prost-build = "0.13"
+tonic-build = "0.12"
 
 warp = "0.3.3"                                     # TODO(johnny) remove me in favor of axum
-axum = { version = "0.6", features = ["headers"] }
+axum = { version = "0.7", features = ["macros"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
 
 [profile.release]
 incremental = true
@@ -208,3 +211,8 @@ debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugge
 [patch.'crates-io']
 rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
 librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb", branch = "from-raw" }
+
+# Recommended by sqlx authors to speed up build-time checks.
+# https://github.com/launchbadge/sqlx#compile-time-verification
+[profile.dev.package.sqlx-macros]
+opt-level = 3
