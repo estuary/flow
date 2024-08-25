@@ -68,7 +68,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                     docsTotal: /* Total number of documents */ number;
                 };
                 out?: {
-                    bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
+                    bytesTotal?: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
                 };
                 right?: {
@@ -82,8 +82,8 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
 };
 
 
-// Generated for read documents of sourced collection ops.us-central1.v1/catalog-stats-L1.
-export type SourceFromOpsUsCentral1V1 = /* Flow catalog task stats Statistics related to the processing of a Flow catalog. */ {
+// Generated for read documents of sourced collection ops/rollups/L1/BASE_NAME/catalog-stats.
+export type SourceFromBaseName = /* Flow catalog task stats Statistics related to the processing of a Flow catalog. */ {
     catalogName: /* Name of the Flow catalog */ string;
     grain: /* Time grain that the stats are aggregated over */ "daily" | "hourly" | "monthly";
     statsSummary: {
@@ -151,7 +151,7 @@ export type SourceFromOpsUsCentral1V1 = /* Flow catalog task stats Statistics re
                     docsTotal: /* Total number of documents */ number;
                 };
                 out?: {
-                    bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
+                    bytesTotal?: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
                 };
                 right?: {
@@ -184,5 +184,5 @@ export abstract class IDerivation {
         return {};
     }
 
-    abstract fromOpsUsCentral1V1(read: { doc: SourceFromOpsUsCentral1V1 }): Document[];
+    abstract fromBaseName(read: { doc: SourceFromBaseName }): Document[];
 }
