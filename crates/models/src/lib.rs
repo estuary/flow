@@ -149,6 +149,23 @@ pub enum AnySpec {
 }
 
 impl AnySpec {
+    pub fn to_raw_value(&self) -> crate::RawValue {
+        match self {
+            Self::Capture(model) => {
+                crate::RawValue::from_string(serde_json::to_string(model).unwrap()).unwrap()
+            }
+            Self::Collection(model) => {
+                crate::RawValue::from_string(serde_json::to_string(model).unwrap()).unwrap()
+            }
+            Self::Materialization(model) => {
+                crate::RawValue::from_string(serde_json::to_string(model).unwrap()).unwrap()
+            }
+            Self::Test(model) => {
+                crate::RawValue::from_string(serde_json::to_string(model).unwrap()).unwrap()
+            }
+        }
+    }
+
     pub fn deserialize(catalog_type: CatalogType, json: &str) -> serde_json::Result<AnySpec> {
         match catalog_type {
             CatalogType::Capture => Ok(AnySpec::Capture(serde_json::from_str(json)?)),
