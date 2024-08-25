@@ -6,6 +6,9 @@ pub struct TestArgs {
     /// Path or URL to a Flow specification file to author.
     #[clap(long)]
     source: String,
+    /// Data-plane into which created specifications will be placed.
+    #[clap(long, default_value = "ops/dp/public/gcp-us-central1-c1")]
+    default_data_plane: String,
 }
 
 /// Test is really just a publish with the `dry-run` flag set to true, but we have a separate subcommand
@@ -27,7 +30,8 @@ pub async fn do_test(ctx: &mut CliContext, args: &TestArgs) -> anyhow::Result<()
     println!("Starting tests...");
 
     // Technically, test is just a publish with the dry-run flag set to true.
-    let publish_result = draft::publish(client.clone(), true, draft.id).await;
+    let publish_result =
+        draft::publish(client.clone(), &args.default_data_plane, draft.id, true).await;
 
     if let Err(del_err) = draft::delete_draft(client.clone(), draft.id).await {
         tracing::error!(draft_id = %draft.id, error = %del_err, "failed to delete draft");
