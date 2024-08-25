@@ -1,56 +1,58 @@
 use crate::Error;
+use broker::process_spec::Id as MemberId;
 use proto_gazette::broker;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tonic::transport::Channel;
 
-use broker::process_spec::Id as MemberId;
-
-// DialState represents a Client which may be:
+// DialState represents a Channel which may be:
 // - Ready (if Some)
 // - Currently being dialed (if locked)
 // - Neither (None and not locked).
-// Ready clients also track their number of uses since the last sweep.
-type DialState<Client> = Arc<futures::lock::Mutex<Option<(Client, usize)>>>;
+// Ready channels also track their number of uses since the last sweep.
+type DialState = Arc<futures::lock::Mutex<Option<(Channel, usize)>>>;
 
-// DialFuture of a Client which is currently being built.
-// It's returned by a Router's Dialer function.
-type DialFuture<Client> =
-    futures::future::BoxFuture<'static, Result<Client, tonic::transport::Error>>;
-
-pub struct Router<Client> {
-    dialer: Box<dyn Fn(tonic::transport::Endpoint) -> DialFuture<Client> + Send + Sync>,
-    states: std::sync::Mutex<HashMap<MemberId, DialState<Client>>>,
-    service_endpoint: String,
+/// Router facilitates dispatching requests to designated members of
+/// a dynamic serving topology, by maintaining ready Channels to
+/// member endpoints which may be dynamically discovered over time.
+#[derive(Clone)]
+pub struct Router {
+    inner: Arc<Inner>,
+}
+struct Inner {
+    states: std::sync::Mutex<HashMap<MemberId, DialState>>,
+    default_endpoint: String,
     zone: String,
 }
 
-impl<Client> Router<Client>
-where
-    Client: Clone,
-{
-    pub(crate) fn delegated_new(
-        dialer: impl Fn(tonic::transport::Endpoint) -> DialFuture<Client> + Send + Sync + 'static,
-        endpoint: &str,
-        zone: &str,
-    ) -> Result<Self, Error> {
-        let (endpoint, zone) = (endpoint.to_string(), zone.to_string());
+impl Router {
+    /// Create a new Router with the given default service endpoint,
+    /// which prefers to route to members in `zone` where possible.
+    pub fn new(default_endpoint: &str, zone: &str) -> Result<Self, Error> {
+        let (default_endpoint, zone) = (default_endpoint.to_string(), zone.to_string());
 
-        let _endpoint = tonic::transport::Endpoint::from_shared(endpoint.clone())
-            .map_err(|_err| Error::InvalidEndpoint(endpoint.clone()))?;
+        let _endpoint = tonic::transport::Endpoint::from_shared(default_endpoint.clone())
+            .map_err(|_err| Error::InvalidEndpoint(default_endpoint.clone()))?;
 
         Ok(Self {
-            dialer: Box::new(dialer),
-            states: Default::default(),
-            service_endpoint: endpoint,
-            zone,
+            inner: Arc::new(Inner {
+                states: Default::default(),
+                default_endpoint,
+                zone,
+            }),
         })
     }
 
+    /// Map an optional broker::Route and indication of whether the "primary"
+    /// member is required into a ready Channel for use in the dispatch of an RPC.
+    ///
+    /// route() will prefer to send requests to a ready member Channel if possible,
+    /// or will dial new Channels if required by the `route` and `primary` requirement.
     pub async fn route(
         &self,
         route: Option<&broker::Route>,
         primary: bool,
-    ) -> Result<Client, Error> {
+    ) -> Result<Channel, Error> {
         let (index, state) = self.pick(route, primary);
 
         // Acquire `id`-specific, async-aware lock.
@@ -63,27 +65,46 @@ where
         }
 
         // Slow path: start dialing the endpoint.
-        let endpoint = match index {
+        let endpoint_str = match index {
             Some(index) => &route.unwrap().endpoints[index],
-            None => &self.service_endpoint,
+            None => &self.inner.default_endpoint,
         };
-        let endpoint = tonic::transport::Endpoint::from_shared(endpoint.clone())
-            .map_err(|_err| Error::InvalidEndpoint(endpoint.clone()))?;
+        let endpoint = tonic::transport::Endpoint::from_shared(endpoint_str.clone())
+            .map_err(|_err| Error::InvalidEndpoint(endpoint_str.clone()))?
+            .connect_timeout(std::time::Duration::from_secs(5));
 
-        let client = (self.dialer)(endpoint).await?;
-        *state = Some((client.clone(), 1));
+        let channel = match endpoint.uri().scheme_str() {
+            Some("unix") => {
+                endpoint
+                    .connect_with_connector(tower::util::service_fn(
+                        |uri: tonic::transport::Uri| connect_unix(uri),
+                    ))
+                    .await?
+            }
+            Some("https") => {
+                endpoint
+                    .tls_config(
+                        tonic::transport::ClientTlsConfig::new()
+                            .with_native_roots()
+                            .assume_http2(true),
+                    )?
+                    .connect()
+                    .await?
+            }
+            Some("http") => endpoint.connect().await?,
 
-        Ok(client)
+            _ => return Err(Error::InvalidEndpoint(endpoint_str.to_owned())),
+        };
+
+        *state = Some((channel.clone(), 1));
+
+        Ok(channel)
     }
 
-    fn pick(
-        &self,
-        route: Option<&broker::Route>,
-        primary: bool,
-    ) -> (Option<usize>, DialState<Client>) {
+    fn pick(&self, route: Option<&broker::Route>, primary: bool) -> (Option<usize>, DialState) {
         // Acquire non-async lock which *cannot* be held across an await point.
-        let mut states = self.states.lock().unwrap();
-        let index = pick(route, primary, &self.zone, &states);
+        let mut states = self.inner.states.lock().unwrap();
+        let index = pick(route, primary, &self.inner.zone, &states);
 
         let default_id = MemberId::default();
 
@@ -100,8 +121,11 @@ where
         (index, state)
     }
 
+    // Identify Channels which have not been used since the preceeding sweep, and close them.
+    // As members come and go, Channels may no longer needed.
+    // Call sweep() periodically to clear them out.
     pub fn sweep(&self) {
-        let mut states = self.states.lock().unwrap();
+        let mut states = self.inner.states.lock().unwrap();
 
         states.retain(|id, state| {
             // Retain entries which are currently connecting.
@@ -125,7 +149,7 @@ where
 
 pub(crate) async fn connect_unix(
     uri: tonic::transport::Uri,
-) -> std::io::Result<tokio::net::UnixStream> {
+) -> std::io::Result<hyper_util::rt::TokioIo<tokio::net::UnixStream>> {
     let path = uri.path();
     // Wait until the filesystem path exists, because it's hard to tell from
     // the error so that we can re-try. This is expected to be cut short by the
@@ -137,15 +161,16 @@ pub(crate) async fn connect_unix(
         }
         tokio::time::sleep(std::time::Duration::from_millis(20 * i)).await;
     }
-
-    tokio::net::UnixStream::connect(path).await
+    Ok(hyper_util::rt::TokioIo::new(
+        tokio::net::UnixStream::connect(path).await?,
+    ))
 }
 
-fn pick<Client>(
+fn pick(
     route: Option<&broker::Route>,
     primary: bool,
     zone: &str,
-    states: &HashMap<MemberId, DialState<Client>>,
+    states: &HashMap<MemberId, DialState>,
 ) -> Option<usize> {
     let default_route = broker::Route::default();
     let route = route.unwrap_or(&default_route);
