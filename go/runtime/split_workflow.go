@@ -11,6 +11,7 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -23,7 +24,7 @@ import (
 // shardGetHints will block until assignments of the source shard are
 // "ready" (have a PRIMARY and all replicas are STANDBY), and will return
 // the mvccpb.KeyValue of the PRIMARY assignment in its response extension.
-func shardGetHints(ctx context.Context, svc *consumer.Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
+func shardGetHints(ctx context.Context, claims pb.Claims, svc *consumer.Service, req *pc.GetHintsRequest) (*pc.GetHintsResponse, error) {
 
 	// Inspect the status of the split, extracting a ready LHS primary if
 	// there is one. This may block indefinitely if |req| references a
@@ -69,7 +70,7 @@ func shardGetHints(ctx context.Context, svc *consumer.Service, req *pc.GetHintsR
 		return nil, err
 	}
 
-	resp, err := consumer.ShardGetHints(ctx, svc, req)
+	resp, err := consumer.ShardGetHints(ctx, claims, svc, req)
 	if err != nil {
 		return nil, err
 	}
