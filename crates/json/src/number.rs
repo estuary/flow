@@ -67,6 +67,16 @@ impl TryFrom<Number> for serde_json::Value {
     }
 }
 
+impl Into<f64> for Number {
+    fn into(self) -> f64 {
+        match self {
+            Unsigned(n) => n as f64,
+            Signed(n) => n as f64,
+            Float(n) => n,
+        }
+    }
+}
+
 impl Ord for Number {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
@@ -101,6 +111,13 @@ impl PartialEq for Number {
 impl Eq for Number {}
 
 impl Number {
+    pub fn is_float(&self) -> bool {
+        match self {
+            Float(_) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_multiple_of(&self, d: &Self) -> bool {
         use Number::*;
 

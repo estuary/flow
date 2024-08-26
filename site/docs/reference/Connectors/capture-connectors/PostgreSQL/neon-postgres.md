@@ -1,71 +1,131 @@
----
-sidebar_position: 6
----
+# Neon PostgreSQL
 
-# Google Cloud SQL for PostgreSQL
-
-This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
-
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
-## Supported versions and platforms
-
-This connector supports PostgreSQL versions 10.0 and later.
+Neon's logical replication feature allows you to replicate data from your Neon Postgres database to external destinations.
 
 ## Prerequisites
 
-You'll need a PostgreSQL database setup with the following:
-
-- [Logical replication enabled](https://www.postgresql.org/docs/current/runtime-config-wal.html) — `wal_level=logical`
-- [User role](https://www.postgresql.org/docs/current/sql-createrole.html) with `REPLICATION` attribute
-- A [replication slot](https://www.postgresql.org/docs/current/warm-standby.html#STREAMING-REPLICATION-SLOTS). This represents a “cursor” into the PostgreSQL write-ahead log from which change events can be read.
-  - Optional; if none exist, one will be created by the connector.
-  - If you wish to run multiple captures from the same database, each must have its own slot.
-    You can create these slots yourself, or by specifying a name other than the default in the advanced [configuration](#configuration).
-- A [publication](https://www.postgresql.org/docs/current/sql-createpublication.html). This represents the set of tables for which change events will be reported.
-  - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
-- A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
-  - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
+- An [Estuary Flow account](https://dashboard.estuary.dev/register) (start free, no credit card required)
+- A [Neon account](https://console.neon.tech/)
 
 ## Setup
 
-1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
+### 1. Enable Logical Replication in Neon
 
-   1. To allow direct access:
+Enabling logical replication modifies the Postgres `wal_level` configuration parameter, changing it from `replica` to `logical` for all databases in your Neon project. Once the `wal_level` setting is changed to `logical`, it cannot be reverted. Enabling logical replication also restarts all computes in your Neon project, meaning active connections will be dropped and have to reconnect.
 
-      - [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add the [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
+To enable logical replication in Neon:
 
-   2. To allow secure connections via SSH tunneling:
-      - Follow the guide to [configure an SSH server for tunneling](../../../../../guides/connect-network/)
-      - When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+1. Select your project in the Neon Console.
+2. On the Neon **Dashboard**, select **Project settings**.
+3. Select **Beta**.
+4. Click **Enable** to enable logical replication.
 
-2. On Google Cloud, navigate to your instance's Overview page. Click "Edit configuration". Scroll down to the Flags section. Click "ADD FLAG". Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your Cloud SQL PostgreSQL instance.
-
-3. In your PostgreSQL client, connect to your instance and issue the following commands to create a new user for the capture with appropriate permissions,
-   and set up the watermarks table and publication.
+You can verify that logical replication is enabled by running the following query from the [Neon SQL Editor](https://neon.tech/docs/get-started-with-neon/query-with-neon-sql-editor):
 
 ```sql
-CREATE USER flow_capture WITH REPLICATION
-IN ROLE cloudsqlsuperuser LOGIN PASSWORD 'secret';
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO flow_capture;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
-CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
-GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-CREATE PUBLICATION flow_publication;
-ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
-ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
+SHOW wal_level;
+ wal_level
+-----------
+ logical
 ```
 
-where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
-setting is recommended (because most users will want changes to a partitioned table to be captured
-under the name of the root table) but is not required.
+### 2. Create a Postgres Role for Replication
 
-4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `5432`.
-   Together, you'll use the host:port as the `address` property when you configure the connector.
+It is recommended that you create a dedicated Postgres role for replicating data. The role must have the `REPLICATION` privilege.
+The default Postgres role created with your Neon project and roles created using the Neon Console, CLI, or API are granted membership in the neon_superuser role, which has the required `REPLICATION` privilege.
+
+To create a role in the Neon Console:
+
+1. Navigate to the [Neon Console](https://console.neon.tech).
+2. Select a project.
+3. Select **Roles**.
+4. Select the branch where you want to create the role.
+5. Click **New Role**.
+6. In the role creation dialog, specify a role name.
+7. Click **Create**. The role is created and you are provided with the password for the role.
+
+The following CLI command creates a role. To view the CLI documentation for this command, see [Neon CLI commands — roles](https://api-docs.neon.tech/reference/createprojectbranchrole).
+
+```bash
+neon roles create --name <role>
+```
+
+The following Neon API method creates a role. To view the API documentation for this method, refer to the Neon API reference.
+
+```bash
+curl 'https://console.neon.tech/api/v2/projects/hidden-cell-763301/branches/br-blue-tooth-671580/roles' \
+  -H 'Accept: application/json' \
+  -H "Authorization: Bearer $NEON_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "role": {
+    "name": "cdc_role"
+  }
+}' | jq
+```
+
+### 3. Grant Schema Access to Your Postgres Role
+
+If your replication role does not own the schemas and tables you are replicating from, make sure to grant access. Run these commands for each schema:
+
+```sql
+GRANT USAGE ON SCHEMA public TO cdc_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO cdc_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO cdc_role;
+```
+
+Granting `SELECT ON ALL TABLES IN SCHEMA` instead of naming the specific tables avoids having to add privileges later if you add tables to your publication.
+
+### 4. Create a Publication
+
+Create a [publication](https://www.postgresql.org/docs/current/sql-createpublication.html) with the name `estuary_publication`. Include all the tables you would like to ingest into Estuary Flow.
+
+```sql
+CREATE PUBLICATION flow_publication FOR TABLE <tbl1, tbl2, tbl3>;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+```
+
+The `publish_via_partition_root`
+  setting is recommended (because most users will want changes to a partitioned table to be captured
+  under the name of the root table) but is not required.
+
+Refer to the [Postgres docs](https://www.postgresql.org/docs/current/sql-alterpublication.html) if you need to add or remove tables from your publication. Alternatively, you also can create a publication `FOR ALL TABLES`.
+
+Upon start-up, the Estuary Flow connector for Postgres will automatically create the [replication slot](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-REPLICATION-SLOTS) required for ingesting data change events from Postgres. The slot's name will be prefixed with `estuary_`, followed by a unique identifier.
+
+To prevent storage bloat, **Neon automatically removes _inactive_ replication slots after a period of time if there are other _active_ replication slots**. If you have or intend on having more than one replication slot, please see [Unused replication slots](https://docs.neon.tech/docs/logical-replication-neon#unused-replication-slots) to learn more.
+
+## Allow Inbound Traffic
+
+If you are using Neon's **IP Allow** feature to limit the IP addresses that can connect to Neon, you will need to allow inbound traffic from Estuary Flow's IP addresses.
+Refer to the [Estuary Flow documentation](/reference/allow-ip-addresses) for the list of IPs that need to be allowlisted for the Estuary Flow region of your account.
+For information about configuring allowed IPs in Neon, see [Configure IP Allow](https://neon.tech/docs/introduction/ip-allow).
+
+## Create a Postgres Source Connector in Estuary Flow
+
+1. In the Estuary Flow web UI, select **Sources** from the left navigation bar and click **New Capture**.
+2. In the connector catalog, choose **Neon PostgreSQL** and click **Connect**.
+3. Enter the connection details for your Neon database. You can get these details from your Neon connection string, which you'll find in the **Connection Details** widget on the **Dashboard** of your Neon project. Your connection string will look like this:
+
+   ```bash
+   postgres://alex:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
+   ```
+   Enter the details for **your connection string** into the source connector fields. Based on the sample connection string above, the values would be specified as shown below. Your values will differ.
+   
+   - Name: Name of the Capture connector
+   - Server Address: ep-cool-darkness-123456.us-east-2.aws.neon.tech:5432
+   - User: cdc_role
+   - Password: Click **Add a new secret...**, then specify a name for that secret and `AbC123dEf` as its value
+   - Database: dbname
+
+3. Click **Next**. Estuary Flow will now scan the source database for all the tables that can be replicated. Select one or more table(s) by checking the checkbox next to their name.
+Optionally, you can change the name of the destination name for each table. You can also take a look at the schema of each stream by clicking on the **Collection** tab.
+
+4. Click **Save and Publish** to provision the connector and kick off the automated backfill process.
 
 ## Backfills and performance considerations
 
-When the a PostgreSQL capture is initiated, by default, the connector first _backfills_, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the a PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
 This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
@@ -82,7 +142,7 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 #### Endpoint
 
 | Property                        | Title               | Description                                                                                                                                 | Type    | Required/Default           |
-| ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------- |
+|---------------------------------|---------------------|---------------------------------------------------------------------------------------------------------------------------------------------|---------|----------------------------|
 | **`/address`**                  | Address             | The host or host:port at which the database can be reached.                                                                                 | string  | Required                   |
 | **`/database`**                 | Database            | Logical database name to capture from.                                                                                                      | string  | Required, `"postgres"`     |
 | **`/user`**                     | User                | The database user to authenticate as.                                                                                                       | string  | Required, `"flow_capture"` |
@@ -93,12 +153,12 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 | `/advanced/skip_backfills`      | Skip Backfills      | A comma-separated list of fully-qualified table names which should not be backfilled.                                                       | string  |                            |
 | `/advanced/slotName`            | Slot Name           | The name of the PostgreSQL replication slot to replicate from.                                                                              | string  | `"flow_slot"`              |
 | `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
-| `/advanced/sslmode`             | SSL Mode            | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                       | string  |                            |
+| `/advanced/sslmode`     | SSL Mode    | Overrides SSL connection behavior by setting the 'sslmode' parameter. | string  |  |
 
 #### Bindings
 
 | Property         | Title     | Description                                                                                | Type   | Required/Default |
-| ---------------- | --------- | ------------------------------------------------------------------------------------------ | ------ | ---------------- |
+|------------------|-----------|--------------------------------------------------------------------------------------------|--------|------------------|
 | **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required         |
 | **`/stream`**    | Stream    | Table name.                                                                                | string | Required         |
 | **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                            | string | Required         |
@@ -125,7 +185,6 @@ captures:
           syncMode: incremental
         target: ${PREFIX}/${COLLECTION_NAME}
 ```
-
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
 [Learn more about capture definitions.](../../../../concepts/captures.md#pull-captures)
@@ -158,7 +217,7 @@ If you encounter an issue that you suspect is due to TOASTed values, try the fol
 
 - Ensure your collection's schema is using the merge [reduction strategy](../../../../concepts/schemas.md#reduce-annotations).
 - [Set REPLICA IDENTITY to FULL](https://www.postgresql.org/docs/9.4/sql-altertable.html) for the table. This circumvents the problem by forcing the
-  WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
+WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
 - [Contact Estuary support](mailto:support@estuary.dev) for assistance.
 
 ## Publications

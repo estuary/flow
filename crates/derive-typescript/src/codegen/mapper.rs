@@ -269,9 +269,9 @@ mod test {
     fn schema_generation() {
         let fixture = serde_yaml::from_slice(include_bytes!("mapper_test.yaml")).unwrap();
         let mut sources = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
-        sources::inline_sources(&mut sources);
+        sources::inline_draft_catalog(&mut sources);
 
-        let tables::Sources {
+        let tables::DraftCatalog {
             collections,
             errors,
             ..
@@ -283,7 +283,10 @@ mod test {
         let mut w = String::new();
 
         for collection in collections.iter() {
-            let m = Mapper::new(collection.spec.schema.as_ref().unwrap().get(), "Doc");
+            let m = Mapper::new(
+                collection.model.clone().unwrap().schema.unwrap().get(),
+                "Doc",
+            );
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} with anchors:",
@@ -294,7 +297,7 @@ mod test {
             m.map(m.root()).render(&mut Context::new(&mut w));
             w.push_str("\n\n");
 
-            let m = Mapper::new(collection.spec.schema.as_ref().unwrap().get(), "");
+            let m = Mapper::new(collection.model.clone().unwrap().schema.unwrap().get(), "");
             writeln!(
                 &mut w,
                 "Schema for {name} with CURI {curi} without anchors:",

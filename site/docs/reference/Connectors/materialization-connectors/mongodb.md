@@ -1,5 +1,3 @@
-
-
 # MongoDB
 
 This connector materializes data from your Flow collections to your MongoDB collections.
@@ -18,13 +16,13 @@ and values) organized in **collections**. MongoDB documents have a mandatory
 
 You'll need:
 
-* Credentials for connecting to your MongoDB instance and database.
+- Credentials for connecting to your MongoDB instance and database.
 
-* Read and write access to your MongoDB database and desired collections. See [Role-Based Access
+- Read and write access to your MongoDB database and desired collections. See [Role-Based Access
   Control](https://www.mongodb.com/docs/manual/core/authorization/) for more information.
 
-* If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting
-  of IPs, you need to whitelist Estuary's IP: `34.121.207.128`.
+- If you are using MongoDB Atlas, or your MongoDB provider requires allowlisting
+  of IPs, you need to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses).
 
 ## Configuration
 
@@ -35,19 +33,19 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 #### Endpoint
 
-| Property                        | Title               | Description                                                                                                                                 | Type    | Required/Default           |
-|---------------------------------|---------------------|---------------------------------------------------------------------------------------------------------------------------------------------|---------|----------------------------|
-| **`/address`**                  | Address             | Host and port of the database. Optionally can specify scheme for the URL such as mongodb+srv://host.                                        | string  | Required                   |
-| **`/database`**                 | Database            | Name of the database to capture from.                                                                         | string  | Required                   |
-| **`/user`**                     | User                | Database user to connect as.                                                                                   | string  | Required                   |
-| **`/password`**                 | Password            | Password for the specified database user.                                                                                                   | string  | Required                   |
+| Property        | Title    | Description                                                                                          | Type   | Required/Default |
+| --------------- | -------- | ---------------------------------------------------------------------------------------------------- | ------ | ---------------- |
+| **`/address`**  | Address  | Host and port of the database. Optionally can specify scheme for the URL such as mongodb+srv://host. | string | Required         |
+| **`/database`** | Database | Name of the database to capture from.                                                                | string | Required         |
+| **`/user`**     | User     | Database user to connect as.                                                                         | string | Required         |
+| **`/password`** | Password | Password for the specified database user.                                                            | string | Required         |
 
 #### Bindings
 
-| Property          | Title        | Description                                             | Type      | Required/Default |
-| -------           | ------       | ------                                                  | --------- | --------         |
-| **`/collection`** | Stream       | Collection name                                         | string    | Required         |
-| `/delta_updates`  | Delta Update | Should updates to this table be done via delta updates. | boolean   | `false`          |
+| Property          | Title        | Description                                             | Type    | Required/Default |
+| ----------------- | ------------ | ------------------------------------------------------- | ------- | ---------------- |
+| **`/collection`** | Stream       | Collection name                                         | string  | Required         |
+| `/delta_updates`  | Delta Update | Should updates to this table be done via delta updates. | boolean | `false`          |
 
 ### Sample
 

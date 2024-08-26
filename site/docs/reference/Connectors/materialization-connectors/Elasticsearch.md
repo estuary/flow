@@ -1,5 +1,3 @@
-
-
 # Elasticsearch
 
 This connector materializes Flow collections into indices in an Elasticsearch cluster.
@@ -10,11 +8,11 @@ It is available for use in the Flow web application. For local development or op
 
 To use this connector, you'll need:
 
-* An Elastic cluster with a known [endpoint](https://www.elastic.co/guide/en/elasticsearch/reference/current/getting-started.html#send-requests-to-elasticsearch)
-* The role used to connect to Elasticsearch must have at least the following privileges (see Elastic's documentation on [defining roles](https://www.elastic.co/guide/en/elasticsearch/reference/current/defining-roles.html#roles-indices-priv) and [security privileges](https://www.elastic.co/guide/en/elasticsearch/reference/current/security-privileges.html#privileges-list-indices)):
-  * **Cluster privilege** of `monitor`
-  * For each index to be created: `read`, `write`, `view_index_metadata`, and `create_index`. When creating **Index privileges**, you can use a wildcard `"*"` to grant the privileges to all indices.
-* At least one Flow collection
+- An Elastic cluster with a known [endpoint](https://www.elastic.co/guide/en/elasticsearch/reference/current/getting-started.html#send-requests-to-elasticsearch)
+- The role used to connect to Elasticsearch must have at least the following privileges (see Elastic's documentation on [defining roles](https://www.elastic.co/guide/en/elasticsearch/reference/current/defining-roles.html#roles-indices-priv) and [security privileges](https://www.elastic.co/guide/en/elasticsearch/reference/current/security-privileges.html#privileges-list-indices)):
+  - **Cluster privilege** of `monitor`
+  - For each index to be created: `read`, `write`, `view_index_metadata`, and `create_index`. When creating **Index privileges**, you can use a wildcard `"*"` to grant the privileges to all indices.
+- At least one Flow collection
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
@@ -35,23 +33,22 @@ The connector will automatically create an Elasticsearch index for each binding 
 
 #### Endpoint
 
-| Property                      | Title                    | Description                                                                                                                                                                                             | Type    | Required/Default |
-|-------------------------------|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
-| **`/endpoint`**               | Endpoint                 | Endpoint host or URL. Must start with http:// or https://. If using Elastic Cloud this follows the format https://CLUSTER_ID.REGION.CLOUD_PLATFORM.DOMAIN:PORT                                          | string  | Required         |
-| **`/credentials`**            |                          |                                                                                                                                                                                                         | object  | Required         |
-| `/credentials/username`       | Username                 | Username to use for authenticating with Elasticsearch.                                                                                                                                                  | string  |                  |
-| `/credentials/password`       | Password                 | Password to use for authenticating with Elasticsearch.                                                                                                                                                  | string  |                  |
-| `/credentials/apiKey`         | API Key                  | API key for authenticating with the Elasticsearch API. Must be the 'encoded' API key credentials, which is the Base64-encoding of the UTF-8 representation of the id and api_key joined by a colon (:). | string  |                  |
-| `advanced/number_of_replicas` | Index Replicas           | The number of replicas to create new indices with. Leave blank to use the cluster default.                                                                                                              | integer |                  |
+| Property                      | Title          | Description                                                                                                                                                                                             | Type    | Required/Default |
+| ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---------------- |
+| **`/endpoint`**               | Endpoint       | Endpoint host or URL. Must start with http:// or https://. If using Elastic Cloud this follows the format https://CLUSTER_ID.REGION.CLOUD_PLATFORM.DOMAIN:PORT                                          | string  | Required         |
+| **`/credentials`**            |                |                                                                                                                                                                                                         | object  | Required         |
+| `/credentials/username`       | Username       | Username to use for authenticating with Elasticsearch.                                                                                                                                                  | string  |                  |
+| `/credentials/password`       | Password       | Password to use for authenticating with Elasticsearch.                                                                                                                                                  | string  |                  |
+| `/credentials/apiKey`         | API Key        | API key for authenticating with the Elasticsearch API. Must be the 'encoded' API key credentials, which is the Base64-encoding of the UTF-8 representation of the id and api_key joined by a colon (:). | string  |                  |
+| `advanced/number_of_replicas` | Index Replicas | The number of replicas to create new indices with. Leave blank to use the cluster default.                                                                                                              | integer |                  |
 
 #### Bindings
 
 | Property             | Title            | Description                                                                            | Type    | Required/Default |
-|----------------------|------------------|----------------------------------------------------------------------------------------|---------|------------------|
+| -------------------- | ---------------- | -------------------------------------------------------------------------------------- | ------- | ---------------- |
 | **`/index`**         | index            | Name of the Elasticsearch index to store the materialization results.                  | string  | Required         |
 | **`/delta_updates`** | Delta updates    | Whether to use standard or [delta updates](#delta-updates).                            | boolean | `false`          |
 | `/number_of_shards`  | Number of shards | The number of shards to create the index with. Leave blank to use the cluster default. | integer | `1`              |
-
 
 ### Sample
 
@@ -60,15 +57,15 @@ materializations:
   PREFIX/mat_name:
     endpoint:
       connector:
-         # Path to the latest version of the connector, provided as a Docker image
+        # Path to the latest version of the connector, provided as a Docker image
         image: ghcr.io/estuary/materialize-elasticsearch:dev
         config:
           endpoint: https://ec47fc4d2c53414e1307e85726d4b9bb.us-east-1.aws.found.io:9243
           credentials:
             username: flow_user
             password: secret
-    # If you have multiple collections you need to materialize, add a binding for each one
-    # to ensure complete data flow-through
+        # If you have multiple collections you need to materialize, add a binding for each one
+        # to ensure complete data flow-through
         bindings:
           - resource:
               index: my-elasticsearch-index
@@ -77,7 +74,7 @@ materializations:
 
 ## Setup
 
-You must configure your Elasticsearch cluster to allow connections from Estuary. It may be necessary to whitelist Estuary Flow's IP address `34.121.207.128`.
+You must configure your Elasticsearch cluster to allow connections from Estuary. It may be necessary to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses).
 
 Alternatively, you can allow secure connections via SSH tunneling. To do so:
 
@@ -112,7 +109,7 @@ is shown below:
   "bindings": [
     {
       "resource": {
-        "index": "my-elasticsearch-index",
+        "index": "my-elasticsearch-index"
       },
       "source": "PREFIX/source_collection",
       "fields": {
@@ -136,8 +133,8 @@ The changelog includes a list of breaking changes made to this connector. Backwa
 
 #### V3: 2023-08-21
 
-* Index mappings will now be created based on the selected fields of the materialization. Previously only dynamic runtime mappings were created, and the entire root document was always materialized.
+- Index mappings will now be created based on the selected fields of the materialization. Previously only dynamic runtime mappings were created, and the entire root document was always materialized.
 
-* Moved "number of replicas" configuration for new indices to an advanced, optional, endpoint-level configuration.
+- Moved "number of replicas" configuration for new indices to an advanced, optional, endpoint-level configuration.
 
-* The "number of shards" resource configuration is now optional.
+- The "number of shards" resource configuration is now optional.

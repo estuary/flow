@@ -1,6 +1,7 @@
 ---
 sidebar_position: 3
 ---
+
 # MariaDB
 
 This is a change data capture (CDC) connector that captures change events from a MariaDB database via the [Binary Log](https://mariadb.com/kb/en/overview-of-the-binary-log/).
@@ -10,22 +11,24 @@ so the same configuration applies, but the setup steps look somewhat different.
 This connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mariadb:dev`](https://github.com/estuary/connectors/pkgs/container/source-mariadb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
+
 To use this connector, you'll need a MariaDB database setup with the following.
-* [`binlog_format`](https://mariadb.com/kb/en/binary-log-formats/)
+
+- [`binlog_format`](https://mariadb.com/kb/en/binary-log-formats/)
   system variable set to `ROW`.
-* [Binary log expiration period](https://mariadb.com/kb/en/using-and-maintaining-the-binary-log/#purging-log-files) set to at least 30 days (2592000 seconds) if at all possible.
+- [Binary log expiration period](https://mariadb.com/kb/en/using-and-maintaining-the-binary-log/#purging-log-files) set to at least 30 days (2592000 seconds) if at all possible.
   - This value may be set lower if necessary, but we [strongly discourage](#insufficient-binlog-retention) going below 7 days as this may increase the likelihood of unrecoverable failures.
-  MariaDB's default value is 0 (no expiration).
-* A watermarks table. The watermarks table is a small "scratch space"
+    MariaDB's default value is 0 (no expiration).
+- A watermarks table. The watermarks table is a small "scratch space"
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
   - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
-* A database user with appropriate permissions:
+- A database user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` [privileges](https://mariadb.com/docs/skysql/ref/es10.6/privileges/).
   - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
-* If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
+- If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
 :::tip Configuration Tip
@@ -39,14 +42,17 @@ To configure this connector to capture data from databases hosted on your intern
 To meet these requirements, do the following:
 
 1. Create the watermarks table. This table can have any name and be in any database, so long as the capture's `config.json` file is modified accordingly.
+
 ```sql
 CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
 ```
+
 2. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
 
-  The `SELECT` permission can be restricted to just the tables that need to be
-  captured, but automatic discovery requires `information_schema` access as well.
+The `SELECT` permission can be restricted to just the tables that need to be
+captured, but automatic discovery requires `information_schema` access as well.
+
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
@@ -54,11 +60,15 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
+
 3. Configure the binary log to retain data for 30 days, if previously set lower.
+
 ```sql
 SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
+
 4. Configure the database's time zone. See [below](#setting-the-mariadb-time-zone) for more information.
+
 ```sql
 SET PERSIST time_zone = '-05:00'
 ```
@@ -70,19 +80,20 @@ You can use this connector for MariaDB instances on Azure Database for MariaDB u
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
-   that grants access to the IP address `34.121.207.128`.
+      that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
+
+   - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+   - When you configure your connector as described in the [configuration](#configuration) section above,
+     including the additional `networkTunnel` configuration to enable the SSH tunnel.
+     See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+     for additional details and a sample.
+     :::
 
 2. Set the `binlog_expire_logs_seconds` [server perameter](https://learn.microsoft.com/en-us/azure/mariadb/howto-server-parameters#configure-server-parameters)
-to `2592000`.
+   to `2592000`.
 
 3. Using your preferred MariaDB client, create the watermarks table.
 
@@ -97,8 +108,9 @@ CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark 
 
 4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
 
-  The `SELECT` permission can be restricted to just the tables that need to be
-  captured, but automatic discovery requires `information_schema` access as well.
+The `SELECT` permission can be restricted to just the tables that need to be
+captured, but automatic discovery requires `information_schema` access as well.
+
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
@@ -108,7 +120,7 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
 5. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
-Together, you'll use the host:port as the `address` property when you configure the connector.
+   Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ### Setting the MariaDB time zone
 
@@ -122,9 +134,9 @@ To avoid this, you must explicitly set the time zone for your database.
 
 You can:
 
-* Specify a numerical offset from UTC.
+- Specify a numerical offset from UTC.
 
-* Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
+- Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
 
 For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
 Because this region observes daylight savings time, you'd be responsible for changing the offset.
@@ -138,7 +150,7 @@ If you are unable to set the `time_zone` in the database and need to capture tab
 
 ## Backfills and performance considerations
 
-When the a MariaDB capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the a MariaDB capture is initiated, by default, the connector first _backfills_, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
 This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
@@ -146,6 +158,7 @@ However, you may find it appropriate to skip the backfill, especially for extrem
 In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
+
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
 
@@ -153,26 +166,26 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 
 #### Endpoint
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| **`/address`** | Server Address | The host or host:port at which the database can be reached. | string | Required |
-| **`/user`** | Login User | The database user to authenticate as. | string | Required, `"flow_capture"` |
-| **`/password`** | Login Password | Password for the specified database user. | string | Required |
-| `/timezone` | Timezone | Timezone to use when capturing datetime columns. Should normally be left blank to use the database's `'time_zone'` system variable. Only required if the `'time_zone'` system variable cannot be read and columns with type datetime are being captured. Must be a valid IANA time zone name or +HH:MM offset. Takes precedence over the `'time_zone'` system variable if both are set. | string |  |
-| `/advanced/watermarks_table` | Watermarks Table Name | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"flow.watermarks"` |
-| `/advanced/dbname` | Database Name | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access. | string | `"mysql"` |
-| `/advanced/node_id` | Node ID | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value. | integer |  |
-| `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
-| `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query. | integer | `131072` |
-| `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need. | boolean |  |
+| Property                                | Title                              | Description                                                                                                                                                                                                                                                                                                                                                                             | Type    | Required/Default           |
+| --------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------- |
+| **`/address`**                          | Server Address                     | The host or host:port at which the database can be reached.                                                                                                                                                                                                                                                                                                                             | string  | Required                   |
+| **`/user`**                             | Login User                         | The database user to authenticate as.                                                                                                                                                                                                                                                                                                                                                   | string  | Required, `"flow_capture"` |
+| **`/password`**                         | Login Password                     | Password for the specified database user.                                                                                                                                                                                                                                                                                                                                               | string  | Required                   |
+| `/timezone`                             | Timezone                           | Timezone to use when capturing datetime columns. Should normally be left blank to use the database's `'time_zone'` system variable. Only required if the `'time_zone'` system variable cannot be read and columns with type datetime are being captured. Must be a valid IANA time zone name or +HH:MM offset. Takes precedence over the `'time_zone'` system variable if both are set. | string  |                            |
+| `/advanced/watermarks_table`            | Watermarks Table Name              | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form.                                                                                                                                                                                                                                                              | string  | `"flow.watermarks"`        |
+| `/advanced/dbname`                      | Database Name                      | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access.                                                                                                                                                                                                                    | string  | `"mysql"`                  |
+| `/advanced/node_id`                     | Node ID                            | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                                                             | integer |                            |
+| `/advanced/skip_backfills`              | Skip Backfills                     | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                                                                   | string  |                            |
+| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `131072`                   |
+| `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need.                                                                                                                                                                                                                                | boolean |                            |
 
 #### Bindings
 
-| Property | Title | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| **`/namespace`** | Namespace | The [database](https://mariadb.com/kb/en/understanding-mariadb-architecture/#databases) in which the table resides. | string | Required |
-| **`/stream`** | Stream | Name of the table to be captured from the database. | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| Property         | Title     | Description                                                                                                         | Type   | Required/Default |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
+| **`/namespace`** | Namespace | The [database](https://mariadb.com/kb/en/understanding-mariadb-architecture/#databases) in which the table resides. | string | Required         |
+| **`/stream`**    | Stream    | Name of the table to be captured from the database.                                                                 | string | Required         |
+| **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                                                     | string | Required         |
 
 :::info
 When you configure this connector in the web application, the automatic **discovery** process sets up a binding for _most_ tables it finds in your database, but there are exceptions.
@@ -182,6 +195,7 @@ You can add bindings for such tables manually.
 :::
 
 ### Sample
+
 A minimal capture definition will look like the following:
 
 ```yaml

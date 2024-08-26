@@ -1,6 +1,7 @@
 ---
 sidebar_position: 5
 ---
+
 # Amazon RDS for MySQL
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
@@ -8,21 +9,23 @@ This is a change data capture (CDC) connector that captures change events from a
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
+
 To use this connector, you'll need a MySQL database setup with the following.
-* [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
+
+- [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
   system variable set to `ROW` (the default value).
-* [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
+- [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
   - This value may be set lower if necessary, but we [strongly discourage](#insufficient-binlog-retention) going below 7 days as this may increase the likelihood of unrecoverable failures.
-* A watermarks table. The watermarks table is a small "scratch space"
+- A watermarks table. The watermarks table is a small "scratch space"
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
   - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
-* A database user with appropriate permissions:
+- A database user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
   - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
-* If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
+- If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
   must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
 ## Setup
@@ -30,44 +33,48 @@ To use this connector, you'll need a MySQL database setup with the following.
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
    1. To allow direct access:
-       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+      - [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+      - Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
    2. To allow secure connections via SSH tunneling:
-       * Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
-       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+      - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
+      - When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. Create a RDS parameter group to enable replication in MySQL.
 
    1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
-   Create a unique name and description and set the following properties:
-      * **Family**: mysql8.0
-      * **Type**: DB Parameter group
+      Create a unique name and description and set the following properties:
+
+      - **Family**: mysql8.0
+      - **Type**: DB Parameter group
 
    2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
-      * binlog_format: ROW
-      * binlog_row_metadata: FULL
-      * read_only: 0
 
-   3. If using the primary instance  (not recommended), [associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
-   with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
-   Reboot the database to allow the changes to take effect.
+      - binlog_format: ROW
+      - binlog_row_metadata: FULL
+      - read_only: 0
+
+   3. If using the primary instance (not recommended), [associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
+      with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
+      Reboot the database to allow the changes to take effect.
 
 3. Create a read replica with the new parameter group applied (recommended).
 
    1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-   of your MySQL database.
+      of your MySQL database.
 
    2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
-   and set the following:
-      * **DB parameter group**: choose the parameter group you created previously
-      * **Backup retention period**: 7 days
-      * **Public access**: Publicly accessible
+      and set the following:
+
+      - **DB parameter group**: choose the parameter group you created previously
+      - **Backup retention period**: 7 days
+      - **Public access**: Publicly accessible
 
    3. Reboot the replica to allow the changes to take effect.
 
 4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
-and set up the watermarks table:
+   and set up the watermarks table:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS flow;
@@ -81,12 +88,12 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
 5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MySQL permits:
+
 ```sql
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
 
 ### Setting the MySQL time zone
 
@@ -99,12 +106,12 @@ To avoid this, you must explicitly set the time zone for your database.
 
 You can:
 
-* Specify a numerical offset from UTC.
-   - For MySQL version 8.0.19 or higher, values from `-13:59` to `+14:00`, inclusive, are permitted.
-   - Prior to MySQL 8.0.19, values from `-12:59` to `+13:00`, inclusive, are permitted
+- Specify a numerical offset from UTC.
 
-* Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
+  - For MySQL version 8.0.19 or higher, values from `-13:59` to `+14:00`, inclusive, are permitted.
+  - Prior to MySQL 8.0.19, values from `-12:59` to `+13:00`, inclusive, are permitted
 
+- Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
 
 For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
 Because this region observes daylight savings time, you'd be responsible for changing the offset.
@@ -118,7 +125,7 @@ If you are unable to set the `time_zone` in the database and need to capture tab
 
 ## Backfills and performance considerations
 
-When the a MySQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the a MySQL capture is initiated, by default, the connector first _backfills_, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
 This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
@@ -126,6 +133,7 @@ However, you may find it appropriate to skip the backfill, especially for extrem
 In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
+
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](/concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
@@ -133,26 +141,26 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 
 #### Endpoint
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| **`/address`** | Server Address | The host or host:port at which the database can be reached. | string | Required |
-| **`/user`** | Login User | The database user to authenticate as. | string | Required, `"flow_capture"` |
-| **`/password`** | Login Password | Password for the specified database user. | string | Required |
-| `/timezone` | Timezone | Timezone to use when capturing datetime columns. Should normally be left blank to use the database's `'time_zone'` system variable. Only required if the `'time_zone'` system variable cannot be read and columns with type datetime are being captured. Must be a valid IANA time zone name or +HH:MM offset. Takes precedence over the `'time_zone'` system variable if both are set. | string |  |
-| `/advanced/watermarks_table` | Watermarks Table Name | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"flow.watermarks"` |
-| `/advanced/dbname` | Database Name | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access. | string | `"mysql"` |
-| `/advanced/node_id` | Node ID | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value. | integer |  |
-| `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
-| `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query. | integer | `131072` |
-| `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need. | boolean |  |
+| Property                                | Title                              | Description                                                                                                                                                                                                                                                                                                                                                                             | Type    | Required/Default           |
+| --------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------- |
+| **`/address`**                          | Server Address                     | The host or host:port at which the database can be reached.                                                                                                                                                                                                                                                                                                                             | string  | Required                   |
+| **`/user`**                             | Login User                         | The database user to authenticate as.                                                                                                                                                                                                                                                                                                                                                   | string  | Required, `"flow_capture"` |
+| **`/password`**                         | Login Password                     | Password for the specified database user.                                                                                                                                                                                                                                                                                                                                               | string  | Required                   |
+| `/timezone`                             | Timezone                           | Timezone to use when capturing datetime columns. Should normally be left blank to use the database's `'time_zone'` system variable. Only required if the `'time_zone'` system variable cannot be read and columns with type datetime are being captured. Must be a valid IANA time zone name or +HH:MM offset. Takes precedence over the `'time_zone'` system variable if both are set. | string  |                            |
+| `/advanced/watermarks_table`            | Watermarks Table Name              | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form.                                                                                                                                                                                                                                                              | string  | `"flow.watermarks"`        |
+| `/advanced/dbname`                      | Database Name                      | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access.                                                                                                                                                                                                                    | string  | `"mysql"`                  |
+| `/advanced/node_id`                     | Node ID                            | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                                                             | integer |                            |
+| `/advanced/skip_backfills`              | Skip Backfills                     | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                                                                   | string  |                            |
+| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `131072`                   |
+| `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need.                                                                                                                                                                                                                                | boolean |                            |
 
 #### Bindings
 
-| Property | Title | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| **`/namespace`** | Namespace | The [database/schema](https://dev.mysql.com/doc/refman/8.0/en/show-databases.html) in which the table resides. | string | Required |
-| **`/stream`** | Stream | Name of the table to be captured from the database. | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| Property         | Title     | Description                                                                                                    | Type   | Required/Default |
+| ---------------- | --------- | -------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
+| **`/namespace`** | Namespace | The [database/schema](https://dev.mysql.com/doc/refman/8.0/en/show-databases.html) in which the table resides. | string | Required         |
+| **`/stream`**    | Stream    | Name of the table to be captured from the database.                                                            | string | Required         |
+| **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                                                | string | Required         |
 
 :::info
 When you configure this connector in the web application, the automatic **discovery** process sets up a binding for _most_ tables it finds in your database, but there are exceptions.
@@ -162,6 +170,7 @@ You can add bindings for such tables manually.
 :::
 
 ### Sample
+
 A minimal capture definition will look like the following:
 
 ```yaml
@@ -227,4 +236,3 @@ The `"binlog retention period is too short"` error should normally be fixed by s
 ### Empty Collection Key
 
 Every Flow collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).
-
