@@ -102,4 +102,3 @@ grant select on table connector_tags to authenticated;
 
 create unique index idx_connector_tags_id_where_queued on connector_tags(id)
   where job_status->>'type' = 'queued';
-
