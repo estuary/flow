@@ -1,6 +1,11 @@
 # Connecting to Estuary Flow from Kafka using Dekaf
 
 :::note Dekaf is currently in beta.
+
+Reporting is not yet supported for Dekaf, but is coming.
+
+We're currently not charging for use of Dekaf, but will eventually charge under our standard data movement pricing
+
 We appreciate your feedback as we continue to refine and enhance this feature.
 :::
 
