@@ -43,7 +43,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 typestate = { workspace = true }
 url = { workspace = true }
-webpki-roots = { workspace = true }
+rustls-native-certs = { workspace = true }
 deadpool = { workspace = true }
 regex = { workspace = true }
 hex = { workspace = true }
