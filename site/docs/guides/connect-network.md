@@ -10,13 +10,7 @@ You configure this in the `networkTunnel` section of applicable capture or mater
 before you can do so, you need a properly configured SSH server on your internal network or cloud hosting platform.
 
 :::tip
-If permitted by your organization, a quicker way to connect to a secure database is to whitelist the Estuary IP addresses:
-
-```
-34.121.207.128
-35.226.75.135
-34.68.62.148
-```
+If permitted by your organization, a quicker way to connect to a secure database is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses)
 
 For help completing this task on different cloud hosting platforms,
 see the documentation for the [connector](../reference/Connectors/README.md) you're using.
@@ -66,7 +60,7 @@ They'll allow the connector to do the same.
 
 5. Configure your internal network to allow the SSH server to access your capture or materialization endpoint.
 
-6. To grant external access to the SSH server, it's essential to configure your network settings accordingly. The approach you take will be dictated by your organization's IT policies. One recommended step is to whitelist Estuary's IP addresses, which are `34.121.207.128, 35.226.75.135, 34.68.62.148`. This ensures that connections from this specific IP are permitted through your network's firewall or security measures.
+6. To grant external access to the SSH server, it's essential to configure your network settings accordingly. The approach you take will be dictated by your organization's IT policies. One recommended step is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses). This ensures that connections from this specific IP are permitted through your network's firewall or security measures.
 
 ## Setup for AWS
 

@@ -6,7 +6,7 @@ It is available for use in the Flow web application. For local development or op
 
 ## Prerequisites
 
-You'll need an SFTP server that can accept connections from the Estuary Flow IP addresses `34.121.207.128, 35.226.75.135, 34.68.62.148` using password authentication.
+You'll need an SFTP server that can accept connections from the [Estuary Flow IP addresses](/reference/allow-ip-addresses) using password authentication.
 
 ## Subdirectories and Symbolic Links
 

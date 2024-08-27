@@ -51,7 +51,7 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
      See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
      for additional details and a sample.
 
-   - Whitelist the Estuary IP addresses, `34.121.207.128, 35.226.75.135, 34.68.62.148` in your firewall rules.
+   - [Allowlist the Estuary IP addresses](/reference/allow-ip-addresses) in your firewall rules.
 
 ### Azure SQL Database
 
@@ -59,7 +59,7 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
    1. To allow direct access:
 
-      - Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the IP addresses `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+      - Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
    2. To allow secure connections via SSH tunneling:
       - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)

@@ -34,7 +34,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
    1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.
 
    2. Per the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create),
-      create a new inbound rule and a new outbound rule that allow all traffic from the IP addresses `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+      create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
 ### Connect With SSH Tunneling
 

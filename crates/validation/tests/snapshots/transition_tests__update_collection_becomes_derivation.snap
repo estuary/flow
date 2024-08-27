@@ -161,7 +161,14 @@ Outcome {
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
-                                numeric: None,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
                             },
                         ),
                     },

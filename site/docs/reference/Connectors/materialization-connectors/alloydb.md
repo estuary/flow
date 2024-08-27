@@ -15,7 +15,7 @@ To use this connector, you'll need:
 
 * An AlloyDB database to which to materialize, and user credentials.
   The connector will create new tables in the database per your specification. Tables created manually in advance are not supported.
-* A virtual machine to connect securely to the instance via SSH tunneling. (AlloyDB doesn't support IP whitelisting.)
+* A virtual machine to connect securely to the instance via SSH tunneling. (AlloyDB doesn't support IP allowlisting.)
 Follow the instructions to create a [virtual machine for SSH tunneling](../../../guides/connect-network.md#setup-for-google-cloud)
 in the same Google Cloud project as your instance.
 

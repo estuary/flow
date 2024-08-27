@@ -52,7 +52,7 @@ Other connection security methods may be enabled in the future.
 
 If using AWS Managed Streaming for Apache Kafka (MSK), you can use IAM authentication with our connector. Read more about IAM authentication with MSK in AWS docs: [IAM access control](https://docs.aws.amazon.com/msk/latest/developerguide/iam-access-control.html).
 
-Additionally, you want to make sure that your VPC configuration allows inbound and outbound requests to Estuary's IP addresses: `34.121.207.128, 35.226.75.135, 34.68.62.148`
+Additionally, you want to make sure that your VPC configuration allows inbound and outbound requests to [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
 ## Configuration
 

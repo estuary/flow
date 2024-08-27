@@ -36,7 +36,7 @@ You can find the host and port in the following locations in each platform's con
 
 ### Azure Database for PostgreSQL
 
-- **Connect Directly With Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP addresses `34.121.207.128, 35.226.75.135, 34.68.62.148`.
+- **Connect Directly With Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
 - **Connect With SSH Tunneling**: Follow the instructions for setting up an SSH connection to [Azure Database](/guides/connect-network/#setup-for-azure).
 
