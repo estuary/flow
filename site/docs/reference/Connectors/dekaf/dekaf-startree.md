@@ -23,10 +23,12 @@ low-latency analytics on large-scale data.
 
 4. Enter the following connection details:
 
+   ![Create StarTree Connection](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//startree_create_connection_548379d134/startree_create_connection_548379d134.png)
+
     - **Bootstrap Servers**: `dekaf.estuary.dev`
     - **Security Protocol**: `SASL_SSL`
     - **SASL Mechanism**: `PLAIN`
-    - **SASL Username**: `{}` (Use your Estuary username or any placeholder if not specified)
+    - **SASL Username**: `{}`
     - **SASL Password**: `Your generated Estuary Refresh Token`
 
 5. **Configure Schema Registry**: To decode Avro messages, enable schema registry settings:
