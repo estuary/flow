@@ -384,51 +384,47 @@ impl KafkaApiClient {
 
     #[instrument(skip(self))]
     pub async fn connect_to_group_coordinator(&self, key: &str) -> anyhow::Result<KafkaApiClient> {
-        let mut coordinators = self.coordinators.clone().lock_owned().await;
-        match coordinators.get(key) {
-            None => {
-                // RedPanda only support v3 of this request
-                let req = FindCoordinatorRequest::default()
-                    .with_key(StrBytes::from_string(key.to_string()))
-                    // https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/FindCoordinatorRequest.java#L119
-                    .with_key_type(0); // 0: consumer, 1: transaction
+        // RedPanda only support v3 of this request
+        let req = FindCoordinatorRequest::default()
+            .with_key(StrBytes::from_string(key.to_string()))
+            // https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/FindCoordinatorRequest.java#L119
+            .with_key_type(0); // 0: consumer, 1: transaction
 
-                let resp = self
-                    .send_request(
-                        req,
-                        Some(
-                            RequestHeader::default()
-                                .with_request_api_key(FindCoordinatorRequest::KEY)
-                                .with_request_api_version(3),
-                        ),
-                    )
-                    .await?;
+        let resp = self
+            .send_request(
+                req,
+                Some(
+                    RequestHeader::default()
+                        .with_request_api_key(FindCoordinatorRequest::KEY)
+                        .with_request_api_version(3),
+                ),
+            )
+            .await?;
 
-                let (coord_host, coord_port) = if resp.coordinators.len() > 0 {
-                    let coord = resp.coordinators.get(0).expect("already checked length");
-                    (coord.host.as_str(), coord.port)
-                } else {
-                    (resp.host.as_str(), resp.port)
-                };
+        let (coord_host, coord_port) = if resp.coordinators.len() > 0 {
+            let coord = resp.coordinators.get(0).expect("already checked length");
+            (coord.host.as_str(), coord.port)
+        } else {
+            (resp.host.as_str(), resp.port)
+        };
 
-                let coord_url = format!("tcp://{}:{}", coord_host.to_string(), coord_port);
+        let coord_url = format!("tcp://{}:{}", coord_host.to_string(), coord_port);
 
-                Ok(
-                    if coord_url.eq(self.url.as_str())
-                        || (coord_host.len() == 0 && coord_port == -1)
-                    {
-                        coordinators.insert(key.to_string(), self.clone());
-                        self.to_owned()
-                    } else {
-                        let mut coord = Self::connect(&coord_url, self.sasl_config.clone()).await?;
-                        coord.coordinators = self.coordinators.clone();
-                        coordinators.insert(key.to_string(), coord.clone());
+        Ok(
+            if coord_url.eq(self.url.as_str()) || (coord_host.len() == 0 && coord_port == -1) {
+                self.to_owned()
+            } else {
+                let mut coord_map = self.coordinators.clone().lock_owned().await;
+                match coord_map.get(&coord_url) {
+                    Some(coord) => coord.to_owned(),
+                    None => {
+                        let coord = Self::connect(&coord_url, self.sasl_config.clone()).await?;
+                        coord_map.insert(coord_url.to_owned(), coord.clone());
                         coord
-                    },
-                )
-            }
-            Some(coord) => Ok(coord.clone()),
-        }
+                    }
+                }
+            },
+        )
     }
 
     #[instrument(skip(self))]
