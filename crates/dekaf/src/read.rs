@@ -241,20 +241,22 @@ impl Read {
             // as offset for efficient record batch packing.
             let kafka_offset = next_offset - 1;
 
-            records.push(Record {
-                control: false,
-                headers: Default::default(),
-                key,
-                offset: kafka_offset,
-                partition_leader_epoch: 1,
-                producer_epoch: 1,
-                producer_id: producer.as_i64(),
-                sequence: kafka_offset as i32,
-                timestamp: unix_seconds as i64 * 1000 + unix_nanos as i64 / 1_000_000, // Map into millis.
-                timestamp_type: TimestampType::LogAppend,
-                transactional: false,
-                value,
-            });
+            if !is_control {
+                records.push(Record {
+                    control: false,
+                    headers: Default::default(),
+                    key,
+                    offset: kafka_offset,
+                    partition_leader_epoch: 1,
+                    producer_epoch: 1,
+                    producer_id: producer.as_i64(),
+                    sequence: kafka_offset as i32,
+                    timestamp: unix_seconds as i64 * 1000 + unix_nanos as i64 / 1_000_000, // Map into millis.
+                    timestamp_type: TimestampType::LogAppend,
+                    transactional: false,
+                    value,
+                });
+            }
         }
 
         let opts = RecordEncodeOptions {
