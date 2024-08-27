@@ -7,7 +7,7 @@ for defining transformations and queries.
 
 ## Prerequisites
 
-- An Estuary account & collection
+- An [Estuary Flow](https://dashboard.estuary.dev/register) account & collection
 - A Materialize account
 
 ## Connecting Estuary Flow to Materialize
@@ -17,10 +17,8 @@ for defining transformations and queries.
 
    ![Export Dekaf Access Token](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Group_22_95a85083d4/Group_22_95a85083d4.png)
 
-2. In your Materialize instance, use the SQL shell to create a new secret and connection using the Kafka source
-   connector.
-
-   Use the following SQL commands to configure the connection to Estuary Flow:
+2. In your Materialize dashboard, use the SQL shell to create a new secret and connection using the Kafka source
+   connector. Use the following SQL commands to configure the connection to Estuary Flow:
 
    ```sql
    CREATE
@@ -54,7 +52,7 @@ for defining transformations and queries.
    ENVELOPE UPSERT;
    ```
 
-### Creating Real-Time Views
+## Creating Real-Time Views
 
 To begin analyzing the data, create a real-time view using SQL in Materialize. Here is an example query to create a
 materialized view that tracks data changes:
@@ -65,7 +63,7 @@ SELECT *
 FROM materialize_source;
 ```
 
-### Final Steps
+## Final Steps
 
 After configuring your source and creating the necessary views, the connection with Materialize is complete. New data
 from your Estuary Flow collection will now arrive in your Materialize source in real-time, enabling you to perform
