@@ -367,7 +367,7 @@ impl Session {
 
                 if let Some((offset, _)) = latest_offset_requested {
                     let diff = partition_request.fetch_offset - offset;
-                    tracing::debug!(
+                    tracing::trace!(
                         topic = topic_request.topic.to_string(),
                         sent_offset = offset,
                         requested_offset = partition_request.fetch_offset,
@@ -604,7 +604,7 @@ impl Session {
         Ok(ProduceResponse::default().with_responses(responses))
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn join_group(
         &mut self,
         req: messages::JoinGroupRequest,
@@ -622,7 +622,7 @@ impl Session {
 
             let consumer_protocol_subscription_version = consumer_protocol_subscription_raw
                 .try_get_i16()
-                .context("failed to parse consumer protocol message")?;
+                .context("failed to parse consumer protocol message: subscription version")?;
 
             tracing::debug!(
                 version = consumer_protocol_subscription_version,
@@ -639,7 +639,7 @@ impl Session {
                 consumer_protocol_subscription_version, // Seems that sometimes v >=1 doesn't decode properly
             )
             .context(format!(
-                "failed to parse consumer protocol message: {formatted}"
+                "failed to parse consumer protocol message body: {formatted}"
             ))?;
 
             consumer_protocol_subscription_msg
@@ -658,16 +658,24 @@ impl Session {
             protocol.metadata = new_protocol_subscription.into();
         }
 
-        let response = client.send_request(mutable_req, Some(header)).await?;
+        let response = client
+            .send_request(mutable_req.clone(), Some(header))
+            .await?;
+
+        if let Some(err) = response.error_code.err() {
+            tracing::debug!(?err, req=?mutable_req, "Request errored");
+            return Ok(response);
+        }
 
         // Now re-translate response
         let mut mutable_resp = response.clone();
         for member in mutable_resp.members.iter_mut() {
             let mut consumer_protocol_subscription_raw = member.metadata.clone();
 
-            let consumer_protocol_subscription_version = consumer_protocol_subscription_raw
-                .try_get_i16()
-                .context("failed to parse consumer protocol message")?;
+            let consumer_protocol_subscription_version =
+                consumer_protocol_subscription_raw.try_get_i16().context(
+                    "failed to parse consumer protocol message: subscription version re-encode",
+                )?;
 
             // TODO: validate acceptable version
 
@@ -675,7 +683,7 @@ impl Session {
                 &mut consumer_protocol_subscription_raw,
                 consumer_protocol_subscription_version, // it seems that sometimes v >= 1 doesn't decode properly
             )
-            .context("failed to parse consumer protocol message")?;
+            .context("failed to parse consumer protocol message: subscription re-encode")?;
 
             consumer_protocol_subscription_msg
                 .topics
@@ -696,7 +704,7 @@ impl Session {
         Ok(mutable_resp)
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn leave_group(
         &mut self,
         req: messages::LeaveGroupRequest,
@@ -741,6 +749,7 @@ impl Session {
         }
     }
 
+    #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn sync_group(
         &mut self,
         req: messages::SyncGroupRequest,
@@ -757,12 +766,12 @@ impl Session {
             let mut consumer_protocol_assignment_raw = assignment.assignment.clone();
             let consumer_protocol_assignment_version = consumer_protocol_assignment_raw
                 .try_get_i16()
-                .context("failed to parse consumer protocol message")?;
+                .context("failed to parse consumer protocol message: assignment version")?;
             // TODO: validate acceptable version
 
             let mut consumer_protocol_assignment_msg =
                 ConsumerProtocolAssignment::decode(&mut consumer_protocol_assignment_raw, 0)
-                    .context("failed to parse consumer protocol message")?;
+                    .context("failed to parse consumer protocol message: assignment body")?;
 
             consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
                 .assigned_partitions
@@ -780,19 +789,26 @@ impl Session {
             assignment.assignment = new_protocol_assignment.into();
         }
 
-        let response = client.send_request(mutable_req, Some(header)).await?;
+        let response = client
+            .send_request(mutable_req.clone(), Some(header))
+            .await?;
+
+        if let Some(err) = response.error_code.err() {
+            tracing::debug!(?err, req=?mutable_req, "Request errored");
+            return Ok(response);
+        }
 
         let mut mutable_resp = response.clone();
         let mut consumer_protocol_assignment_raw = mutable_resp.assignment.clone();
         let consumer_protocol_assignment_version =
-            consumer_protocol_assignment_raw
-                .try_get_i16()
-                .context("failed to parse consumer protocol message")?;
+            consumer_protocol_assignment_raw.try_get_i16().context(
+                "failed to parse consumer protocol message: assignment re-encode version",
+            )?;
         // TODO: validate acceptable version
 
         let mut consumer_protocol_assignment_msg =
             ConsumerProtocolAssignment::decode(&mut consumer_protocol_assignment_raw, 0)
-                .context("failed to parse consumer protocol message")?;
+                .context("failed to parse consumer protocol message: assignment re-encode body")?;
         consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
             .assigned_partitions
             .into_iter()
@@ -811,6 +827,7 @@ impl Session {
         Ok(mutable_resp)
     }
 
+    #[instrument(skip_all, fields(groups=?req.groups_names))]
     pub async fn delete_group(
         &mut self,
         req: messages::DeleteGroupsRequest,
@@ -819,6 +836,7 @@ impl Session {
         return self.app.kafka_client.send_request(req, Some(header)).await;
     }
 
+    #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn heartbeat(
         &mut self,
         req: messages::HeartbeatRequest,
