@@ -22,60 +22,15 @@ use tokio_rustls::{
     rustls::{pki_types::ServerName, ClientConfig, RootCertStore},
     TlsConnector,
 };
+use tokio_util::codec::LengthDelimitedCodec;
 use tracing::instrument;
 use url::Url;
 
-trait StreamSink<I = Bytes, O = BytesMut, E = std::io::Error>:
-    Stream<Item = Result<O, E>> + Sink<I, Error = E> + Unpin + Send
-{
-}
-
-impl<T, I, O, E> StreamSink<I, O, E> for T where
-    T: Stream<Item = Result<O, E>> + Sink<I, Error = E> + Unpin + Send
-{
-}
-
-struct BoxedKafkaConnection(Pin<Box<dyn StreamSink<Bytes, BytesMut, io::Error> + Send + Unpin>>);
-
-impl Stream for BoxedKafkaConnection {
-    type Item = io::Result<BytesMut>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.0.poll_next_unpin(cx)
-    }
-}
-
-impl Sink<Bytes> for BoxedKafkaConnection {
-    type Error = io::Error;
-
-    fn poll_ready(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.0.poll_ready_unpin(cx)
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
-        self.0.start_send_unpin(item)
-    }
-
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.0.poll_flush_unpin(cx)
-    }
-
-    fn poll_close(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.0.poll_close_unpin(cx)
-    }
-}
+type BoxedKafkaConnection = Pin<
+    Box<
+        tokio_util::codec::Framed<tokio_rustls::client::TlsStream<TcpStream>, LengthDelimitedCodec>,
+    >,
+>;
 
 #[tracing::instrument(skip_all)]
 async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection> {
@@ -124,7 +79,7 @@ async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection>
             .new_codec(),
     );
 
-    Ok(BoxedKafkaConnection(Box::pin(framed)))
+    Ok(Box::pin(framed))
 }
 
 #[tracing::instrument(skip_all)]
@@ -159,8 +114,8 @@ async fn get_supported_sasl_mechanisms(
 }
 
 #[tracing::instrument(skip_all)]
-async fn send_request<Req: Request + Debug, S: StreamSink>(
-    conn: &mut S,
+async fn send_request<Req: Request + Debug>(
+    conn: &mut BoxedKafkaConnection,
     req: Req,
     header: Option<RequestHeader>,
 ) -> anyhow::Result<Req::Response> {
@@ -208,8 +163,8 @@ async fn send_request<Req: Request + Debug, S: StreamSink>(
 }
 
 #[tracing::instrument(skip_all)]
-async fn sasl_auth<S: StreamSink>(
-    conn: &mut S,
+async fn sasl_auth(
+    conn: &mut BoxedKafkaConnection,
     args: &KafkaConnectionParams,
 ) -> anyhow::Result<()> {
     let sasl = SASLClient::new(args.sasl_config.clone());
