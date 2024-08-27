@@ -832,6 +832,7 @@ impl Session {
         return client.send_request(req, Some(header)).await;
     }
 
+    #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn offset_commit(
         &mut self,
         req: messages::OffsetCommitRequest,
@@ -842,13 +843,23 @@ impl Session {
             topic.name = self.encrypt_topic_name(topic.name.clone())
         }
 
-        let mut resp = self
+        let client = self
             .app
             .kafka_client
             .connect_to_group_coordinator(req.group_id.as_str())
-            .await?
-            .send_request(mutated_req, Some(header))
             .await?;
+
+        client
+            .ensure_topics(
+                mutated_req
+                    .topics
+                    .iter()
+                    .map(|t| t.name.to_owned())
+                    .collect(),
+            )
+            .await?;
+
+        let mut resp = client.send_request(mutated_req, Some(header)).await?;
 
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned());
@@ -857,7 +868,7 @@ impl Session {
         Ok(resp)
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn offset_fetch(
         &mut self,
         req: messages::OffsetFetchRequest,
@@ -870,19 +881,18 @@ impl Session {
             }
         }
 
-        if let Some(ref topics) = mutated_req.topics {
-            self.app
-                .kafka_client
-                .ensure_topics(topics.iter().map(|t| t.name.to_owned()).collect())
-                .await?;
-        }
-        let mut resp = self
+        let client = self
             .app
             .kafka_client
             .connect_to_group_coordinator(req.group_id.as_str())
-            .await?
-            .send_request(mutated_req, Some(header))
             .await?;
+
+        if let Some(ref topics) = mutated_req.topics {
+            client
+                .ensure_topics(topics.iter().map(|t| t.name.to_owned()).collect())
+                .await?;
+        }
+        let mut resp = client.send_request(mutated_req, Some(header)).await?;
 
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned());
