@@ -60,11 +60,11 @@ fn test_simd_and_fallback_results_are_equal() {
     ]);
     let cases: Vec<Value> = serde_json::from_value(cases).unwrap();
 
-    // Build up an input fixture which has lots of whitespace, but consists of a whole documents.
+    // Build up an input fixture of whole documents.
     let mut input = Vec::new();
     for doc in cases.iter() {
-        serde_json::to_writer_pretty(&mut input, &doc).unwrap();
-        input.push(b'\t');
+        serde_json::to_writer(&mut input, &doc).unwrap();
+        input.push(b'\n');
     }
     let (transcoded, fallback) = transcoded_and_fallback(&mut input);
     assert_eq!(transcoded.offset, fallback.offset);
@@ -104,29 +104,45 @@ fn test_simd_and_fallback_results_are_equal() {
 
 #[test]
 fn test_basic_parser_apis() {
-    let cases = json!([
-        {
-            "hello": {"big": "worldddddd", "wide": true, "big big key": "smol"},
-            "aaaaaaaaa": 1,
-            "bbbbbbbbb": 2,
-            "unicode": "语言处理 😊",
-        },
-        {
-            "a\ta": { "b\tb": -9007, "z\tz": true},
-            "c\tc": "string!",
-            "d\td": { "e\te": 1234, "zz\tzz": false, "s\ts": "other string!"},
-            "last": false
-        },
-        {"\u{80}111abc": "ࠀ\u{80}222"},
-    ]);
-    let cases: Vec<Value> = serde_json::from_value(cases).unwrap();
-
     let mut input = Vec::new();
-    for doc in cases.iter() {
-        serde_json::to_writer(&mut input, &doc).unwrap();
+    // Build up a fixture to parse, which includes an invalid document.
+    {
+        input.extend(
+            json!(
+            {
+                "hello": {"big": "worldddddd", "wide": true, "big big key": "smol"},
+                "aaaaaaaaa": 1,
+                "bbbbbbbbb": 2,
+                "unicode": "语言处理 😊",
+            })
+            .to_string()
+            .into_bytes(),
+        );
+        input.push(b'\n');
+
+        input.extend(
+            json!({
+                "a\ta": { "b\tb": -9007, "z\tz": true},
+                "c\tc": "string!",
+                "d\td": { "e\te": 1234, "zz\tzz": false, "s\ts": "other string!"},
+                "last": false
+            })
+            .to_string()
+            .into_bytes(),
+        );
+        input.push(b'\n');
+
+        input.extend(b"{\"whoops\": !\n"); // Invalid JSON.
+
+        input.extend(
+            json!({"\u{80}111abc": "ࠀ\u{80}222"})
+                .to_string()
+                .into_bytes(),
+        );
         input.push(b'\n');
     }
     let (chunk_1, chunk_2) = input.split_at(input.len() / 2);
+    let (chunk_1a, chunk_1b) = chunk_1.split_at(chunk_1.len() / 2);
 
     let alloc = doc::Allocator::new();
     let mut parser = Parser::new();
@@ -142,39 +158,56 @@ fn test_basic_parser_apis() {
         )),
     ));
 
-    let (begin, chunk) = parser.parse_chunk(chunk_1, 1000, &alloc).unwrap();
-    snap.push((begin, json!("PARSE_CHUNK_1")));
+    let mut poll_parse = |parser: &mut Parser, step: &str| loop {
+        match parser.parse_many(&alloc) {
+            Ok((begin, chunk)) => {
+                if chunk.len() == 0 {
+                    break;
+                }
+                snap.push((begin, json!(step)));
+                for (doc, next_offset) in chunk {
+                    snap.push((next_offset, doc.to_debug_json_value()));
+                }
+            }
+            Err((err, location)) => {
+                snap.push((-1, json!(format!("{step}: {err} @ {location:?}"))));
+            }
+        }
+    };
 
-    for (doc, next_offset) in chunk {
-        snap.push((next_offset, doc.to_debug_json_value()));
-    }
+    () = parser.chunk(chunk_1, 1000).unwrap();
+    poll_parse(&mut parser, "PARSE_CHUNK_1");
 
-    let (begin, chunk) = parser
-        .parse_chunk(chunk_2, 1000 + chunk_1.len() as i64, &alloc)
+    () = parser.chunk(chunk_2, 1000 + chunk_1.len() as i64).unwrap();
+    poll_parse(&mut parser, "PARSE_CHUNK_2");
+
+    let mut poll_transcode = |parser: &mut Parser, step: &str| loop {
+        match parser.transcode_many(Default::default()) {
+            Ok(transcoded) => {
+                if transcoded.is_empty() {
+                    break;
+                }
+                snap.push((transcoded.offset, json!(step)));
+
+                for (doc, next_offset) in transcoded.into_iter() {
+                    snap.push((next_offset, doc.get().to_debug_json_value()));
+                }
+            }
+            Err((err, location)) => {
+                snap.push((-1, json!(format!("{step}: {err} @ {location:?}"))));
+            }
+        }
+    };
+
+    // This time, use multiple calls to chunk.
+    () = parser.chunk(chunk_1a, 1000).unwrap();
+    () = parser
+        .chunk(chunk_1b, 1000 + chunk_1a.len() as i64)
         .unwrap();
-    snap.push((begin, json!("PARSE_CHUNK_2")));
+    poll_transcode(&mut parser, "TRANSCODE_CHUNK_1");
 
-    for (doc, next_offset) in chunk {
-        snap.push((next_offset, doc.to_debug_json_value()));
-    }
-
-    let transcoded = parser
-        .transcode_chunk(chunk_1, 1000, Default::default())
-        .unwrap();
-    snap.push((transcoded.offset, json!("TRANSCODE_CHUNK_1")));
-
-    for (doc, next_offset) in transcoded.into_iter() {
-        snap.push((next_offset, doc.get().to_debug_json_value()));
-    }
-
-    let transcoded = parser
-        .transcode_chunk(chunk_2, 1000 + chunk_1.len() as i64, Default::default())
-        .unwrap();
-    snap.push((transcoded.offset, json!("TRANSCODE_CHUNK_2")));
-
-    for (doc, next_offset) in transcoded.into_iter() {
-        snap.push((next_offset, doc.get().to_debug_json_value()));
-    }
+    () = parser.chunk(chunk_2, 1000 + chunk_1.len() as i64).unwrap();
+    poll_transcode(&mut parser, "TRANSCODE_CHUNK_2");
 
     snap.push((0, json!("PARSE_ONE")));
     let input = json!({"one": [2, "three"], "four": {"five": 6}, "done": true});
@@ -194,7 +227,7 @@ fn test_basic_parser_apis() {
     [
       [
         0,
-        "input: 271 chunk_1: 135 chunk_2: 136"
+        "input: 284 chunk_1: 142 chunk_2: 142"
       ],
       [
         1000,
@@ -234,7 +267,15 @@ fn test_basic_parser_apis() {
         }
       ],
       [
-        1271,
+        -1,
+        "PARSE_CHUNK_2: expected value at line 1 column 12 @ 1247..1260"
+      ],
+      [
+        1260,
+        "PARSE_CHUNK_2"
+      ],
+      [
+        1284,
         {
           "111abc": "ࠀ222"
         }
@@ -277,7 +318,15 @@ fn test_basic_parser_apis() {
         }
       ],
       [
-        1271,
+        -1,
+        "TRANSCODE_CHUNK_2: expected value at line 1 column 12 @ 1247..1260"
+      ],
+      [
+        1260,
+        "TRANSCODE_CHUNK_2"
+      ],
+      [
+        1284,
         {
           "111abc": "ࠀ222"
         }

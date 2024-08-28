@@ -95,10 +95,10 @@ impl Read {
                 ReadJsonLine::Doc { root, next_offset } => (root, next_offset),
             };
             let Some(doc::ArchivedNode::String(uuid)) = self.uuid_ptr.query(root.get()) else {
-                anyhow::bail!(gazette::Error::Parsing(
-                    self.offset,
-                    std::io::Error::other("document does not have a valid UUID"),
-                ));
+                anyhow::bail!(
+                    "document at offset {} does not have a valid UUID",
+                    self.offset
+                );
             };
             let (producer, clock, flags) = gazette::uuid::parse_str(uuid.as_str())?;
 
