@@ -1074,10 +1074,18 @@ impl Session {
     }
 
     fn encrypt_topic_name(&self, name: TopicName) -> TopicName {
-        to_upstream_topic_name(name, self.secret.to_owned())
+        to_upstream_topic_name(
+            name,
+            self.secret.to_owned(),
+            self.uid.clone().expect("User ID should exist"),
+        )
     }
     fn decrypt_topic_name(&self, name: TopicName) -> TopicName {
-        from_upstream_topic_name(name, self.secret.to_owned())
+        from_upstream_topic_name(
+            name,
+            self.secret.to_owned(),
+            self.uid.clone().expect("User ID should exist"),
+        )
     }
 
     fn encode_topic_name(&self, name: String) -> TopicName {

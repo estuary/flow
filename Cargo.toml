@@ -46,6 +46,8 @@ comfy-table = "6.1"
 # The `console_error_panic_hook` crate causes panics in a Rust WASM module to be logged
 # with `console.error`.
 console_error_panic_hook = { version = "0.1.6" }
+aes-siv = "0.7.0"
+crypto-common = "0.1.6"
 crossterm = "0.25"
 csv = "1.1"
 dirs = "4.0"
@@ -124,7 +126,6 @@ serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0.8"
 serde-transcode = "1.1"
 serde-wasm-bindgen = "0.4"
-simple_crypt = "0.2.3"
 size = "0.4"
 socket2 = "0.5.7"
 strsim = "0.10"
