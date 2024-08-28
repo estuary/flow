@@ -27,8 +27,12 @@ pub enum Error {
     BrokerStatus(broker::Status),
     #[error("unexpected consumer status: {0:?}")]
     ConsumerStatus(consumer::Status),
-    #[error("failed to parse document near journal offset {0}")]
-    Parsing(i64, #[source] std::io::Error),
+    #[error("failed to parse document at journal offset range {location:?}")]
+    Parsing {
+        location: std::ops::Range<i64>,
+        #[source]
+        err: std::io::Error,
+    },
     #[error("{0}")]
     Protocol(&'static str),
     #[error(transparent)]

@@ -8,6 +8,10 @@ pub struct Transcoded {
 }
 
 impl Transcoded {
+    pub fn is_empty(&self) -> bool {
+        self.v.is_empty()
+    }
+
     pub fn iter<'s>(&'s self) -> IterOut<'s> {
         IterOut {
             v: self.v.as_slice(),
