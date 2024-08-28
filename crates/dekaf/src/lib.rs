@@ -21,8 +21,10 @@ mod api_client;
 pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
+use itertools::Itertools;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
+use serde_json::de;
 
 pub struct App {
     /// Anonymous API client for the Estuary control plane.
@@ -35,25 +37,29 @@ pub struct App {
     pub kafka_client: KafkaApiClient,
 }
 
-// Kind of a cool/gross hack modified from this comment
-// in a thread requesting literal default values in Serde:
-// https://github.com/serde-rs/serde/issues/368#issuecomment-1579475447
-fn bool<const U: bool>() -> bool {
-    U
-}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigOptions {
     #[serde(default = "bool::<false>")]
     pub strict_topic_names: bool,
 }
 
+pub struct Authenticated {
+    client: postgrest::Postgrest,
+    user_config: ConfigOptions,
+    claims: JwtClaims,
+}
+
+#[derive(Deserialize)]
+struct JwtClaims {
+    /// Unix timestamp in seconds when this token will expire
+    exp: u64,
+    /// ID of the user that owns this token
+    sub: String,
+}
+
 impl App {
     #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
-    async fn authenticate(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> anyhow::Result<(postgrest::Postgrest, ConfigOptions, String)> {
+    async fn authenticate(&self, username: &str, password: &str) -> anyhow::Result<Authenticated> {
         let username_str = if username.contains("{") {
             username.to_string()
         } else {
@@ -98,17 +104,14 @@ impl App {
             .clone()
             .insert_header("Authorization", format!("Bearer {access_token}"));
 
-        let uid: String = authenticated_client
-            .rpc("auth_uid", "")
-            .select("*")
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("fetching user id")?
-            .json()
-            .await?;
+        let claims = de::from_str::<JwtClaims>(access_token.split(".").collect_vec()[1])
+            .context("Failed to parse access token claims")?;
 
-        Ok((authenticated_client, config, uid))
+        Ok(Authenticated {
+            client: authenticated_client,
+            user_config: config,
+            claims,
+        })
     }
 }
 
@@ -441,6 +444,16 @@ fn decode_safe_name(safe_name: String) -> anyhow::Result<String> {
         .decode_utf8()
         .and_then(|decoded| Ok(decoded.into_owned()))
         .map_err(anyhow::Error::from)
+}
+
+/// Modified from [this](https://github.com/serde-rs/serde/issues/368#issuecomment-1579475447)
+/// comment in a thread requesting literal default values in Serde, this method uses
+/// const generics to let you specify a default boolean value for Serde to use when
+/// deserializing a struct field.
+///
+/// ex: `#[serde(default = "bool::<false>")]`
+fn bool<const U: bool>() -> bool {
+    U
 }
 
 #[cfg(test)]
