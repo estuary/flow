@@ -1,7 +1,7 @@
 use super::{fetch_all_collection_names, App, Collection, Read};
 use crate::{
     from_downstream_topic_name, from_upstream_topic_name, to_downstream_topic_name,
-    to_upstream_topic_name, ConfigOptions,
+    to_upstream_topic_name, Authenticated, ConfigOptions,
 };
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
@@ -17,8 +17,11 @@ use kafka_protocol::{
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, StrBytes},
 };
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tracing::instrument;
 
 struct PendingRead {
@@ -34,7 +37,7 @@ pub struct Session {
     reads: HashMap<(TopicName, i32), PendingRead>,
     listed_offsets: HashMap<TopicName, HashMap<i32, Option<(i64, i64)>>>,
     /// ID of the authenticated user
-    uid: Option<String>,
+    user_id: Option<String>,
     config: Option<ConfigOptions>,
     secret: String,
 }
@@ -47,7 +50,7 @@ impl Session {
             client,
             reads: HashMap::new(),
             listed_offsets: HashMap::new(),
-            uid: None,
+            user_id: None,
             config: None,
             secret,
         }
@@ -83,13 +86,23 @@ impl Session {
         let password = it.next().context("expected SASL passwd")??;
 
         let response = match self.app.authenticate(authcid, password).await {
-            Ok((client, config, uid)) => {
+            Ok(Authenticated {
+                client,
+                user_config,
+                claims,
+            }) => {
                 self.client = client;
-                self.config.replace(config);
-                self.uid.replace(uid);
+                self.config.replace(user_config);
+                self.user_id.replace(claims.sub);
 
                 let mut response = messages::SaslAuthenticateResponse::default();
-                response.session_lifetime_ms = 60 * 60 * 60 * 24; // TODO(johnny): Access token expiry.
+                response.session_lifetime_ms = (1000
+                    * (claims.exp
+                        - SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .context("")?
+                            .as_secs()))
+                .try_into()?;
                 response
             }
             Err(err) => messages::SaslAuthenticateResponse::default()
@@ -1077,14 +1090,14 @@ impl Session {
         to_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.uid.clone().expect("User ID should exist"),
+            self.user_id.clone().expect("User ID should exist"),
         )
     }
     fn decrypt_topic_name(&self, name: TopicName) -> TopicName {
         from_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.uid.clone().expect("User ID should exist"),
+            self.user_id.clone().expect("User ID should exist"),
         )
     }
 
