@@ -29,7 +29,12 @@ impl Client {
                 match result {
                     Ok(()) => attempt = 0,
                     Err(Error::Transport(err)) => {
-                        tracing::warn!(%err, "broker transport error (will retry)");
+                        let source = std::error::Error::source(&err);
+                        if let Some(source) = source {
+                            tracing::warn!(%err, cause=%source, "broker transport error (will retry)");
+                        } else {
+                            tracing::warn!(%err, "broker transport error (will retry)");
+                        }
                     }
                     Err(Error::Grpc(status)) => {
                         tracing::warn!(%status, "broker stream error (will retry)");
