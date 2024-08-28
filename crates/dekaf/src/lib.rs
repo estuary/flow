@@ -20,9 +20,9 @@ pub mod registry;
 mod api_client;
 pub use api_client::KafkaApiClient;
 
+use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
-use simple_crypt::{decrypt, encrypt};
 
 pub struct App {
     /// Anonymous API client for the Estuary control plane.
@@ -168,7 +168,7 @@ async fn handle_api(
     frame: bytes::BytesMut,
     out: &mut bytes::BytesMut,
 ) -> anyhow::Result<()> {
-    tracing::debug!("Handling request");
+    tracing::trace!("Handling request");
     use messages::*;
     let ret = match api_key {
         ApiKey::ApiVersionsKey => {
@@ -311,7 +311,7 @@ async fn handle_api(
         */
         _ => anyhow::bail!("unsupported request type {api_key:?}"),
     };
-    tracing::debug!("Response sent");
+    tracing::trace!("Response sent");
 
     ret
 }
@@ -373,19 +373,39 @@ fn enc_resp<
 /// The output topic names should conform to the Kafka topic
 /// name conventions ([^a-zA-Z0-9._-]), and ideally not leak
 /// any customer-specific information like collection names.
-fn to_upstream_topic_name(topic: TopicName, secret: String) -> TopicName {
-    let encrypted = encrypt(topic.as_bytes(), secret.as_bytes()).unwrap();
+/// NOTE that the output of this function must be deterministic,
+/// that is: it cannot use a random nonce like you normally would
+/// when encrypting data.
+fn to_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
+    let (cipher, nonce) = create_crypto(secret, nonce);
+
+    let encrypted = cipher.encrypt(&nonce, topic.as_bytes()).unwrap();
     let encoded = hex::encode(encrypted);
     TopicName::from(StrBytes::from_string(encoded))
 }
 
 /// Convert the output of [`to_upstream_topic_name`] back into
 /// its plain collection name format.
-fn from_upstream_topic_name(topic: TopicName, secret: String) -> TopicName {
+fn from_upstream_topic_name(topic: TopicName, secret: String, nonce: String) -> TopicName {
+    let (cipher, nonce) = create_crypto(secret, nonce);
     let decoded = hex::decode(topic.as_bytes()).unwrap();
-    let decrypted = decrypt(decoded.as_slice(), secret.as_bytes()).unwrap();
+    let decrypted = cipher.decrypt(&nonce, decoded.as_slice()).unwrap();
 
     TopicName::from(StrBytes::from_utf8(Bytes::from(decrypted)).unwrap())
+}
+
+fn create_crypto(secret: String, nonce: String) -> (Aes256SivAead, aes_siv::Nonce) {
+    let mut key = secret.as_bytes().to_vec();
+    key.resize(Aes256SivAead::key_size(), 0);
+
+    let mut nonce = nonce.as_bytes().to_vec();
+    // "Nonce = GenericArray<u8, U16>"
+    nonce.resize(16, 0);
+
+    let cipher = Aes256SivAead::new_from_slice(&key[..]).unwrap();
+    let nonce = aes_siv::Nonce::from_slice(&nonce[..]);
+
+    return (cipher, *nonce);
 }
 
 /// Convert a topic name to a name that is compatible with Kafka's
@@ -421,4 +441,40 @@ fn decode_safe_name(safe_name: String) -> anyhow::Result<String> {
         .decode_utf8()
         .and_then(|decoded| Ok(decoded.into_owned()))
         .map_err(anyhow::Error::from)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{from_upstream_topic_name, to_upstream_topic_name};
+    use kafka_protocol::{messages::TopicName, protocol::StrBytes};
+
+    #[test]
+    fn test_encryption_deterministic() {
+        let enc_1 = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+        );
+        let enc_2 = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+        );
+
+        assert_eq!(enc_1, enc_2);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt() {
+        let encrypted = to_upstream_topic_name(
+            TopicName::from(StrBytes::from_static_str("Test Topic")),
+            "pizza".to_string(),
+            "sauce".to_string(),
+        );
+
+        let decrypted =
+            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string());
+
+        assert_eq!(decrypted.as_str(), "Test Topic");
+    }
 }
