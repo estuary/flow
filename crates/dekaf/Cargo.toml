@@ -48,5 +48,7 @@ rustls-native-certs = { workspace = true }
 deadpool = { workspace = true }
 regex = { workspace = true }
 hex = { workspace = true }
-simple_crypt = { workspace = true }
+crypto-common = { workspace = true }
+aes-siv = { workspace = true }
 percent-encoding = { workspace = true }
+hexdump = { workspace = true }
