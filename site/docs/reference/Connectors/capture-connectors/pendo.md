@@ -4,10 +4,6 @@ This connector captures data from Pendo into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-pendo:dev`](https://ghcr.io/estuary/source-pendo:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
-You can find their documentation [here](https://docs.airbyte.com/integrations/sources/pendo),
-but keep in mind that the two versions may be significantly different.
-
 ## Supported data resources
 
 The following data resources are supported through the Pendo API:
@@ -16,6 +12,11 @@ The following data resources are supported through the Pendo API:
 * [Guide](https://engageapi.pendo.io/#4f1e3ca1-fc41-4469-bf4b-da90ee8caf3d)
 * [Page](https://engageapi.pendo.io/#a53463f9-bdd3-443e-b22f-b6ea6c7376fb)
 * [Report](https://engageapi.pendo.io/#2ac0699a-b653-4082-be11-563e5c0c9410)
+* [PageEvents](https://engageapi.pendo.io/#9af41daf-e6f2-4dc2-8031-836922aad09e)
+* [FeatureEvents](https://engageapi.pendo.io/#a26da609-62d0-43ea-814b-956551f2abeb)
+* [TrackEvents](https://engageapi.pendo.io/#97927543-0222-42b9-93a2-0775d2c62e1e)
+* [GuideEvents](https://engageapi.pendo.io/#7b6aa7b0-117d-478b-942b-c339196e636d)
+* [PollEvents](https://engageapi.pendo.io/#a6ff15d6-f989-4c11-b7a7-1de0f1577306)
 
 By default, each resource is mapped to a Flow collection through a separate binding.
 
@@ -35,13 +36,14 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/api_key`** | API Key | Your Pendo API key. | string | Required |
+| **`/credentials/access_token`** | API Key | Your Pendo API key. | string | Required |
+| `/startDate` | Replication Start Date | UTC date and time in the format "YYYY-MM-DDTHH:MM:SSZ". Data prior to this date will not be replicated. | string | 1 hour before the current time |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Resource in Pendo from which collections are captured. | string | Required |
+| **`/name`** | Data resource | Resource in Pendo from which collections are captured. | string | Required |
 
 ### Sample
 
@@ -52,22 +54,34 @@ captures:
       connector:
         image: ghcr.io/estuary/source-pendo:dev
         config:
-          api_key: <secret>
+          credentials:
+            access_token: <secret>
     bindings:
       - resource:
-          stream: Feature
-          syncMode: full_refresh
+          name: Feature
         target: ${PREFIX}/Feature
       - resource:
-          stream: Guide
-          syncMode: full_refresh
+          name: Guide
         target: ${PREFIX}/Guide
       - resource:
-          stream: Page
-          syncMode: full_refresh
+          name: Page
         target: ${PREFIX}/Page
       - resource:
-          stream: Report
-          syncMode: full_refresh
+          name: Report
         target: ${PREFIX}/Report
+      - resource:
+          name: PageEvents
+        target: ${PREFIX}/PageEvents
+      - resource:
+          name: FeatureEvents
+        target: ${PREFIX}/FeatureEvents
+      - resource:
+          name: TrackEvents
+        target: ${PREFIX}/TrackEvents
+      - resource:
+          name: GuideEvents
+        target: ${PREFIX}/GuideEvents
+      - resource:
+          name: PollEvents
+        target: ${PREFIX}/PollEvents
 ```
