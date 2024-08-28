@@ -1,5 +1,5 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name};
+use crate::{from_downstream_topic_name, to_downstream_topic_name, Authenticated};
 use anyhow::Context;
 use axum::{
     http::StatusCode,
@@ -34,7 +34,11 @@ async fn all_subjects(
     TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Basic>>,
 ) -> Response {
     wrap(async move {
-        let (client, config, _uid) = app.authenticate(auth.username(), auth.password()).await?;
+        let Authenticated {
+            client,
+            user_config,
+            ..
+        } = app.authenticate(auth.username(), auth.password()).await?;
 
         super::fetch_all_collection_names(&client)
             .await
@@ -43,7 +47,7 @@ async fn all_subjects(
                 collections
                     .into_iter()
                     .map(|name| {
-                        if config.strict_topic_names {
+                        if user_config.strict_topic_names {
                             to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
                                 .to_string()
                         } else {
@@ -67,7 +71,8 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let (client, _config, _uid) = app.authenticate(auth.username(), auth.password()).await?;
+        let Authenticated { client, .. } =
+            app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
@@ -118,7 +123,8 @@ async fn get_schema_by_id(
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let (client, _config, _uid) = app.authenticate(auth.username(), auth.password()).await?;
+        let Authenticated { client, .. } =
+            app.authenticate(auth.username(), auth.password()).await?;
 
         #[derive(serde::Deserialize)]
         struct Row {
