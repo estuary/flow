@@ -77,6 +77,17 @@ impl futures::Stream for ReadJsonLines {
                 return Poll::Ready(Some(Ok(ReadJsonLine::Doc { root, next_offset })));
             }
 
+            match me.parser.transcode_many(Default::default()) {
+                Ok(out) if !out.is_empty() => {
+                    *me.parsed = out.into_iter();
+                    continue;
+                }
+                Err((err, location)) => {
+                    return Poll::Ready(Some(Err(Error::Parsing { location, err })))
+                }
+                Ok(_out) => {} // Requires more chunks.
+            }
+
             // Poll the inner stream for the next item
             match me.inner.poll_next_unpin(cx) {
                 Poll::Ready(Some(response)) => {
@@ -90,11 +101,12 @@ impl futures::Stream for ReadJsonLines {
                         return Poll::Ready(Some(Ok(ReadJsonLine::Meta(response))));
                     }
 
-                    *me.parsed = me
-                        .parser
-                        .transcode_chunk(&response.content, response.offset, Default::default())
-                        .map_err(|err| Error::Parsing(response.offset, err))?
-                        .into_iter();
+                    me.parser
+                        .chunk(&response.content, response.offset)
+                        .map_err(|err| Error::Parsing {
+                            location: response.offset..response.offset,
+                            err,
+                        })?;
                 }
                 std::task::Poll::Ready(None) => return std::task::Poll::Ready(None),
                 std::task::Poll::Pending => return std::task::Poll::Pending,
