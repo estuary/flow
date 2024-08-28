@@ -15,7 +15,7 @@ use kafka_protocol::{
         ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
         RequestHeader, TopicName,
     },
-    protocol::{buf::ByteBuf, Decodable, Encodable, StrBytes},
+    protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
 use std::sync::Arc;
 use std::{
@@ -372,7 +372,6 @@ impl Session {
                 key.1 = partition_request.partition;
 
                 let mut fetch_offset = partition_request.fetch_offset;
-                let record_limit = None;
 
                 let latest_offset_requested = latest_topic_requested
                     .and_then(|partitions| partitions.get(&partition_request.partition).copied())
@@ -421,7 +420,6 @@ impl Session {
                                         "Tinybird special-case, resetting fetch_offset"
                                     );
                                     fetch_offset = offset;
-                                    // record_limit = Some(0);
                                 }
                             }
                         }
@@ -453,16 +451,14 @@ impl Session {
                     key_schema_id,
                     value_schema_id,
                 );
-                let pending =
-                    PendingRead {
-                        offset: fetch_offset,
-                        last_write_head: fetch_offset,
-                        docs_remaining: record_limit,
-                        handle: tokio::spawn(read.next_batch(
-                            partition_request.partition_max_bytes as usize,
-                            record_limit,
-                        )),
-                    };
+                let pending = PendingRead {
+                    offset: fetch_offset,
+                    last_write_head: fetch_offset,
+                    docs_remaining: None,
+                    handle: tokio::spawn(
+                        read.next_batch(partition_request.partition_max_bytes as usize, None),
+                    ),
+                };
 
                 tracing::info!(
                     journal = &partition.spec.name,
@@ -643,7 +639,17 @@ impl Session {
                 "Got consumer protocol message version"
             );
 
-            // TODO: validate acceptable version
+            if consumer_protocol_subscription_version > ConsumerProtocolSubscription::VERSIONS.max
+                || consumer_protocol_subscription_version
+                    < ConsumerProtocolSubscription::VERSIONS.min
+            {
+                anyhow::bail!(
+                    "Recieved ConsumerProtocolSubscription message with version {} which is outside of the acceptable range of ({}, {})",
+                    consumer_protocol_subscription_version,
+                    ConsumerProtocolSubscription::VERSIONS.min,
+                    ConsumerProtocolSubscription::VERSIONS.max
+                )
+            }
 
             let formatted = format!("{consumer_protocol_subscription_raw:?}");
 
@@ -689,8 +695,6 @@ impl Session {
                 consumer_protocol_subscription_raw.try_get_i16().context(
                     "failed to parse consumer protocol message: subscription version re-encode",
                 )?;
-
-            // TODO: validate acceptable version
 
             let mut consumer_protocol_subscription_msg = ConsumerProtocolSubscription::decode(
                 &mut consumer_protocol_subscription_raw,
@@ -780,7 +784,17 @@ impl Session {
             let consumer_protocol_assignment_version = consumer_protocol_assignment_raw
                 .try_get_i16()
                 .context("failed to parse consumer protocol message: assignment version")?;
-            // TODO: validate acceptable version
+
+            if consumer_protocol_assignment_version > ConsumerProtocolAssignment::VERSIONS.max
+                || consumer_protocol_assignment_version < ConsumerProtocolAssignment::VERSIONS.min
+            {
+                anyhow::bail!(
+                    "Recieved ConsumerProtocolAssignment message with version {} which is outside of the acceptable range of ({}, {})",
+                    consumer_protocol_assignment_version,
+                    ConsumerProtocolAssignment::VERSIONS.min,
+                    ConsumerProtocolAssignment::VERSIONS.max
+                )
+            }
 
             let mut consumer_protocol_assignment_msg =
                 ConsumerProtocolAssignment::decode(&mut consumer_protocol_assignment_raw, 0)
