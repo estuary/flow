@@ -104,7 +104,11 @@ impl App {
             .clone()
             .insert_header("Authorization", format!("Bearer {access_token}"));
 
-        let claims = de::from_str::<JwtClaims>(access_token.split(".").collect_vec()[1])
+        let claims = base64::decode(access_token.split(".").collect_vec()[1])
+            .map_err(anyhow::Error::from)
+            .and_then(|decoded| {
+                de::from_slice::<JwtClaims>(&decoded[..]).map_err(anyhow::Error::from)
+            })
             .context("Failed to parse access token claims")?;
 
         Ok(Authenticated {
