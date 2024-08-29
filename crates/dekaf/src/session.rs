@@ -1011,42 +1011,6 @@ impl Session {
                 .with_max_version(9),
         );
 
-        // UNIMPLEMENTED.
-        /*
-        res.api_keys
-            .insert(ApiKey::ProduceKey as i16, version::<ProduceRequest>());
-        res.api_keys.insert(
-            ApiKey::LeaderAndIsrKey as i16,
-            version::<LeaderAndIsrRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::StopReplicaKey as i16,
-            version::<StopReplicaRequest>(),
-        );
-        res.api_keys
-            .insert(ApiKey::JoinGroupKey as i16, version::<JoinGroupRequest>());
-        res.api_keys
-            .insert(ApiKey::HeartbeatKey as i16, version::<HeartbeatRequest>());
-        res.api_keys
-            .insert(ApiKey::ListGroupsKey as i16, version::<ListGroupsRequest>());
-        res.api_keys
-            .insert(ApiKey::SyncGroupKey as i16, version::<SyncGroupRequest>());
-        res.api_keys.insert(
-            ApiKey::CreateTopicsKey as i16,
-            version::<CreateTopicsRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::DeleteGroupsKey as i16,
-            version::<DeleteGroupsRequest>(),
-        );
-        res.api_keys
-            .insert(ApiKey::ListGroupsKey as i16, version::<ListGroupsRequest>());
-        res.api_keys.insert(
-            ApiKey::DeleteTopicsKey as i16,
-            version::<DeleteTopicsRequest>(),
-        );
-        */
-
         res.api_keys.insert(
             ApiKey::JoinGroupKey as i16,
             self.app
@@ -1096,6 +1060,26 @@ impl Session {
                 .with_min_version(0)
                 .with_max_version(7),
         );
+
+        // UNIMPLEMENTED:
+        /*
+        res.api_keys.insert(
+            ApiKey::LeaderAndIsrKey as i16,
+            version::<LeaderAndIsrRequest>(),
+        );
+        res.api_keys.insert(
+            ApiKey::StopReplicaKey as i16,
+            version::<StopReplicaRequest>(),
+        );
+        res.api_keys.insert(
+            ApiKey::CreateTopicsKey as i16,
+            version::<CreateTopicsRequest>(),
+        );
+        res.api_keys.insert(
+            ApiKey::DeleteTopicsKey as i16,
+            version::<DeleteTopicsRequest>(),
+        );
+        */
 
         Ok(res)
     }
