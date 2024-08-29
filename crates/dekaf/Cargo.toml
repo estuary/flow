@@ -51,4 +51,5 @@ hex = { workspace = true }
 crypto-common = { workspace = true }
 aes-siv = { workspace = true }
 percent-encoding = { workspace = true }
+rustls = { workspace = true }
 hexdump = { workspace = true }

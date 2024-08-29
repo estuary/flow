@@ -70,7 +70,7 @@ iri-string = "0.6.0"
 jemallocator = { version = "0.3", features = ["profiling"] }
 jemalloc-ctl = "0.3"
 json-patch = "0.3"
-jsonwebtoken = {version = "9", default-features = false }
+jsonwebtoken = { version = "9", default-features = false }
 js-sys = "0.3.60"
 kafka-protocol = "0.11.0"
 lazy_static = "1.4"
@@ -143,6 +143,7 @@ sqlx = { version = "0.6", features = [
 
 typestate = "0.8.0"
 tokio-rustls = "0.26.0"
+rustls = { version = "0.23.10", features = ["aws_lc_rs"] }
 tempfile = "3.3"
 portpicker = "0.1.1"
 tempdir = "0.3"
@@ -216,7 +217,7 @@ pbjson-build = "0.7"
 prost-build = "0.13"
 tonic-build = "0.12"
 
-warp = "0.3.3"                                     # TODO(johnny) remove me in favor of axum
+warp = "0.3.3"                                                # TODO(johnny) remove me in favor of axum
 axum = { version = "0.7", features = ["macros"] }
 axum-extra = { version = "0.9", features = ["typed-header"] }
 
