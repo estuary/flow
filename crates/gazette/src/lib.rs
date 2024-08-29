@@ -65,7 +65,7 @@ impl Error {
             Error::BrokerStatus(_) => false,
             Error::ConsumerStatus(_) => false,
             Error::InvalidEndpoint(_) => false,
-            Error::Parsing(_, _) => false,
+            Error::Parsing { .. } => false,
             Error::Protocol(_) => false,
             Error::UUID(_) => false,
         }
