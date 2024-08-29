@@ -5,7 +5,6 @@ use crate::{
 };
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
-use gazette::broker;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     indexmap::IndexMap,
@@ -27,15 +26,13 @@ use tracing::instrument;
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
-    docs_remaining: Option<usize>,
-    handle: tokio::task::JoinHandle<anyhow::Result<(Read, usize, bytes::Bytes)>>,
+    handle: tokio::task::JoinHandle<anyhow::Result<(Read, bytes::Bytes)>>,
 }
 
 pub struct Session {
     app: Arc<App>,
     client: postgrest::Postgrest,
     reads: HashMap<(TopicName, i32), PendingRead>,
-    listed_offsets: HashMap<TopicName, HashMap<i32, Option<(i64, i64)>>>,
     /// ID of the authenticated user
     user_id: Option<String>,
     config: Option<ConfigOptions>,
@@ -49,7 +46,6 @@ impl Session {
             app,
             client,
             reads: HashMap::new(),
-            listed_offsets: HashMap::new(),
             user_id: None,
             config: None,
             secret,
@@ -301,17 +297,6 @@ impl Session {
             ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
         };
 
-        self.listed_offsets
-            .extend(
-                collections
-                    .clone()
-                    .into_iter()
-                    .map(|(t, offsets_by_partition)| {
-                        let offsets_map: HashMap<_, _> = offsets_by_partition.into_iter().collect();
-                        (t, offsets_map)
-                    }),
-            );
-
         // Map topics, partition indices, and fetched offsets into a comprehensive response.
         let response = collections
             .into_iter()
@@ -366,65 +351,10 @@ impl Session {
         for topic_request in &topic_requests {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
 
-            let latest_topic_requested = self.listed_offsets.get(&key.0);
-
             for partition_request in &topic_request.partitions {
                 key.1 = partition_request.partition;
 
-                let mut fetch_offset = partition_request.fetch_offset;
-
-                let latest_offset_requested = latest_topic_requested
-                    .and_then(|partitions| partitions.get(&partition_request.partition).copied())
-                    .flatten();
-
-                if let Some((offset, _)) = latest_offset_requested {
-                    let diff = partition_request.fetch_offset - offset;
-                    tracing::trace!(
-                        topic = topic_request.topic.to_string(),
-                        sent_offset = offset,
-                        requested_offset = partition_request.fetch_offset,
-                        diff,
-                        "Requested vs sent offset"
-                    );
-
-                    // Tinybird attempts to read exactly 12 documents back from the latest in order to
-                    // power their data preview UI. Since our offsets represent bytes and not documents,
-                    // we have to hack this up in order to send them some valid documents to show.
-                    if diff == -12 {
-                        let maybe_collection = Collection::new(
-                            client,
-                            &from_downstream_topic_name(topic_request.topic.clone()).to_owned(),
-                        )
-                        .await?;
-
-                        if let Some(collection) = maybe_collection {
-                            let part = collection
-                                .partitions
-                                .get(partition_request.partition as usize);
-                            if let Some(partition) = part {
-                                let request = broker::FragmentsRequest {
-                                    journal: partition.spec.name.clone(),
-                                    begin_mod_time: i64::MAX, // Sentinel for "largest available offset",
-                                    page_limit: 1,
-                                    ..Default::default()
-                                };
-                                let response =
-                                    collection.journal_client.list_fragments(request).await?;
-
-                                if let Some(fragment) =
-                                    response.fragments.get(0).and_then(|f| f.spec.as_ref())
-                                {
-                                    tracing::debug!(
-                                        topic = topic_request.topic.to_string(),
-                                        new_offset = fragment.begin,
-                                        "Tinybird special-case, resetting fetch_offset"
-                                    );
-                                    fetch_offset = offset;
-                                }
-                            }
-                        }
-                    }
-                }
+                let fetch_offset = partition_request.fetch_offset;
 
                 if matches!(self.reads.get(&key), Some(pending) if pending.offset == fetch_offset) {
                     continue; // Common case: fetch is at the pending offset.
@@ -454,9 +384,8 @@ impl Session {
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
-                    docs_remaining: None,
                     handle: tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize, None),
+                        read.next_batch(partition_request.partition_max_bytes as usize),
                     ),
                 };
 
@@ -499,20 +428,16 @@ impl Session {
                     continue;
                 };
 
-                let batch = if let Some((read, docs_read, batch)) = tokio::select! {
+                let batch = if let Some((read, batch)) = tokio::select! {
                     biased; // Prefer to complete a pending read.
                     read  = &mut pending.handle => Some(read??),
                     _ = &mut timeout => None,
                 } {
                     pending.offset = read.offset;
                     pending.last_write_head = read.last_write_head;
-                    if let Some(docs_remaining) = pending.docs_remaining {
-                        pending.docs_remaining = Some(docs_remaining - docs_read)
-                    }
-                    pending.handle = tokio::spawn(read.next_batch(
-                        partition_request.partition_max_bytes as usize,
-                        pending.docs_remaining,
-                    ));
+                    pending.handle = tokio::spawn(
+                        read.next_batch(partition_request.partition_max_bytes as usize),
+                    );
                     batch
                 } else {
                     bytes::Bytes::new()

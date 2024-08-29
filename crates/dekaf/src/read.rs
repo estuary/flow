@@ -1,9 +1,8 @@
 use super::{Collection, Partition};
 use anyhow::bail;
-use futures::{pin_mut, TryStreamExt};
+use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
-use itertools::Itertools;
 
 pub struct Read {
     /// Journal offset to be served by this Read.
@@ -24,7 +23,6 @@ pub struct Read {
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
-    client: journal::Client,
 }
 
 impl Read {
@@ -67,69 +65,11 @@ impl Read {
             value_schema_id,
 
             journal_name: partition.spec.name.clone(),
-            client,
         }
-    }
-
-    async fn skip_to_next_doc(&mut self) -> anyhow::Result<()> {
-        let (not_before_sec, _) = self.not_before.to_unix();
-        let req = broker::ReadRequest {
-            offset: self.offset,
-            block: true,
-            journal: self.journal_name.clone(),
-            begin_mod_time: not_before_sec as i64,
-            ..Default::default()
-        };
-
-        let read = self.client.clone().read(req);
-        pin_mut!(read);
-
-        while let Some(response) = read.try_next().await? {
-            if let Some((newline_loc, _)) = response
-                .content
-                .into_iter()
-                .find_position(|ch| ch.eq(&b'\n'))
-            {
-                let new_offset = response.offset + newline_loc as i64;
-
-                tracing::debug!(
-                    journal = self.journal_name.clone(),
-                    new_offset = new_offset,
-                    prev_offset = self.offset,
-                    diff = new_offset - self.offset,
-                    "Skipped to next valid offset"
-                );
-
-                self.offset = new_offset;
-
-                // Is this correct?
-                self.last_write_head = new_offset;
-
-                self.stream = self.client.clone().read_json_lines(
-                    broker::ReadRequest {
-                        offset: new_offset,
-                        block: true,
-                        journal: self.journal_name.clone(),
-                        begin_mod_time: not_before_sec as i64,
-                        ..Default::default()
-                    },
-                    // Each ReadResponse can be up to 130K. Buffer up to ~4MB so that
-                    // `dekaf` can do lots of useful transcoding work while waiting for
-                    // network delay of the next fetch request.
-                    30,
-                );
-                return Ok(());
-            }
-        }
-        bail!("Unable to find next document")
     }
 
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
-    pub async fn next_batch(
-        mut self,
-        target_bytes: usize,
-        target_docs: Option<usize>,
-    ) -> anyhow::Result<(Self, usize, bytes::Bytes)> {
+    pub async fn next_batch(mut self, target_bytes: usize) -> anyhow::Result<(Self, bytes::Bytes)> {
         use kafka_protocol::records::{
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
         };
@@ -144,27 +84,38 @@ impl Read {
 
         let mut has_had_parsing_error = false;
 
-        while records_bytes < target_bytes
-            && target_docs.map_or(true, |target_docs| records.len() < target_docs)
-        {
+        while records_bytes < target_bytes {
             let read = match tokio::select! {
                 biased; // Attempt to read before yielding.
 
-                read = self.stream.try_next() => read,
+                read = self.stream.next() => read,
 
                 () = std::future::ready(()), if records_bytes != 0 => {
                     break; // Yield if we have records and the stream isn't ready.
                 }
             } {
-                Ok(data) => Ok(data.expect("blocking gazette client read never returns EOF")),
-                Err(gazette::Error::Parsing { .. }) if !has_had_parsing_error => {
-                    has_had_parsing_error = true;
+                None => bail!("blocking gazette client read never returns EOF"),
+                Some(resp) => match resp {
+                    Ok(data) => Ok(data),
+                    Err(err) if err.is_transient() => {
+                        tracing::warn!(%err, "Retrying transient read error");
+                        // We can retry transient errors just by continuing to poll the stream
+                        // TODO: We might have a counter here and give up after a few attempts
+                        continue;
+                    }
+                    Err(err @ gazette::Error::Parsing { .. }) if !has_had_parsing_error => {
+                        tracing::debug!(%err, "Ignoring first parse error to skip past partial document");
+                        has_had_parsing_error = true;
 
-                    self.skip_to_next_doc().await?;
-                    continue;
-                }
-                Err(e) => Err(e),
-            }?;
+                        continue;
+                    }
+                    Err(err @ gazette::Error::Parsing { .. }) => {
+                        tracing::warn!(%err, "Got a second parse error, something is wrong");
+                        Err(err)
+                    }
+                    Err(e) => Err(e),
+                }?,
+            };
 
             let (root, next_offset) = match read {
                 ReadJsonLine::Meta(response) => {
@@ -276,6 +227,6 @@ impl Read {
             "returning records"
         );
 
-        Ok((self, records.len(), buf.freeze()))
+        Ok((self, buf.freeze()))
     }
 }
