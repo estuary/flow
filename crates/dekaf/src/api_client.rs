@@ -30,6 +30,11 @@ async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection>
 
     let parsed_url = Url::parse(broker_url)?;
 
+    // This returns an Err indicating that the default provider is already set
+    // but without this call rustls crashes with the following error:
+    // `no process-level CryptoProvider available -- call CryptoProvider::install_default() before this point`
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let mut root_cert_store = rustls::RootCertStore::empty();
     root_cert_store.add_parsable_certificates(rustls_native_certs::load_native_certs()?);
 
