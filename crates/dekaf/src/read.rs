@@ -157,7 +157,7 @@ impl Read {
                 }
             } {
                 Ok(data) => Ok(data.expect("blocking gazette client read never returns EOF")),
-                Err(gazette::Error::Parsing(_, _)) if !has_had_parsing_error => {
+                Err(gazette::Error::Parsing { .. }) if !has_had_parsing_error => {
                     has_had_parsing_error = true;
 
                     self.skip_to_next_doc().await?;

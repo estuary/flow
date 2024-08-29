@@ -41,6 +41,7 @@ pub struct Collection {
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
 pub struct Partition {
     pub create_revision: i64,
+    pub spec: broker::JournalSpec,
     #[allow(unused)]
     pub mod_revision: i64,
     #[allow(unused)]
@@ -159,8 +160,8 @@ impl Collection {
             partitions.push(Partition {
                 create_revision: journal.create_revision,
                 spec: journal.spec.context("expected journal Spec")?,
-                _mod_revision: journal.mod_revision,
-                _route: journal.route.context("expected journal Route")?,
+                mod_revision: journal.mod_revision,
+                route: journal.route.context("expected journal Route")?,
             })
         }
 
