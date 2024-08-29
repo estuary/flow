@@ -1,5 +1,7 @@
-use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 use std::str::FromStr;
+
+#[cfg(feature = "sqlx-support")]
+use sqlx::{Decode, TypeInfo};
 
 // Estuary epoch is the first representable timestamp in generated IDs.
 // This could be zero, but subtracting |estuary_epoch| results in the
@@ -106,23 +108,26 @@ impl<'de> serde::Deserialize<'de> for Id {
     }
 }
 
-impl Type<postgres::Postgres> for Id {
-    fn type_info() -> postgres::PgTypeInfo {
-        postgres::PgTypeInfo::with_name("flowid")
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Type<sqlx::postgres::Postgres> for Id {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("flowid")
     }
-    fn compatible(ty: &postgres::PgTypeInfo) -> bool {
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
         *ty == Self::type_info() || ty.name() == "MACADDR8"
     }
 }
 
+#[cfg(feature = "sqlx-support")]
 impl sqlx::postgres::PgHasArrayType for Id {
-    fn array_type_info() -> postgres::PgTypeInfo {
-        postgres::PgTypeInfo::with_name("_flowid")
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_flowid")
     }
 }
 
-impl Encode<'_, postgres::Postgres> for Id {
-    fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Encode<'_, sqlx::postgres::Postgres> for Id {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         buf.extend_from_slice(&self.0);
         sqlx::encode::IsNull::No
     }
@@ -131,9 +136,10 @@ impl Encode<'_, postgres::Postgres> for Id {
 // TODO(johnny): This works fine for postgres binary format, but breaks for text format.
 // Fix with a proper decoder once blocking issue is resolved:
 //  https://github.com/launchbadge/sqlx/issues/1758
-impl Decode<'_, postgres::Postgres> for Id {
-    fn decode(value: postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
-        <i64 as Decode<'_, postgres::Postgres>>::decode(value).map(|i| Self(i.to_be_bytes()))
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Decode<'_, sqlx::postgres::Postgres> for Id {
+    fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        <i64 as Decode<'_, sqlx::postgres::Postgres>>::decode(value).map(|i| Self(i.to_be_bytes()))
     }
 }
 
