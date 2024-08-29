@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-models = { path = "../models" }
+models = { path = "../models", features = ["sqlx-support"] }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 tables = { path = "../tables" }
