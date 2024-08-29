@@ -168,8 +168,13 @@ async fn serve(
     let mut out = bytes::BytesMut::new();
     let mut raw_sasl_auth = false;
     while let Some(frame) = r.try_next().await? {
-        () = dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
-            .await?;
+        if let err @ Err(_) =
+            dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out).await
+        {
+            // Close the connection on error
+            socket.shutdown().await?;
+            return err;
+        }
         () = w.write_all(&mut out).await?;
         out.clear();
     }
