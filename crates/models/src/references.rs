@@ -50,7 +50,8 @@ macro_rules! string_reference_types {
     ) => {
 
         $(#[$outer])*
-        #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, JsonSchema, Eq, PartialOrd, Ord, Hash, sqlx::Decode, sqlx::Encode)]
+        #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, JsonSchema, Eq, PartialOrd, Ord, Hash)]
+        #[cfg_attr(feature = "sqlx-support", derive(sqlx::Decode, sqlx::Encode))]
         #[schemars(example = "Self::example")]
         pub struct $Wrapper(#[schemars(schema_with = $WrapperStr)] String);
 
@@ -140,6 +141,7 @@ macro_rules! string_reference_types {
             }
         }
 
+        #[cfg(feature = "sqlx-support")]
         impl sqlx::Type<sqlx::Postgres> for $Wrapper {
             fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
                 <String as sqlx::Type<sqlx::Postgres>>::type_info()
