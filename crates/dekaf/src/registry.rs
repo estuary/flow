@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use axum_extra::headers;
 use itertools::Itertools;
 use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 use std::sync::Arc;
@@ -31,7 +32,9 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
 #[tracing::instrument(skip_all)]
 async fn all_subjects(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
-    TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Basic>>,
+    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
+        headers::Authorization<headers::authorization::Basic>,
+    >,
 ) -> Response {
     wrap(async move {
         let Authenticated {
@@ -67,7 +70,9 @@ async fn all_subjects(
 #[tracing::instrument(skip(app, auth))]
 async fn get_subject_latest(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
-    TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Basic>>,
+    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
+        headers::Authorization<headers::authorization::Basic>,
+    >,
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
@@ -119,7 +124,9 @@ async fn get_subject_latest(
 #[tracing::instrument(skip(app, auth))]
 async fn get_schema_by_id(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
-    TypedHeader(auth): TypedHeader<headers::Authorization<headers::authorization::Basic>>,
+    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
+        headers::Authorization<headers::authorization::Basic>,
+    >,
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
