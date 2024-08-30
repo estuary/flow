@@ -10,6 +10,7 @@ use kafka_protocol::{
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
 use std::{boxed::Box, collections::HashMap, fmt::Debug, io, time::Duration};
 use std::{io::BufWriter, pin::Pin, sync::Arc};
+use tokio::sync::RwLock;
 use tokio_rustls::rustls;
 use tokio_util::codec;
 use tracing::instrument;
@@ -284,7 +285,7 @@ pub struct KafkaApiClient {
     // The same map should be shared between all clients
     // and should be propagated to newly created clients
     // when a new broker address is encounted.
-    clients: Arc<Mutex<HashMap<String, KafkaApiClient>>>,
+    clients: Arc<RwLock<HashMap<String, KafkaApiClient>>>,
 }
 
 impl KafkaApiClient {
@@ -295,16 +296,22 @@ impl KafkaApiClient {
         if broker_url.eq(self.url.as_str()) {
             return Ok(self.to_owned());
         }
-        if let Some(client) = self.clients.lock().await.get(broker_url) {
-            return Ok(client.to_owned());
+
+        if let Some(client) = self.clients.read().await.get(broker_url) {
+            return Ok(client.clone());
+        }
+
+        let mut clients = self.clients.clone().write_owned().await;
+
+        // It's possible that between the check above and when we successfully acquired the write lock
+        // someone else already acquired the write lock and created/stored this new client
+        if let Some(client) = clients.get(broker_url) {
+            return Ok(client.clone());
         }
 
         let new_client = Self::connect(broker_url, self.sasl_config.clone()).await?;
-        self.clients
-            .clone()
-            .lock_owned()
-            .await
-            .insert(broker_url.to_owned(), new_client.clone());
+
+        clients.insert(broker_url.to_owned(), new_client.clone());
 
         Ok(new_client)
     }
@@ -345,7 +352,7 @@ impl KafkaApiClient {
             url: broker_url.to_string(),
             sasl_config: sasl_config,
             versions,
-            clients: Arc::new(Mutex::new(HashMap::new())),
+            clients: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
