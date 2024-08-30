@@ -1,4 +1,8 @@
 test://example/catalog.yaml:
+  import:
+    - flow://control/some/other/resource.yaml
+
+flow://control/some/other/resource.yaml:
   captures:
     acmeCo/one/new:
       endpoint:

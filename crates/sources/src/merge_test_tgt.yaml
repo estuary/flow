@@ -6,13 +6,12 @@ test://example/catalog.yaml:
       endpoint:
         connector:
           image: an/image
-          config: [old]
+          config: test://example/path/to/old/config
       bindings: []
 
   collections:
     acmeCo/collections/exists:
-      schema:
-        const: old-value
+      schema: test://example/path/to/old/schema
       key: [/int]
 
   materializations:
@@ -27,3 +26,7 @@ test://example/catalog.yaml:
     acmeCo/tests/exists: []
 
 test://example/acmeCo/flow.yaml: {}
+
+test://example/path/to/old/config: [old]
+
+test://example/path/to/old/schema: { const: old-value }
