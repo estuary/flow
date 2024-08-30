@@ -45,7 +45,13 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	}, nil
 }
 
-func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
+func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+	defer func() {
+		if _err != nil {
+			m.term.cancel()
+		}
+	}()
+
 	if err := m.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
 	}
@@ -154,7 +160,7 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 	}
 
 	var flushedExt = pr.FromInternal[pr.MaterializeResponseExt](resp.Internal)
-	if err := m.publisher.PublishStats(*flushedExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
+	if err := m.opsPublisher.PublishStats(*flushedExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
 		return fmt.Errorf("publishing stats: %w", err)
 	}
 
@@ -162,7 +168,7 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 }
 
 func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	ops.PublishLog(m.publisher, ops.Log_debug,
+	ops.PublishLog(m.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"capture", m.term.labels.TaskName,
 		"shard", m.term.shardSpec.Id,
@@ -215,6 +221,7 @@ func (m *Materialize) Destroy() {
 		_ = m.client.CloseSend()
 	}
 	m.taskReader.drop()
+	m.taskBase.opsCancel()
 }
 
 func (m *Materialize) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.

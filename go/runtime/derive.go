@@ -72,7 +72,13 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 	}, nil
 }
 
-func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
+func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+	defer func() {
+		if _err != nil {
+			d.term.cancel()
+		}
+	}()
+
 	if err := d.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
 	}
@@ -169,7 +175,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 			}
 
 		} else if response.Flushed != nil {
-			if err := d.publisher.PublishStats(*responseExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
+			if err := d.opsPublisher.PublishStats(*responseExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
 				return fmt.Errorf("publishing stats: %w", err)
 			}
 			return nil
@@ -178,7 +184,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 }
 
 func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.OpFutures) client.OpFuture {
-	ops.PublishLog(d.publisher, ops.Log_debug,
+	ops.PublishLog(d.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"derivation", d.term.labels.TaskName,
 		"shard", d.term.shardSpec.Id,
@@ -217,6 +223,7 @@ func (d *Derive) Destroy() {
 	if d.sqlite != nil {
 		d.sqlite.Destroy()
 	}
+	d.taskBase.opsCancel()
 }
 
 func (d *Derive) ClearRegistersForTest() error {
