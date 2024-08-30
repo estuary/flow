@@ -1,4 +1,4 @@
-FROM debian:trixie-slim
+FROM ubuntu:noble
 
 # Pick run-time library packages which match the development packages
 # used by the ci-builder image. "curl" is included, to allow node-zone.sh
