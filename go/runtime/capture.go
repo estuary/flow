@@ -61,7 +61,12 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 
 // RestoreCheckpoint initializes a catalog task term and restores the last
 // persisted checkpoint, if any, by delegating to its JsonStore.
-func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
+func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+	defer func() {
+		if _err != nil {
+			c.term.cancel()
+		}
+	}()
 	if err := c.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
 	}
@@ -335,9 +340,9 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	if len(stats.Capture) == 0 {
 		// The connector may have only emitted an empty checkpoint.
 		// Don't publish stats in this case.
-		ops.PublishLog(c.publisher, ops.Log_debug,
+		ops.PublishLog(c.opsPublisher, ops.Log_debug,
 			"capture transaction committing updating driver checkpoint only")
-	} else if err := c.publisher.PublishStats(*stats, pub.PublishUncommitted); err != nil {
+	} else if err := c.opsPublisher.PublishStats(*stats, pub.PublishUncommitted); err != nil {
 		return fmt.Errorf("publishing stats: %w", err)
 	}
 
@@ -350,7 +355,7 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 		return pf.FinishedOperation(nil)
 	}
 
-	ops.PublishLog(c.publisher, ops.Log_debug,
+	ops.PublishLog(c.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"capture", c.term.labels.TaskName,
 		"shard", c.term.shardSpec.Id,
@@ -389,6 +394,7 @@ func (c *Capture) Destroy() {
 		_ = c.client.CloseSend()
 	}
 	c.taskBase.drop()
+	c.taskBase.opsCancel()
 }
 
 func (c *Capture) BeginTxn(consumer.Shard) error                                  { return nil } // No-op.
