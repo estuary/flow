@@ -217,10 +217,16 @@ where
                         entity,
                         catalog_name.as_ref(),
                         &root,
-                        Some(rhs.scope()),
+                        Some(lhs.scope()),
                     );
 
                     if let Some(last) = chain.last() {
+                        // We're fully replacing the lhs resource with the already-inlined
+                        // `model`, which means that all of its imports are no longer used.
+                        draft
+                            .imports
+                            .retain(|r| !r.scope.as_str().starts_with(lhs.scope().as_str()));
+
                         add_imports(draft, &chain);
                         *count += 1;
 
