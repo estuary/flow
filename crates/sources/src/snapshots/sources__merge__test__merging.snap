@@ -114,6 +114,14 @@ DraftCatalog {
             depth: 2,
             resource: test://example/acmeCo/flow.yaml,
         },
+        Fetch {
+            depth: 2,
+            resource: test://example/path/to/old/config,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/path/to/old/schema,
+        },
     ],
     imports: [
         Import {
@@ -157,6 +165,18 @@ DraftCatalog {
             content_type: "CATALOG",
             content: ".. binary ..",
             content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[],"expectPubId":"8866775533009900"}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"],"expectPubId":"1100220033004400"}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":{"steps":[]}}},
+        },
+        Resource {
+            resource: test://example/path/to/old/config,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: "[\"old\"]",
+        },
+        Resource {
+            resource: test://example/path/to/old/schema,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"const":"old-value"},
         },
     ],
 }
