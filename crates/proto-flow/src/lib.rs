@@ -110,4 +110,5 @@ pub mod capability {
     pub const AUTHORIZE: u32 = 1 << 16;
     pub const SHUFFLE: u32 = 1 << 17;
     pub const NETWORK_PROXY: u32 = 1 << 18;
+    pub const PROXY_CONNECTOR: u32 = 1 << 19;
 }

@@ -18,6 +18,8 @@ const (
 	Capability_SHUFFLE pb.Capability = 1 << 17
 	// NETWORK_PROXY gives the bearer a capability to use the runtime's Network Proxy API.
 	Capability_NETWORK_PROXY pb.Capability = 1 << 18
+	// CONNECTOR gives the bearer a capability to use the runtime's connector APIs.
+	Capability_PROXY_CONNECTOR pb.Capability = 1 << 19
 )
 
 // NewAuthNetworkProxyClient returns a NetworkProxyClient which uses the Authorizer
