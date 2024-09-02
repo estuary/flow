@@ -207,7 +207,7 @@ impl PGControlPlane {
                 std::time::Duration::from_secs(60),
                 &data_plane.hmac_keys,
                 broker::LabelSelector::default(),
-                "",
+                "agent",
             )
             .context("failed to sign claims for data-plane")?;
 

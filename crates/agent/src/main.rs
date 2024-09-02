@@ -124,7 +124,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let id_gen_shard = rand::thread_rng().gen_range(1u16..1024u16);
     let id_gen = models::IdGenerator::new(id_gen_shard);
     let publisher = Publisher::new(
-        args.allow_local,
         &bindir,
         &args.builds_root,
         &args.connector_network,
@@ -162,12 +161,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                     &logs_tx,
                     args.allow_local,
                 )),
-                Box::new(agent::DiscoverHandler::new(
-                    &args.connector_network,
-                    &bindir,
-                    &logs_tx,
-                    args.allow_local,
-                )),
+                Box::new(agent::DiscoverHandler::new(&logs_tx)),
                 Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
                 Box::new(agent::EvolutionHandler),
                 Box::new(agent::controllers::ControllerHandler::new(control_plane)),

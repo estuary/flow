@@ -84,7 +84,6 @@ impl TestHarness {
         let id_gen = models::IdGenerator::new(1);
 
         let publisher = Publisher::new(
-            false,
             "/not/a/real/bin/dir",
             &url::Url::from_directory_path(builds_root.path()).unwrap(),
             "some-connector-network",
