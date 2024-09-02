@@ -3,18 +3,18 @@ use tonic::transport::Channel;
 
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::consumer::shard_client::ShardClient<
-    tonic::service::interceptor::InterceptedService<Channel, crate::Auth>,
+    tonic::service::interceptor::InterceptedService<Channel, crate::Metadata>,
 >;
 
 #[derive(Clone)]
 pub struct Client {
-    auth: crate::Auth,
+    metadata: crate::Metadata,
     router: crate::Router,
 }
 
 impl Client {
-    pub fn new(router: crate::Router, auth: crate::Auth) -> Self {
-        Self { auth, router }
+    pub fn new(router: crate::Router, metadata: crate::Metadata) -> Self {
+        Self { metadata, router }
     }
 
     pub async fn list(
@@ -65,7 +65,7 @@ impl Client {
     fn into_sub(&self, channel: Channel) -> SubClient {
         proto_grpc::consumer::shard_client::ShardClient::with_interceptor(
             channel,
-            self.auth.clone(),
+            self.metadata.clone(),
         )
     }
 }
