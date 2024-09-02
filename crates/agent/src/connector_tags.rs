@@ -216,8 +216,9 @@ async fn spec_materialization(
         ..Default::default()
     };
 
+    // TODO(johnny): select a data-plane and use ProxyConnectors.
     let spec = runtime
-        .unary_materialize(req, build::CONNECTOR_TIMEOUT)
+        .unary_materialize(req)
         .await?
         .spec
         .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
@@ -262,11 +263,13 @@ async fn spec_capture(
         ..Default::default()
     };
 
+    // TODO(johnny): select a data-plane and use ProxyConnectors.
     let spec = runtime
-        .unary_capture(req, build::CONNECTOR_TIMEOUT)
+        .unary_capture(req)
         .await?
         .spec
         .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
+
     let capture::response::Spec {
         // protocol here is the numeric version of the capture protocol
         protocol: _,
