@@ -80,30 +80,40 @@ impl RuntimeProtocol {
     }
 }
 
-fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
-    tonic::Status::internal(format!("{err:?}"))
-}
-
-fn stream_error_to_status<T, S: futures::Stream<Item = anyhow::Result<T>>>(
-    s: S,
-) -> impl futures::Stream<Item = tonic::Result<T>> {
-    s.map_err(|err: anyhow::Error| match err.downcast::<tonic::Status>() {
+// Map an anyhow::Error into a tonic::Status.
+// If the error is already a Status, it's downcast.
+// Otherwise, an internal error is used to wrap a formatted anyhow::Error chain.
+pub fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
+    match err.downcast::<tonic::Status>() {
         Ok(status) => status,
-        Err(err) => anyhow_to_status(err),
-    })
+        Err(err) => tonic::Status::internal(format!("{err:?}")),
+    }
 }
 
-fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
-    s: S,
-) -> impl futures::Stream<Item = anyhow::Result<T>> {
-    s.map_err(|status| match status.code() {
+// Map a tonic::Status into an anyhow::Error.
+// If the status is an internal error, its message is extracted into a dynamic anyhow::Error.
+// Otherwise the Status is wrapped by a dynamic anyhow::Error, and may be downcast again.
+pub fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
+    match status.code() {
         // Unwrap Internal (only), as this code is consistently used for user-facing errors.
         // Note that non-Status errors are wrapped with Internal when mapping back into Status.
         tonic::Code::Internal => anyhow::anyhow!(status.message().to_owned()),
         // For all other Status types, pass through the Status in order to preserve a
         // capability to lossless-ly downcast back to the Status later.
         _ => anyhow::Error::new(status),
-    })
+    }
+}
+
+fn stream_error_to_status<T, S: futures::Stream<Item = anyhow::Result<T>>>(
+    s: S,
+) -> impl futures::Stream<Item = tonic::Result<T>> {
+    s.map_err(anyhow_to_status)
+}
+
+fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
+    s: S,
+) -> impl futures::Stream<Item = anyhow::Result<T>> {
+    s.map_err(status_to_anyhow)
 }
 
 pub trait LogHandler: Fn(&ops::Log) + Send + Sync + Clone + 'static {}

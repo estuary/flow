@@ -1,4 +1,4 @@
-use proto_flow::capture::{response::discovered::Binding, response::Discovered};
+use proto_flow::capture::{self, response::discovered::Binding};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -7,12 +7,17 @@ pub fn parse_response(
     endpoint_config: &serde_json::value::RawValue,
     image_name: &str,
     image_tag: &str,
-    response: &[u8],
-) -> Result<(models::CaptureEndpoint, Vec<Binding>), serde_json::Error> {
+    response: capture::Response,
+) -> anyhow::Result<(models::CaptureEndpoint, Vec<Binding>)> {
     let image_composed = format!("{image_name}{image_tag}");
-    tracing::debug!(%image_composed, response=%String::from_utf8_lossy(response), "converting response");
 
-    let Discovered { mut bindings } = serde_json::from_slice(response)?;
+    let capture::Response {
+        discovered: Some(capture::response::Discovered { mut bindings }),
+        ..
+    } = response
+    else {
+        anyhow::bail!("response is not a discovered");
+    };
 
     // Sort bindings so they're consistently ordered on their recommended name.
     // This reduces potential churn if an established capture is refreshed.
@@ -307,54 +312,56 @@ fn normalize_recommended_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proto_flow::capture::response::discovered;
+    use proto_flow::capture::{self, response::discovered};
     use serde_json::json;
 
     #[test]
     fn test_response_parsing() {
-        let response = json!({
-            "bindings": [
-                {
-                    "recommendedName": "some greetings!",
-                    "resourceConfig": {
-                        "stream": "greetings",
-                        "syncMode": "incremental"
-                    },
-                    "documentSchema": {
-                        "type": "object",
-                        "properties": {
-                            "count": { "type": "integer" },
-                            "message": { "type": "string" }
+        let response: capture::Response = serde_json::from_value(json!({
+            "discovered": {
+                "bindings": [
+                    {
+                        "recommendedName": "some greetings!",
+                        "resourceConfig": {
+                            "stream": "greetings",
+                            "syncMode": "incremental"
                         },
-                        "required": [ "count", "message" ]
-                    },
-                    "key": [ "/count" ]
-                },
-                {
-                    "recommendedName": "frogs",
-                    "resourceConfig": {
-                        "stream": "greetings",
-                        "syncMode": "incremental"
-                    },
-                    "documentSchema": {
-                        "type": "object",
-                        "properties": {
-                            "croak": { "type": "string" }
+                        "documentSchema": {
+                            "type": "object",
+                            "properties": {
+                                "count": { "type": "integer" },
+                                "message": { "type": "string" }
+                            },
+                            "required": [ "count", "message" ]
                         },
-                        "required": [ "croak" ]
+                        "key": [ "/count" ]
                     },
-                    "key": [ "/croak" ],
-                    "disable": true
-                }
-            ]
-        })
-        .to_string();
+                    {
+                        "recommendedName": "frogs",
+                        "resourceConfig": {
+                            "stream": "greetings",
+                            "syncMode": "incremental"
+                        },
+                        "documentSchema": {
+                            "type": "object",
+                            "properties": {
+                                "croak": { "type": "string" }
+                            },
+                            "required": [ "croak" ]
+                        },
+                        "key": [ "/croak" ],
+                        "disable": true
+                    }
+                ],
+            }
+        }))
+        .unwrap();
 
         let out = super::parse_response(
             &serde_json::value::RawValue::from_string("{\"some\":\"config\"}".to_string()).unwrap(),
             "ghcr.io/foo/bar/source-potato",
             ":v1.2.3",
-            response.as_bytes(),
+            response,
         )
         .unwrap();
 
