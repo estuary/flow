@@ -92,6 +92,7 @@ func (p *OpsPublisher) PublishStats(
 
 func (p *OpsPublisher) PublishLog(out ops.Log) {
 	out.Meta = &ops.Meta{Uuid: string(pf.DocumentUUIDPlaceholder)}
+	out.Shard = p.shard
 
 	var buf bytes.Buffer
 	if err := (&jsonpb.Marshaler{}).Marshal(&buf, &out); err != nil {

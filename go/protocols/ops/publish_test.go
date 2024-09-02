@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,4 +51,24 @@ func TestLogPublishing(t *testing.T) {
 		},
 	}, publisher.logs)
 
+}
+
+type appendPublisher struct{ logs []Log }
+
+var _ Publisher = &appendPublisher{}
+
+func (p *appendPublisher) PublishLog(log Log) { p.logs = append(p.logs, log) }
+
+func (p *appendPublisher) Labels() ShardLabeling {
+	return ShardLabeling{
+		LogLevel: Log_debug,
+		TaskName: "task/name",
+		TaskType: TaskType_capture,
+		Range: pf.RangeSpec{
+			KeyBegin:    0x00001111,
+			KeyEnd:      0x22220000,
+			RClockBegin: 0x00003333,
+			RClockEnd:   0x44440000,
+		},
+	}
 }
