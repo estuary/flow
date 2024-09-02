@@ -199,36 +199,27 @@ impl PGControlPlane {
         let (ops_logs_template, ops_stats_template) =
             futures::try_join!(ops_logs_template, ops_stats_template)?;
 
-        let unix_ts = jsonwebtoken::get_current_timestamp();
-
-        // Sign short-lived claims for activating journals and shards into the data-plane.
-        let claims = proto_gazette::Claims {
-            sel: Default::default(),
-            cap: proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
-            sub: String::new(),
-            iat: unix_ts,
-            exp: unix_ts + 60,
-            iss: data_plane.data_plane_fqdn.clone(),
-        };
-
-        let mut bearer_token = None;
-        if let Some(hmac_key) = data_plane.hmac_keys.first() {
-            let hmac_key = jsonwebtoken::EncodingKey::from_base64_secret(hmac_key)
-                .context("hmac key is invalid")?;
-
-            bearer_token = Some(
-                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &hmac_key)
-                    .context("failed to encode authorization")?,
-            );
-        }
-        let auth = gazette::Auth::new(bearer_token)?;
+        let mut metadata = gazette::Metadata::default();
+        metadata
+            .signed_claims(
+                proto_gazette::capability::LIST | proto_gazette::capability::APPLY,
+                &data_plane.data_plane_fqdn,
+                std::time::Duration::from_secs(60),
+                &data_plane.hmac_keys,
+                broker::LabelSelector::default(),
+                "",
+            )
+            .context("failed to sign claims for data-plane")?;
 
         // Create the journal and shard clients that are used for interacting with the data plane
         let journal_router = gazette::Router::new(&data_plane.broker_address, "local")?;
-        let journal_client =
-            gazette::journal::Client::new(reqwest::Client::default(), journal_router, auth.clone());
+        let journal_client = gazette::journal::Client::new(
+            reqwest::Client::default(),
+            journal_router,
+            metadata.clone(),
+        );
         let shard_router = gazette::Router::new(&data_plane.reactor_address, "local")?;
-        let shard_client = gazette::shard::Client::new(shard_router, auth);
+        let shard_client = gazette::shard::Client::new(shard_router, metadata);
 
         Ok((
             shard_client,

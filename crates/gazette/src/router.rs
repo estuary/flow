@@ -65,36 +65,11 @@ impl Router {
         }
 
         // Slow path: start dialing the endpoint.
-        let endpoint_str = match index {
+        let channel = super::dial_channel(match index {
             Some(index) => &route.unwrap().endpoints[index],
             None => &self.inner.default_endpoint,
-        };
-        let endpoint = tonic::transport::Endpoint::from_shared(endpoint_str.clone())
-            .map_err(|_err| Error::InvalidEndpoint(endpoint_str.clone()))?
-            .connect_timeout(std::time::Duration::from_secs(5));
-
-        let channel = match endpoint.uri().scheme_str() {
-            Some("unix") => {
-                endpoint
-                    .connect_with_connector(tower::util::service_fn(
-                        |uri: tonic::transport::Uri| connect_unix(uri),
-                    ))
-                    .await?
-            }
-            Some("https") => {
-                endpoint
-                    .tls_config(
-                        tonic::transport::ClientTlsConfig::new()
-                            .with_native_roots()
-                            .assume_http2(true),
-                    )?
-                    .connect()
-                    .await?
-            }
-            Some("http") => endpoint.connect().await?,
-
-            _ => return Err(Error::InvalidEndpoint(endpoint_str.to_owned())),
-        };
+        })
+        .await?;
 
         *state = Some((channel.clone(), 1));
 
@@ -145,25 +120,6 @@ impl Router {
             true
         });
     }
-}
-
-pub(crate) async fn connect_unix(
-    uri: tonic::transport::Uri,
-) -> std::io::Result<hyper_util::rt::TokioIo<tokio::net::UnixStream>> {
-    let path = uri.path();
-    // Wait until the filesystem path exists, because it's hard to tell from
-    // the error so that we can re-try. This is expected to be cut short by the
-    // connection timeout if the path never appears.
-    for i in 1.. {
-        if let Ok(meta) = tokio::fs::metadata(path).await {
-            tracing::debug!(?path, ?meta, "UDS path now exists");
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20 * i)).await;
-    }
-    Ok(hyper_util::rt::TokioIo::new(
-        tokio::net::UnixStream::connect(path).await?,
-    ))
 }
 
 fn pick(
