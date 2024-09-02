@@ -52,7 +52,7 @@ func TestSimpleDerive(t *testing.T) {
 			TaskName: "hello-world",
 			UdsPath:  socket,
 		},
-		&publisher,
+		publisher.PublishLog,
 	)
 	require.NoError(t, err)
 
