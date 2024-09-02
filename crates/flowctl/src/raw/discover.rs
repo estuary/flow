@@ -94,7 +94,7 @@ pub async fn do_discover(
         None,
         format!("discover/{}", capture.capture),
     )
-    .unary_capture(discover, build::CONNECTOR_TIMEOUT)
+    .unary_capture(discover)
     .await?
     .discovered
     .context("connector didn't send expected Discovered response")?;

@@ -115,11 +115,11 @@ pub async fn validate(
         None,
         format!("build/{build_id:#}"),
     );
-    let connectors = Connectors {
+    let connectors = validation::NoOpWrapper {
         noop_captures,
         noop_derivations,
         noop_materializations,
-        runtime,
+        inner: RuntimeConnectors { runtime },
     };
 
     let built = validation::validate(
@@ -348,97 +348,35 @@ impl sources::Fetcher for Fetcher {
     }
 }
 
-/// Connectors is a general-purpose implementation of validation::Connectors
-/// that dispatches to its contained runtime::Runtime.
-pub struct Connectors<L: runtime::LogHandler> {
-    noop_captures: bool,
-    noop_derivations: bool,
-    noop_materializations: bool,
+/// RuntimeConnectors is a general-purpose implementation of
+/// validation::Connectors that dispatches to its contained runtime::Runtime.
+pub struct RuntimeConnectors<L: runtime::LogHandler> {
     runtime: runtime::Runtime<L>,
 }
 
-impl<L: runtime::LogHandler> Connectors<L> {
-    pub fn new(runtime: runtime::Runtime<L>) -> Self {
-        Self {
-            noop_captures: false,
-            noop_derivations: false,
-            noop_materializations: false,
-            runtime,
-        }
-    }
-
-    pub fn with_noop_validations(self) -> Self {
-        Self {
-            noop_captures: true,
-            noop_derivations: true,
-            noop_materializations: true,
-            runtime: self.runtime,
-        }
-    }
-}
-
-impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
+impl<L: runtime::LogHandler> validation::Connectors for RuntimeConnectors<L> {
     fn validate_capture<'a>(
         &'a self,
         request: capture::Request,
-        data_plane: &'a tables::DataPlane,
+        _data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        async move {
-            if self.noop_captures {
-                validation::NoOpConnectors
-                    .validate_capture(request, data_plane)
-                    .await
-            } else {
-                Ok(self
-                    .runtime
-                    .clone()
-                    .unary_capture(request, CONNECTOR_TIMEOUT)
-                    .await?)
-            }
-        }
-        .boxed()
+        self.runtime.clone().unary_capture(request).boxed()
     }
 
     fn validate_derivation<'a>(
         &'a self,
         request: derive::Request,
-        data_plane: &'a tables::DataPlane,
+        _data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        async move {
-            if self.noop_derivations {
-                validation::NoOpConnectors
-                    .validate_derivation(request, data_plane)
-                    .await
-            } else {
-                Ok(self
-                    .runtime
-                    .clone()
-                    .unary_derive(request, CONNECTOR_TIMEOUT)
-                    .await?)
-            }
-        }
-        .boxed()
+        self.runtime.clone().unary_derive(request).boxed()
     }
 
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::Request,
-        data_plane: &'a tables::DataPlane,
+        _data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        async move {
-            if self.noop_materializations {
-                validation::NoOpConnectors
-                    .validate_materialization(request, data_plane)
-                    .await
-            } else {
-                Ok(self
-                    .runtime
-                    .clone()
-                    .unary_materialize(request, CONNECTOR_TIMEOUT)
-                    .await?)
-            }
-        }
-        .boxed()
+        self.runtime.clone().unary_materialize(request).boxed()
     }
 }
 
@@ -482,5 +420,4 @@ impl tables::CatalogResolver for NoOpCatalogResolver {
 }
 
 pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-pub const CONNECTOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300); // Five minutes.
 pub const STDIN_URL: &str = "stdin://root/flow.yaml";

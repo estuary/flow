@@ -163,13 +163,10 @@ async fn generate_missing_capture_configs(
         None,
         format!("spec/{capture}"),
     )
-    .unary_capture(
-        capture::Request {
-            spec: Some(spec),
-            ..Default::default()
-        },
-        build::CONNECTOR_TIMEOUT,
-    )
+    .unary_capture(capture::Request {
+        spec: Some(spec),
+        ..Default::default()
+    })
     .await?
     .spec
     .context("connector didn't send expected Spec response")?;
@@ -246,13 +243,10 @@ async fn generate_missing_collection_configs(
         None,
         format!("spec/{collection}"),
     )
-    .unary_derive(
-        derive::Request {
-            spec: Some(spec),
-            ..Default::default()
-        },
-        build::CONNECTOR_TIMEOUT,
-    )
+    .unary_derive(derive::Request {
+        spec: Some(spec),
+        ..Default::default()
+    })
     .await?
     .spec
     .context("connector didn't send expected Spec response")?;
@@ -323,13 +317,10 @@ async fn generate_missing_materialization_configs(
         None,
         format!("spec/{materialization}"),
     )
-    .unary_materialize(
-        materialize::Request {
-            spec: Some(spec),
-            ..Default::default()
-        },
-        build::CONNECTOR_TIMEOUT,
-    )
+    .unary_materialize(materialize::Request {
+        spec: Some(spec),
+        ..Default::default()
+    })
     .await?
     .spec
     .context("connector didn't send expected Spec response")?;
