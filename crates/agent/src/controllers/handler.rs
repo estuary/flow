@@ -1,6 +1,5 @@
 use agent_sql::controllers::{dequeue, update};
 use anyhow::Context;
-use chrono::{DateTime, Utc};
 
 use crate::{
     controlplane::{ControlPlane, PGControlPlane},

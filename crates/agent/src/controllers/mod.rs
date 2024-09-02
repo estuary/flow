@@ -444,6 +444,7 @@ impl Status {
 
 /// Selects the smallest next run from among the arguments, returning `None`
 /// only if all `next_runs` are `None`.
+#[allow(dead_code)]
 fn reduce_next_run(next_runs: &[Option<NextRun>]) -> Option<NextRun> {
     let mut min: Option<NextRun> = None;
     for next_run in next_runs {
