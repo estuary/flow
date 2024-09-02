@@ -71,10 +71,6 @@ Monitor a catalog's dataflow execution in the data-plane, and exit when it finis
 Delete tasks and collections of a built Flow catalog.
 `, &apiDelete{})
 
-	addCmd(apis, "discover", "Discover resource of a capture connector", `
-Discover resources of a capture connector using a configuration.
-`, &apiDiscover{})
-
 	// Parse config and start command
 	mbp.MustParseConfig(parser, iniFilename)
 }

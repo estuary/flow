@@ -10,8 +10,12 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/protocols/capture"
+	"github.com/estuary/flow/go/protocols/derive"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/runtime"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"go.gazette.dev/core/auth"
@@ -22,6 +26,7 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
+	"google.golang.org/grpc"
 )
 
 // FlowConsumerConfig configures the Flow consumer application.
@@ -33,6 +38,7 @@ type FlowConsumerConfig struct {
 		ControlAPI    pb.Endpoint `long:"control-api" env:"CONTROL_API" description:"Address of the control-plane API"`
 		DataPlaneFQDN string      `long:"data-plane-fqdn" env:"DATA_PLANE_FQDN" description:"Fully-qualified domain name of the data-plane to which this reactor belongs"`
 		Network       string      `long:"network" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
+		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"The number of proxy connector runtimes that may run concurrently"`
 		TestAPIs      bool        `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
@@ -237,6 +243,17 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
 		pf.NewVerifiedNetworkProxyServer(&proxyServer{resolver: args.Service.Resolver}, f.Service.Verifier))
+
+	var connectorProxy = &connectorProxy{
+		address:   args.Server.Endpoint(),
+		host:      f,
+		runtimes:  make(map[string]*grpc.ClientConn),
+		semaphore: make(chan struct{}, config.Flow.ProxyRuntimes),
+	}
+	runtime.RegisterConnectorProxyServer(args.Server.GRPCServer, connectorProxy)
+	capture.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
+	derive.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
+	materialize.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
 
 	return nil
 }
