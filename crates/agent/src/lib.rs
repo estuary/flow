@@ -9,6 +9,7 @@ pub(crate) mod evolution;
 mod handlers;
 mod jobs;
 pub mod logs;
+mod proxy_connectors;
 pub mod publications;
 pub(crate) mod resource_configs;
 
@@ -23,6 +24,7 @@ pub use discovers::DiscoverHandler;
 pub use evolution::EvolutionHandler;
 pub use handlers::{serve, HandleResult, Handler};
 use lazy_static::lazy_static;
+use proxy_connectors::ProxyConnectors;
 use regex::Regex;
 
 // Used during tests.

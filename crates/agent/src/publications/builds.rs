@@ -1,18 +1,14 @@
 use crate::{jobs, logs};
 use anyhow::Context;
-use build::Connectors;
 use models::Id;
-use proto_flow::ops::log::Level as LogLevel;
 use sqlx::types::Uuid;
 use std::path;
 use tables::BuiltRow;
 
 pub async fn build_catalog(
-    allow_local: bool,
     builds_root: &url::Url,
     draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
-    connector_network: String,
     pub_id: Id,
     build_id: Id,
     tmpdir: &path::Path,
@@ -34,43 +30,33 @@ pub async fn build_catalog(
     let project_root = url::Url::parse("file:///").unwrap();
     let source = url::Url::parse("file:///flow.json").unwrap();
 
-    // Build a tokio::Runtime that dispatches all tracing events to `log_handler`.
-    let tokio_context = runtime::TokioContext::new(
-        LogLevel::Warn,
-        log_handler.clone(),
-        format!("agent-build-{build_id_str}"),
-        1,
-    );
-
-    let runtime = runtime::Runtime::new(
-        allow_local,
-        connector_network.to_string(),
-        log_handler,
-        None,
-        format!("build/{build_id_str}"),
-    );
     let connectors = if cfg!(test) {
-        Connectors::new(runtime).with_noop_validations()
+        validation::NoOpWrapper {
+            noop_captures: true,
+            noop_derivations: true,
+            noop_materializations: true,
+            inner: crate::ProxyConnectors::new(log_handler),
+        }
     } else {
-        Connectors::new(runtime)
+        validation::NoOpWrapper {
+            noop_captures: false,
+            noop_derivations: false,
+            noop_materializations: false,
+            inner: crate::ProxyConnectors::new(log_handler),
+        }
     };
 
-    let build_result = tokio_context
-        .spawn(async move {
-            let built = validation::validate(
-                pub_id,
-                build_id,
-                &project_root,
-                &connectors,
-                &draft,
-                &live,
-                true, // fail_fast
-            )
-            .await;
-            build::Output { draft, live, built }
-        })
-        .await
-        .context("unable to join catalog build handle due to panic")?;
+    let built = validation::validate(
+        pub_id,
+        build_id,
+        &project_root,
+        &connectors,
+        &draft,
+        &live,
+        true, // fail_fast
+    )
+    .await;
+    let output = build::Output { draft, live, built };
 
     // Persist the build before we do anything else.
     build::persist(
@@ -82,7 +68,7 @@ pub async fn build_catalog(
             ..Default::default()
         },
         &db_path,
-        &build_result,
+        &output,
     )?;
     let dest_url = builds_root.join(&build_id_str)?;
 
@@ -112,7 +98,7 @@ pub async fn build_catalog(
     if !persist_job.success() {
         anyhow::bail!("persist of {db_path:?} exited with an error");
     }
-    Ok(build_result)
+    Ok(output)
 }
 
 pub async fn data_plane(
@@ -169,12 +155,12 @@ pub async fn test_catalog(
     let build_id = format!("{build_id}");
 
     // Activate all derivations.
-    let auth = gazette::Auth::new(None).unwrap();
+    let metadata = gazette::Metadata::default();
     let journal_router = gazette::Router::new(&broker_sock, "local")?;
     let journal_client =
-        gazette::journal::Client::new(Default::default(), journal_router, auth.clone());
+        gazette::journal::Client::new(Default::default(), journal_router, metadata.clone());
     let shard_router = gazette::Router::new(&consumer_sock, "local")?;
-    let shard_client = gazette::shard::Client::new(shard_router, auth);
+    let shard_client = gazette::shard::Client::new(shard_router, metadata);
 
     for built in catalog
         .built
