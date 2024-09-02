@@ -54,7 +54,7 @@ func NewClusterDriver(
 
 	var svc, err = bindings.NewTaskService(
 		pr.TaskServiceConfig{TaskName: "cluster-driver"},
-		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "cluster-driver"}),
+		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "cluster-driver"}).PublishLog,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task service: %w", err)

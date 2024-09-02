@@ -95,7 +95,7 @@ func newTaskBase[TaskSpec pf.Task](
 			TaskName:         term.labels.TaskName,
 			UdsPath:          path.Join(recorder.Dir(), "socket"),
 		},
-		opsPublisher,
+		opsPublisher.PublishLog,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating task service: %w", err)

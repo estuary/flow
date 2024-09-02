@@ -10,21 +10,17 @@ import (
 
 // NewLogWriteAdapter returns an io.Writer into which canonical newline-delimited,
 // JSON-encoded Logs may be written. As each such log is written into the Writer,
-// it's parsed and dispatched to the wrapped Publisher.
-// Read logs are not expected to have the `Shard` field populated and an appropriate
-// ShardRef will be attached by this adapter based on the Publisher's configured labeling.
-func NewLogWriteAdapter(publisher Publisher) io.Writer {
+// it's parsed and dispatched to the wrapped handler.
+func NewLogWriteAdapter(logHandler func(Log)) io.Writer {
 	return &writeAdapter{
-		publisher: publisher,
-		shard:     NewShardRef(publisher.Labels()),
-		rem:       nil,
+		handler: logHandler,
+		rem:     nil,
 	}
 }
 
 type writeAdapter struct {
-	publisher Publisher
-	shard     *ShardRef
-	rem       []byte
+	handler func(Log)
+	rem     []byte
 }
 
 func (o *writeAdapter) Write(p []byte) (int, error) {
@@ -47,8 +43,7 @@ func (o *writeAdapter) Write(p []byte) (int, error) {
 				"line":  string(line),
 			}).Error("failed to unmarshal operations log")
 		} else {
-			log.Shard = o.shard
-			o.publisher.PublishLog(log)
+			o.handler(log)
 		}
 
 		p = p[newlineIndex+1:]

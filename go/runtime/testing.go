@@ -53,7 +53,7 @@ func NewFlowTesting(ctx context.Context, inner *FlowConsumer, ajc *client.Append
 
 	svc, err := bindings.NewTaskService(
 		pr.TaskServiceConfig{TaskName: "flow-testing"},
-		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "flow-testing"}),
+		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "flow-testing"}).PublishLog,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task service: %w", err)
