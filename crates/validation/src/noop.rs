@@ -120,3 +120,48 @@ impl Connectors for NoOpConnectors {
         })
     }
 }
+
+/// NoOpWrapper wraps another Connectors implementation to selectively
+/// enable validations for specific task types.
+pub struct NoOpWrapper<C> {
+    pub noop_captures: bool,
+    pub noop_derivations: bool,
+    pub noop_materializations: bool,
+    pub inner: C,
+}
+
+impl<C: Connectors> Connectors for NoOpWrapper<C> {
+    fn validate_capture<'a>(
+        &'a self,
+        request: capture::Request,
+        data_plane: &'a tables::DataPlane,
+    ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
+        if self.noop_captures {
+            NoOpConnectors.validate_capture(request, data_plane)
+        } else {
+            self.inner.validate_capture(request, data_plane)
+        }
+    }
+    fn validate_derivation<'a>(
+        &'a self,
+        request: derive::Request,
+        data_plane: &'a tables::DataPlane,
+    ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
+        if self.noop_derivations {
+            NoOpConnectors.validate_derivation(request, data_plane)
+        } else {
+            self.inner.validate_derivation(request, data_plane)
+        }
+    }
+    fn validate_materialization<'a>(
+        &'a self,
+        request: materialize::Request,
+        data_plane: &'a tables::DataPlane,
+    ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
+        if self.noop_materializations {
+            NoOpConnectors.validate_materialization(request, data_plane)
+        } else {
+            self.inner.validate_materialization(request, data_plane)
+        }
+    }
+}
