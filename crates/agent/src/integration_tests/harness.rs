@@ -269,12 +269,6 @@ impl TestHarness {
             ),
             del_daily_stats as (
                 delete from catalog_stats_daily
-            ),
-            del_connectors as (
-                delete from connectors
-            ),
-            del_connector_tags as (
-                delete from connector_tags
             )
             delete from catalog_stats_monthly;"#,
             system_user_id
