@@ -296,3 +296,29 @@ message CombineResponse {
 service Combiner {
   rpc Combine(stream CombineRequest) returns (stream CombineResponse);
 }
+
+message ConnectorProxyRequest {
+  // No requests are sent by the client in a ProxyConnectors RPC. However:
+  // * The client should leave its stream open while the proxy is in use.
+  // * Then, it sends EOF to begin a graceful stop of the proxy.
+  // * The response stream will EOF only after all logs have been yielded.
+}
+
+message ConnectorProxyResponse {
+  // Address to dial for invoking connector RPCs.
+  // Sent with the first response.
+  string address = 1
+    [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Endpoint" ];
+
+  // Proxy ID to be attached as metadata key "proxy-id" to connector RPCs.
+  // Sent with the first response.
+  string proxy_id = 2;
+
+  // Log emitted by connectors invoked using `proxy_id`.
+  // All messages following the first are logs.
+  ops.Log log = 3;
+}
+
+service ConnectorProxy {
+  rpc ProxyConnectors(stream ConnectorProxyRequest) returns (stream ConnectorProxyResponse);
+}

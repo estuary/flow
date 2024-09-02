@@ -111,7 +111,7 @@ pub mod inference {
     /// "integer" or "number", or if the specification was built prior to numeric
     /// inference existing in the protocol.
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct Numeric {
         /// True if there is an inferred minimum value available for the projection,
         /// otherwise False.
