@@ -441,3 +441,26 @@ pub struct CombineResponse {
     #[prost(bytes = "bytes", tag = "6")]
     pub values_packed: ::prost::bytes::Bytes,
 }
+/// No requests are sent by the client in a ProxyConnectors RPC. However:
+/// * The client should leave its stream open while the proxy is in use.
+/// * Then, it sends EOF to begin a graceful stop of the proxy.
+/// * The response stream will EOF only after all logs have been yielded.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ConnectorProxyRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectorProxyResponse {
+    /// Address to dial for invoking connector RPCs.
+    /// Sent with the first response.
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+    /// Proxy ID to be attached as metadata key "proxy-id" to connector RPCs.
+    /// Sent with the first response.
+    #[prost(string, tag = "2")]
+    pub proxy_id: ::prost::alloc::string::String,
+    /// Log emitted by connectors invoked using `proxy_id`.
+    /// All messages following the first are logs.
+    #[prost(message, optional, tag = "3")]
+    pub log: ::core::option::Option<super::ops::Log>,
+}
