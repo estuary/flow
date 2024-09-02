@@ -94,7 +94,6 @@ impl PublicationResult {
 /// A PublishHandler is a Handler which publishes catalog specifications.
 #[derive(Debug, Clone)]
 pub struct Publisher {
-    allow_local: bool,
     bindir: String,
     builds_root: url::Url,
     connector_network: String,
@@ -105,7 +104,6 @@ pub struct Publisher {
 
 impl Publisher {
     pub fn new(
-        allow_local: bool,
         bindir: &str,
         builds_root: &url::Url,
         connector_network: &str,
@@ -114,7 +112,6 @@ impl Publisher {
         build_id_gen: models::IdGenerator,
     ) -> Self {
         Self {
-            allow_local,
             bindir: bindir.to_string(),
             builds_root: builds_root.clone(),
             connector_network: connector_network.to_string(),
@@ -299,11 +296,9 @@ impl Publisher {
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
         let tmpdir = tmpdir_handle.path();
         let built = builds::build_catalog(
-            self.allow_local,
             &self.builds_root,
             draft,
             live_catalog,
-            self.connector_network.clone(),
             publication_id,
             build_id,
             tmpdir,

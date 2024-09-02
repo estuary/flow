@@ -32,7 +32,7 @@ impl TaskService {
             std::sync::Mutex::new(log_file),
         ));
         let tokio_context = TokioContext::new(
-            ops::LogLevel::Info,
+            ops::LogLevel::Warn,
             log_handler.clone(),
             task_name.clone(),
             1,

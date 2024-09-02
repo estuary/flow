@@ -30,10 +30,10 @@ pub async fn fetch_ops_journal_template(
     )
 }
 
-pub async fn fetch_data_planes(
-    pool: &sqlx::PgPool,
+pub async fn fetch_data_planes<'a, 'b>(
+    pool: impl sqlx::PgExecutor<'a>,
     mut data_plane_ids: Vec<models::Id>,
-    default_data_plane_name: &str,
+    default_data_plane_name: &'b str,
     user_id: Uuid,
 ) -> sqlx::Result<tables::DataPlanes> {
     data_plane_ids.sort();
