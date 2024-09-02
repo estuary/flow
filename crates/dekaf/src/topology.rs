@@ -264,10 +264,11 @@ impl Collection {
             "fetched data-plane token"
         );
 
+        let mut metadata = gazette::Metadata::default();
+        metadata.bearer_token(&auth[0].token)?;
+
         let router = gazette::Router::new(&auth[0].gateway_url, "dekaf")?;
-        let auth = gazette::Auth::new(Some(auth[0].token.clone()))
-            .context("failed to build gazette router")?;
-        let client = journal::Client::new(Default::default(), router, auth);
+        let client = journal::Client::new(Default::default(), router, metadata);
 
         Ok(client)
     }
