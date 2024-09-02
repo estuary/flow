@@ -6,8 +6,8 @@ pub mod shard;
 mod router;
 pub use router::Router;
 
-mod auth;
-pub use auth::Auth;
+pub mod metadata;
+pub use metadata::Metadata;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -39,6 +39,8 @@ pub enum Error {
     UUID(#[from] uuid::Error),
     #[error("unexpected server EOF")]
     UnexpectedEof,
+    #[error("JWT error")]
+    JWT(#[from] jsonwebtoken::errors::Error),
 }
 
 impl Error {
@@ -68,8 +70,59 @@ impl Error {
             Error::Parsing { .. } => false,
             Error::Protocol(_) => false,
             Error::UUID(_) => false,
+            Error::JWT(_) => false,
         }
     }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Dial a gRPC endpoint with opinionated defaults and
+/// support for TLS and Unix Domain Sockets.
+pub async fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
+    use std::time::Duration;
+
+    let ep = tonic::transport::Endpoint::from_shared(endpoint.to_string())
+        .map_err(|_err| Error::InvalidEndpoint(endpoint.to_string()))?
+        .connect_timeout(Duration::from_secs(5))
+        .keep_alive_timeout(Duration::from_secs(120))
+        .keep_alive_while_idle(true)
+        .tls_config(
+            tonic::transport::ClientTlsConfig::new()
+                .with_native_roots()
+                .assume_http2(true),
+        )?;
+
+    let channel = match ep.uri().scheme_str() {
+        Some("unix") => {
+            ep.connect_with_connector(tower::util::service_fn(|uri: tonic::transport::Uri| {
+                connect_unix(uri)
+            }))
+            .await?
+        }
+        Some("https" | "http") => ep.connect().await?,
+
+        _ => return Err(Error::InvalidEndpoint(endpoint.to_string())),
+    };
+
+    Ok(channel)
+}
+
+async fn connect_unix(
+    uri: tonic::transport::Uri,
+) -> std::io::Result<hyper_util::rt::TokioIo<tokio::net::UnixStream>> {
+    let path = uri.path();
+    // Wait until the filesystem path exists, because it's hard to tell from
+    // the error so that we can re-try. This is expected to be cut short by the
+    // connection timeout if the path never appears.
+    for i in 1.. {
+        if let Ok(meta) = tokio::fs::metadata(path).await {
+            tracing::debug!(?path, ?meta, "UDS path now exists");
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20 * i)).await;
+    }
+    Ok(hyper_util::rt::TokioIo::new(
+        tokio::net::UnixStream::connect(path).await?,
+    ))
+}

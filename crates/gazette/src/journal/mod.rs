@@ -9,19 +9,23 @@ pub use read_json_lines::{ReadJsonLine, ReadJsonLines};
 
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::broker::journal_client::JournalClient<
-    tonic::service::interceptor::InterceptedService<Channel, crate::Auth>,
+    tonic::service::interceptor::InterceptedService<Channel, crate::Metadata>,
 >;
 
 #[derive(Clone)]
 pub struct Client {
-    auth: crate::Auth,
     http: reqwest::Client,
+    metadata: crate::Metadata,
     router: crate::Router,
 }
 
 impl Client {
-    pub fn new(http: reqwest::Client, router: crate::Router, auth: crate::Auth) -> Self {
-        Self { auth, http, router }
+    pub fn new(http: reqwest::Client, router: crate::Router, metadata: crate::Metadata) -> Self {
+        Self {
+            metadata,
+            http,
+            router,
+        }
     }
 
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
@@ -54,7 +58,7 @@ impl Client {
     fn into_sub(&self, channel: Channel) -> SubClient {
         proto_grpc::broker::journal_client::JournalClient::with_interceptor(
             channel,
-            self.auth.clone(),
+            self.metadata.clone(),
         )
     }
 }

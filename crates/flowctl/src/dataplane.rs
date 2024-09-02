@@ -55,9 +55,11 @@ pub async fn journal_client_for(
     } = fetch_data_plane_access_token(cp_client, prefixes).await?;
     tracing::debug!(%gateway_url, "acquired data-plane-gateway access token");
 
+    let mut metadata = gazette::Metadata::default();
+    metadata.bearer_token(&auth_token)?;
+
     let router = gazette::Router::new(&gateway_url, "local")?;
-    let auth = gazette::Auth::new(Some(auth_token))?;
-    let client = gazette::journal::Client::new(Default::default(), router, auth);
+    let client = gazette::journal::Client::new(Default::default(), router, metadata);
 
     tracing::debug!(%gateway_url, "connected data-plane client");
     Ok(client)
