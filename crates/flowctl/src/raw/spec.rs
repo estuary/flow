@@ -75,7 +75,7 @@ pub async fn do_spec(
         None,
         format!("spec/{}", capture.capture),
     )
-    .unary_capture(request, build::CONNECTOR_TIMEOUT)
+    .unary_capture(request)
     .await?
     .spec
     .context("connector didn't send expected Spec response")?;
