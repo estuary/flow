@@ -32,7 +32,7 @@ type TaskService struct {
 
 func NewTaskService(
 	config pr.TaskServiceConfig,
-	publisher ops.Publisher,
+	logHandler func(ops.Log),
 ) (*TaskService, error) {
 
 	// We must ignore SIGPIPE!
@@ -59,12 +59,11 @@ func NewTaskService(
 	var lwaCh = make(chan struct{})
 	go func() {
 		defer close(lwaCh)
-		var _, err = io.Copy(ops.NewLogWriteAdapter(publisher), logReader)
+		var _, err = io.Copy(ops.NewLogWriteAdapter(logHandler), logReader)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
 				"error":   err,
 				"service": config.TaskName,
-				"labels":  publisher.Labels(),
 			}).Error("failed to process cgo service channel logs")
 		}
 	}()
@@ -83,7 +82,6 @@ func NewTaskService(
 
 	// Unix sockets are limited to 104 characters in length on mac. Linux allows 107, but we
 	// respect the slightly lower limit here instead of having separate limits per OS.
-	// TODO(johnny): Remove hashing after pet-set migration, when we know there's a bound on directory length.
 	if len(config.UdsPath) > 104 {
 		config.UdsPath = path.Join(os.TempDir(), fmt.Sprintf("task-svc-%x", md5.Sum([]byte(config.UdsPath))))
 		// 107 is intentional here. If we're on mac and the path is still longer than 104, we'll still raise

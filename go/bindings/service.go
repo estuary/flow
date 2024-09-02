@@ -54,7 +54,7 @@ func newService(
 	// Rust services produce canonical JSON encodings of ops::Log into `wDescriptor`.
 	// Parse each and pass to our `publisher`.
 	go func() {
-		var _, err = io.Copy(ops.NewLogWriteAdapter(publisher), logReader)
+		var _, err = io.Copy(ops.NewLogWriteAdapter(publisher.PublishLog), logReader)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
 				"error":   err,
