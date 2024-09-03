@@ -1,3 +1,6 @@
+---
+description: This connector materializes delta updates of Flow collections into files in a GCS bucket per the CSV format described in RFC-4180
+---
 
 # CSV Files in Google GCS
 

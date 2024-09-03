@@ -1,3 +1,7 @@
+---
+description: This connector materializes Flow collections into tables in a Google Cloud SQL for PostgreSQL database.
+---
+
 # Google Cloud SQL for PostgreSQL
 
 This connector materializes Flow collections into tables in a Google Cloud SQL for PostgreSQL database.

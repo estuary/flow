@@ -1,3 +1,7 @@
+---
+description: This connector materializes Flow collections into tables in a Google Cloud SQL for MySQL database.
+---
+
 # Google Cloud SQL for MySQL
 
 This connector materializes Flow collections into tables in a MySQL database.

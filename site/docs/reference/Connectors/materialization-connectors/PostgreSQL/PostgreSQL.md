@@ -1,3 +1,5 @@
+# PostgreSQL
+
 This connector materializes Flow collections into tables in a PostgreSQL database.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.

@@ -1,3 +1,7 @@
+---
+description: This connector materializes Flow collections into tables in a Amazon RDS for MySQL database.
+---
+
 # Amazon RDS for MySQL
 
 This connector materializes Flow collections into tables in a MySQL database.
