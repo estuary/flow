@@ -5347,6 +5347,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "doc",
+ "insta",
  "itertools 0.10.5",
  "json",
  "labels",
