@@ -35,6 +35,8 @@ pub struct App {
     pub advertise_kafka_port: u16,
     /// Client used when proxying group management APIs.
     pub kafka_client: KafkaApiClient,
+    /// Secret used to secure Prometheus endpoint
+    pub secret: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

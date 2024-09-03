@@ -1,10 +1,7 @@
 use super::App;
 use crate::{from_downstream_topic_name, to_downstream_topic_name, Authenticated};
 use anyhow::Context;
-use axum::{
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
+use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
 use itertools::Itertools;
 use kafka_protocol::{messages::TopicName, protocol::StrBytes};
@@ -16,6 +13,7 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
     use axum::routing::get;
 
     let schema_router = axum::Router::new()
+        .route("/prometheus", get(prometheus_metrics))
         .route("/subjects", get(all_subjects))
         .route(
             "/subjects/:subject/versions/latest",
@@ -26,6 +24,28 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
         .with_state(app);
 
     schema_router
+}
+
+// List all collections as "subjects", which are generally Kafka topics in the ecosystem.
+#[tracing::instrument(skip_all)]
+async fn prometheus_metrics(
+    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
+        headers::Authorization<headers::authorization::Bearer>,
+    >,
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+) -> (axum::http::StatusCode, String) {
+    if auth.token() != app.secret {
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            "Invalid authentication".to_string(),
+        );
+    }
+
+    match prometheus::TextEncoder::new().encode_to_string(&prometheus::default_registry().gather())
+    {
+        Err(e) => (axum::http::StatusCode::UNAUTHORIZED, e.to_string()),
+        Ok(result) => (axum::http::StatusCode::OK, result),
+    }
 }
 
 // List all collections as "subjects", which are generally Kafka topics in the ecosystem.
@@ -172,11 +192,11 @@ where
     F: std::future::Future<Output = anyhow::Result<T>>,
 {
     match fut.await {
-        Ok(inner) => (StatusCode::OK, axum::Json::from(inner)).into_response(),
+        Ok(inner) => (axum::http::StatusCode::OK, axum::Json::from(inner)).into_response(),
         Err(err) => {
             let err = format!("{err:#?}");
             tracing::warn!(err, "request failed");
-            (StatusCode::BAD_REQUEST, err).into_response()
+            (axum::http::StatusCode::BAD_REQUEST, err).into_response()
         }
     }
 }

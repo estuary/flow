@@ -227,6 +227,11 @@ impl Read {
             "returning records"
         );
 
+        metrics::counter!("documents_read", "journal_name" => self.journal_name.to_owned())
+            .increment(records.len() as u64);
+        metrics::counter!("bytes_read", "journal_name" => self.journal_name.to_owned())
+            .increment(records_bytes as u64);
+
         Ok((self, buf.freeze()))
     }
 }

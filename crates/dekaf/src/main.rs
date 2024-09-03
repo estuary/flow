@@ -72,6 +72,8 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
+    metrics_prometheus::install();
+
     let cli = Cli::parse();
     tracing::info!("Starting dekaf");
 
@@ -100,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
         ).await.context(
             "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
         )?,
+        secret: cli.encryption_secret.to_owned()
     });
 
     tracing::info!(
@@ -152,33 +155,42 @@ async fn serve(
     _stop: impl futures::Future<Output = ()>, // TODO(johnny): stop.
 ) -> anyhow::Result<()> {
     tracing::info!("accepted client connection");
+    metrics::gauge!("total_connections").increment(1);
+    let result = async {
+        socket.set_nodelay(true)?;
+        let (r, mut w) = socket.split();
 
-    socket.set_nodelay(true)?;
-    let (r, mut w) = socket.split();
+        let mut r = tokio_util::codec::FramedRead::new(
+            r,
+            tokio_util::codec::LengthDelimitedCodec::builder()
+                .big_endian()
+                .length_field_length(4)
+                .max_frame_length(1 << 27) // 128 MiB
+                .new_codec(),
+        );
 
-    let mut r = tokio_util::codec::FramedRead::new(
-        r,
-        tokio_util::codec::LengthDelimitedCodec::builder()
-            .big_endian()
-            .length_field_length(4)
-            .max_frame_length(1 << 27) // 128 MiB
-            .new_codec(),
-    );
-
-    let mut out = bytes::BytesMut::new();
-    let mut raw_sasl_auth = false;
-    while let Some(frame) = r.try_next().await? {
-        if let err @ Err(_) =
-            dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out).await
-        {
-            // Close the connection on error
-            socket.shutdown().await?;
-            return err;
+        let mut out = bytes::BytesMut::new();
+        let mut raw_sasl_auth = false;
+        while let Some(frame) = r.try_next().await? {
+            if let err @ Err(_) =
+                dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
+                    .await
+            {
+                // Close the connection on error
+                socket.shutdown().await?;
+                return err;
+            }
+            () = w.write_all(&mut out).await?;
+            out.clear();
         }
-        () = w.write_all(&mut out).await?;
-        out.clear();
+
+        Ok(())
     }
-    Ok(())
+    .await;
+
+    metrics::gauge!("total_connections").decrement(1);
+
+    result
 }
 
 const MANAGED_API_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
