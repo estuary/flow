@@ -73,12 +73,11 @@ func NewClusterDriver(
 }
 
 // Stat implements Driver for a Cluster.
-func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough *Clock, writeAt *Clock, err error) {
+func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough pb.Offsets, writeAt pb.Offsets, err error) {
 	log.WithFields(log.Fields{
 		"task":        stat.TaskName,
 		"readyAt":     stat.ReadyAt,
-		"readThrough": stat.ReadThrough.Offsets,
-		"revision":    stat.ReadThrough.Etcd.Revision,
+		"readThrough": stat.ReadThrough,
 	}).Debug("starting stat")
 
 	shards, err := consumer.ListShards(ctx, c.sc, &pc.ListRequest{
@@ -104,22 +103,13 @@ func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough
 		return nil, nil, fmt.Errorf("task %s has no shards", stat.TaskName)
 	}
 
-	extension, err := stat.ReadThrough.Etcd.Marshal()
-	if err != nil {
-		return nil, nil, err
-	}
-
 	// Build two clocks:
 	//  - Clock which is the *minimum read* progress across all shard responses.
 	//  - Clock which is the *maximum write* progress across all shard responses.
-	readThrough = new(Clock)
-	writeAt = new(Clock)
-
 	for _, shard := range shards.Shards {
 		resp, err := c.sc.Stat(ctx, &pc.StatRequest{
 			Shard:       shard.Spec.Id,
-			ReadThrough: stat.ReadThrough.Offsets,
-			Extension:   extension,
+			ReadThrough: stat.ReadThrough,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("stating shard: %w", err)
@@ -132,21 +122,28 @@ func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough
 			return nil, nil, fmt.Errorf("failed to unmarshal stat response extension: %w", err)
 		}
 
-		readThrough.ReduceMin(journalEtcd, resp.ReadThrough)
-		writeAt.ReduceMax(journalEtcd, resp.PublishAt)
+		readThrough = MinClock(readThrough, resp.ReadThrough)
+		writeAt = MaxClock(writeAt, resp.PublishAt)
 	}
+
+	// The task may have omitted partitions which were included in
+	// StatRequest.ReadThrough from its StateResponse.ReadThrough,
+	// because the partition is known to not match the task's selector.
+	// Such partitions are considered to have been "read through" for
+	// our purposes of tracking dataflow progress.
+	readThrough = MinClock(readThrough, stat.ReadThrough)
 
 	log.WithFields(log.Fields{
 		"stat":        stat,
-		"readThrough": *readThrough,
-		"writeAt":     *writeAt,
+		"readThrough": readThrough,
+		"writeAt":     writeAt,
 	}).Debug("stat complete")
 
 	return readThrough, writeAt, nil
 }
 
 // Ingest implements Driver for a Cluster.
-func (c *ClusterDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep int) (writeAt *Clock, _ error) {
+func (c *ClusterDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep int) (writeAt pb.Offsets, _ error) {
 	log.WithFields(log.Fields{
 		"test":     test.Name,
 		"testStep": testStep,
@@ -163,13 +160,12 @@ func (c *ClusterDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep 
 		return nil, err
 	}
 
-	writeAt = new(Clock)
-	writeAt.ReduceMax(resp.JournalEtcd, resp.JournalWriteHeads)
+	writeAt = MaxClock(writeAt, resp.JournalWriteHeads)
 
 	log.WithFields(log.Fields{
 		"test":     test.Name,
 		"testStep": testStep,
-		"writeAt":  *writeAt,
+		"writeAt":  writeAt,
 	}).Debug("ingest complete")
 
 	return writeAt, nil
@@ -188,14 +184,14 @@ func (c *ClusterDriver) Advance(ctx context.Context, delta TestTime) error {
 }
 
 // Verify implements Driver for a Cluster.
-func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep int, from, to *Clock) error {
+func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep int, from, to pb.Offsets) error {
 	log.WithFields(log.Fields{
 		"test":     test.Name,
 		"testStep": testStep,
 	}).Debug("starting verify")
 	var step = test.Steps[testStep]
 
-	var fetched, err = FetchDocuments(ctx, c.rjc, step.Partitions, from.Offsets, to.Offsets)
+	var fetched, err = FetchDocuments(ctx, c.rjc, step.Partitions, from, to)
 	if err != nil {
 		return err
 	}
@@ -470,7 +466,7 @@ func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error 
 		}
 
 		// Track it as a completed ingestion.
-		graph.CompletedIngest(collection.Name, &Clock{Etcd: list.Header.Etcd, Offsets: offsets})
+		graph.CompletedIngest(collection.Name, offsets)
 	}
 
 	// Run an empty test to poll all Stats implied by the completed ingests.

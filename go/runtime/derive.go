@@ -25,6 +25,7 @@ type Derive struct {
 	*taskReader[*pf.CollectionSpec]
 	client pd.Connector_DeriveClient
 	sqlite *store_sqlite.Store
+	watch  *client.WatchedList
 }
 
 var _ Application = (*Derive)(nil)
@@ -71,9 +72,26 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 	}, nil
 }
 
-func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
+func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+	defer func() {
+		if _err != nil {
+			d.term.cancel()
+		}
+	}()
+
 	if err := d.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
+	}
+
+	// Note the prior watch is cancelled with the prior term context.
+	d.watch = client.NewWatchedList(
+		d.term.ctx,
+		shard.JournalClient(),
+		flow.CollectionWatchRequest(d.term.taskSpec),
+		nil,
+	)
+	if err := <-d.watch.UpdateCh(); err != nil {
+		return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
 	}
 
 	var requestExt = &pr.DeriveRequestExt{
@@ -130,7 +148,7 @@ func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 // FinalizeTxn finishes and drains the derive runtime transaction,
 // and publishes each document to the derived collection.
 func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
-	var mapper = flow.NewMapper(shard.Context(), d.host.Service.Etcd, d.host.Journals, shard.FQN())
+	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient())
 
 	_ = d.client.Send(&pd.Request{Flush: &pd.Request_Flush{}})
 
@@ -151,12 +169,13 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 				Doc:        response.Published.DocJson,
 				PackedKey:  responseExt.Published.KeyPacked,
 				Partitions: partitions,
+				List:       d.watch,
 			}); err != nil {
 				return fmt.Errorf("publishing document: %w", err)
 			}
 
 		} else if response.Flushed != nil {
-			if err := d.publisher.PublishStats(*responseExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
+			if err := d.opsPublisher.PublishStats(*responseExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
 				return fmt.Errorf("publishing stats: %w", err)
 			}
 			return nil
@@ -165,7 +184,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 }
 
 func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.OpFutures) client.OpFuture {
-	ops.PublishLog(d.publisher, ops.Log_debug,
+	ops.PublishLog(d.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"derivation", d.term.labels.TaskName,
 		"shard", d.term.shardSpec.Id,
@@ -204,6 +223,7 @@ func (d *Derive) Destroy() {
 	if d.sqlite != nil {
 		d.sqlite.Destroy()
 	}
+	d.taskBase.opsCancel()
 }
 
 func (d *Derive) ClearRegistersForTest() error {

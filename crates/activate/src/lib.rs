@@ -4,41 +4,54 @@ use proto_gazette::{
     broker::{self, JournalSpec, Label, LabelSelector, LabelSet},
     consumer::{self, ShardSpec},
 };
+use serde_json::json;
 use std::collections::BTreeMap;
+
+#[derive(serde::Serialize)]
+pub enum Change {
+    Shard(consumer::apply_request::Change),
+    Journal(broker::apply_request::Change),
+}
 
 /// Activate a capture into a data-plane.
 pub async fn activate_capture(
     journal_client: &gazette::journal::Client,
     shard_client: &gazette::shard::Client,
     capture: &models::Capture,
-    spec: Option<&flow::CaptureSpec>,
+    task_spec: Option<&flow::CaptureSpec>,
+    ops_logs_template: Option<&broker::JournalSpec>,
+    ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<()> {
-    let task_template = if let Some(spec) = spec {
-        let shard_template = spec
+    let task_template = if let Some(task_spec) = task_spec {
+        let shard_template = task_spec
             .shard_template
             .as_ref()
             .context("CaptureSpec missing shard_template")?;
 
-        let log_template = spec
+        let recovery_template = task_spec
             .recovery_log_template
             .as_ref()
             .context("CaptureSpec missing recovery_log_template")?;
 
-        Some((shard_template, log_template))
+        Some((shard_template, recovery_template))
     } else {
         None
     };
 
-    converge_task_shards(
+    let changes = converge_task_changes(
         journal_client,
         shard_client,
-        capture,
         ops::TaskType::Capture,
+        capture,
         task_template,
+        ops_logs_template,
+        ops_stats_template,
         initial_splits,
     )
-    .await
+    .await?;
+
+    apply_changes(journal_client, shard_client, changes).await
 }
 
 /// Activate a collection into a data-plane.
@@ -46,27 +59,29 @@ pub async fn activate_collection(
     journal_client: &gazette::journal::Client,
     shard_client: &gazette::shard::Client,
     collection: &models::Collection,
-    spec: Option<&flow::CollectionSpec>,
+    task_spec: Option<&flow::CollectionSpec>,
+    ops_logs_template: Option<&broker::JournalSpec>,
+    ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<()> {
-    let (task_template, partition_template) = if let Some(spec) = spec {
-        let partition_template = spec
+    let (task_template, partition_template) = if let Some(task_spec) = task_spec {
+        let partition_template = task_spec
             .partition_template
             .as_ref()
             .context("CollectionSpec missing partition_template")?;
 
-        let task_template = if let Some(derivation) = &spec.derivation {
+        let task_template = if let Some(derivation) = &task_spec.derivation {
             let shard_template = derivation
                 .shard_template
                 .as_ref()
                 .context("CollectionSpec.Derivation missing shard_template")?;
 
-            let log_template = derivation
+            let recovery_template = derivation
                 .recovery_log_template
                 .as_ref()
                 .context("CollectionSpec.Derivation missing recovery_log_template")?;
 
-            Some((shard_template, log_template))
+            Some((shard_template, recovery_template))
         } else {
             None
         };
@@ -76,19 +91,26 @@ pub async fn activate_collection(
         (None, None)
     };
 
-    futures::try_join!(
-        converge_task_shards(
+    let (changes_1, changes_2) = futures::try_join!(
+        converge_task_changes(
             journal_client,
             shard_client,
-            collection,
             ops::TaskType::Derivation,
+            collection,
             task_template,
+            ops_logs_template,
+            ops_stats_template,
             initial_splits,
         ),
-        converge_partition_journals(journal_client, collection, partition_template),
+        converge_partition_changes(journal_client, collection, partition_template),
     )?;
 
-    Ok(())
+    apply_changes(
+        journal_client,
+        shard_client,
+        changes_1.into_iter().chain(changes_2.into_iter()),
+    )
+    .await
 }
 
 /// Activate a materialization into a data-plane.
@@ -96,97 +118,205 @@ pub async fn activate_materialization(
     journal_client: &gazette::journal::Client,
     shard_client: &gazette::shard::Client,
     materialization: &models::Materialization,
-    spec: Option<&flow::MaterializationSpec>,
+    task_spec: Option<&flow::MaterializationSpec>,
+    ops_logs_template: Option<&broker::JournalSpec>,
+    ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<()> {
-    let task_template = if let Some(spec) = spec {
-        let shard_template = spec
+    let task_template = if let Some(task_spec) = task_spec {
+        let shard_template = task_spec
             .shard_template
             .as_ref()
             .context("MaterializationSpec missing shard_template")?;
 
-        let log_template = spec
+        let recovery_template = task_spec
             .recovery_log_template
             .as_ref()
             .context("MaterializationSpec missing recovery_log_template")?;
 
-        Some((shard_template, log_template))
+        Some((shard_template, recovery_template))
     } else {
         None
     };
 
-    converge_task_shards(
+    let changes = converge_task_changes(
         journal_client,
         shard_client,
-        materialization,
         ops::TaskType::Materialization,
+        materialization,
         task_template,
+        ops_logs_template,
+        ops_stats_template,
         initial_splits,
     )
-    .await
+    .await?;
+
+    apply_changes(journal_client, shard_client, changes).await
+}
+
+async fn apply_changes(
+    journal_client: &gazette::journal::Client,
+    shard_client: &gazette::shard::Client,
+    changes: impl IntoIterator<Item = Change>,
+) -> anyhow::Result<()> {
+    let mut journal_deletes = Vec::new();
+    let mut journal_upserts = Vec::new();
+    let mut shard_deletes = Vec::new();
+    let mut shard_upserts = Vec::new();
+
+    for change in changes {
+        match change {
+            Change::Journal(change @ broker::apply_request::Change { upsert: None, .. }) => {
+                journal_deletes.push(change)
+            }
+            Change::Shard(change @ consumer::apply_request::Change { upsert: None, .. }) => {
+                shard_deletes.push(change)
+            }
+            Change::Journal(change) => journal_upserts.push(change),
+            Change::Shard(change) => shard_upserts.push(change),
+        }
+    }
+
+    // We'll unassign any failed shards to get them running after updating their specs.
+    let mut unassign_ids: Vec<_> = shard_upserts
+        .iter()
+        .map(|c| c.upsert.as_ref().unwrap().id.clone())
+        .collect();
+
+    const WINDOW: usize = 120;
+
+    // We must create journals before we create the shards that use them.
+    while !journal_upserts.is_empty() {
+        let bound = WINDOW.max(journal_upserts.len()) - WINDOW;
+
+        journal_client
+            .apply(broker::ApplyRequest {
+                changes: journal_upserts.split_off(bound),
+            })
+            .await
+            .context("activating JournalSpec upserts")?;
+    }
+    std::mem::drop(journal_upserts);
+
+    while !shard_upserts.is_empty() {
+        let bound = WINDOW.max(shard_upserts.len()) - WINDOW;
+
+        shard_client
+            .apply(consumer::ApplyRequest {
+                changes: shard_upserts.split_off(bound),
+                ..Default::default()
+            })
+            .await
+            .context("activating ShardSpec upserts")?;
+    }
+    std::mem::drop(shard_upserts);
+
+    while !shard_deletes.is_empty() {
+        let bound = WINDOW.max(shard_deletes.len()) - WINDOW;
+
+        shard_client
+            .apply(consumer::ApplyRequest {
+                changes: shard_deletes.split_off(bound),
+                ..Default::default()
+            })
+            .await
+            .context("activating ShardSpec deletions")?;
+    }
+    std::mem::drop(shard_deletes);
+
+    while !journal_deletes.is_empty() {
+        let bound = WINDOW.max(journal_deletes.len()) - WINDOW;
+
+        journal_client
+            .apply(broker::ApplyRequest {
+                changes: journal_deletes.split_off(bound),
+            })
+            .await
+            .context("activating JournalSpec deletions")?;
+    }
+    std::mem::drop(journal_deletes);
+
+    while !unassign_ids.is_empty() {
+        let bound = WINDOW.max(unassign_ids.len()) - WINDOW;
+
+        shard_client
+            .unassign(consumer::UnassignRequest {
+                shards: unassign_ids.split_off(bound),
+                only_failed: true,
+                dry_run: false,
+            })
+            .await
+            .context("unassigning activated, previously failed shards")?;
+    }
+    std::mem::drop(unassign_ids);
+
+    Ok(())
 }
 
 /// Converge a task by listing data-plane ShardSpecs and recovery log
 /// JournalSpecs, and then applying updates to bring them into alignment
 /// with the templated task configuration.
-async fn converge_task_shards(
+async fn converge_task_changes(
     journal_client: &gazette::journal::Client,
     shard_client: &gazette::shard::Client,
-    task_name: &str,
     task_type: ops::TaskType,
+    task_name: &str,
     template: Option<(&ShardSpec, &JournalSpec)>,
+    ops_logs_template: Option<&broker::JournalSpec>,
+    ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
-) -> anyhow::Result<()> {
-    let (list_shards, list_logs) = list_task_request(task_type, task_name);
+) -> anyhow::Result<Vec<Change>> {
+    let (list_shards, list_recovery) = list_task_request(task_type, task_name);
 
-    let (shards, logs) = futures::try_join!(
+    let (ops_logs_name, ops_logs_change) =
+        converge_ops_journal(journal_client, task_type, task_name, ops_logs_template);
+    let (ops_stats_name, ops_stats_change) =
+        converge_ops_journal(journal_client, task_type, task_name, ops_stats_template);
+
+    let (shards, recovery, ops_logs_change, ops_stats_change) = futures::join!(
         shard_client.list(list_shards),
-        journal_client.list(list_logs),
+        journal_client.list(list_recovery),
+        ops_logs_change,
+        ops_stats_change,
+    );
+    let shards = unpack_shard_listing(shards?)?;
+    let recovery = unpack_journal_listing(recovery?)?;
+    let ops_logs_change = ops_logs_change?;
+    let ops_stats_change = ops_stats_change?;
+
+    let mut changes = task_changes(
+        template,
+        &shards,
+        &recovery,
+        initial_splits,
+        &ops_logs_name,
+        &ops_stats_name,
     )?;
-    let shards = unpack_shard_listing(shards)?;
-    let logs = unpack_journal_listing(logs)?;
 
-    let (shard_changes, log_changes) = task_changes(template, &shards, &logs, initial_splits)?;
-
-    // We must create recovery logs before we create their shards.
-    journal_client.apply(log_changes).await?;
-    shard_client.apply(shard_changes).await?;
-
+    // If (and only if) the task is being upserted,
+    // then ensure the creation of its ops collection partitions.
     if template.is_some() {
-        // Unassign any failed shards to get them running again after updating their specs
-        let shard_ids = shards.into_iter().map(|s| s.0).collect();
-        let unassign_req = consumer::UnassignRequest {
-            shards: shard_ids,
-            only_failed: true,
-            dry_run: false,
-        };
-        shard_client
-            .unassign(unassign_req)
-            .await
-            .context("unassigning failed shards")?;
+        changes.extend(ops_logs_change.into_iter());
+        changes.extend(ops_stats_change.into_iter());
     }
 
-    Ok(())
+    Ok(changes)
 }
 
 /// Converge a collection by listing data-plane partition JournalSpecs,
 /// and then applying updates to bring them into alignment
 /// with the templated collection configuration.
-async fn converge_partition_journals(
+async fn converge_partition_changes(
     journal_client: &gazette::journal::Client,
     collection: &models::Collection,
     template: Option<&JournalSpec>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<Change>> {
     let list_partitions = list_partitions_request(&collection);
 
     let partitions = journal_client.list(list_partitions).await?;
     let partitions = unpack_journal_listing(partitions)?;
 
-    let changes = partition_changes(template, &partitions)?;
-
-    journal_client.apply(changes).await?;
-
-    Ok(())
+    partition_changes(template, &partitions)
 }
 
 /// Build ListRequests of a Task's shard splits and recovery logs.
@@ -204,7 +334,7 @@ fn list_task_request(
         }),
         ..Default::default()
     };
-    let list_logs = broker::ListRequest {
+    let list_recovery = broker::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
                 (labels::CONTENT_TYPE, labels::CONTENT_TYPE_RECOVERY_LOG),
@@ -215,19 +345,20 @@ fn list_task_request(
         }),
         ..Default::default()
     };
-    (list_shards, list_logs)
+    (list_shards, list_recovery)
 }
 
 /// Build a ListRequest of a collections partitions.
 fn list_partitions_request(collection: &models::Collection) -> broker::ListRequest {
     broker::ListRequest {
         selector: Some(LabelSelector {
-            include: Some(labels::build_set([(
-                labels::COLLECTION,
-                collection.as_str(),
-            )])),
+            include: Some(labels::build_set([
+                ("name:prefix", format!("{collection}/").as_str()),
+                (labels::COLLECTION, collection.as_str()),
+            ])),
             exclude: None,
         }),
+        ..Default::default()
     }
 }
 
@@ -268,13 +399,15 @@ fn unpack_journal_listing(
 }
 
 /// Determine the consumer shard and broker recovery log changes required to
-/// converge from current `shards` and `logs` splits into the desired state.
+/// converge from current `shards` and `recovery` splits into the desired state.
 fn task_changes(
     template: Option<(&ShardSpec, &JournalSpec)>,
     shards: &[(String, LabelSet, i64)],
-    logs: &[(String, LabelSet, i64)],
+    recovery: &[(String, LabelSet, i64)],
     initial_splits: usize,
-) -> anyhow::Result<(consumer::ApplyRequest, broker::ApplyRequest)> {
+    ops_logs_name: &str,
+    ops_stats_name: &str,
+) -> anyhow::Result<Vec<Change>> {
     let mut shards = shards.to_vec();
 
     // If the template is Some and no current shards match its prefix,
@@ -300,17 +433,16 @@ fn task_changes(
         }
     }
 
-    let mut logs: BTreeMap<_, _> = logs
+    let mut recovery: BTreeMap<_, _> = recovery
         .iter()
-        .map(|(log, set, revision)| (log, (set, revision)))
+        .map(|(recovery, set, revision)| (recovery, (set, revision)))
         .collect();
 
-    let mut shard_changes = Vec::new();
-    let mut log_changes = Vec::new();
+    let mut changes = Vec::new();
 
     for (id, split, shard_revision) in shards {
         match template {
-            Some((shard_template, log_template)) if id.starts_with(&shard_template.id) => {
+            Some((shard_template, recovery_template)) if id.starts_with(&shard_template.id) => {
                 let mut shard_spec = shard_template.clone();
                 let mut shard_set = shard_spec.labels.take().unwrap_or_default();
 
@@ -328,6 +460,10 @@ fn task_changes(
                         shard_spec.hot_standbys = 0
                     }
                 }
+
+                shard_set = labels::set_value(shard_set, labels::LOGS_JOURNAL, ops_logs_name);
+                shard_set = labels::set_value(shard_set, labels::STATS_JOURNAL, ops_stats_name);
+
                 shard_spec.id = format!(
                     "{}/{}",
                     shard_spec.id,
@@ -335,53 +471,46 @@ fn task_changes(
                 );
                 shard_spec.labels = Some(shard_set);
 
-                let mut log_spec = log_template.clone();
-                log_spec.name = format!("{}/{}", shard_spec.recovery_log_prefix, shard_spec.id);
+                let mut recovery_spec = recovery_template.clone();
+                recovery_spec.name =
+                    format!("{}/{}", shard_spec.recovery_log_prefix, shard_spec.id);
 
-                let log_revision = logs
-                    .remove(&log_spec.name)
+                let recovery_revision = recovery
+                    .remove(&recovery_spec.name)
                     .map(|(_, r)| *r)
                     .unwrap_or_default();
 
-                shard_changes.push(consumer::apply_request::Change {
+                changes.push(Change::Shard(consumer::apply_request::Change {
                     expect_mod_revision: shard_revision,
                     upsert: Some(shard_spec),
                     delete: String::new(),
-                });
-                log_changes.push(broker::apply_request::Change {
-                    expect_mod_revision: log_revision,
-                    upsert: Some(log_spec),
+                }));
+                changes.push(Change::Journal(broker::apply_request::Change {
+                    expect_mod_revision: recovery_revision,
+                    upsert: Some(recovery_spec),
                     delete: String::new(),
-                });
+                }));
             }
             _ => {
-                shard_changes.push(consumer::apply_request::Change {
+                changes.push(Change::Shard(consumer::apply_request::Change {
                     expect_mod_revision: shard_revision,
                     upsert: None,
                     delete: id,
-                });
+                }));
             }
         }
     }
 
     // Any remaining recovery logs are not paired with a shard, and are deleted.
-    for (log, (_set, mod_revision)) in logs {
-        log_changes.push(broker::apply_request::Change {
+    for (recovery, (_set, mod_revision)) in recovery {
+        changes.push(Change::Journal(broker::apply_request::Change {
             expect_mod_revision: *mod_revision,
             upsert: None,
-            delete: log.clone(),
-        });
+            delete: recovery.clone(),
+        }));
     }
 
-    Ok((
-        consumer::ApplyRequest {
-            changes: shard_changes,
-            ..Default::default()
-        },
-        broker::ApplyRequest {
-            changes: log_changes,
-        },
-    ))
+    Ok(changes)
 }
 
 /// Determine the broker partition changes required to converge
@@ -389,7 +518,7 @@ fn task_changes(
 fn partition_changes(
     template: Option<&broker::JournalSpec>,
     partitions: &[(String, LabelSet, i64)],
-) -> anyhow::Result<broker::ApplyRequest> {
+) -> anyhow::Result<Vec<Change>> {
     let mut changes = Vec::new();
 
     for (journal, split, mod_revision) in partitions {
@@ -411,23 +540,88 @@ fn partition_changes(
                 );
                 partition_spec.labels = Some(partition_set);
 
-                changes.push(broker::apply_request::Change {
+                changes.push(Change::Journal(broker::apply_request::Change {
                     expect_mod_revision: *mod_revision,
                     upsert: Some(partition_spec),
                     delete: String::new(),
-                });
+                }));
             }
             _ => {
-                changes.push(broker::apply_request::Change {
+                changes.push(Change::Journal(broker::apply_request::Change {
                     expect_mod_revision: *mod_revision,
                     upsert: None,
                     delete: journal.clone(),
-                });
+                }));
             }
         }
     }
 
-    Ok(broker::ApplyRequest { changes })
+    Ok(changes)
+}
+
+fn converge_ops_journal<'c>(
+    journal_client: &'c gazette::journal::Client,
+    task_type: ops::TaskType,
+    task_name: &str,
+    template: Option<&broker::JournalSpec>,
+) -> (
+    String,
+    impl std::future::Future<Output = anyhow::Result<Vec<Change>>> + 'c,
+) {
+    let maybe_list =
+        template.map(|template| list_ops_journal_request(task_type, task_name, template));
+
+    let name = if let Some((_list, spec)) = &maybe_list {
+        spec.name.clone()
+    } else {
+        "local".to_string() // Direct to reactor-level logs (for testing contexts).
+    };
+
+    let fut = async move {
+        let Some((list_req, spec)) = maybe_list else {
+            return Ok(Vec::new());
+        };
+        // If the journal exists then there's nothing to do (we don't update it).
+        if !journal_client.list(list_req).await?.journals.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(vec![Change::Journal(broker::apply_request::Change {
+            upsert: Some(spec),
+            expect_mod_revision: 0, // Will be created.
+            delete: String::new(),
+        })])
+    };
+
+    (name, fut)
+}
+
+fn list_ops_journal_request(
+    task_type: ops::TaskType,
+    task_name: &str,
+    template: &JournalSpec,
+) -> (broker::ListRequest, JournalSpec) {
+    let mut spec = template.clone();
+    let set = spec.labels.take().unwrap_or_default();
+    let set = labels::partition::encode_key_range(set, 0, u32::MAX);
+    let set = labels::partition::add_value(set, "name", &json!(task_name)).unwrap();
+    let set = labels::partition::add_value(set, "kind", &json!(task_type.as_str_name())).unwrap();
+
+    spec.name = format!(
+        "{}/{}",
+        spec.name,
+        labels::partition::name_suffix(&set).unwrap()
+    );
+    spec.labels = Some(set);
+
+    let list_req = broker::ListRequest {
+        selector: Some(LabelSelector {
+            include: Some(labels::build_set([("name", spec.name.as_str())])),
+            exclude: None,
+        }),
+        ..Default::default()
+    };
+
+    (list_req, spec)
 }
 
 /// Map a parent partition, identified by its name and current LabelSet & Etcd
@@ -527,14 +721,14 @@ mod test {
     fn test_list_partition_request() {
         insta::assert_debug_snapshot!(list_partitions_request(&models::Collection::new(
             "the/collection"
-        )),)
+        )))
     }
 
     #[test]
     fn test_list_task_request() {
         insta::assert_debug_snapshot!(list_task_request(
             ops::TaskType::Derivation,
-            "the/derivation"
+            "the/derivation",
         ),)
     }
 
@@ -556,7 +750,6 @@ mod test {
             models::Id::new([1; 8]),  // build_id
             true,                     // allow_local
             "",                       // connector_network
-            true,                     // generate_ops_collections
             ops::tracing_log_handler,
             false, // don't no-op validations
             false, // don't no-op validations
@@ -597,10 +790,23 @@ mod test {
         let Some(flow::CollectionSpec {
             derivation:
                 Some(flow::collection_spec::Derivation {
-                    recovery_log_template: Some(log_template),
+                    recovery_log_template: Some(recovery_template),
                     shard_template: Some(shard_template),
                     ..
                 }),
+            ..
+        }) = spec
+        else {
+            unreachable!()
+        };
+
+        let tables::BuiltCollection { spec, .. } = built
+            .built_collections
+            .get_key(&models::Collection::new("ops/tasks/BASE_NAME/logs"))
+            .unwrap();
+
+        let Some(flow::CollectionSpec {
+            partition_template: Some(ops_logs_template),
             ..
         }) = spec
         else {
@@ -612,7 +818,7 @@ mod test {
 
         let mut all_partitions = Vec::new();
         let mut all_shards = Vec::new();
-        let mut all_logs = Vec::new();
+        let mut all_recovery = Vec::new();
 
         let mut make_partition = |key_begin, key_end, doc: serde_json::Value| {
             let set = labels::partition::encode_field_range(
@@ -644,7 +850,7 @@ mod test {
                 shard_template.id,
                 labels::shard::id_suffix(&set).unwrap()
             );
-            all_logs.push((
+            all_recovery.push((
                 format!("{}/{}", shard_template.recovery_log_prefix, shard_id),
                 LabelSet::default(),
                 111,
@@ -687,33 +893,49 @@ mod test {
         {
             let partition_changes =
                 partition_changes(Some(&partition_template), &all_partitions).unwrap();
-            let (shard_changes, log_changes) = task_changes(
-                Some((&shard_template, &log_template)),
+            let task_changes = task_changes(
+                Some((&shard_template, &recovery_template)),
                 &all_shards,
-                &all_logs,
+                &all_recovery,
                 4,
+                "ops/logs/name",
+                "ops/stats/name",
             )
             .unwrap();
 
-            insta::assert_json_snapshot!("update", (partition_changes, shard_changes, log_changes));
+            insta::assert_json_snapshot!("update", (partition_changes, task_changes));
         }
 
         // Case: test creation of new specs.
         {
             let partition_changes = partition_changes(Some(&partition_template), &[]).unwrap();
-            let (shard_changes, log_changes) =
-                task_changes(Some((&shard_template, &log_template)), &[], &[], 4).unwrap();
+            let task_changes = task_changes(
+                Some((&shard_template, &recovery_template)),
+                &[],
+                &[],
+                4,
+                "ops/logs/name",
+                "ops/stats/name",
+            )
+            .unwrap();
 
-            insta::assert_json_snapshot!("create", (partition_changes, shard_changes, log_changes));
+            insta::assert_json_snapshot!("create", (partition_changes, task_changes));
         }
 
         // Case: test deletion of existing specs.
         {
             let partition_changes = partition_changes(None, &all_partitions).unwrap();
-            let (shard_changes, log_changes) =
-                task_changes(None, &all_shards, &all_logs, 4).unwrap();
+            let task_changes = task_changes(
+                None,
+                &all_shards,
+                &all_recovery,
+                4,
+                "ops/logs/name",
+                "ops/stats/name",
+            )
+            .unwrap();
 
-            insta::assert_json_snapshot!("delete", (partition_changes, shard_changes, log_changes));
+            insta::assert_json_snapshot!("delete", (partition_changes, task_changes));
         }
 
         // Case: test mixed deletion and creation.
@@ -724,7 +946,7 @@ mod test {
             // to activate the intermediary deletion.
             let mut all_partitions = all_partitions.clone();
             let mut all_shards = all_shards.clone();
-            let mut all_logs = all_logs.clone();
+            let mut all_recovery = all_recovery.clone();
 
             for (name, _, _) in all_partitions.iter_mut() {
                 *name = name.replace("2020202020202020", "replaced-pub-id");
@@ -732,24 +954,23 @@ mod test {
             for (id, _, _) in all_shards.iter_mut() {
                 *id = id.replace("2020202020202020", "replaced-pub-id");
             }
-            for (name, _, _) in all_logs.iter_mut() {
+            for (name, _, _) in all_recovery.iter_mut() {
                 *name = name.replace("2020202020202020", "replaced-pub-id");
             }
 
             let partition_changes =
                 partition_changes(Some(&partition_template), &all_partitions).unwrap();
-            let (shard_changes, log_changes) = task_changes(
-                Some((&shard_template, &log_template)),
+            let task_changes = task_changes(
+                Some((&shard_template, &recovery_template)),
                 &all_shards,
-                &all_logs,
+                &all_recovery,
                 4,
+                "ops/logs/name",
+                "ops/stats/name",
             )
             .unwrap();
 
-            insta::assert_json_snapshot!(
-                "create_and_delete",
-                (partition_changes, shard_changes, log_changes)
-            );
+            insta::assert_json_snapshot!("create_and_delete", (partition_changes, task_changes));
         }
 
         // Case: split a shard on its key or clock.
@@ -761,19 +982,23 @@ mod test {
             let clock_splits =
                 map_shard_to_split(parent_id, parent_set, *parent_revision, false).unwrap();
 
-            let (key_shard_changes, key_log_changes) = task_changes(
-                Some((&shard_template, &log_template)),
+            let key_changes = task_changes(
+                Some((&shard_template, &recovery_template)),
                 &key_splits,
-                &all_logs[..1],
+                &all_recovery[..1],
                 4,
+                "ops/logs/name",
+                "ops/stats/name",
             )
             .unwrap();
 
-            let (clock_shard_changes, clock_log_changes) = task_changes(
-                Some((&shard_template, &log_template)),
+            let clock_changes = task_changes(
+                Some((&shard_template, &recovery_template)),
                 &clock_splits,
-                &all_logs[..1],
+                &all_recovery[..1],
                 4,
+                "ops/logs/name",
+                "ops/stats/name",
             )
             .unwrap();
 
@@ -784,14 +1009,10 @@ mod test {
                     &key_splits,
                     "clock_splits",
                     clock_splits,
-                    "key_shard_changes",
-                    key_shard_changes,
-                    "key_log_changes",
-                    key_log_changes,
-                    "clock_shard_changes",
-                    clock_shard_changes,
-                    "clock_log_changes",
-                    clock_log_changes,
+                    "key_changes",
+                    key_changes,
+                    "clock_changes",
+                    clock_changes,
                 ])
             );
 
@@ -817,6 +1038,20 @@ mod test {
             insta::assert_json_snapshot!(
                 "partition_splits",
                 json!(["splits", splits, "partition_changes", partition_changes])
+            );
+        }
+
+        // Case: generation of ops collection partition.
+        {
+            let (list_req, spec) = list_ops_journal_request(
+                ops::TaskType::Capture,
+                "the/task/name",
+                ops_logs_template,
+            );
+
+            insta::assert_json_snapshot!(
+                "ops_collection_partition",
+                json!(["list_req", list_req, "spec", spec])
             );
         }
     }

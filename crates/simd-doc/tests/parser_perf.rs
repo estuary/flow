@@ -89,11 +89,18 @@ pub fn parse_perf() {
 
     for _ in 0..TOTAL_ROUNDS {
         for chunk in &chunks {
-            let (_begin_offset, parsed) = parser.parse_chunk(chunk, bytes as i64, &alloc).unwrap();
-
+            () = parser.chunk(chunk, bytes as i64).unwrap();
             bytes += chunk.len();
-            docs += parsed.count();
-            alloc.reset();
+
+            loop {
+                alloc.reset();
+                let (_begin_offset, parsed) = parser.parse_many(&alloc).unwrap();
+                docs += parsed.len();
+
+                if parsed.len() == 0 {
+                    break;
+                }
+            }
         }
     }
 
@@ -117,14 +124,18 @@ pub fn transcode_perf() {
 
     for _ in 0..TOTAL_ROUNDS {
         for chunk in &chunks {
-            let output = parser
-                .transcode_chunk(chunk, bytes as i64, scratch)
-                .unwrap();
-
+            () = parser.chunk(chunk, bytes as i64).unwrap();
             bytes += chunk.len();
-            docs += output.iter().count();
 
-            scratch = output.into_inner();
+            loop {
+                let output = parser.transcode_many(scratch).unwrap();
+                docs += output.iter().count();
+                scratch = output.into_inner();
+
+                if scratch.is_empty() {
+                    break;
+                }
+            }
         }
     }
 

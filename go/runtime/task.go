@@ -11,13 +11,13 @@ import (
 	"io"
 	"math"
 	"path"
+	"runtime/pprof"
 	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
@@ -26,6 +26,7 @@ import (
 	"github.com/gogo/protobuf/types"
 	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -40,7 +41,8 @@ type taskBase[TaskSpec pf.Task] struct {
 	host             *FlowConsumer                           // Host Consumer application of the shard.
 	legacyCheckpoint pc.Checkpoint                           // Legacy state.json runtime checkpoint.
 	legacyState      json.RawMessage                         // Legacy state.json connector state.
-	publisher        *OpsPublisher                           // ops.Publisher of task ops.Logs and ops.Stats.
+	opsCancel        context.CancelFunc                      // Cancels ops.Publisher context.
+	opsPublisher     *OpsPublisher                           // ops.Publisher of task ops.Logs and ops.Stats.
 	recorder         *recoverylog.Recorder                   // Recorder of the shard's recovery log.
 	svc              *bindings.TaskService                   // Associated Rust runtime service.
 	term             taskTerm[TaskSpec]                      // Current task term.
@@ -68,16 +70,20 @@ func newTaskBase[TaskSpec pf.Task](
 	recorder *recoverylog.Recorder,
 	extractFn func(*sql.DB, string) (TaskSpec, error),
 ) (*taskBase[TaskSpec], error) {
-	var publisher = NewOpsPublisher(
-		host.LogPublisher,
-		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
-	)
+
+	var opsCtx, opsCancel = context.WithCancel(host.OpsContext)
+	opsCtx = pprof.WithLabels(opsCtx, pprof.Labels(
+		"shard", shard.Spec().Id.String(), // Same label set by consumer framework.
+	))
+	var opsPublisher = NewOpsPublisher(message.NewPublisher(
+		client.NewAppendService(opsCtx, host.Service.Journals), nil))
+
 	var legacyCheckpoint, legacyState, err = parseLegacyState(recorder)
 	if err != nil {
 		return nil, err
 	}
 
-	term, err := newTaskTerm[TaskSpec](nil, extractFn, host, publisher, shard)
+	term, err := newTaskTerm[TaskSpec](nil, extractFn, host, opsPublisher, shard)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +95,7 @@ func newTaskBase[TaskSpec pf.Task](
 			TaskName:         term.labels.TaskName,
 			UdsPath:          path.Join(recorder.Dir(), "socket"),
 		},
-		publisher,
+		opsPublisher,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating task service: %w", err)
@@ -101,7 +107,8 @@ func newTaskBase[TaskSpec pf.Task](
 		host:             host,
 		legacyCheckpoint: legacyCheckpoint,
 		legacyState:      legacyState,
-		publisher:        publisher,
+		opsCancel:        opsCancel,
+		opsPublisher:     opsPublisher,
 		recorder:         recorder,
 		svc:              svc,
 		term:             *term,
@@ -118,16 +125,16 @@ func (t *taskBase[TaskSpec]) StartTaskHeartbeatLoop(shard consumer.Shard, contai
 	} else {
 		logrus.WithField("shard", shard.Spec().Id).Info("usageRate will be 0 because there is no container")
 	}
-	go taskHeartbeatLoop(shard, t.publisher, usageRate)
+	go taskHeartbeatLoop(shard, t.opsPublisher, usageRate)
 }
 
 func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
-	var next, err = newTaskTerm[TaskSpec](&t.term, t.extractFn, t.host, t.publisher, shard)
+	var next, err = newTaskTerm[TaskSpec](&t.term, t.extractFn, t.host, t.opsPublisher, shard)
 	if err != nil {
 		return err
 	}
 
-	ops.PublishLog(t.publisher, ops.Log_info,
+	ops.PublishLog(t.opsPublisher, ops.Log_info,
 		"initialized catalog task term",
 		"nextLabels", next.labels,
 		"prevLabels", t.term.labels,
@@ -142,7 +149,7 @@ func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
 }
 
 func (t *taskBase[TaskSpec]) proxyHook() (*pr.Container, ops.Publisher) {
-	return t.container.Load(), t.publisher
+	return t.container.Load(), t.opsPublisher
 }
 
 func (t *taskBase[TaskSpec]) drop() {
@@ -171,17 +178,12 @@ func newTaskTerm[TaskSpec pf.Task](
 		return nil, fmt.Errorf("parsing task shard labels: %w", err)
 	}
 
-	// TODO(johnny): These need to be dynamic per data-plane.
-	const opsLogsName = "ops.us-central1.v1/logs"
-	const opsStatsName = "ops.us-central1.v1/stats"
-
 	var taskSpec TaskSpec
 
 	if prev != nil && shardSpec == prev.shardSpec {
 		taskSpec = prev.taskSpec
 	} else {
 		// The ShardSpec has changed. Pull its build and extract its TaskSpec.
-		var opsLogs, opsStats *pf.CollectionSpec
 		var build = host.Builds.Open(labels.Build)
 		defer build.Close() // TODO(johnny): Remove build caching.
 
@@ -189,18 +191,12 @@ func newTaskTerm[TaskSpec pf.Task](
 			if taskSpec, err = extractFn(db, labels.TaskName); err != nil {
 				return err
 			}
-			if opsLogs, err = catalog.LoadCollection(db, opsLogsName); err != nil {
-				return fmt.Errorf("loading logs collection: %w", err)
-			}
-			if opsStats, err = catalog.LoadCollection(db, opsStatsName); err != nil {
-				return fmt.Errorf("loading stats collection: %w", err)
-			}
 			return nil
 		}); err != nil {
 			return nil, err
 		}
 
-		if err = publisher.UpdateLabels(labels, opsLogs, opsStats); err != nil {
+		if err = publisher.UpdateLabels(labels); err != nil {
 			return nil, fmt.Errorf("creating ops publisher: %w", err)
 		}
 	}
@@ -220,7 +216,7 @@ func newTaskReader[TaskSpec pf.Task](
 ) *taskReader[TaskSpec] {
 	var coordinator = shuffle.NewCoordinator(
 		shard.Context(),
-		base.publisher,
+		base.opsPublisher,
 		shard.JournalClient(),
 	)
 	return &taskReader[TaskSpec]{
@@ -235,10 +231,10 @@ func (t *taskReader[TaskSpec]) initTerm(shard consumer.Shard) error {
 		return err
 	}
 	var readBuilder, err = shuffle.NewReadBuilder(
+		t.term.ctx,
+		shard.JournalClient(),
 		t.term.labels.Build,
-		t.term.ctx.Done(), // Drain reads upon term cancellation.
-		t.host.Journals,
-		t.publisher,
+		t.opsPublisher,
 		t.host.Service,
 		t.term.shardSpec.Id,
 		t.term.taskSpec,

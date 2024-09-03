@@ -1,11 +1,10 @@
 use super::App;
 use anyhow::Context;
 use axum::{
-    headers,
     http::StatusCode,
     response::{IntoResponse, Response},
-    TypedHeader,
 };
+use axum_extra::{headers, TypedHeader};
 use std::sync::Arc;
 
 // Build an axum::Router which implements a subset of the Confluent Schema Registry API,

@@ -1,5 +1,8 @@
 use std::str::FromStr;
 
+#[cfg(feature = "sqlx-support")]
+use sqlx::{Decode, TypeInfo};
+
 // Estuary epoch is the first representable timestamp in generated IDs.
 // This could be zero, but subtracting |estuary_epoch| results in the
 // high bit being zero for the next ~34 years,
@@ -22,6 +25,10 @@ impl Id {
     }
     pub fn as_array(&self) -> [u8; 8] {
         self.0
+    }
+
+    pub fn from_hex(hex: &str) -> Result<Self, <Self as std::str::FromStr>::Err> {
+        Self::from_str(hex)
     }
 
     /// Constructs a new `Id` from the given parts, or panics if a part is out of range.
@@ -98,6 +105,41 @@ impl<'de> serde::Deserialize<'de> for Id {
         use serde::de::Error;
         let str_val = std::borrow::Cow::<'de, str>::deserialize(deserializer)?;
         Id::from_str(str_val.as_ref()).map_err(|err| D::Error::custom(format!("invalid id: {err}")))
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Type<sqlx::postgres::Postgres> for Id {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("flowid")
+    }
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        *ty == Self::type_info() || ty.name() == "MACADDR8"
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::postgres::PgHasArrayType for Id {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_flowid")
+    }
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Encode<'_, sqlx::postgres::Postgres> for Id {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        buf.extend_from_slice(&self.0);
+        sqlx::encode::IsNull::No
+    }
+}
+
+// TODO(johnny): This works fine for postgres binary format, but breaks for text format.
+// Fix with a proper decoder once blocking issue is resolved:
+//  https://github.com/launchbadge/sqlx/issues/1758
+#[cfg(feature = "sqlx-support")]
+impl sqlx::Decode<'_, sqlx::postgres::Postgres> for Id {
+    fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        <i64 as Decode<'_, sqlx::postgres::Postgres>>::decode(value).map(|i| Self(i.to_be_bytes()))
     }
 }
 

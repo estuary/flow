@@ -19,10 +19,13 @@ High level client bindings for FoundationDB.
 
 This subdirectory / crate is licensed under the terms of the original
 work (MIT or Apache 2), which is available at:
-  https://github.com/Clikengo/foundationdb-rs 
+  https://github.com/Clikengo/foundationdb-rs
 """
 
 [dependencies]
 memchr = { workspace = true }
 serde_json = { workspace = true }
 
+[features]
+num-bigint = []
+uuid = []

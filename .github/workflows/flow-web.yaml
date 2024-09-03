@@ -17,7 +17,7 @@ on:
 
 jobs:
   buildAndPublish:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -30,8 +30,8 @@ jobs:
 
       - name: Install wasm-bindgen
         run: |
-          curl -sSL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.83/wasm-bindgen-0.2.83-x86_64-unknown-linux-musl.tar.gz | tar -zxv
-          mv wasm-bindgen-0.2.83-x86_64-unknown-linux-musl/wasm* ~/.cargo/bin/
+          curl -sSL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.93/wasm-bindgen-0.2.93-x86_64-unknown-linux-musl.tar.gz | tar -zxv
+          mv wasm-bindgen-0.2.93-x86_64-unknown-linux-musl/wasm* ~/.cargo/bin/
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh

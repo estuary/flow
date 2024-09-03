@@ -21,6 +21,7 @@ simd-doc = { path = "../simd-doc" }
 
 anyhow = { workspace = true }
 axum = { workspace = true }
+axum-extra = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }

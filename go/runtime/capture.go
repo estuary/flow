@@ -25,10 +25,11 @@ import (
 type Capture struct {
 	*taskBase[*pf.CaptureSpec]
 	client       pc.Connector_CaptureClient
-	isRestart    bool             // Marks the current consumer transaction is a restart.
-	pollCh       chan pf.OpFuture // Coordinates polls of the client.
-	restarts     message.Clock    // Increments for each restart.
-	transactions message.Clock    // Increments for each transaction.
+	isRestart    bool                  // Marks the current consumer transaction is a restart.
+	pollCh       chan pf.OpFuture      // Coordinates polls of the client.
+	restarts     message.Clock         // Increments for each restart.
+	transactions message.Clock         // Increments for each transaction.
+	watches      []*client.WatchedList // Watches of binding journals.
 }
 
 var _ Application = (*Capture)(nil)
@@ -60,9 +61,32 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 
 // RestoreCheckpoint initializes a catalog task term and restores the last
 // persisted checkpoint, if any, by delegating to its JsonStore.
-func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
+func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+	defer func() {
+		if _err != nil {
+			c.term.cancel()
+		}
+	}()
 	if err := c.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
+	}
+
+	// Note that prior watches are cancelled with the prior term context.
+	c.watches = c.watches[:0] // Truncate.
+
+	for _, binding := range c.term.taskSpec.Bindings {
+		c.watches = append(c.watches, client.NewWatchedList(
+			c.term.ctx,
+			shard.JournalClient(),
+			flow.CollectionWatchRequest(&binding.Collection),
+			nil,
+		))
+	}
+	// Wait for all watches to perform their first update.
+	for _, watch := range c.watches {
+		if err := <-watch.UpdateCh(); err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
+		}
 	}
 
 	var requestExt = &pr.CaptureRequestExt{
@@ -275,7 +299,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		c.isRestart = true // This is not a transaction notification.
 		return nil
 	}
-	var mapper = flow.NewMapper(shard.Context(), c.host.Service.Etcd, c.host.Journals, shard.FQN())
+	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient())
 	var stats *ops.Stats
 
 	// Transaction responses are completed with a final checkpoint that has stats.
@@ -300,6 +324,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 				Doc:        captured.DocJson,
 				PackedKey:  capturedExt.KeyPacked,
 				Partitions: partitions,
+				List:       c.watches[captured.Binding],
 			}); err != nil {
 				return fmt.Errorf("publishing document: %w", err)
 			}
@@ -315,9 +340,9 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	if len(stats.Capture) == 0 {
 		// The connector may have only emitted an empty checkpoint.
 		// Don't publish stats in this case.
-		ops.PublishLog(c.publisher, ops.Log_debug,
+		ops.PublishLog(c.opsPublisher, ops.Log_debug,
 			"capture transaction committing updating driver checkpoint only")
-	} else if err := c.publisher.PublishStats(*stats, pub.PublishUncommitted); err != nil {
+	} else if err := c.opsPublisher.PublishStats(*stats, pub.PublishUncommitted); err != nil {
 		return fmt.Errorf("publishing stats: %w", err)
 	}
 
@@ -330,7 +355,7 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 		return pf.FinishedOperation(nil)
 	}
 
-	ops.PublishLog(c.publisher, ops.Log_debug,
+	ops.PublishLog(c.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"capture", c.term.labels.TaskName,
 		"shard", c.term.shardSpec.Id,
@@ -369,6 +394,7 @@ func (c *Capture) Destroy() {
 		_ = c.client.CloseSend()
 	}
 	c.taskBase.drop()
+	c.taskBase.opsCancel()
 }
 
 func (c *Capture) BeginTxn(consumer.Shard) error                                  { return nil } // No-op.

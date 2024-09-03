@@ -1,3 +1,7 @@
+---
+description: This connector materializes Flow collections into tables in a Microsoft SQLServer database.
+---
+
 # Microsoft SQLServer
 
 This connector materializes Flow collections into tables in a Microsoft SQLServer database.

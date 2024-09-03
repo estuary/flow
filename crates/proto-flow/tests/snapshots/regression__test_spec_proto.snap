@@ -1,21 +1,22 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-expression: message_hex(msg)
+expression: proto_test(msg)
 ---
 |0a0b6163 6d65436f 2f746573 74124a1a| ..acmeCo/test.J. 00000000
 |0b696e67 65737420 73746570 220e7363| .ingest step".sc 00000010
 |6f70653a 2f2f696e 67657374 2a11696e| ope://ingest*.in 00000020
 |67657374 2f636f6c 6c656374 696f6e32| gest/collection2 00000030
 |0d7b2264 6f63223a 226f6e65 227d3209| .{"doc":"one"}2. 00000040
-|7b22646f 63223a32 7d129801 08011001| {"doc":2}....... 00000050
+|7b22646f 63223a32 7d12b101 08011001| {"doc":2}....... 00000050
 |1a0b7665 72696679 20737465 70220e73| ..verify step".s 00000060
 |636f7065 3a2f2f76 65726966 792a1176| cope://verify*.v 00000070
 |65726966 792f636f 6c6c6563 74696f6e| erify/collection 00000080
 |32107b22 76657269 6679223a 226f6e65| 2.{"verify":"one 00000090
 |227d320c 7b227665 72696679 223a327d| "}2.{"verify":2} 000000a0
-|3a420a40 0a1e0a0f 65737475 6172792e| :B.@....estuary. 000000b0
+|3a5b0a40 0a1e0a0f 65737475 6172792e| :[.@....estuary. 000000b0
 |6465762f 666f6f12 0b6c6162 656c2d76| dev/foo..label-v 000000c0
 |616c7565 0a1e0a0f 65737475 6172792e| alue....estuary. 000000d0
 |6465762f 62617212 0b6f7468 65722d76| dev/bar..other-v 000000e0
-|616c7565|                            alue             000000f0
-                                                       000000f4
+|616c7565 12170a15 0a086d79 2d6c6162| alue......my-lab 000000f0
+|656c1207 70726566 69782f18 01|       el..prefix/..    00000100
+                                                       0000010d

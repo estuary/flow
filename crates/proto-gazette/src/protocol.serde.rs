@@ -42,6 +42,7 @@ impl serde::Serialize for AppendRequest {
         }
         if self.offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("offset", ToString::to_string(&self.offset).as_str())?;
         }
         if let Some(v) = self.check_registers.as_ref() {
@@ -55,6 +56,7 @@ impl serde::Serialize for AppendRequest {
         }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         struct_ser.end()
@@ -261,10 +263,12 @@ impl serde::Serialize for AppendResponse {
         }
         if self.total_chunks != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("totalChunks", ToString::to_string(&self.total_chunks).as_str())?;
         }
         if self.delayed_chunks != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("delayedChunks", ToString::to_string(&self.delayed_chunks).as_str())?;
         }
         struct_ser.end()
@@ -515,6 +519,7 @@ impl serde::Serialize for apply_request::Change {
         let mut struct_ser = serializer.serialize_struct("protocol.ApplyRequest.Change", len)?;
         if self.expect_mod_revision != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("expectModRevision", ToString::to_string(&self.expect_mod_revision).as_str())?;
         }
         if let Some(v) = self.upsert.as_ref() {
@@ -967,10 +972,12 @@ impl serde::Serialize for Fragment {
         }
         if self.begin != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("begin", ToString::to_string(&self.begin).as_str())?;
         }
         if self.end != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("end", ToString::to_string(&self.end).as_str())?;
         }
         if let Some(v) = self.sum.as_ref() {
@@ -986,6 +993,7 @@ impl serde::Serialize for Fragment {
         }
         if self.mod_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("modTime", ToString::to_string(&self.mod_time).as_str())?;
         }
         if !self.path_postfix.is_empty() {
@@ -1195,14 +1203,17 @@ impl serde::Serialize for FragmentsRequest {
         }
         if self.begin_mod_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("beginModTime", ToString::to_string(&self.begin_mod_time).as_str())?;
         }
         if self.end_mod_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endModTime", ToString::to_string(&self.end_mod_time).as_str())?;
         }
         if self.next_page_token != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("nextPageToken", ToString::to_string(&self.next_page_token).as_str())?;
         }
         if self.page_limit != 0 {
@@ -1414,6 +1425,7 @@ impl serde::Serialize for FragmentsResponse {
         }
         if self.next_page_token != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("nextPageToken", ToString::to_string(&self.next_page_token).as_str())?;
         }
         struct_ser.end()
@@ -1786,18 +1798,22 @@ impl serde::Serialize for header::Etcd {
         let mut struct_ser = serializer.serialize_struct("protocol.Header.Etcd", len)?;
         if self.cluster_id != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("clusterId", ToString::to_string(&self.cluster_id).as_str())?;
         }
         if self.member_id != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("memberId", ToString::to_string(&self.member_id).as_str())?;
         }
         if self.revision != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("revision", ToString::to_string(&self.revision).as_str())?;
         }
         if self.raft_term != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("raftTerm", ToString::to_string(&self.raft_term).as_str())?;
         }
         struct_ser.end()
@@ -1964,6 +1980,7 @@ impl serde::Serialize for JournalSpec {
         }
         if self.max_append_rate != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("maxAppendRate", ToString::to_string(&self.max_append_rate).as_str())?;
         }
         struct_ser.end()
@@ -2213,6 +2230,7 @@ impl serde::Serialize for journal_spec::Fragment {
         let mut struct_ser = serializer.serialize_struct("protocol.JournalSpec.Fragment", len)?;
         if self.length != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("length", ToString::to_string(&self.length).as_str())?;
         }
         if self.compression_codec != 0 {
@@ -2397,12 +2415,18 @@ impl serde::Serialize for Label {
         if !self.value.is_empty() {
             len += 1;
         }
+        if self.prefix {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.Label", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
         }
         if !self.value.is_empty() {
             struct_ser.serialize_field("value", &self.value)?;
+        }
+        if self.prefix {
+            struct_ser.serialize_field("prefix", &self.prefix)?;
         }
         struct_ser.end()
     }
@@ -2416,12 +2440,14 @@ impl<'de> serde::Deserialize<'de> for Label {
         const FIELDS: &[&str] = &[
             "name",
             "value",
+            "prefix",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Name,
             Value,
+            Prefix,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2445,6 +2471,7 @@ impl<'de> serde::Deserialize<'de> for Label {
                         match value {
                             "name" => Ok(GeneratedField::Name),
                             "value" => Ok(GeneratedField::Value),
+                            "prefix" => Ok(GeneratedField::Prefix),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2466,6 +2493,7 @@ impl<'de> serde::Deserialize<'de> for Label {
             {
                 let mut name__ = None;
                 let mut value__ = None;
+                let mut prefix__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -2480,11 +2508,18 @@ impl<'de> serde::Deserialize<'de> for Label {
                             }
                             value__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Prefix => {
+                            if prefix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("prefix"));
+                            }
+                            prefix__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(Label {
                     name: name__.unwrap_or_default(),
                     value: value__.unwrap_or_default(),
+                    prefix: prefix__.unwrap_or_default(),
                 })
             }
         }
@@ -2701,9 +2736,21 @@ impl serde::Serialize for ListRequest {
         if self.selector.is_some() {
             len += 1;
         }
+        if self.watch {
+            len += 1;
+        }
+        if self.watch_resume.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.ListRequest", len)?;
         if let Some(v) = self.selector.as_ref() {
             struct_ser.serialize_field("selector", v)?;
+        }
+        if self.watch {
+            struct_ser.serialize_field("watch", &self.watch)?;
+        }
+        if let Some(v) = self.watch_resume.as_ref() {
+            struct_ser.serialize_field("watchResume", v)?;
         }
         struct_ser.end()
     }
@@ -2716,11 +2763,16 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
     {
         const FIELDS: &[&str] = &[
             "selector",
+            "watch",
+            "watch_resume",
+            "watchResume",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Selector,
+            Watch,
+            WatchResume,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2743,6 +2795,8 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
                     {
                         match value {
                             "selector" => Ok(GeneratedField::Selector),
+                            "watch" => Ok(GeneratedField::Watch),
+                            "watchResume" | "watch_resume" => Ok(GeneratedField::WatchResume),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2763,6 +2817,8 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut selector__ = None;
+                let mut watch__ = None;
+                let mut watch_resume__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Selector => {
@@ -2771,10 +2827,24 @@ impl<'de> serde::Deserialize<'de> for ListRequest {
                             }
                             selector__ = map_.next_value()?;
                         }
+                        GeneratedField::Watch => {
+                            if watch__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("watch"));
+                            }
+                            watch__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WatchResume => {
+                            if watch_resume__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("watchResume"));
+                            }
+                            watch_resume__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(ListRequest {
                     selector: selector__,
+                    watch: watch__.unwrap_or_default(),
+                    watch_resume: watch_resume__,
                 })
             }
         }
@@ -2934,6 +3004,7 @@ impl serde::Serialize for list_response::Journal {
         }
         if self.mod_revision != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("modRevision", ToString::to_string(&self.mod_revision).as_str())?;
         }
         if let Some(v) = self.route.as_ref() {
@@ -2941,6 +3012,7 @@ impl serde::Serialize for list_response::Journal {
         }
         if self.create_revision != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createRevision", ToString::to_string(&self.create_revision).as_str())?;
         }
         struct_ser.end()
@@ -3315,6 +3387,7 @@ impl serde::Serialize for ReadRequest {
         }
         if self.offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("offset", ToString::to_string(&self.offset).as_str())?;
         }
         if self.block {
@@ -3328,10 +3401,12 @@ impl serde::Serialize for ReadRequest {
         }
         if self.end_offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("endOffset", ToString::to_string(&self.end_offset).as_str())?;
         }
         if self.begin_mod_time != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("beginModTime", ToString::to_string(&self.begin_mod_time).as_str())?;
         }
         struct_ser.end()
@@ -3537,10 +3612,12 @@ impl serde::Serialize for ReadResponse {
         }
         if self.offset != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("offset", ToString::to_string(&self.offset).as_str())?;
         }
         if self.write_head != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("writeHead", ToString::to_string(&self.write_head).as_str())?;
         }
         if let Some(v) = self.fragment.as_ref() {
@@ -3551,6 +3628,7 @@ impl serde::Serialize for ReadResponse {
         }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         struct_ser.end()
@@ -3750,10 +3828,12 @@ impl serde::Serialize for ReplicateRequest {
         }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         if self.content_delta != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("contentDelta", ToString::to_string(&self.content_delta).as_str())?;
         }
         struct_ser.end()
@@ -4195,10 +4275,12 @@ impl serde::Serialize for Sha1Sum {
         let mut struct_ser = serializer.serialize_struct("protocol.SHA1Sum", len)?;
         if self.part1 != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("part1", ToString::to_string(&self.part1).as_str())?;
         }
         if self.part2 != 0 {
             #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("part2", ToString::to_string(&self.part2).as_str())?;
         }
         if self.part3 != 0 {

@@ -1,0 +1,138 @@
+test://example/catalog.yaml:
+  collections:
+    testing/collection:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+    testing/partly-disabled-derivation:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      derive:
+        using:
+          sqlite: {}
+        transforms:
+          - name: enabledTransform
+            shuffle: any
+            source: { name: testing/collection }
+            lambda: "select $id, 1 as count;"
+          - name: disabledTransform
+            shuffle: any
+            source: { name: testing/collection }
+            lambda: "select $id, 2 as count;"
+            disable: true
+    testing/fully-disabled-derivation:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      derive:
+        using:
+          sqlite: {}
+        transforms:
+          - name: disabledTransformA
+            source: { name: testing/collection }
+            lambda: select $id, 1 as count;
+            disable: true
+          - name: disabledTransformB
+            source: { name: testing/collection }
+            lambda: select $id, 2 as count;
+            disable: true
+
+  captures:
+    testing/partially-disabled-capture:
+      endpoint: { connector: { image: s3, config: {} } }
+      bindings:
+        - target: disabled/test/one
+          disable: true
+          resource: { stream: disabled-stream }
+        - target: testing/collection
+          resource: { stream: enabled-stream }
+    testing/fully-disabled-capture:
+      endpoint: { connector: { image: s3, config: {} } }
+      bindings:
+        - target: disabled/test/two
+          disable: true
+          resource: { stream: disabled-stream }
+        - target: disabled/test/three
+          disable: true
+          resource: { stream: another-disabled-stream }
+  materializations:
+    testing/partially-disabled-materialization:
+      endpoint: { connector: { image: s3, config: {} } }
+      bindings:
+        - source: testing/collection
+          disable: true
+          resource: { stream: disabled-stream }
+        - source: testing/collection
+          resource: { stream: enabled-stream }
+
+    testing/fully-disabled-materialization:
+      endpoint: { connector: { image: s3, config: {} } }
+      bindings:
+        - source: testing/collection
+          disable: true
+          resource: { stream: disabled-stream }
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+
+  derivations:
+    testing/partly-disabled-derivation:
+      connectorType: SQLITE
+      config: {}
+      transforms:
+        - readOnly: true
+      shuffleKeyTypes: []
+      generatedFiles: {}
+
+    testing/fully-disabled-derivation:
+      connectorType: SQLITE
+      config: {}
+      transforms: []
+      shuffleKeyTypes: []
+      generatedFiles: {}
+
+  captures:
+    testing/partially-disabled-capture:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings:
+        - resourcePath: [enabled-stream]
+
+    testing/fully-disabled-capture:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings: []
+
+  materializations:
+    testing/partially-disabled-materialization:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings:
+        - resourcePath: [enabled-stream]
+          constraints:
+            flow_document: { type: 2, reason: "location required" }
+
+    testing/fully-disabled-materialization:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings: []

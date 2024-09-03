@@ -141,7 +141,7 @@ async fn test_user_publications() {
         ),
         (
             "flow://materialization/dogs/materialize",
-            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\"\n  }\n]",
+            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\"\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\"\n  }\n]",
         ),
     ]
     "###);
@@ -162,7 +162,7 @@ async fn test_user_publications() {
     [
         (
             "flow://materialization/dogs/materialize",
-            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\"\n  }\n]",
+            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\"\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\"\n  }\n]",
         ),
     ]
     "###);
@@ -192,14 +192,27 @@ async fn test_user_publications() {
     );
 
     // Now publish cats and assert that spec expansion and controllers behave as expected.
-    let noms_spec = harness
+    let tables::LiveCollection {
+        collection: noms_collection,
+        last_pub_id: noms_last_pub_id,
+        model: noms_model,
+        ..
+    } = harness
         .control_plane()
         .get_collection(models::Collection::new("cats/noms"))
         .await
         .unwrap()
         .unwrap();
     let mut draft = tables::DraftCatalog::default();
-    draft.collections.insert(noms_spec.into());
+    draft.collections.insert(tables::DraftCollection {
+        scope: tables::synthetic_scope(
+            models::CatalogType::Collection.to_string(),
+            &noms_collection.as_ref(),
+        ),
+        collection: noms_collection,
+        expect_pub_id: Some(noms_last_pub_id),
+        model: Some(noms_model),
+    });
 
     let result = harness
         .user_publication(

@@ -291,6 +291,10 @@ test://example/int-string-len.schema:
       type: integer
 
 driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+
   materializations:
     testing/webhook/deliveries:
       connectorType: IMAGE

@@ -111,7 +111,7 @@ pub struct Build {
     #[clap(long)]
     db_path: PathBuf,
     /// Publication ID of this build.
-    #[clap(long, default_value = "ff:ff:ff:ff:ff:ff:ff")]
+    #[clap(long, default_value = "ff:ff:ff:ff:ff:ff:ff:ff")]
     pub_id: models::Id,
     /// Build ID of this build.
     #[clap(long)]
@@ -262,7 +262,6 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         build_id,
         true, // Allow local connectors.
         &connector_network,
-        true, // Generate ops collections.
         ops::tracing_log_handler,
         false, // Don't no-op captures.
         false, // Don't no-op derivations.
@@ -288,10 +287,11 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     Ok(())
 }
 
-async fn do_bundle(ctx: &mut crate::CliContext, Bundle { source }: &Bundle) -> anyhow::Result<()> {
-    let (sources, _) =
-        local_specs::load_and_validate(ctx.controlplane_client().await?, source).await?;
-    serde_json::to_writer_pretty(io::stdout(), &local_specs::into_catalog(sources))?;
+async fn do_bundle(_ctx: &mut crate::CliContext, Bundle { source }: &Bundle) -> anyhow::Result<()> {
+    let source = build::arg_source_to_url(source, false)?;
+    let mut draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
+    ::sources::inline_draft_catalog(&mut draft);
+    serde_json::to_writer_pretty(io::stdout(), &local_specs::into_catalog(draft))?;
     Ok(())
 }
 

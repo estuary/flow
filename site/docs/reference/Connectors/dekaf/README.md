@@ -8,3 +8,4 @@ functionality enables integrations with the Kafka ecosystem.
 
 - [Tinybird](/reference/Connectors/dekaf/dekaf-tinybird)
 - [Materialize](/reference/Connectors/dekaf/dekaf-materialize)
+- [StarTree](/reference/Connectors/dekaf/dekaf-startree)

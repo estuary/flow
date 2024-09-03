@@ -5,9 +5,8 @@ use agent::publications::Publisher;
 use anyhow::Context;
 use clap::Parser;
 use derivative::Derivative;
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use rand::Rng;
-use serde::Deserialize;
 
 /// Agent is a daemon which runs server-side tasks of the Flow control-plane.
 #[derive(Derivative, Parser)]
@@ -25,20 +24,9 @@ struct Args {
     /// Path to CA certificate of the database.
     #[clap(long = "database-ca", env = "DATABASE_CA")]
     database_ca: Option<String>,
-    /// URL of the data-plane Gazette broker.
-    #[clap(
-        long = "broker-address",
-        env = "BROKER_ADDRESS",
-        default_value = "http://localhost:8080"
-    )]
-    broker_address: url::Url,
-    /// URL of the data-plane Flow consumer.
-    #[clap(
-        long = "consumer-address",
-        env = "CONSUMER_ADDRESS",
-        default_value = "http://localhost:9000"
-    )]
-    consumer_address: url::Url,
+    /// URL endpoint into which build database are placed.
+    #[clap(long = "builds-root", env = "BUILDS_ROOT")]
+    builds_root: url::Url,
     /// Docker network for connector invocations.
     #[clap(long = "connector-network", default_value = "bridge")]
     connector_network: String,
@@ -51,6 +39,11 @@ struct Args {
     /// Allow local connectors. True for local stacks, and false otherwise.
     #[clap(long = "allow-local")]
     allow_local: bool,
+    /// The port to listen on for API requests.
+    #[clap(long, default_value = "8080", env = "API_PORT")]
+    api_port: u16,
+    #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
+    serve_handlers: bool,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -76,6 +69,12 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn async_main(args: Args) -> Result<(), anyhow::Error> {
+    // Bind early in the application lifecycle, to not fail requests which may dispatch
+    // as soon as the process is up (for example, Tilt on local stacks).
+    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+        .await
+        .context("failed to bind server port")?;
+
     let bindir = std::fs::canonicalize(args.bindir)
         .context("canonicalize --bin-dir")?
         .into_os_string()
@@ -106,15 +105,19 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let system_user_id = agent_sql::get_user_id_for_email(&args.accounts_email, &pg_pool)
         .await
         .context("querying for agent user id")?;
+    let jwt_secret: String = sqlx::query_scalar(r#"show app.settings.jwt_secret;"#)
+        .fetch_one(&pg_pool)
+        .await?;
 
-    let builds_root = resolve_builds_root(&args.consumer_address)
-        .await
-        .context("resolving builds root")?;
-    tracing::info!(%builds_root, "resolved builds root");
+    if args.builds_root.scheme() == "file" {
+        std::fs::create_dir_all(args.builds_root.path())
+            .context("failed to create builds-root directory")?;
+    }
 
     // Start a logs sink into which agent loops may stream logs.
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
+    let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
@@ -123,7 +126,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let publisher = Publisher::new(
         args.allow_local,
         &bindir,
-        &builds_root,
+        &args.builds_root,
         &args.connector_network,
         &logs_tx,
         pg_pool.clone(),
@@ -134,55 +137,51 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         system_user_id,
         publisher.clone(),
         id_gen.clone(),
-        args.broker_address.clone(),
-        args.consumer_address.clone(),
     );
 
-    let serve_fut = agent::serve(
-        vec![
-            Box::new(publisher),
-            Box::new(agent::TagHandler::new(
-                &args.connector_network,
-                &logs_tx,
-                args.allow_local,
-            )),
-            Box::new(agent::DiscoverHandler::new(
-                &args.connector_network,
-                &bindir,
-                &logs_tx,
-                args.allow_local,
-            )),
-            Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
-            Box::new(agent::EvolutionHandler),
-            Box::new(agent::controllers::ControllerHandler::new(control_plane)),
-        ],
+    // Share-able future which completes when the agent should exit.
+    let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
+
+    // Wire up the agent's API server.
+    let api_router = agent::api::build_router(
+        id_gen.clone(),
+        jwt_secret.into_bytes(),
         pg_pool.clone(),
-        tokio::signal::ctrl_c().map(|_| ()),
+        publisher.clone(),
     );
+    let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
+    let api_server = async move { anyhow::Result::Ok(api_server.await?) };
+
+    // Wire up the agent's job execution loop.
+    let serve_fut = if args.serve_handlers {
+        agent::serve(
+            vec![
+                Box::new(publisher),
+                Box::new(agent::TagHandler::new(
+                    &args.connector_network,
+                    &logs_tx,
+                    args.allow_local,
+                )),
+                Box::new(agent::DiscoverHandler::new(
+                    &args.connector_network,
+                    &bindir,
+                    &logs_tx,
+                    args.allow_local,
+                )),
+                Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
+                Box::new(agent::EvolutionHandler),
+                Box::new(agent::controllers::ControllerHandler::new(control_plane)),
+            ],
+            pg_pool.clone(),
+            shutdown,
+        )
+        .boxed()
+    } else {
+        futures::future::ready(Ok(())).boxed()
+    };
 
     std::mem::drop(logs_tx);
-    let ((), ()) = tokio::try_join!(serve_fut, logs_sink.map_err(Into::into))?;
+    let ((), (), ()) = tokio::try_join!(serve_fut, api_server, logs_sink)?;
 
     Ok(())
-}
-
-async fn resolve_builds_root(consumer: &url::Url) -> anyhow::Result<url::Url> {
-    #[derive(Deserialize)]
-    struct Response {
-        cmdline: Vec<String>,
-    }
-    let Response { cmdline } = reqwest::get(consumer.join("/debug/vars")?)
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-
-    tracing::debug!(?cmdline, "fetched Flow consumer cmdline");
-
-    for window in cmdline.windows(2) {
-        if window[0] == "--flow.builds-root" {
-            return Ok(url::Url::parse(&window[1]).context("parsing builds-root")?);
-        }
-    }
-    anyhow::bail!("didn't find --flow.builds-root flag")
 }

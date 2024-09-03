@@ -9,15 +9,18 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-chrono = { workspace = true }
+models = { path = "../models", features = ["sqlx-support"] }
 proto-flow = { path = "../proto-flow" }
-models = { path = "../models" }
+proto-gazette = { path = "../proto-gazette" }
+tables = { path = "../tables" }
+
+anyhow = { workspace = true }
+chrono = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
-hex = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

@@ -91,7 +91,6 @@ async fn validate(
             models::Id::new([1; 8]),
             true, // Allow local connectors.
             network,
-            false, // Don't generate ops collections.
             ops::tracing_log_handler,
             noop_captures,
             noop_derivations,
@@ -209,17 +208,6 @@ impl tables::CatalogResolver for Resolver {
             match result {
                 Ok((mut live, inferred_schemas)) => {
                     live.inferred_schemas = inferred_schemas;
-
-                    // TODO(johnny): Fetch actual storage mappings?
-                    live.storage_mappings.insert_row(
-                        models::Prefix::new(""),
-                        url::Url::parse("flow://control").unwrap(),
-                        vec![models::Store::Gcs(models::GcsBucketAndPrefix {
-                            bucket: "example-bucket".to_string(),
-                            prefix: None,
-                        })],
-                    );
-
                     live
                 }
                 Err(err) => {
@@ -240,13 +228,17 @@ impl Resolver {
     async fn resolve_specs(&self, catalog_names: &[&str]) -> anyhow::Result<tables::LiveCatalog> {
         use models::CatalogType;
 
+        // NoOpCatalogResolver provides a storage mapping and data-plane fixture.
+        let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
+
         // If we're unauthenticated then return an empty LiveCatalog rather than an error.
         if !self.client.is_authenticated() {
-            return Ok(Default::default());
+            return Ok(live);
         }
 
         #[derive(serde::Deserialize)]
         struct LiveSpec {
+            id: models::Id,
             catalog_name: String,
             spec_type: CatalogType,
             #[serde(alias = "spec")]
@@ -263,7 +255,7 @@ impl Resolver {
                 let builder = self
                     .client
                     .from("live_specs_ext")
-                    .select("catalog_name,spec_type,spec,built_spec,last_pub_id")
+                    .select("id,catalog_name,spec_type,spec,built_spec,last_pub_id")
                     .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
 
@@ -273,9 +265,8 @@ impl Resolver {
             .try_collect::<Vec<Vec<LiveSpec>>>()
             .await?;
 
-        let mut live = tables::LiveCatalog::default();
-
         for LiveSpec {
+            id,
             catalog_name,
             spec_type,
             model,
@@ -283,33 +274,34 @@ impl Resolver {
             last_pub_id,
         } in rows.into_iter().flat_map(|i| i.into_iter())
         {
-            let scope = url::Url::parse(&format!("flow://control/{catalog_name}")).unwrap();
-
             match spec_type {
                 CatalogType::Capture => live.captures.insert_row(
                     models::Capture::new(catalog_name),
-                    scope,
+                    id,
+                    models::Id::zero(),
                     last_pub_id,
                     serde_json::from_str::<models::CaptureDef>(model.get())?,
                     serde_json::from_str::<flow::CaptureSpec>(built_spec.get())?,
                 ),
                 CatalogType::Collection => live.collections.insert_row(
                     models::Collection::new(catalog_name),
-                    scope,
+                    id,
+                    models::Id::zero(),
                     last_pub_id,
                     serde_json::from_str::<models::CollectionDef>(model.get())?,
                     serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
                 ),
                 CatalogType::Materialization => live.materializations.insert_row(
                     models::Materialization::new(catalog_name),
-                    scope,
+                    id,
+                    models::Id::zero(),
                     last_pub_id,
                     serde_json::from_str::<models::MaterializationDef>(model.get())?,
                     serde_json::from_str::<flow::MaterializationSpec>(built_spec.get())?,
                 ),
                 CatalogType::Test => live.tests.insert_row(
                     models::Test::new(catalog_name),
-                    scope,
+                    id,
                     last_pub_id,
                     serde_json::from_str::<models::TestDef>(model.get())?,
                     serde_json::from_str::<flow::TestSpec>(built_spec.get())?,

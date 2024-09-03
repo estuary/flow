@@ -70,10 +70,12 @@ fn ex_label_set() -> broker::LabelSet {
             broker::Label {
                 name: "estuary.dev/foo".to_string(),
                 value: "label-value".to_string(),
+                prefix: false,
             },
             broker::Label {
                 name: "estuary.dev/bar".to_string(),
                 value: "other-value".to_string(),
+                prefix: false,
             },
         ],
     }
@@ -81,7 +83,13 @@ fn ex_label_set() -> broker::LabelSet {
 fn ex_label_selector() -> broker::LabelSelector {
     broker::LabelSelector {
         include: Some(ex_label_set()),
-        exclude: None,
+        exclude: Some(broker::LabelSet {
+            labels: vec![broker::Label {
+                name: "my-label".to_string(),
+                value: "prefix/".to_string(),
+                prefix: true,
+            }],
+        }),
     }
 }
 
@@ -653,6 +661,8 @@ fn ex_shard_labeling() -> ops::ShardLabeling {
         split_target: String::new(),
         task_name: "the/task/name".to_string(),
         task_type: ops::TaskType::Derivation as i32,
+        logs_journal: "ops/logs/one=capture/two=the%2Ftask%2Fname".to_string(),
+        stats_journal: "ops/stats/one=capture/two=the%2Ftask%2Fname".to_string(),
     }
 }
 
@@ -798,7 +808,7 @@ fn json_test<
 
 fn proto_test<M: prost::Message + PartialEq + std::fmt::Debug + Default>(msg: M) -> String {
     let encoded = msg.encode_to_vec();
-    let recovered = M::decode::<&[u8]>(&encoded).unwrap();
+    let recovered = M::decode(encoded.as_slice()).unwrap();
     assert_eq!(msg, recovered);
 
     hexdump::hexdump_iter(&encoded)

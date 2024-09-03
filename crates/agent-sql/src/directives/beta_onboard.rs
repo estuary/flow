@@ -74,7 +74,8 @@ pub async fn provision_tenant(
         ),
         grant_to_tenant as (
             insert into role_grants (subject_role, object_role, capability, detail) values
-                ($2, $2, 'write', $3)      -- Tenant specs may write to other tenant specs.
+                ($2, $2, 'write', $3),             -- Tenant specs may write to other tenant specs.
+                ($2, 'ops/dp/public/', 'read', $3) -- Tenant may access public data-planes.
             on conflict do nothing
         ),
         create_storage_mappings as (

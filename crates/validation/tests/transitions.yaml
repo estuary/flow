@@ -1,4 +1,3 @@
-
 test://example/catalog.yaml:
   collections:
     the/collection:
@@ -6,8 +5,8 @@ test://example/catalog.yaml:
       schema:
         type: object
         properties:
-            f_one: {type: integer}
-            f_two: {type: string}
+          f_one: { type: integer }
+          f_two: { type: string }
         required: [f_one, f_two]
       expectPubId: "10:10:10:10:10:10:10:10"
 
@@ -16,8 +15,8 @@ test://example/catalog.yaml:
       schema:
         type: object
         properties:
-            d_one: {type: integer}
-            d_two: {type: string}
+          d_one: { type: integer }
+          d_two: { type: string }
         required: [d_one, d_two]
       derive:
         using:
@@ -35,7 +34,7 @@ test://example/catalog.yaml:
       endpoint:
         connector:
           image: an/image
-          config: {a: config}
+          config: { a: config }
       bindings:
         - target: the/collection
           resource: { table: foo }
@@ -46,7 +45,7 @@ test://example/catalog.yaml:
       endpoint:
         connector:
           image: other/image
-          config: {a: config}
+          config: { a: config }
       bindings:
         - source: the/collection
           resource: { table: bar }
@@ -55,55 +54,72 @@ test://example/catalog.yaml:
   tests:
     the/test:
       steps:
-      - ingest:
-          collection: the/collection
-          documents: [{ f_one: 42, f_two: "a string" }]
+        - ingest:
+            collection: the/collection
+            documents: [{ f_one: 42, f_two: "a string" }]
       expectPubId: "10:10:10:10:10:10:10:10"
 
 driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+    "12:12:12:12:12:12:12:01": {}
+    "12:12:12:12:12:12:12:02": {}
+    "12:12:12:12:12:12:12:03": {}
+    "12:12:12:12:12:12:12:04": {}
+
   liveCaptures:
     the/capture:
       lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:01"
+      dataPlaneId: "12:12:12:12:12:12:12:01"
 
   liveCollections:
     the/collection:
       key: [/f_one]
       lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:02"
+      dataPlaneId: "12:12:12:12:12:12:12:02"
       derivation: false
     the/derivation:
       key: [/d_one]
       lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:03"
+      dataPlaneId: "12:12:12:12:12:12:12:03"
       derivation: true
 
   liveMaterializations:
     the/materialization:
       lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:04"
+      dataPlaneId: "12:12:12:12:12:12:12:04"
 
   liveTests:
     the/test:
       lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:05"
 
   captures:
     the/capture:
       connectorType: IMAGE
       config:
         image: an/image
-        config: {a: config}
-      bindings: [{resourcePath: [capture, path]}]
+        config: { a: config }
+      bindings: [{ resourcePath: [capture, path] }]
 
   derivations:
     the/derivation:
       connectorType: SQLITE
       config: {}
       shuffleKeyTypes: [STRING]
-      transforms: [{readOnly: true}]
+      transforms: [{ readOnly: true }]
 
   materializations:
     the/materialization:
       connectorType: IMAGE
       config:
         image: other/image
-        config: {a: config}
+        config: { a: config }
       bindings:
         - constraints:
             flow_document: { type: 2, reason: "location required" }

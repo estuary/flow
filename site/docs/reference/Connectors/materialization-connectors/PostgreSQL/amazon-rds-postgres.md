@@ -1,3 +1,7 @@
+---
+description: This connector materializes Flow collections into tables in a Amazon RDS for PostgreSQL database.
+---
+
 # Amazon RDS for PostgreSQL
 
 This connector materializes Flow collections into tables in a PostgreSQL database.

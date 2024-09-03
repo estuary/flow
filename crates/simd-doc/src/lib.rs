@@ -20,22 +20,32 @@ mod tests;
 /// For large documents (greater than one megabyte) it falls back to serde_json
 /// for parsing.
 pub struct Parser {
-    buf: Vec<u8>,
     ffi: cxx::UniquePtr<ffi::Parser>,
+    // Complete, newline-separate documents which are ready to parse.
+    // This buffer always ends with a newline or is empty.
+    whole: Vec<u8>,
+    // Partial document for which we're awaiting a newline.
+    // This buffer never contains any newlines.
+    partial: Vec<u8>,
+    // Offset of the first byte of `whole` or `partial` within the external stream.
     offset: i64,
+    // Interior buffer used to hold parsed HeapNodes.
+    // It's allocated but always empty between calls (drained upon parse() return).
     parsed: Vec<(doc::HeapNode<'static>, i64)>,
 }
 
 impl Parser {
+    /// Return a new, empty Parser.
     pub fn new() -> Self {
         Self {
-            buf: Vec::new(),
             // We must choose what the maximum capacity (and document size) of the
             // parser will be. This value shouldn't be too large, or it negatively
             // impacts parser performance. According to the simdjson docs, 1MB is
             // something of a sweet spot. Inputs larger than this capacity will
             // trigger the fallback handler.
             ffi: ffi::new_parser(1_000_000),
+            whole: Vec::new(),
+            partial: Vec::new(),
             offset: 0,
             parsed: Vec::new(),
         }
@@ -44,10 +54,10 @@ impl Parser {
     /// Parse a JSON document, which may have arbitrary whitespace,
     /// from `input` and return its doc::HeapNode representation.
     ///
-    /// parse_one() cannot be called after a call to parse_chunk()
-    /// or transcode_chunk() which retained a partial line remainder.
-    /// Generally, a Parser should be used for working with single
-    /// documents or working chunks of documents, but not both.
+    /// parse_one() cannot be called unless the Parser is completely empty,
+    /// with no internal remainder from prior calls to chunk(), parse(),
+    /// and transcode(). Generally, a Parser should be used for working with
+    /// single documents or working chunks of documents, but not both.
     pub fn parse_one<'s, 'a>(
         &'s mut self,
         input: &[u8],
@@ -57,154 +67,178 @@ impl Parser {
         let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
 
         assert!(
-            self.buf.is_empty(),
-            "internal buffer is non-empty (incorrect mixed use of parse_one() with parse() or transcode())"
+            self.whole.is_empty(),
+            "internal buffer is non-empty (incorrect mixed use of parse_one() with chunk())"
         );
-        self.buf.extend_from_slice(input);
+        let mut buf = std::mem::take(&mut self.whole);
+        buf.extend_from_slice(input);
 
-        if let Err(err) = parse_simd(
-            &mut self.buf,
-            self.offset,
-            alloc,
-            &mut self.parsed,
-            &mut self.ffi,
-        ) {
+        if let Err(err) = parse_simd(&mut buf, 0, alloc, &mut self.parsed, &mut self.ffi) {
             self.parsed.clear(); // Clear a partial simd parsing.
-            tracing::debug!(%err, "simdjson JSON parsing failed; using fallback");
-            () = parse_fallback(&mut self.buf, self.offset, alloc, &mut self.parsed)?;
+            tracing::debug!(%err, "simdjson JSON parse-one failed; using fallback");
+
+            let mut de = serde_json::Deserializer::from_slice(&buf);
+            let node = doc::HeapNode::from_serde(&mut de, &alloc)?;
+            self.parsed.push((node, 0));
         }
+        let mut parsed = self.parsed.drain(..);
 
-        if self.parsed.len() != 1 {
-            let len = self.parsed.len();
-            self.parsed.clear();
-
+        if parsed.len() != 1 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("expected one document, but parsed {len}"),
+                format!("expected one document, but parsed {}", parsed.len()),
             ));
         }
 
-        self.buf.clear();
+        // Re-use allocated capacity.
+        buf.clear();
+        self.whole = buf;
 
-        Ok(self.parsed.pop().unwrap().0)
+        Ok(parsed.next().unwrap().0)
     }
 
-    /// Parse newline-delimited JSON documents of `chunk` into equivalent
-    /// doc::HeapNode representations. `offset` is the offset of the first
-    /// `chunk` byte within the context of its source stream.
+    /// Supply Parser with the next chunk of newline-delimited JSON document content.
     ///
-    /// `chunk` may end with a partial document, in which case the partial
-    /// document is held back and is expected to be continued by the `chunk`
-    /// of a following call to `parse_chunk`.
+    /// `chunk_offset` is the offset of the first `chunk` byte within the
+    /// context of its external source stream.
     ///
-    /// `parse_chunk` returns the begin offset of the document sequence,
+    /// `chunk` may end with a partial document, or only contain part of a
+    /// single document, in which case the partial document is expected to
+    /// be continued by a following call to chunk().
+    pub fn chunk(&mut self, chunk: &[u8], chunk_offset: i64) -> Result<(), std::io::Error> {
+        let enqueued = self.whole.len() + self.partial.len();
+
+        if enqueued == 0 {
+            self.offset = chunk_offset; // We're empty. Allow the offset to jump.
+        } else if chunk_offset != self.offset + enqueued as i64 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "parser has {enqueued} bytes of document prefix starting at offset {}, but got {}-byte chunk at unexpected input offset {chunk_offset}",
+                    self.offset, chunk.len(),
+                ),
+            ));
+        }
+
+        let Some(last_newline) = memchr::memrchr(b'\n', &chunk) else {
+            // If `chunk` doesn't contain a newline, it cannot complete a document.
+            self.partial.extend_from_slice(chunk);
+            return Ok(());
+        };
+
+        if self.whole.is_empty() {
+            std::mem::swap(&mut self.whole, &mut self.partial);
+            self.whole.extend_from_slice(&chunk[..last_newline + 1]);
+            self.partial.extend_from_slice(&chunk[last_newline + 1..]);
+        } else {
+            self.whole.extend_from_slice(&self.partial);
+            self.whole.extend_from_slice(&chunk[..last_newline + 1]);
+
+            self.partial.clear();
+            self.partial.extend_from_slice(&chunk[last_newline + 1..]);
+        }
+
+        Ok(())
+    }
+
+    /// Transcode newline-delimited JSON documents into equivalent
+    /// doc::ArchivedNode representations. `pre_allocated` is a potentially
+    /// pre-allocated buffer which is cleared and used within the returned
+    /// Transcoded instance.
+    ///
+    /// transcode() may return fewer documents than are available if an error
+    /// is encountered in the input. Callers should repeatedly poll transcode()
+    /// until it returns an empty Ok(Transcoded) in order to consume all
+    /// documents and errors.
+    pub fn transcode_many(
+        &mut self,
+        pre_allocated: rkyv::AlignedVec,
+    ) -> Result<Transcoded, (std::io::Error, std::ops::Range<i64>)> {
+        let mut output = Transcoded {
+            v: pre_allocated,
+            offset: self.offset,
+        };
+        output.v.clear();
+
+        if self.whole.is_empty() {
+            return Ok(output);
+        }
+
+        let (consumed, maybe_err) =
+            match transcode_simd(&mut self.whole, &mut output, &mut self.ffi) {
+                Err(exception) => {
+                    output.v.clear(); // Clear a partial simd transcoding.
+                    tracing::debug!(%exception, "simdjson JSON transcoding failed; using fallback");
+
+                    let (consumed, v, maybe_err) =
+                        transcode_fallback(&self.whole, self.offset, std::mem::take(&mut output.v));
+                    output.v = v;
+
+                    (consumed, maybe_err)
+                }
+                Ok(()) => (self.whole.len(), None),
+            };
+
+        self.offset += consumed as i64;
+        self.whole.drain(..consumed);
+
+        if let Some(err) = maybe_err {
+            return Err(err);
+        }
+        Ok(output)
+    }
+
+    /// Parse newline-delimited JSON documents into equivalent doc::HeapNode
+    /// representations, backed by `alloc`.
+    ///
+    /// parse() returns the begin offset of the document sequence,
     /// and an iterator of a parsed document and the input offset of its
     /// *following* document. The caller can use the returned begin offset
     /// and iterator offsets to compute the [begin, end) offset extents
     /// of each parsed document.
-    pub fn parse_chunk<'s, 'a>(
+    ///
+    /// parse() may return fewer documents than are available if an error
+    /// is encountered in the input. Callers should repeatedly poll parse()
+    /// until it returns Ok with an empty iterator in order to consume all
+    /// documents and errors.
+    pub fn parse_many<'s, 'a>(
         &'s mut self,
-        chunk: &[u8],
-        offset: i64,
         alloc: &'a doc::Allocator,
-    ) -> Result<(i64, std::vec::Drain<'s, (doc::HeapNode<'a>, i64)>), std::io::Error> {
+    ) -> Result<
+        (i64, std::vec::Drain<'s, (doc::HeapNode<'a>, i64)>),
+        (std::io::Error, std::ops::Range<i64>),
+    > {
         // Safety: we'll transmute back to lifetime 'a prior to return.
         let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
 
-        let Some(last_newline) = self.prepare_chunk(chunk, offset)? else {
+        if self.whole.is_empty() {
             return Ok((self.offset, self.parsed.drain(..))); // Nothing to parse yet. drain(..) is empty.
         };
-        if let Err(err) = parse_simd(
-            &mut self.buf,
+
+        let (consumed, maybe_err) = match parse_simd(
+            &mut self.whole,
             self.offset,
             alloc,
             &mut self.parsed,
             &mut self.ffi,
         ) {
-            self.parsed.clear(); // Clear a partial simd parsing.
-            tracing::debug!(%err, "simdjson JSON parsing failed; using fallback");
-            () = parse_fallback(&mut self.buf, self.offset, alloc, &mut self.parsed)?;
-        }
+            Err(exception) => {
+                self.parsed.clear(); // Clear a partial simd parsing.
+                tracing::debug!(%exception, "simdjson JSON parsing failed; using fallback");
+
+                parse_fallback(&self.whole, self.offset, alloc, &mut self.parsed)
+            }
+            Ok(()) => (self.whole.len(), None),
+        };
 
         let begin = self.offset;
-        self.offset += self.buf.len() as i64;
-        self.buf.clear();
-        self.buf.extend_from_slice(&chunk[last_newline + 1..]);
+        self.offset += consumed as i64;
+        self.whole.drain(..consumed);
 
-        Ok((begin, self.parsed.drain(..)))
-    }
-
-    /// Transcode newline-delimited JSON documents of `chunk` into equivalent
-    /// doc::ArchivedNode representations. `offset` is the offset of the first
-    /// `chunk` byte within the context of its source stream, and is mapped into
-    /// enumerated offsets of each transcoded output document.
-    ///
-    /// `chunk` may end with a partial document, in which case the partial
-    /// document is held back and is expected to be continued by the `chunk`
-    /// of a following call to `transcode()`.
-    ///
-    /// `pre_allocated` is a potentially pre-allocated buffer which is cleared
-    /// and used within the returned Transcoded instance.
-    pub fn transcode_chunk(
-        &mut self,
-        chunk: &[u8],
-        offset: i64,
-        pre_allocated: rkyv::AlignedVec,
-    ) -> Result<Transcoded, std::io::Error> {
-        let last_newline = self.prepare_chunk(chunk, offset)?;
-
-        let mut output = Transcoded {
-            v: pre_allocated,
-            offset: self.offset, // Note self.offset is updated by prepare_chunk().
-        };
-        output.v.clear();
-
-        let Some(last_newline) = last_newline else {
-            return Ok(output); // Nothing to parse yet. `output` is empty.
-        };
-        if let Err(err) = transcode_simd(&mut self.buf, &mut output, &mut self.ffi) {
-            output.v.clear(); // Clear a partial simd transcoding.
-            tracing::debug!(%err, "simdjson JSON parsing failed; using fallback");
-            output.v = transcode_fallback(&mut self.buf, std::mem::take(&mut output.v))?;
+        if let Some(err) = maybe_err {
+            return Err(err);
         }
-
-        self.offset += self.buf.len() as i64;
-        self.buf.clear();
-        self.buf.extend_from_slice(&chunk[last_newline + 1..]);
-
-        Ok(output)
-    }
-
-    #[inline]
-    fn prepare_chunk(
-        &mut self,
-        input: &[u8],
-        offset: i64,
-    ) -> Result<Option<usize>, std::io::Error> {
-        if self.buf.is_empty() {
-            self.offset = offset;
-        } else if self.offset + self.buf.len() as i64 != offset {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "parser has {} bytes of document prefix at offset {}, but got unexpected input offset {offset}",
-                    self.buf.len(), self.offset
-                ),
-            ));
-        };
-
-        let Some(last_newline) = memchr::memrchr(b'\n', &input) else {
-            // Neither `self.buf` nor `input` contain a newline,
-            // and together reflect only a partial document.
-            self.buf.extend_from_slice(input);
-            return Ok(None);
-        };
-
-        // Complete a series of whole documents by appending through the final newline.
-        // The remainder, which doesn't contain a newline, is held back for now.
-        self.buf.extend_from_slice(&input[..last_newline + 1]);
-
-        Ok(Some(last_newline))
+        Ok((begin, self.parsed.drain(..)))
     }
 }
 
@@ -247,71 +281,89 @@ fn transcode_simd(
 }
 
 fn parse_fallback<'a>(
-    input: &[u8],
+    mut input: &[u8],
     offset: i64,
     alloc: &'a doc::Allocator,
     output: &mut Vec<(doc::HeapNode<'a>, i64)>,
-) -> Result<(), serde_json::Error> {
-    let mut r = input;
+) -> (usize, Option<(std::io::Error, std::ops::Range<i64>)>) {
+    let mut consumed = 0;
 
-    while !r.is_empty() {
-        let mut deser = serde_json::Deserializer::from_reader(&mut r);
-        let node = doc::HeapNode::from_serde(&mut deser, &alloc)?;
+    while !input.is_empty() {
+        let pivot = memchr::memchr(b'\n', &input).expect("input always ends with newline") + 1;
 
-        if let Some(skip) = r.iter().position(|c| !c.is_ascii_whitespace()) {
-            r = &r[skip..];
-        } else {
-            r = &r[..0]; // Only whitespace remains.
+        let mut de = serde_json::Deserializer::from_slice(&input[..pivot]);
+        match doc::HeapNode::from_serde(&mut de, &alloc) {
+            Ok(node) => {
+                input = &input[pivot..];
+                consumed += pivot;
+                output.push((node, offset + consumed as i64));
+            }
+            // Surface an error encountered at the very first document.
+            Err(err) if consumed == 0 => {
+                return (pivot, Some((err.into(), offset..offset + pivot as i64)))
+            }
+            // Otherwise, return early with the documents we did parse.
+            // We'll encounter the error again on our next call and return it then.
+            Err(_err) => break,
         }
-        let next_offset = offset + input.len() as i64 - r.len() as i64;
-
-        output.push((node, next_offset));
     }
 
-    Ok(())
+    (consumed, None)
 }
 
 fn transcode_fallback(
-    input: &[u8],
+    mut input: &[u8],
+    offset: i64,
     mut v: rkyv::AlignedVec,
-) -> Result<rkyv::AlignedVec, serde_json::Error> {
+) -> (
+    usize,
+    rkyv::AlignedVec,
+    Option<(std::io::Error, std::ops::Range<i64>)>,
+) {
     let mut alloc = doc::HeapNode::allocator_with_capacity(input.len());
-    let mut r = input;
+    let mut consumed = 0;
 
-    while !r.is_empty() {
-        let mut deser = serde_json::Deserializer::from_reader(&mut r);
-        let node = doc::HeapNode::from_serde(&mut deser, &alloc)?;
+    while !input.is_empty() {
+        let pivot = memchr::memchr(b'\n', &input).expect("input always ends with newline") + 1;
 
-        if let Some(skip) = r.iter().position(|c| !c.is_ascii_whitespace()) {
-            r = &r[skip..];
-        } else {
-            r = &r[..0]; // Only whitespace remains.
+        let mut de = serde_json::Deserializer::from_slice(&input[..pivot]);
+        match doc::HeapNode::from_serde(&mut de, &alloc) {
+            Ok(node) => {
+                input = &input[pivot..];
+                consumed += pivot;
+
+                // Write the document header (next interior offset and length placeholder).
+                v.extend_from_slice(&(consumed as u32).to_le_bytes());
+                v.extend_from_slice(&[0; 4]); // Length placeholder.
+                let start_len = v.len();
+
+                // Serialize HeapNode into ArchivedNode by extending our `output.v` buffer.
+                let mut ser = rkyv::ser::serializers::AllocSerializer::<512>::new(
+                    rkyv::ser::serializers::AlignedSerializer::new(v),
+                    Default::default(),
+                    Default::default(),
+                );
+                ser.serialize_value(&node)
+                    .expect("rkyv serialization cannot fail");
+                v = ser.into_serializer().into_inner();
+
+                // Update the document header, now that we know the actual length.
+                let len = ((v.len() - start_len) as u32).to_le_bytes();
+                (&mut v[start_len - 4..start_len]).copy_from_slice(&len);
+
+                alloc.reset();
+            }
+            // Surface an error encountered at the very first document.
+            Err(err) if consumed == 0 => {
+                return (pivot, v, Some((err.into(), offset..offset + pivot as i64)))
+            }
+            // Otherwise, return early with the documents we did parse.
+            // We'll encounter the error again on our next call and return it then.
+            Err(_err) => break,
         }
-        let next_offset = input.len() as u32 - r.len() as u32;
-
-        // Write the document header (next offset and length placeholder).
-        v.extend_from_slice(&next_offset.to_le_bytes());
-        v.extend_from_slice(&[0; 4]); // Length placeholder.
-        let start_len = v.len();
-
-        // Serialize HeapNode into ArchivedNode by extending our `output.v` buffer.
-        let mut ser = rkyv::ser::serializers::AllocSerializer::<512>::new(
-            rkyv::ser::serializers::AlignedSerializer::new(v),
-            Default::default(),
-            Default::default(),
-        );
-        ser.serialize_value(&node)
-            .expect("rkyv serialization cannot fail");
-        v = ser.into_serializer().into_inner();
-
-        // Update the document header, now that we know the actual length.
-        let len = ((v.len() - start_len) as u32).to_le_bytes();
-        (&mut v[start_len - 4..start_len]).copy_from_slice(&len);
-
-        alloc.reset();
     }
 
-    Ok(v)
+    (consumed, v, None)
 }
 
 #[inline]

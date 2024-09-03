@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"path"
 	"testing"
 
@@ -174,7 +175,7 @@ func TestConvergence(t *testing.T) {
 		shard.LabelSet.SetValue(labels.SplitSource, "whoops")
 		_, err = MapShardToSplit(derivation, []pc.ListResponse_Shard{{Spec: *shard}}, false)
 		require.EqualError(t, err,
-			"shard derivation/example/derivation/00ffffffffffffff/00000000-00000000 is already splitting from source whoops")
+			"shard derivation/example/derivation/ffffffffffffffff/00000000-00000000 is already splitting from source whoops")
 
 		// Case: already has a split-target.
 		shard.LabelSet.Remove(labels.SplitSource)
@@ -182,7 +183,7 @@ func TestConvergence(t *testing.T) {
 
 		_, err = MapShardToSplit(derivation, []pc.ListResponse_Shard{{Spec: *shard}}, false)
 		require.EqualError(t, err,
-			"shard derivation/example/derivation/00ffffffffffffff/00000000-00000000 is already splitting into target whoops")
+			"shard derivation/example/derivation/ffffffffffffffff/00000000-00000000 is already splitting into target whoops")
 
 		// Case: expects exactly one shard.
 		_, err = MapShardToSplit(derivation, nil, false)
@@ -256,7 +257,7 @@ func TestConvergence(t *testing.T) {
 
 		var _, err = CollectionChanges(collection, allPartitions, duplicated, aj[:1])
 		require.EqualError(t, err,
-			"duplicate desired partition journal example/collection/00ffffffffffffff/a_bool=%_true/a_str=a-val/pivot=10000000")
+			"duplicate desired partition journal example/collection/ffffffffffffffff/a_bool=%_true/a_str=a-val/pivot=10000000")
 	})
 
 	var desiredTasks = MapShardsToCurrentOrInitialSplits(allShards, 1234)
@@ -314,7 +315,7 @@ func TestConvergence(t *testing.T) {
 
 		var _, _, err = TaskChanges(derivation, allShards, allLogs, duplicated, as[:1], aj[:1])
 		require.EqualError(t, err,
-			"duplicate desired shard derivation/example/derivation/00ffffffffffffff/10000000-60000000")
+			"duplicate desired shard derivation/example/derivation/ffffffffffffffff/10000000-60000000")
 	})
 
 	t.Run("activate-empty-cluster", func(t *testing.T) {
@@ -385,11 +386,16 @@ type mockJournals struct {
 	logs        map[string]*pb.ListResponse
 }
 
+type mockJournalsListStream struct {
+	out *pb.ListResponse
+	pb.Journal_ListClient
+}
+
 type mockShards struct {
 	tasks map[string]*pc.ListResponse
 }
 
-func (jc *mockJournals) List(ctx context.Context, in *pb.ListRequest, opts ...grpc.CallOption) (*pb.ListResponse, error) {
+func (jc *mockJournals) List(ctx context.Context, in *pb.ListRequest, opts ...grpc.CallOption) (pb.Journal_ListClient, error) {
 	var out *pb.ListResponse
 
 	if name := in.Selector.Include.ValueOf(labels.Collection); name != "" {
@@ -419,8 +425,20 @@ func (jc *mockJournals) List(ctx context.Context, in *pb.ListRequest, opts ...gr
 	for i := range out.Journals {
 		out.Journals[i].Route = pb.Route{Primary: -1}
 	}
-	return out, nil
+	return &mockJournalsListStream{out, nil}, nil
 }
+
+func (ls *mockJournalsListStream) Recv() (*pb.ListResponse, error) {
+	var out = ls.out
+	ls.out = nil
+
+	if out != nil {
+		return out, nil
+	} else {
+		return nil, io.EOF
+	}
+}
+func (ls *mockJournalsListStream) Context() context.Context { return context.Background() }
 
 func (sc *mockShards) List(ctx context.Context, in *pc.ListRequest, opts ...grpc.CallOption) (*pc.ListResponse, error) {
 	var out *pc.ListResponse

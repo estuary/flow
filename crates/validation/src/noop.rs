@@ -11,6 +11,7 @@ impl Connectors for NoOpConnectors {
     fn validate_capture<'a>(
         &'a self,
         request: capture::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
         let capture::Request {
             validate: Some(mut request),
@@ -39,6 +40,7 @@ impl Connectors for NoOpConnectors {
     fn validate_derivation<'a>(
         &'a self,
         request: derive::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
         let derive::Request {
             validate: Some(mut request),
@@ -67,6 +69,7 @@ impl Connectors for NoOpConnectors {
     fn validate_materialization<'a>(
         &'a self,
         request: materialize::Request,
+        _data_plane: &tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
         let materialize::Request {
             validate: Some(mut request),

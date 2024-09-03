@@ -12,7 +12,9 @@ fn transcoded_and_fallback(input: &mut Vec<u8>) -> (crate::Transcoded, crate::Tr
     };
     () = crate::transcode_simd(input, &mut simd, &mut crate::ffi::new_parser(1_000_000)).unwrap();
 
-    let fallback = crate::transcode_fallback(&input, Default::default()).unwrap();
+    let (_consumed, fallback, maybe_err) = crate::transcode_fallback(&input, 0, Default::default());
+    assert_eq!(None, maybe_err.map(|(err, _location)| err.to_string()));
+
     let fallback = crate::Transcoded {
         v: fallback,
         offset: 0,
@@ -36,7 +38,8 @@ fn parsed_and_fallback<'a>(
     .unwrap();
 
     let mut fallback = Vec::new();
-    () = crate::parse_fallback(input, 123_000_000, alloc, &mut fallback).unwrap();
+    let (_consumed, maybe_err) = crate::parse_fallback(input, 123_000_000, alloc, &mut fallback);
+    assert_eq!(None, maybe_err.map(|(err, _location)| err.to_string()));
 
     (simd, fallback)
 }

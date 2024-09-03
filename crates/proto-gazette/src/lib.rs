@@ -38,6 +38,27 @@ pub mod message_flags {
     pub const ACK_TXN: u64 = 0x2;
 }
 
+pub mod capability {
+    pub const LIST: u32 = 1 << 1;
+    pub const APPLY: u32 = 1 << 2;
+    pub const READ: u32 = 1 << 3;
+    pub const APPEND: u32 = 1 << 4;
+    pub const REPLICATE: u32 = 1 << 5;
+}
+
+// Claims reflect the scope of an authorization. They grant the client the
+// indicated Capability against resources matched by the corresponding
+// Selector.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct Claims {
+    pub cap: u32,
+    pub exp: u64,
+    pub iat: u64,
+    pub iss: String,
+    pub sel: broker::LabelSelector,
+    pub sub: String,
+}
+
 impl std::hash::Hash for broker::process_spec::Id {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write(self.suffix.as_bytes());
@@ -46,3 +67,22 @@ impl std::hash::Hash for broker::process_spec::Id {
 }
 
 impl Eq for broker::process_spec::Id {}
+
+impl broker::LabelSelector {
+    pub fn include(&self) -> &broker::LabelSet {
+        if let Some(set) = &self.include {
+            set
+        } else {
+            &EMPTY_LABEL_SET
+        }
+    }
+    pub fn exclude(&self) -> &broker::LabelSet {
+        if let Some(set) = &self.include {
+            set
+        } else {
+            &EMPTY_LABEL_SET
+        }
+    }
+}
+
+static EMPTY_LABEL_SET: broker::LabelSet = broker::LabelSet { labels: Vec::new() };

@@ -1,6 +1,3 @@
-import:
-  - ../materialize-logs.flow.yaml
-
 collections:
   examples/greetings:
     schema:
@@ -43,4 +40,3 @@ materializations:
       - resource:
           table: greetings
         source: examples/greetings
-
