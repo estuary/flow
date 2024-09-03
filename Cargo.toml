@@ -82,6 +82,9 @@ librocksdb-sys = { version = "0.16.0", default-features = false, features = [
 lz4 = "1.24.0"
 mime = "0.3"
 memchr = "2.5"
+metrics = "0.23.0"
+metrics-prometheus = "0.7.0"
+prometheus = "0.13.4"
 md5 = "0.7.0"
 num-bigint = "0.4"
 
