@@ -186,7 +186,7 @@ jobs:
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
       - name: Download gnu-linux-binaries
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4.1.7
         with:
           name: linux-gnu-binaries
           path: linux-gnu-binaries
@@ -199,7 +199,7 @@ jobs:
           mv -f linux-gnu-binaries/crates/bindings/flow_bindings.h crates/bindings/
 
       - name: Download linux-musl-binaries
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4.1.7
         with:
           name: linux-musl-binaries
           path: linux-musl-binaries
