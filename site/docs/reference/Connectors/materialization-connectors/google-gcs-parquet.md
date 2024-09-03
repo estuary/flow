@@ -1,3 +1,6 @@
+---
+description: This connector materializes delta updates of Flow collections into a GCS bucket in the Apache Parquet format.
+---
 
 # Apache Parquet Files in Google GCS
 
