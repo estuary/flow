@@ -1,7 +1,8 @@
-pub mod collate;
+use std::collections::BTreeSet;
 
 mod captures;
 mod catalogs;
+pub mod collate;
 mod collections;
 mod connector;
 mod derivation;
@@ -18,11 +19,9 @@ mod shards;
 mod source;
 mod tests;
 
-use std::collections::BTreeSet;
-
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
-pub use catalogs::Catalog;
+pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{split_image_tag, ConnectorConfig, LocalConfig};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
@@ -40,11 +39,10 @@ pub use materializations::{
 };
 pub use raw_value::RawValue;
 pub use references::{
-    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
-    RelativeUrl, StorageEndpoint, Test, Transform, CATALOG_PREFIX_RE, TOKEN_RE,
+    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, Name, PartitionField,
+    Prefix, RelativeUrl, StorageEndpoint, Test, Token, Transform, CATALOG_PREFIX_RE, TOKEN_RE,
 };
 pub use schemas::Schema;
-use serde::{Deserialize, Serialize};
 pub use shards::ShardTemplate;
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
@@ -95,47 +93,6 @@ pub trait ModelDef:
                 .map(|c| c.into()),
         );
         deps
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CatalogType {
-    Capture,
-    Collection,
-    Materialization,
-    Test,
-}
-
-impl std::str::FromStr for CatalogType {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "capture" => Ok(CatalogType::Capture),
-            "collection" => Ok(CatalogType::Collection),
-            "materialization" => Ok(CatalogType::Materialization),
-            "test" => Ok(CatalogType::Test),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::fmt::Display for CatalogType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str(self.as_ref())
-    }
-}
-
-impl std::convert::AsRef<str> for CatalogType {
-    fn as_ref(&self) -> &str {
-        // These strings match what's used by serde, and also match the definitions in the database.
-        match *self {
-            CatalogType::Capture => "capture",
-            CatalogType::Collection => "collection",
-            CatalogType::Materialization => "materialization",
-            CatalogType::Test => "test",
-        }
     }
 }
 

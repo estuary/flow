@@ -42,6 +42,37 @@ pub struct Catalog {
     pub tests: BTreeMap<Test, TestDef>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[cfg_attr(
+    feature = "sqlx-support",
+    derive(sqlx::Type),
+    sqlx(type_name = "catalog_spec_type", rename_all = "lowercase")
+)]
+pub enum CatalogType {
+    Capture,
+    Collection,
+    Materialization,
+    Test,
+}
+
+/// Capability within the Estuary role-based access control (RBAC) authorization system.
+#[derive(
+    Serialize, Deserialize, Clone, Copy, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "lowercase")]
+#[cfg_attr(
+    feature = "sqlx-support",
+    derive(sqlx::Type),
+    sqlx(type_name = "grant_capability", rename_all = "lowercase")
+)]
+pub enum Capability {
+    /// Note that the discriminants here align with those in the database type.
+    Read = 10,
+    Write = 20,
+    Admin = 30,
+}
+
 impl Catalog {
     /// Build a root JSON schema for the Catalog model.
     pub fn root_json_schema() -> schemars::schema::RootSchema {
@@ -198,4 +229,43 @@ fn tests_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::S
         }],
     }))
     .unwrap()
+}
+
+#[cfg(feature = "sqlx-support")]
+impl sqlx::postgres::PgHasArrayType for CatalogType {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_catalog_spec_type")
+    }
+}
+
+impl std::str::FromStr for CatalogType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "capture" => Ok(CatalogType::Capture),
+            "collection" => Ok(CatalogType::Collection),
+            "materialization" => Ok(CatalogType::Materialization),
+            "test" => Ok(CatalogType::Test),
+            _ => Err(()),
+        }
+    }
+}
+
+impl std::fmt::Display for CatalogType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
+impl std::convert::AsRef<str> for CatalogType {
+    fn as_ref(&self) -> &str {
+        // These strings match what's used by serde, and also match the definitions in the database.
+        match *self {
+            CatalogType::Capture => "capture",
+            CatalogType::Collection => "collection",
+            CatalogType::Materialization => "materialization",
+            CatalogType::Test => "test",
+        }
+    }
 }

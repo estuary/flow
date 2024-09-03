@@ -166,6 +166,12 @@ macro_rules! string_reference_types {
 // of passing it into another macro.
 
 string_reference_types! {
+    /// Token is Unicode letters, numbers, '-', '_', or '.'.
+    pub struct Token("Token::schema", pattern = TOKEN_RE, example = "token");
+
+    /// Catalog Name is a series of tokens separated by a forward slash.
+    pub struct Name("Name::schema", pattern = CATALOG_NAME_RE, example = "acmeCo/name");
+
     /// Collection names are paths of Unicode letters, numbers, '-', '_', or '.'.
     /// Each path component is separated by a slash '/',
     /// and a name may not begin or end in a '/'.
