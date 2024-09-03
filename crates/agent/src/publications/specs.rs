@@ -641,11 +641,9 @@ pub async fn resolve_live_specs(
                 continue;
             }
             for source in reads_from {
-                if !spec_row
-                    .spec_capabilities
-                    .iter()
-                    .any(|c| source.starts_with(&c.object_role) && c.capability >= Capability::Read)
-                {
+                if !spec_row.spec_capabilities.iter().any(|c| {
+                    source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read
+                }) {
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -657,7 +655,7 @@ pub async fn resolve_live_specs(
             }
             for target in writes_to {
                 if !spec_row.spec_capabilities.iter().any(|c| {
-                    target.starts_with(&c.object_role)
+                    target.starts_with(c.object_role.as_str())
                         && matches!(c.capability, Capability::Write | Capability::Admin)
                 }) {
                     live.errors.push(tables::Error {

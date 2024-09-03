@@ -26,6 +26,10 @@ serde_json = { workspace = true }
 superslice = { workspace = true }
 url = { workspace = true }
 
+[dev-dependencies]
+
+insta = { workspace = true }
+
 [features]
 default = []
 

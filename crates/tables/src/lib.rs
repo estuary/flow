@@ -89,6 +89,15 @@ tables!(
         val reactor_address: String,
     }
 
+    table RoleGrants (row #[derive(serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
+        // Subject of the grant, to which a capability is bestowed.
+        key subject_role: models::Prefix,
+        // Object of the grant, to which a capability is bestowed upon the subject.
+        key object_role: models::Prefix,
+        // Capability of the subject with respect to the object.
+        val capability: models::Capability,
+    }
+
     table DraftCaptures (row DraftCapture, sql "draft_captures") {
         // Catalog name of this capture.
         key capture: models::Capture,
@@ -287,6 +296,13 @@ tables!(
     }
 );
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize)]
+pub struct RoleGrantRef<'a> {
+    subject_role: &'a str,
+    object_role: &'a str,
+    capability: models::Capability,
+}
+
 /// Attempts to parse a catalog type and name from a URL in the form of:
 /// `flow://<catalog-type>/<catalog-name>`. Returns None if the URL doesn't
 /// have a valid `CatalogType`, or if the scheme doesn't match.
@@ -354,10 +370,13 @@ string_wrapper_types!(
 json_sql_types!(
     Vec<String>,
     Vec<models::Store>,
+    models::Capability,
     models::CaptureDef,
+    models::CatalogType,
     models::CollectionDef,
     models::Id,
     models::MaterializationDef,
+    models::Name,
     models::RawValue,
     models::Schema,
     models::TestDef,
