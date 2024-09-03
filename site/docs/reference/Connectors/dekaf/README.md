@@ -7,4 +7,5 @@ functionality enables integrations with the Kafka ecosystem.
 ## Available Dekaf integrations
 
 - [Tinybird](/reference/Connectors/dekaf/dekaf-tinybird)
+- [Materialize](/reference/Connectors/dekaf/dekaf-materialize)
 - [StarTree](/reference/Connectors/dekaf/dekaf-startree)

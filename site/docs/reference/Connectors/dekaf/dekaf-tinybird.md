@@ -6,7 +6,7 @@ In this guide, you'll learn how to use Estuary Flow to push data streams to Tiny
 
 ## Prerequisites
 
-- An Estuary account & collection
+- An Estuary Flow account & collection
 - A Tinybird account & Workspace
 
 # Connecting Estuary Flow to Tinybird
