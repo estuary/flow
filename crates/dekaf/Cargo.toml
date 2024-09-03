@@ -52,4 +52,7 @@ crypto-common = { workspace = true }
 aes-siv = { workspace = true }
 percent-encoding = { workspace = true }
 rustls = { workspace = true }
+metrics = { workspace = true }
+metrics-prometheus = { workspace = true }
+prometheus = { workspace = true }
 hexdump = { workspace = true }
