@@ -566,14 +566,14 @@ macro_rules! proto_sql_types {
 /// Define row & table structures and related implementations.
 macro_rules! tables {
     ($(
-        table $table:ident ( row $( #[$rowattrs:meta] )? $row:ident, sql $sql_name:literal ) {
+        table $table:ident ( row $( #[$rowattrs:meta] )* $row:ident, sql $sql_name:literal ) {
             $(key $key:ident: $key_type:ty,)*
             $(val $val:ident: $val_type:ty,)*
         }
     )*) => {
         $(
 
-        $( #[$rowattrs] )?
+        $( #[$rowattrs] )*
         pub struct $row {
             $(pub $key: $key_type,)*
             $(pub $val: $val_type,)*

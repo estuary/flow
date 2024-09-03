@@ -28,7 +28,7 @@ pub struct Manual {
 pub struct Request {
     /// Base name of this data-plane, such as "gcp-us-central1-c1".
     #[validate]
-    name: models::PartitionField,
+    name: models::Token,
 
     /// Private tenant to which this data-plane is provisioned,
     /// or if None the data-plane is public.
