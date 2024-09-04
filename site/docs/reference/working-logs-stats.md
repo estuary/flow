@@ -71,35 +71,6 @@ flowctl stats --task acmeCo/anvils/materialization-one --since 1h
 
 Additional options for `flowctl logs` and `flowctl stats` can be accessed through command-line help.
 
-### Accessing logs or stats by materialization
-
-You can materialize your `logs` or `stats` collections to an external system.
-This is typically the preferred method if you’d like to continuously work with or monitor logs or statistics.
-You can materialize the logs or statistics for all tasks, or select a subset of tasks using a [partition selector](../../concepts/materialization/#partition-selectors) (the `logs` and `stats` collections are partitioned on tasks).
-
-:::caution
-Be sure to add a partition selector to exclude the logs and statistics of the materialization
-itself. Otherwise, you could trigger an infinite loop in which the connector
-materializes its own logs and statistics, collects logs and statistic on that event, and so on.
-:::
-
-```yaml
-acmeCo/anvils/logs:
-  endpoint:
-    connector:
-      image: ghcr.io/estuary/materialize-webhook:dev
-      config:
-        address: my.webhook.com
-  bindings:
-    - resource:
-        relativePath: /log/wordcount
-      source: ops/acmeCo/logs
-      # Exclude the logs of this materialization to avoid an infinite loop.
-      partitions:
-        exclude:
-          name: ['acmeCo/anvils/logs']
-```
-
 ## Available statistics
 
 Available statistics include information about the amount of data in inputs and outputs of each transaction. They also include temporal information about the transaction. Statistics vary by task type (capture, materialization, or derivation).
