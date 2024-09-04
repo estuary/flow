@@ -23,13 +23,24 @@ To use this connector, you'll need:
 * An S3 bucket to write files to. See [this
   guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html) for
   instructions on setting up a new S3 bucket.
-* An AWS root or IAM user with access to AWS Glue. See [this
-  guide](https://docs.aws.amazon.com/glue/latest/dg/set-up-iam.html) for instructions on setting up
-  IAM permissions for a user to access AWS Glue. Make sure to select **Read and write** access for
-  your bucket to enable the connector to write data.
-* For this user, you'll need the **access key** and **secret access key**. See the [AWS
-  blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these
-  credentials.
+- An AWS root or IAM user with [read and write
+  access](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_examples_s3_rw-bucket.html)
+  to the S3 bucket. For this user, you'll need the **access key** and **secret
+  access key**. See the [AWS
+  blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for
+  help finding these credentials.
+
+If using the **AWS Glue Catalog**:
+
+- The AWS root or IAM user must have access to AWS Glue. See [this
+  guide](https://docs.aws.amazon.com/glue/latest/dg/set-up-iam.html) for
+  instructions on setting up IAM permissions for a user to access AWS Glue.
+
+If using the **REST Catalog**:
+
+- The URI for connecting to the catalog.
+- The name of the warehouse to connect to.
+- Credentials for connecting to the catalog.
 
 ## Configuration
 
@@ -49,6 +60,13 @@ Flow collections to your tables.
 | **`/region`**                | Region                | AWS Region.                                                                                                 | string | Required         |
 | **`/namespace`**             | Namespace             | Namespace for bound collection tables (unless overridden within the binding resource configuration).        | string | Required         |
 | `/upload_interval`           | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours. | string | PT5M             |
+| `/upload_interval`           | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours. | string | PT5M             |
+| **`/catalog/catalog_type`**  | Catalog Type          | Either "Iceberg REST Server" or "AWS Glue".                                                                 | string | Required         |
+| **`/catalog/uri`**           | URI                   | URI identifying the REST catalog, in the format of 'https://yourserver.com/catalog'.                        | string | Required         |
+| `/catalog/credential`        | Credential            | Credential for connecting to the REST catalog.                                                              | string |                  |
+| `/catalog/token`             | Token                 | Token for connecting to the TEST catalog.                                                                   | string |                  |
+| **`/catalog/warehouse`**     | Warehouse             | Warehouse to connect to in the REST catalog.                                                                | string | Required         |
+
 
 #### Bindings
 
