@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::Context;
 use itertools::Itertools;
-use models::{ModelDef, OnIncompatibleSchemaChange};
+use models::{ModelDef, OnIncompatibleSchemaChange, SourceCaptureDef};
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -59,14 +59,17 @@ impl MaterializationStatus {
             }
         }
 
-        if let Some(source_capture_name) = &model.source_capture {
+        if let Some(source_capture) = &model.source_capture {
             // If the source capture has been deleted, we will have already handled that as a
             // part of `handle_deleted_dependencies`.
             if let Some(source_capture_model) =
-                dependencies.live.captures.get_by_key(source_capture_name)
+                dependencies.live.captures.get_by_key(&source_capture.capture_name())
             {
                 if self.source_capture.is_none() {
-                    self.source_capture = Some(SourceCaptureStatus::default());
+                    self.source_capture = Some(SourceCaptureStatus {
+                        source_capture: source_capture.def(),
+                        ..Default::default()
+                    });
                 }
                 let source_capture_status = self.source_capture.as_mut().unwrap();
                 // Source capture errors are terminal
@@ -265,10 +268,10 @@ fn handle_deleted_dependencies(
     if drafted
         .source_capture
         .as_ref()
-        .map(|sc| deleted.contains(sc.as_str()))
+        .map(|sc| deleted.contains(sc.capture_name().as_str()))
         .unwrap_or(false)
     {
-        let capture_name = drafted.source_capture.take().unwrap();
+        let capture_name = drafted.source_capture.take().unwrap().capture_name();
         source_capture.take();
         descriptions.push(format!(
             r#"removed sourceCapture: "{capture_name}" because the capture was deleted"#
@@ -290,6 +293,7 @@ fn is_false(b: &bool) -> bool {
 /// Status information about the `sourceCapture`
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
 pub struct SourceCaptureStatus {
+    pub source_capture: SourceCaptureDef,
     /// Whether the materialization bindings are up-to-date with respect to
     /// the `sourceCapture` bindings. In normal operation, this should always
     /// be `true`. Otherwise, there will be a controller `error` and the
@@ -371,6 +375,7 @@ impl SourceCaptureStatus {
         draft_row.is_touch = false;
 
         update_linked_materialization(
+            &self.source_capture,
             resource_spec_pointers,
             &self.add_bindings,
             draft_row.model.as_mut().unwrap(),
@@ -399,6 +404,7 @@ fn get_bindings_to_add(
 }
 
 fn update_linked_materialization(
+    source_capture: &SourceCaptureDef,
     resource_spec_pointers: ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
     materialization: &mut models::MaterializationDef,
@@ -406,6 +412,7 @@ fn update_linked_materialization(
     for collection_name in bindings_to_add {
         let mut resource_spec = serde_json::json!({});
         crate::resource_configs::update_materialization_resource_spec(
+            source_capture,
             &mut resource_spec,
             &resource_spec_pointers,
             &collection_name,
