@@ -130,7 +130,6 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
 | **`/namespace`** | Namespace | The [database](https://mariadb.com/kb/en/understanding-mariadb-architecture/#databases) in which the table resides. | string | Required         |
 | **`/stream`**    | Stream    | Name of the table to be captured from the database.                                                                 | string | Required         |
-| **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                                                     | string | Required         |
 
 :::info
 When you configure this connector in the web application, the automatic **discovery** process sets up a binding for _most_ tables it finds in your database, but there are exceptions.
@@ -157,7 +156,6 @@ captures:
       - resource:
           namespace: ${TABLE_NAMESPACE}
           stream: ${TABLE_NAME}
-          syncMode: incremental
         target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
