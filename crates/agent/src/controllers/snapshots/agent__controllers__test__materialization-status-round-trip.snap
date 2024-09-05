@@ -7,6 +7,13 @@ StatusSnapshot {
         MaterializationStatus {
             source_capture: Some(
                 SourceCaptureStatus {
+                    source_capture: SourceCaptureDef {
+                        capture: Capture(
+                            "snails/capture",
+                        ),
+                        schema_mode: LeaveEmpty,
+                        delta_updates: false,
+                    },
                     up_to_date: false,
                     add_bindings: {
                         Collection(
@@ -78,6 +85,13 @@ StatusSnapshot {
         MaterializationStatus {
             source_capture: Some(
                 SourceCaptureStatus {
+                    source_capture: SourceCaptureDef {
+                        capture: Capture(
+                            "snails/capture",
+                        ),
+                        schema_mode: LeaveEmpty,
+                        delta_updates: false,
+                    },
                     up_to_date: false,
                     add_bindings: {
                         Collection(
