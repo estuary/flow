@@ -45,10 +45,6 @@ func (s *connectorProxy) ProxyConnectors(stream pr.ConnectorProxy_ProxyConnector
 	// Unique id for this proxy, that we'll pass back to the client.
 	var id = fmt.Sprintf("connector-proxy-%d", time.Now().UnixNano())
 
-	_ = stream.Send(&pr.ConnectorProxyResponse{
-		Address: s.address,
-		ProxyId: id,
-	})
 	svc, err := bindings.NewTaskService(
 		pr.TaskServiceConfig{
 			AllowLocal:       s.host.Config.Flow.AllowLocal,
@@ -75,6 +71,12 @@ func (s *connectorProxy) ProxyConnectors(stream pr.ConnectorProxy_ProxyConnector
 
 		svc.Drop()
 	}()
+
+	// Now that we've indexed `id`, tell the client about it.
+	_ = stream.Send(&pr.ConnectorProxyResponse{
+		Address: s.address,
+		ProxyId: id,
+	})
 
 	// Block until we read EOF, signaling a graceful shutdown.
 	for {
