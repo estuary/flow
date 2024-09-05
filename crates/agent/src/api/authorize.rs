@@ -89,7 +89,7 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
         begin_refresh(snapshot, &app.snapshot);
 
         return Ok(Response {
-            retry_millis: jitter(),
+            retry_millis: jitter_millis(),
             ..Default::default()
         });
     }
@@ -130,7 +130,7 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
             } else {
                 begin_refresh(snapshot, &app.snapshot);
                 0
-            } + jitter();
+            } + jitter_millis();
 
             Ok(Response {
                 retry_millis,
@@ -465,10 +465,13 @@ fn begin_refresh<'m>(
     }
 }
 
-fn jitter() -> u64 {
+fn jitter_millis() -> u64 {
     use rand::Rng;
     let mut rng = rand::thread_rng();
-    rng.gen_range(0..=2_000)
+
+    // The returned jitter must always be positive.
+    // In production, it can take a few seconds to fetch a snapshot.
+    rng.gen_range(500..=10_000)
 }
 
 const MIN_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
