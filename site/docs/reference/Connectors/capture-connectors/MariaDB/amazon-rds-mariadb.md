@@ -57,28 +57,12 @@ To use this connector, you'll need a MariaDB database setup with the following.
    2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
 
       - binlog_format: ROW
-      - binlog_row_metadata: FULL
-      - read_only: 0
 
-   3. If using the primary instance (not recommended), [associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
+   3. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating)
       with the database and set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.html#USER_WorkingWithAutomatedBackups.Enabling) to 7 days.
       Reboot the database to allow the changes to take effect.
 
-3. Create a read replica with the new parameter group applied (recommended).
-
-   1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-      of your MariaDB database.
-
-   2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
-      and set the following:
-
-      - **DB parameter group**: choose the parameter group you created previously
-      - **Backup retention period**: 7 days
-      - **Public access**: Publicly accessible
-
-   3. Reboot the replica to allow the changes to take effect.
-
-4. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions:
+3. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions:
 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret'
@@ -86,13 +70,31 @@ GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 ```
 
-5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MariaDB permits:
+4. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MariaDB permits:
 
 ```sql
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
 
-6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+5. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
+## Capturing from Read Replicas
+
+This connector supports capturing from a read replica of your database, provided that
+binary logging is enabled on the replica and all other requirements are met. To create
+a read replica:
+
+1. Follow RDS instructions to [create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
+   of your MariaDB database.
+
+2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
+   and set the following:
+
+   - **DB parameter group**: the parameter group you created previously
+   - **Backup retention period**: 7 days
+   - **Public access**: Publicly accessible
+
+3. Reboot the replica to allow the changes to take effect.
 
 ## Backfills and performance considerations
 
