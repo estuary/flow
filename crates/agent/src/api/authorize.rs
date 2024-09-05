@@ -29,7 +29,7 @@ pub async fn authorize_task(
     super::wrap(async move { do_authorize_task(&app, &request).await }).await
 }
 
-#[tracing::instrument(skip_all, err(level = tracing::Level::WARN))]
+#[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
 async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
     let jsonwebtoken::TokenData { header, mut claims }: jsonwebtoken::TokenData<
         proto_gazette::Claims,
@@ -104,7 +104,7 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
     ) {
         Ok((encoding_key, data_plane_fqdn, broker_address)) => {
             claims.iss = data_plane_fqdn;
-            claims.exp = claims.iat + 3_600; // One hour.
+            claims.exp = claims.iat + exp_seconds();
 
             let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
                 .context("failed to encode authorized JWT")?;
@@ -467,12 +467,19 @@ fn begin_refresh<'m>(
 
 fn jitter_millis() -> u64 {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
 
     // The returned jitter must always be positive.
     // In production, it can take a few seconds to fetch a snapshot.
-    rng.gen_range(500..=10_000)
+    rand::thread_rng().gen_range(500..10_000)
 }
 
-const MIN_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+fn exp_seconds() -> u64 {
+    use rand::Rng;
+
+    // Select a random expiration time in range [40, 80) minutes,
+    // which spreads out load from re-authorization requests over time.
+    rand::thread_rng().gen_range(40 * 60..80 * 60)
+}
+
+const MIN_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(20);
 const MAX_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300); // 5 minutes.
