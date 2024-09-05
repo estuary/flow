@@ -170,30 +170,40 @@ func doAuthFetch(controlAPI pb.Endpoint, claims pb.Claims, key jwt.VerificationK
 	}
 	token = `{"token":"` + token + `"}`
 
-	// Invoke the authorization API.
+	var brokerAddress pb.Endpoint
 	var url = controlAPI.URL()
 	url.Path = path.Join(url.Path, "/authorize/task")
 
-	httpResp, err := http.Post(url.String(), "application/json", strings.NewReader(token))
-	if err != nil {
-		return "", "", time.Time{}, fmt.Errorf("failed to POST to authorization API: %w", err)
-	}
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return "", "", time.Time{}, fmt.Errorf("failed to read authorization API response: %w", err)
-	}
-	if httpResp.StatusCode != 200 {
-		return "", "", time.Time{}, fmt.Errorf("authorization failed (%s): %s %s", httpResp.Status, string(respBody), token)
-	}
+	// Invoke the authorization API, perhaps multiple times if asked to retry.
+	for {
+		httpResp, err := http.Post(url.String(), "application/json", strings.NewReader(token))
+		if err != nil {
+			return "", "", time.Time{}, fmt.Errorf("failed to POST to authorization API: %w", err)
+		}
+		respBody, err := io.ReadAll(httpResp.Body)
+		if err != nil {
+			return "", "", time.Time{}, fmt.Errorf("failed to read authorization API response: %w", err)
+		}
+		if httpResp.StatusCode != 200 {
+			return "", "", time.Time{}, fmt.Errorf("authorization failed (%s): %s %s", httpResp.Status, string(respBody), token)
+		}
 
-	var response struct {
-		Token         string
-		BrokerAddress pb.Endpoint
+		var response struct {
+			Token         string
+			BrokerAddress pb.Endpoint
+			RetryMillis   uint64
+		}
+		if err = json.Unmarshal(respBody, &response); err != nil {
+			return "", "", time.Time{}, fmt.Errorf("failed to decode authorization response: %w", err)
+		}
+
+		if response.RetryMillis != 0 {
+			time.Sleep(time.Millisecond * time.Duration(response.RetryMillis))
+		} else {
+			token, brokerAddress = response.Token, response.BrokerAddress
+			break
+		}
 	}
-	if err = json.Unmarshal(respBody, &response); err != nil {
-		return "", "", time.Time{}, fmt.Errorf("failed to decode authorization response: %w", err)
-	}
-	token = response.Token
 
 	claims = pb.Claims{}
 	if _, _, err = jwt.NewParser().ParseUnverified(token, &claims); err != nil {
@@ -206,7 +216,7 @@ func doAuthFetch(controlAPI pb.Endpoint, claims pb.Claims, key jwt.VerificationK
 		return "", "", time.Time{}, fmt.Errorf("authorization server did not include an expires-at claim")
 	}
 
-	return token, response.BrokerAddress, claims.ExpiresAt.Time, nil
+	return token, brokerAddress, claims.ExpiresAt.Time, nil
 }
 
 var _ pb.Authorizer = &ControlPlaneAuthorizer{}
