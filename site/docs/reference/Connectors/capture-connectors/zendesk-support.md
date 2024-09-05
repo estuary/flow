@@ -216,7 +216,7 @@ captures:
           stream: ticket_metrics
           syncMode: incremental
           cursorField:
-            - updated_at
+            - after_cursor
         target: ${PREFIX}/ticketmetrics
       - resource:
           stream: ticket_metric_events
