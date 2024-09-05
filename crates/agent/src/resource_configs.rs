@@ -1,3 +1,4 @@
+use models::{SourceCaptureDef, SourceCaptureSchemaMode};
 use serde_json::Value;
 
 ///
@@ -5,6 +6,7 @@ use serde_json::Value;
 /// If the `full_collection_name` doesn't contain any `/` characters, which should never
 /// be the case since we should have already validated the collection name.
 pub fn update_materialization_resource_spec(
+    source_capture: &SourceCaptureDef,
     resource_spec: &mut Value,
     resource_spec_pointers: &ResourceSpecPointers,
     full_collection_name: &str,
@@ -31,9 +33,19 @@ pub fn update_materialization_resource_spec(
 
     let _ = std::mem::replace(x_collection_name_prev, x_collection_name.into());
 
-    if let Some(x_schema_name_ptr) = &resource_spec_pointers.x_schema_name {
-        if let Some(x_schema_name_prev) = x_schema_name_ptr.create_value(resource_spec) {
-            let _ = std::mem::replace(x_schema_name_prev, x_schema_name.into());
+    if source_capture.schema_mode == SourceCaptureSchemaMode::CollectionSchema {
+        if let Some(x_schema_name_ptr) = &resource_spec_pointers.x_schema_name {
+            if let Some(x_schema_name_prev) = x_schema_name_ptr.create_value(resource_spec) {
+                let _ = std::mem::replace(x_schema_name_prev, x_schema_name.into());
+            }
+        }
+    }
+
+    if source_capture.delta_updates {
+        if let Some(x_delta_updates_ptr) = &resource_spec_pointers.x_delta_updates {
+            if let Some(x_delta_updates_prev) = x_delta_updates_ptr.create_value(resource_spec) {
+                let _ = std::mem::replace(x_delta_updates_prev, true.into());
+            }
         }
     }
 
@@ -43,12 +55,14 @@ pub fn update_materialization_resource_spec(
 pub struct ResourceSpecPointers {
     x_collection_name: doc::Pointer,
     x_schema_name: Option<doc::Pointer>,
+    x_delta_updates: Option<doc::Pointer>,
 }
 
 /// Runs inference on the given schema and searches for a location within the resource spec
-/// that bears the `x-collection-name` and `x-schema-name` annotations. Returns the pointer to those location, or an
-/// error if no such location exists. Errors from parsing the schema are returned directly.
-/// The schema must be fully self-contained (a.k.a. bundled), or an error will be returned.
+/// that bears the `x-collection-name`, `x-schema-name` or `x-delta-updates` annotations.
+/// Returns the pointer to those location, or an error if no `x-collection-name` exists.
+/// Errors from parsing the schema are returned directly. The schema must be fully self-contained (a.k.a. bundled),
+/// or an error will be returned.
 pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPointers> {
     // While all known connector resource spec schemas are self-contained, we don't
     // actually do anything to guarantee that they are. This function may fail in that case.
@@ -60,18 +74,22 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
 
     let mut x_collection_name: Option<doc::Pointer> = None;
     let mut x_schema_name: Option<doc::Pointer> = None;
+    let mut x_delta_updates: Option<doc::Pointer> = None;
     for (ptr, _, prop_shape, _) in shape.locations() {
         if prop_shape.annotations.contains_key("x-collection-name") {
             x_collection_name = Some(ptr)
         } else if prop_shape.annotations.contains_key("x-schema-name") {
             x_schema_name = Some(ptr)
+        } else if prop_shape.annotations.contains_key("x-delta-updates") {
+            x_delta_updates = Some(ptr)
         }
     }
 
     if let Some(x_collection_name_ptr) = x_collection_name {
         Ok(ResourceSpecPointers {
             x_collection_name: x_collection_name_ptr,
-            x_schema_name
+            x_schema_name,
+            x_delta_updates,
         })
     } else {
         Err(anyhow::anyhow!(

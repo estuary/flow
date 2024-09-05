@@ -1,7 +1,10 @@
+use crate::Capture;
 use crate::{source::OnIncompatibleSchemaChange, Collection, Id};
 
+use crate::source_capture::{SourceCapture, SourceCaptureDef};
+
 use super::{
-    Capture, ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
+    ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,7 +18,7 @@ use std::collections::BTreeMap;
 pub struct MaterializationDef {
     /// # Automatically materialize new bindings from a named capture
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_capture: Option<Capture>,
+    pub source_capture: Option<SourceCapture>,
     /// # Default handling of schema changes that are incompatible with the target resource.
     /// This can be overridden on a per-binding basis.
     #[serde(
@@ -201,8 +204,12 @@ impl super::ModelDef for MaterializationDef {
         !self.shards.disable
     }
 
-    fn materialization_source_capture(&self) -> Option<&crate::Capture> {
-        self.source_capture.as_ref()
+    fn materialization_source_capture_name(&self) -> Option<&Capture> {
+        match &self.source_capture {
+            Some(SourceCapture::Simple(capture_name)) => Some(capture_name),
+            Some(SourceCapture::Configured(sc)) => Some(&sc.capture),
+            None => None
+        }
     }
 
     fn connector_image(&self) -> Option<&str> {
