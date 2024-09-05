@@ -119,6 +119,11 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 		return value.apply(ctx)
 	}
 
+	// Fail-fast if the context is already done.
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	// We must issue a new request to the authorization server.
 	// Begin by self-signing our request as a JWT.
 
