@@ -36,6 +36,7 @@ struct App {
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
+    snapshot: std::sync::RwLock<authorize::Snapshot>,
 }
 
 /// Build the agent's API router.
@@ -50,13 +51,17 @@ pub fn build_router(
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
+    let (snapshot, seed_rx) = authorize::seed_snapshot();
+
     let app = Arc::new(App {
         id_generator: Mutex::new(id_generator),
         jwt_secret,
         jwt_validation,
         pg_pool,
         publisher,
+        snapshot: std::sync::RwLock::new(snapshot),
     });
+    tokio::spawn(authorize::snapshot_loop(app.clone(), seed_rx));
 
     use axum::routing::post;
 
