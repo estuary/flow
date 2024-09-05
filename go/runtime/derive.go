@@ -90,8 +90,13 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err 
 		flow.CollectionWatchRequest(d.term.taskSpec),
 		nil,
 	)
-	if err := <-d.watch.UpdateCh(); err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
+	select {
+	case err := <-d.watch.UpdateCh():
+		if err != nil {
+			return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
+		}
+	case <-d.term.ctx.Done():
+		return pf.Checkpoint{}, d.term.ctx.Err()
 	}
 
 	var requestExt = &pr.DeriveRequestExt{
