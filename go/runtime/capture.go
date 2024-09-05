@@ -84,8 +84,13 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err
 	}
 	// Wait for all watches to perform their first update.
 	for _, watch := range c.watches {
-		if err := <-watch.UpdateCh(); err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
+		select {
+		case err := <-watch.UpdateCh():
+			if err != nil {
+				return pf.Checkpoint{}, fmt.Errorf("initializing journal watch: %w", err)
+			}
+		case <-c.term.ctx.Done():
+			return pf.Checkpoint{}, c.term.ctx.Err()
 		}
 	}
 

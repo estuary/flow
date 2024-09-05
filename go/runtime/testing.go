@@ -47,8 +47,13 @@ func NewFlowTesting(ctx context.Context, inner *FlowConsumer, ajc *client.Append
 	// Start watch over all journals.
 	// This is reasonable only because we're running within a temporary data-plane.
 	var watch = client.NewWatchedList(ctx, ajc, pb.ListRequest{}, nil)
-	if err := <-watch.UpdateCh(); err != nil {
-		return nil, fmt.Errorf("staring journal watch: %w", err)
+	select {
+	case err := <-watch.UpdateCh():
+		if err != nil {
+			return nil, fmt.Errorf("initializing journal watch: %w", err)
+		}
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 
 	svc, err := bindings.NewTaskService(
