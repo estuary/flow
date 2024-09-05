@@ -16,13 +16,8 @@ To use this connector, you'll need a MySQL database setup with the following.
   system variable set to `ROW` (the default value).
 - [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
   - This value may be set lower if necessary, but we [strongly discourage](#insufficient-binlog-retention) going below 7 days as this may increase the likelihood of unrecoverable failures.
-- A watermarks table. The watermarks table is a small "scratch space"
-  to which the connector occasionally writes a small amount of data (a UUID,
-  specifically) to ensure accuracy when backfilling preexisting table contents.
-  - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
 - A database user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
-  - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
 - If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
@@ -73,18 +68,14 @@ To use this connector, you'll need a MySQL database setup with the following.
 
    3. Reboot the replica to allow the changes to take effect.
 
-4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
-   and set up the watermarks table:
+4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions:
 
 ```sql
-CREATE DATABASE IF NOT EXISTS flow;
-CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
   COMMENT 'User account for Flow MySQL data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
-GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
 5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MySQL permits:
@@ -147,7 +138,6 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | **`/user`**                             | Login User                         | The database user to authenticate as.                                                                                                                                                                                                                                                                                                                                                   | string  | Required, `"flow_capture"` |
 | **`/password`**                         | Login Password                     | Password for the specified database user.                                                                                                                                                                                                                                                                                                                                               | string  | Required                   |
 | `/timezone`                             | Timezone                           | Timezone to use when capturing datetime columns. Should normally be left blank to use the database's `'time_zone'` system variable. Only required if the `'time_zone'` system variable cannot be read and columns with type datetime are being captured. Must be a valid IANA time zone name or +HH:MM offset. Takes precedence over the `'time_zone'` system variable if both are set. | string  |                            |
-| `/advanced/watermarks_table`            | Watermarks Table Name              | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form.                                                                                                                                                                                                                                                              | string  | `"flow.watermarks"`        |
 | `/advanced/dbname`                      | Database Name                      | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access.                                                                                                                                                                                                                    | string  | `"mysql"`                  |
 | `/advanced/node_id`                     | Node ID                            | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                                                             | integer |                            |
 | `/advanced/skip_backfills`              | Skip Backfills                     | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                                                                   | string  |                            |
