@@ -166,7 +166,12 @@ GRANT SELECT ON *.* TO 'flow_capture';
 4. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
    Together, you'll use the host:port as the `address` property when you configure the connector.
 
-### Setting the MySQL time zone
+## Capturing from Read Replicas
+
+This connector supports capturing from a read replica of your database, provided that
+binary logging is enabled on the replica and all other requirements are met.
+
+## Setting the MySQL time zone
 
 MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_time_zone) is set to `SYSTEM` by default.
 
