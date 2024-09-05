@@ -12,10 +12,11 @@ It is available for use in the Flow web application. For local development or op
 
 To use this connector, you'll need a MySQL database setup with the following.
 
-- [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
-  system variable set to `ROW` (the default value).
-- [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
-  - This value may be set lower if necessary, but we [strongly discourage](#insufficient-binlog-retention) going below 7 days as this may increase the likelihood of unrecoverable failures.
+- The [`binlog_format`](https://dev.mysql.com/doc/refman/8.4/en/replication-options-binary-log.html#sysvar_binlog_format)
+  system variable must be set to `ROW` (the default value).
+- The [binary log retention](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql-stored-proc-configuring.html#mysql_rds_set_configuration-usage-notes.binlog-retention-hours)
+  period should be set to 168 hours (the maximum allowed by RDS).
+  - This value may be set lower if necessary, but we [discourage](#insufficient-binlog-retention) doing so as this may increase the likelihood of unrecoverable failures.
 - A database user with appropriate permissions:
   - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
   - Permission to read the tables being captured.
@@ -207,21 +208,21 @@ Resolving this error requires fixing the `binlog_format` system variable, and th
 
 If your capture is failing with an `"unhandled query"` error, some SQL query is present in the binlog which the connector does not (currently) understand.
 
-In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), an unsupported [Table Operation](#unsupported-operations), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to tear down and recreate the entire capture so that it restarts from a later point in the binlog.
+In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), an unsupported [Table Operation](#unsupported-operations), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to backfill all collections to allow the capture to jump ahead to a later point in the binlog.
 
 ### Metadata Errors
 
 If your capture is failing with a `"metadata error"` then something has gone badly wrong with the capture's tracking of table metadata, such as column names or datatypes.
 
-This should never happen, and most likely means that the MySQL binlog itself is corrupt in some way. If this occurs, it can be resolved by removing the offending table(s) from the capture bindings list and then recreating the capture (generally into a new collection, as this process will cause the table to be re-captured in its entirety).
+This should never happen, and most likely means that the MySQL binlog itself is corrupt in some way. If this occurs, it can be resolved by backfilling all collections from the source.
 
 ### Insufficient Binlog Retention
 
-If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MySQL binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time, such that the database expired a binlog segment that the capture was still reading from.
+If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MariaDB binlog retention period is set to a dangerously low value.
 
-(If this were to happen, then change events would be permanently lost and that particular capture would never be able to make progress without potentially producing incorrect data. Thus the capture would need to be torn down and recreated so that each table could be re-captured in its entirety, starting with a complete backfill of current contents.)
+The concern is that if a capture is disabled or the server becomes unreachable for longer than the binlog retention period, the database might delete a binlog segment which the capture isn't yet done with. If this happens then change events have been permanently lost, and the only way to get the capture running again is to skip ahead to a portion of the binlog which still exists. For correctness this requires backfilling the current contents of all tables from the source, and so we prefer to avoid it as much as possible. It's much easier to just set up your binlog retention with enough wiggle room to recover from temporary failures.
 
-The `"binlog retention period is too short"` error should normally be fixed by setting `binlog_expire_logs_seconds = 2592000` as described in the [Prerequisites](#prerequisites) section (and when running on a managed cloud platform additional steps may be required, refer to the managed cloud setup instructions above). However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
+The `"binlog retention period is too short"` error should normally be fixed by setting a longer retention period as described in these setup instructions. However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
 
 ### Empty Collection Key
 
