@@ -165,7 +165,7 @@ impl TestHarness {
                     'materialization',
                     'http://test.test/',
                     '{"type": "object"}',
-                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string", "x-schema-name": true}}}',
+                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string", "x-schema-name": true}, "delta": {"type": "boolean", "x-delta-updates": true}}}',
                     '{/id}',
                     '{"type": "success"}'
                 ) on conflict do nothing

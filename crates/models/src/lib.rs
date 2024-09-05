@@ -10,6 +10,7 @@ mod derive_typescript;
 mod id;
 mod journals;
 mod labels;
+mod source_capture;
 mod materializations;
 mod raw_value;
 mod references;
@@ -25,6 +26,7 @@ pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
 pub use connector::{split_image_tag, ConnectorConfig, LocalConfig};
+pub use source_capture::{SourceCaptureDef, SourceCaptureSchemaMode};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
@@ -81,7 +83,7 @@ pub trait ModelDef:
     /// If this spec is a materialization, returns the value of `source_capture`.
     /// This function is admittedly a little smelly, but it's included in the trait
     /// so that we can generically get all the dependencies of each spec.
-    fn materialization_source_capture(&self) -> Option<Capture> {
+    fn materialization_source_capture(&self) -> Option<SourceCaptureDef> {
         None
     }
 
@@ -92,7 +94,7 @@ pub trait ModelDef:
         deps.extend(
             self.materialization_source_capture()
                 .into_iter()
-                .map(|c| c.into()),
+                .map(|c| c.capture.into()),
         );
         deps
     }
@@ -251,7 +253,7 @@ impl ModelDef for AnySpec {
         }
     }
 
-    fn materialization_source_capture(&self) -> Option<Capture> {
+    fn materialization_source_capture(&self) -> Option<SourceCaptureDef> {
         match self {
             AnySpec::Materialization(m) => m.materialization_source_capture(),
             _ => None,

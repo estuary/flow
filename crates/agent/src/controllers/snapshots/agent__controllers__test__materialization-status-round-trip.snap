@@ -7,6 +7,13 @@ StatusSnapshot {
         MaterializationStatus {
             source_capture: Some(
                 SourceCaptureStatus {
+                    source_capture: SourceCaptureDef {
+                        capture: Capture(
+                            "snails/capture",
+                        ),
+                        schema_mode: LeaveEmpty,
+                        delta_updates: false,
+                    },
                     up_to_date: false,
                     add_bindings: {
                         Collection(
@@ -69,11 +76,18 @@ StatusSnapshot {
             },
         },
     ),
-    json: "{\n  \"type\": \"Materialization\",\n  \"source_capture\": {\n    \"add_bindings\": [\n      \"snails/shells\"\n    ]\n  },\n  \"publications\": {\n    \"target_pub_id\": \"0102030405060708\",\n    \"max_observed_pub_id\": \"0102030405060708\",\n    \"history\": [\n      {\n        \"id\": \"0403020101020304\",\n        \"created\": \"2024-05-30T09:10:11Z\",\n        \"completed\": \"2024-05-30T09:10:11Z\",\n        \"detail\": \"some detail\",\n        \"result\": {\n          \"type\": \"buildFailed\",\n          \"incompatible_collections\": [\n            {\n              \"collection\": \"snails/water\",\n              \"affected_materializations\": [\n                {\n                  \"name\": \"snails/materialize\",\n                  \"fields\": [\n                    {\n                      \"field\": \"a_field\",\n                      \"reason\": \"do not like\"\n                    }\n                  ]\n                }\n              ]\n            }\n          ]\n        },\n        \"errors\": [\n          {\n            \"catalog_name\": \"snails/shells\",\n            \"scope\": \"flow://materializations/snails/shells\",\n            \"detail\": \"a_field simply cannot be tolerated\"\n          }\n        ]\n      }\n    ]\n  },\n  \"activation\": {\n    \"last_activated\": \"0102030404030201\"\n  }\n}",
+    json: "{\n  \"type\": \"Materialization\",\n  \"source_capture\": {\n    \"source_capture\": {\n      \"capture\": \"snails/capture\",\n      \"schemaMode\": \"leaveEmpty\"\n    },\n    \"add_bindings\": [\n      \"snails/shells\"\n    ]\n  },\n  \"publications\": {\n    \"target_pub_id\": \"0102030405060708\",\n    \"max_observed_pub_id\": \"0102030405060708\",\n    \"history\": [\n      {\n        \"id\": \"0403020101020304\",\n        \"created\": \"2024-05-30T09:10:11Z\",\n        \"completed\": \"2024-05-30T09:10:11Z\",\n        \"detail\": \"some detail\",\n        \"result\": {\n          \"type\": \"buildFailed\",\n          \"incompatible_collections\": [\n            {\n              \"collection\": \"snails/water\",\n              \"affected_materializations\": [\n                {\n                  \"name\": \"snails/materialize\",\n                  \"fields\": [\n                    {\n                      \"field\": \"a_field\",\n                      \"reason\": \"do not like\"\n                    }\n                  ]\n                }\n              ]\n            }\n          ]\n        },\n        \"errors\": [\n          {\n            \"catalog_name\": \"snails/shells\",\n            \"scope\": \"flow://materializations/snails/shells\",\n            \"detail\": \"a_field simply cannot be tolerated\"\n          }\n        ]\n      }\n    ]\n  },\n  \"activation\": {\n    \"last_activated\": \"0102030404030201\"\n  }\n}",
     parsed: Materialization(
         MaterializationStatus {
             source_capture: Some(
                 SourceCaptureStatus {
+                    source_capture: SourceCaptureDef {
+                        capture: Capture(
+                            "snails/capture",
+                        ),
+                        schema_mode: LeaveEmpty,
+                        delta_updates: false,
+                    },
                     up_to_date: false,
                     add_bindings: {
                         Collection(

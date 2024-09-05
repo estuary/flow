@@ -111,7 +111,7 @@ async fn update_live_spec_flows<M: ModelDef>(
         catalog_type,
         Some(reads_from.iter().map(|c| c.as_str()).collect::<Vec<_>>()).filter(|a| !a.is_empty()),
         Some(writes_to.iter().map(|c| c.as_str()).collect::<Vec<_>>()).filter(|a| !a.is_empty()),
-        source_capture.as_ref().map(|c| c.as_str()),
+        source_capture.as_ref().map(|c| c.capture.as_str()),
         txn,
     )
     .await?;

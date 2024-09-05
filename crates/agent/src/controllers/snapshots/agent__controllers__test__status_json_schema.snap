@@ -33,6 +33,14 @@ expression: schema
       ],
       "type": "object"
     },
+    "Capture": {
+      "description": "Capture names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
+      "examples": [
+        "acmeCo/capture"
+      ],
+      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$",
+      "type": "string"
+    },
     "Collection": {
       "description": "Collection names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
       "examples": [
@@ -364,6 +372,47 @@ expression: schema
       ],
       "type": "object"
     },
+    "SourceCaptureDef": {
+      "additionalProperties": false,
+      "description": "SourceCaptureDef specifies configuration for source captures",
+      "properties": {
+        "capture": {
+          "$ref": "#/definitions/Capture",
+          "description": "Capture name"
+        },
+        "deltaUpdates": {
+          "description": "When adding new bindings from a source capture to a materialization, should the new bindings be marked as delta updates",
+          "type": "boolean"
+        },
+        "schemaMode": {
+          "$ref": "#/definitions/SourceCaptureSchemaMode",
+          "default": "leaveEmpty",
+          "description": "When adding new bindings from a source capture to a materialization, how should the schema of the materialization binding be set"
+        }
+      },
+      "required": [
+        "capture"
+      ],
+      "type": "object"
+    },
+    "SourceCaptureSchemaMode": {
+      "oneOf": [
+        {
+          "description": "Leave the materialization binding's schema field empty, therefore falling back to the default schema of the materialization",
+          "enum": [
+            "leaveEmpty"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Use the 2nd-to-last component of the collection name as the schema of the materialization binding",
+          "enum": [
+            "collectionSchema"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "SourceCaptureStatus": {
       "description": "Status information about the `sourceCapture`",
       "properties": {
@@ -375,11 +424,17 @@ expression: schema
           "type": "array",
           "uniqueItems": true
         },
+        "source_capture": {
+          "$ref": "#/definitions/SourceCaptureDef"
+        },
         "up_to_date": {
           "description": "Whether the materialization bindings are up-to-date with respect to the `sourceCapture` bindings. In normal operation, this should always be `true`. Otherwise, there will be a controller `error` and the publication status will contain details of why the update failed.",
           "type": "boolean"
         }
       },
+      "required": [
+        "source_capture"
+      ],
       "type": "object"
     }
   },
