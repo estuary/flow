@@ -22,10 +22,13 @@ simd-doc = { path = "../simd-doc" }
 
 anyhow = { workspace = true }
 axum = { workspace = true }
+axum-server = { workspace = true }
 axum-extra = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
-clap = { workspace = true }
+# TODO(jshearer): Upgrade every other usage of clap to v4 and change this to:
+# clap = { workspace = true }
+clap = { package = "clap", version = "4", features = ["derive", "env"] }
 futures = { workspace = true }
 itertools = { workspace = true }
 kafka-protocol = { workspace = true }
@@ -52,6 +55,7 @@ crypto-common = { workspace = true }
 aes-siv = { workspace = true }
 percent-encoding = { workspace = true }
 rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 metrics = { workspace = true }
 metrics-prometheus = { workspace = true }
 prometheus = { workspace = true }
