@@ -149,7 +149,7 @@ func (sc Cmd) Execute(args []string) error {
 	}
 
 	// Bind our server listener, grabbing a random available port if Port is zero.
-	srv, err := server.New("", bc.Consumer.Host, bc.Consumer.Port, serverTLS, peerTLS)
+	srv, err := server.New("", bc.Consumer.Host, bc.Consumer.Port, serverTLS, peerTLS, bc.Consumer.MaxGRPCRecvSize)
 	mbp.Must(err, "building Server instance")
 
 	if bc.Broker.Cache.Size <= 0 {

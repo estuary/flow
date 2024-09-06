@@ -23,6 +23,7 @@ type ServiceConfig struct {
 	PeerCertFile      string `long:"peer-cert-file" env:"PEER_CERT_FILE" default:"" description:"Path to the client TLS certificate for peer-to-peer requests"`
 	PeerCertKeyFile   string `long:"peer-cert-key-file" env:"PEER_CERT_KEY_FILE" default:"" description:"Path to the client TLS private key for peer-to-peer requests"`
 	PeerCAFile        string `long:"peer-ca-file" env:"PEER_CA_FILE" default:"" description:"Path to the trusted CA for client verification of peer server certificates. When absent, the system CA pool is used instead."`
+	MaxGRPCRecvSize   uint32 `long:"max-grpc-recv-size" env:"MAX_GRPC_RECV_SIZE" default:"4194304" description:"Maximum size of gRPC messages accepted by this server, in bytes"`
 }
 
 // ProcessSpec of the ServiceConfig.
