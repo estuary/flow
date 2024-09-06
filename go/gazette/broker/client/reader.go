@@ -26,9 +26,9 @@ import (
 // seek to the requested offset, and read its content.
 //
 // Reader returns EOF if:
-//  * The broker closes the RPC, eg because its assignment has change or it's shutting down.
-//  * The requested EndOffset has been read through.
-//  * A Fragment being read by the Reader reaches EOF.
+//   - The broker closes the RPC, eg because its assignment has change or it's shutting down.
+//   - The requested EndOffset has been read through.
+//   - A Fragment being read by the Reader reaches EOF.
 //
 // If Block is true, Read may block indefinitely. Otherwise, ErrOffsetNotYetAvailable
 // is returned upon reaching the journal write head.
@@ -179,6 +179,8 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 		if err != io.EOF {
 			panic(err.Error()) // Status_OK implies graceful stream closure.
 		}
+	case pb.Status_JOURNAL_NOT_FOUND:
+		err = ErrJournalNotFound
 	case pb.Status_NOT_JOURNAL_BROKER:
 		err = ErrNotJournalBroker
 	case pb.Status_INSUFFICIENT_JOURNAL_BROKERS:
@@ -199,9 +201,10 @@ func (r *Reader) AdjustedOffset(br *bufio.Reader) int64 {
 }
 
 // Seek provides a limited form of seeking support. Specifically, if:
-//  * A Fragment URL is being directly read, and
-//  * The Seek offset is ahead of the current Reader offset, and
-//  * The Fragment also covers the desired Seek offset
+//   - A Fragment URL is being directly read, and
+//   - The Seek offset is ahead of the current Reader offset, and
+//   - The Fragment also covers the desired Seek offset
+//
 // Then a seek is performed by reading and discarding to the seeked offset.
 // Seek will otherwise return ErrSeekRequiresNewReader.
 func (r *Reader) Seek(offset int64, whence int) (int64, error) {

@@ -100,13 +100,24 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 			} else {
 				return // Surface to caller.
 			}
-		case ErrInsufficientJournalBrokers, ErrNotJournalBroker, ErrJournalNotFound:
+		case ErrInsufficientJournalBrokers, ErrNotJournalBroker:
 			// Suppress logging for expected errors on first read attempt.
 			// We may be racing a concurrent Etcd watch and assignment of the broker cluster.
 			squelch = attempt == 0
+		case ErrJournalNotFound:
+			// If a Header was attached to the request, the journal was not found
+			// even after honoring its read-through Etcd revision. If not,
+			// we allow a handful of attempts to work around expected propagation
+			// delays of Etcd revisions if the journal was just created.
+			if rr.Reader.Request.Header != nil || attempt > 3 {
+				return // Surface to caller.
+			}
 		case io.EOF:
-			// Repeated EOF is common if topology changes or authorizations
-			// expire on a journal with no active appends.
+			// EOF means we had an established RPC, but it might not have sent
+			// any data before being closed server-side, so clear `attempts` to
+			// reduce log noise: it's common to next see ErrNotJournalBroker
+			// on broker topology changes or when authorizations are refreshed.
+			attempt = 0
 			squelch = true
 		default:
 		}
