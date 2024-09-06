@@ -16,6 +16,7 @@ mod session;
 pub use session::Session;
 
 pub mod registry;
+pub mod metrics;
 
 mod api_client;
 pub use api_client::KafkaApiClient;
