@@ -13,7 +13,6 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
     use axum::routing::get;
 
     let schema_router = axum::Router::new()
-        .route("/prometheus", get(prometheus_metrics))
         .route("/subjects", get(all_subjects))
         .route(
             "/subjects/:subject/versions/latest",
@@ -24,28 +23,6 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
         .with_state(app);
 
     schema_router
-}
-
-// List all collections as "subjects", which are generally Kafka topics in the ecosystem.
-#[tracing::instrument(skip_all)]
-async fn prometheus_metrics(
-    axum_extra::TypedHeader(auth): axum_extra::TypedHeader<
-        headers::Authorization<headers::authorization::Bearer>,
-    >,
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-) -> (axum::http::StatusCode, String) {
-    if auth.token() != app.secret {
-        return (
-            axum::http::StatusCode::UNAUTHORIZED,
-            "Invalid authentication".to_string(),
-        );
-    }
-
-    match prometheus::TextEncoder::new().encode_to_string(&prometheus::default_registry().gather())
-    {
-        Err(e) => (axum::http::StatusCode::UNAUTHORIZED, e.to_string()),
-        Ok(result) => (axum::http::StatusCode::OK, result),
-    }
 }
 
 // List all collections as "subjects", which are generally Kafka topics in the ecosystem.
