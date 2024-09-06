@@ -9,3 +9,6 @@ functionality enables integrations with the Kafka ecosystem.
 - [Tinybird](/reference/Connectors/dekaf/dekaf-tinybird)
 - [Materialize](/reference/Connectors/dekaf/dekaf-materialize)
 - [StarTree](/reference/Connectors/dekaf/dekaf-startree)
+- [SingleStore](/reference/Connectors/dekaf/dekaf-singlestore)
+- [Imply](/reference/Connectors/dekaf/dekaf-imply)
+- [Bytewax](/reference/Connectors/dekaf/dekaf-bytewax)
