@@ -4,15 +4,11 @@ In this guide, you'll learn how to use Estuary Flow to push data streams to Tiny
 
 [Tinybird](https://www.tinybird.co/) is a data platform for user-facing analytics.
 
-## Prerequisites
+## Connecting Estuary Flow to Tinybird
 
-- An Estuary Flow account & collection
-- A Tinybird account & Workspace
+1. [Generate a refresh token](/guides/how_to_generate_refresh_token) to use for the Tinybird connection. You can do this
+   from the Estuary Admin Dashboard.
 
-# Connecting Estuary Flow to Tinybird
-
-1. Create a new access token to use for the Tinybird connection. You can do this from the Estuary Admin Dashboard.
-   ![Export Dekaf Access Token](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Group_22_95a85083d4/Group_22_95a85083d4.png)
 2. In your Tinybird Workspace, create a new Data Source and use the Kafka Connector.
    ![Configure Estuary Flow Data Source](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Screenshot_2024_08_23_at_15_16_39_35b06dad77/Screenshot_2024_08_23_at_15_16_39_35b06dad77.png)
 

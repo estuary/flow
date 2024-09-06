@@ -35,18 +35,14 @@ To connect to Estuary Flow via Dekaf, you need the following connection details:
 - **Security Protocol**: `SASL_SSL`
 - **SASL Mechanism**: `PLAIN`
 - **SASL Username**: `{}`
-- **SASL Password**: Estuary Refresh Token (Generate your token in
-  the [Estuary Admin Dashboard](https://dashboard.estuary.dev/admin/api))
+- **SASL Password**: Estuary Refresh Token ([Generate a refresh token](/guides/how_to_generate_refresh_token) in
+  the dashboard)
 - **Schema Registry Username**: `{}`
 - **Schema Registry Password**: The same Estuary Refresh Token as above
 
 ## How to Connect to Dekaf
 
-### 1. Generate an Estuary Refresh Token:
-
-1. Log in to the Estuary Admin Dashboard.
-2. Navigate to the section where you can generate tokens.
-3. Generate a new refresh token and note it down securely.
+### 1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token)
 
 ### 2. Set Up Your Kafka Client
 
