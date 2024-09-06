@@ -1,0 +1,33 @@
+# Outputs from project build that we don't version.
+target/
+.build/
+.build-ci/
+
+
+# Typical IDE stuff.
+.vim
+*.swp
+Session.vim
+.idea
+
+# Supabase
+**/supabase/.branches
+**/supabase/.temp
+
+# Python type-checkingr, virtual environment, and cached bytecode.
+/.mypy_cache
+.venv/
+__pycache__
+.pytest_cache
+
+# OS generated files
+.DS_Store
+
+examples/
+go/
+local/
+ops-catalog/
+scripts/
+site/
+supabase/
+tests/
