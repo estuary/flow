@@ -225,7 +225,7 @@ In general, this error suggests that the connector should be modified to at leas
 
 If your capture is failing with a `"metadata error"` then something has gone badly wrong with the capture's tracking of table metadata, such as column names or datatypes.
 
-This should never happen, and most likely means that the MySQL binlog itself is corrupt in some way. If this occurs, it can be resolved by backfilling all collections from the source.
+This should never happen, and most likely means that the binlog itself is corrupt in some way. If this occurs, it can be resolved by backfilling all collections from the source.
 
 ### Insufficient Binlog Retention
 
