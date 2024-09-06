@@ -35,7 +35,7 @@ Drafts aren't currently visible in the Flow web app, but you can get a list with
 
 1. Authorize flowctl.
 
-   1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
+   1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
 
    2. Run `flowctl auth token --token <paste-token-here>`
 

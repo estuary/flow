@@ -5,17 +5,10 @@ In this guide, you'll learn how to use Materialize to ingest data from Estuary F
 [Materialize](https://materialize.com/) is an operational data warehouse for real-time analytics that uses standard SQL
 for defining transformations and queries.
 
-## Prerequisites
-
-- An [Estuary Flow](https://dashboard.estuary.dev/register) account & collection
-- A Materialize account
-
 ## Connecting Estuary Flow to Materialize
 
-1. **Create a new access token** to use for the Materialize connection. You can generate this token from the Estuary
-   Admin Dashboard.
-
-   ![Export Dekaf Access Token](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Group_22_95a85083d4/Group_22_95a85083d4.png)
+1. [Generate a refresh token](/guides/how_to_generate_refresh_token) to use for the Materialize connection. You can
+   generate this token from the Estuary Admin Dashboard.
 
 2. In your Materialize dashboard, use the SQL shell to create a new secret and connection using the Kafka source
    connector. Use the following SQL commands to configure the connection to Estuary Flow:

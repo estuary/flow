@@ -70,7 +70,7 @@ You'll write your derivation using GitPod, a cloud development environment integ
 
 When you first connect to GitPod, you will have already authenticated Flow, but if you leave GitPod opened for too long, you may have to reauthenticate Flow. To do this:
 
-1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
+1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
 
 2. Run `flowctl auth token --token <paste-token-here>` in the GitPod terminal.
 :::
@@ -226,7 +226,7 @@ Creating a derivation locally is largely the same as using GitPod, but has some 
 
 1. Authorize flowctl.
 
-   1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
+   1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token).
 
    2. Run `flowctl auth token --token <paste-token-here>` in your local environment.
 

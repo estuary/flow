@@ -5,17 +5,10 @@ In this guide, you'll learn how to use Estuary Flow to push data streams to Star
 [StarTree](https://startree.ai/) is a real-time analytics platform built on Apache Pinot, designed for performing fast,
 low-latency analytics on large-scale data.
 
-## Prerequisites
-
-- An Estuary Flow account & collection
-- A StarTree account
-
 ## Connecting Estuary Flow to StarTree
 
-1. **Create a new access token** to use for the StarTree connection. You can generate this token from the Estuary Admin
-   Dashboard.
-
-   ![Export Dekaf Access Token](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//Group_22_95a85083d4/Group_22_95a85083d4.png)
+1. [Generate a refresh token](/guides/how_to_generate_refresh_token) to use for the StarTree connection. You can
+   generate this token from the Estuary Admin Dashboard.
 
 2. In the StarTree UI, navigate to the **Data Sources** section and choose **Add New Data Source**.
 
