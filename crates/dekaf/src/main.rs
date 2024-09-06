@@ -1,25 +1,31 @@
 use anyhow::Context;
-use clap::Parser;
+use axum_server::tls_rustls::RustlsConfig;
+use clap::{Args, Parser};
 use dekaf::{KafkaApiClient, Session};
 use futures::{FutureExt, TryStreamExt};
 use rsasl::config::SASLConfig;
-use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+use std::{
+    fs::File,
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use tokio::io::{split, AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
 #[derive(Debug, Parser, serde::Serialize)]
-#[clap(about, version)]
+#[command(about, version)]
 pub struct Cli {
     /// Endpoint of the Estuary API to use.
-    #[clap(
+    #[arg(
         long,
         default_value = MANAGED_API_ENDPOINT,
         env = "API_ENDPOINT"
     )]
     api_endpoint: String,
     /// Public (anon) API key to use during authentication to the Estuary API.
-    #[clap(
+    #[arg(
         long,
         default_value = MANAGED_API_KEY,
         env = "API_KEY"
@@ -28,37 +34,56 @@ pub struct Cli {
 
     /// When true, override the configured API endpoint and token,
     /// in preference of a local control plane.
-    #[clap(long)]
+    #[arg(long)]
     local: bool,
     /// The hostname to advertise when enumerating Kafka "brokers".
     /// This is the hostname at which `dekaf` may be accessed.
-    #[clap(long, default_value = "127.0.0.1", env = "ADVERTISE_HOST")]
+    #[arg(long, default_value = "127.0.0.1", env = "ADVERTISE_HOST")]
     advertise_host: String,
     /// The port to listen on and advertise for Kafka API access.
-    #[clap(long, default_value = "9092", env = "KAFKA_PORT")]
+    #[arg(long, default_value = "9092", env = "KAFKA_PORT")]
     kafka_port: u16,
     /// The port to listen on for schema registry API requests.
-    #[clap(long, default_value = "9093", env = "SCHEMA_REGISTRY_PORT")]
+    #[arg(long, default_value = "9093", env = "SCHEMA_REGISTRY_PORT")]
     schema_registry_port: u16,
+    /// The port to listen on for prometheus metrics
+    #[arg(long, default_value = "9094", env = "METRICS_PORT")]
+    metrics_port: u16,
 
     /// The hostname of the default Kafka broker to use for serving group management APIs
-    #[clap(long, env = "DEFAULT_BROKER_HOSTNAME")]
+    #[arg(long, env = "DEFAULT_BROKER_HOSTNAME")]
     default_broker_hostname: String,
     /// The port of the default Kafka broker to use for serving group management APIs
-    #[clap(long, default_value = "9092", env = "DEFAULT_BROKER_PORT")]
+    #[arg(long, default_value = "9092", env = "DEFAULT_BROKER_PORT")]
     default_broker_port: u16,
     /// The username for the default Kafka broker to use for serving group management APIs.
     /// Currently only supports SASL PLAIN username/password auth.
-    #[clap(long, env = "DEFAULT_BROKER_USERNAME")]
+    #[arg(long, env = "DEFAULT_BROKER_USERNAME")]
     default_broker_username: String,
     /// The password for the default Kafka broker to use for serving group management APIs
-    #[clap(long, env = "DEFAULT_BROKER_PASSWORD")]
+    #[arg(long, env = "DEFAULT_BROKER_PASSWORD")]
     default_broker_password: String,
 
     /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
     /// to the upstream Kafka broker, e.g topic names in group management metadata.
-    #[clap(long, env = "ENCRYPTION_SECRET")]
+    #[arg(long, env = "ENCRYPTION_SECRET")]
     encryption_secret: String,
+
+    #[command(flatten)]
+    tls: Option<TlsArgs>,
+}
+
+#[derive(Args, Debug, serde::Serialize)]
+#[group(required = true)]
+struct TlsArgs {
+    /// The certificate file used to serve TLS connections. If provided, Dekaf must not be
+    /// behind a TLS-terminating proxy and instead be directly exposed.
+    #[arg(long, env = "CERTIFICATE_FILE")]
+    certificate_file: PathBuf,
+    /// The key file used to serve TLS connections. If provided, Dekaf must not be
+    /// behind a TLS-terminating proxy and instead be directly exposed.
+    #[arg(long, env = "CERTIFICATE_FILE")]
+    certificate_key_file: PathBuf,
 }
 
 #[tokio::main]
@@ -110,21 +135,6 @@ async fn main() -> anyhow::Result<()> {
         "Successfully authenticated to upstream Kafka broker"
     );
 
-    // Build a server which listens and serves supported schema registry requests.
-    let schema_listener =
-        tokio::net::TcpListener::bind(format!("[::]:{}", cli.schema_registry_port))
-            .await
-            .context("failed to bind server port")?;
-    let schema_router = dekaf::registry::build_router(app.clone());
-
-    let schema_server_task = axum::serve(schema_listener, schema_router);
-    tokio::spawn(async move { schema_server_task.await.unwrap() });
-
-    // Build a listener for Kafka sessions.
-    let kafka_listener = tokio::net::TcpListener::bind(format!("[::]:{}", cli.kafka_port))
-        .await
-        .context("failed to bind server port")?;
-
     let mut stop = async {
         tokio::signal::ctrl_c()
             .await
@@ -132,33 +142,90 @@ async fn main() -> anyhow::Result<()> {
     }
     .shared();
 
-    // Accept and serve Kafka sessions until we're signaled to stop.
-    loop {
-        tokio::select! {
-            accept = kafka_listener.accept() => {
-                let (socket, addr) = accept?;
+    let schema_addr = format!("[::]:{}", cli.schema_registry_port).parse()?;
+    let metrics_addr = format!("[::]:{}", cli.metrics_port).parse()?;
+    // Build a listener for Kafka sessions.
+    let kafka_listener = tokio::net::TcpListener::bind(format!("[::]:{}", cli.kafka_port))
+        .await
+        .context("failed to bind server port")?;
 
-                tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
+    let schema_router = dekaf::registry::build_router(app.clone());
+    let metrics_router = dekaf::metrics::build_router(app.clone());
+    if let Some(tls_cfg) = cli.tls {
+        let axum_rustls_config = RustlsConfig::from_pem_file(
+            tls_cfg.certificate_file.clone(),
+            tls_cfg.certificate_key_file.clone(),
+        )
+        .await?;
+
+        let schema_server_task = axum_server::bind_rustls(schema_addr, axum_rustls_config.clone())
+            .serve(schema_router.into_make_service());
+        let metrics_server_task = axum_server::bind_rustls(metrics_addr, axum_rustls_config)
+            .serve(metrics_router.into_make_service());
+
+        let certs = load_certs(&tls_cfg.certificate_file)?;
+        let key = load_key(&tls_cfg.certificate_key_file)?;
+        let config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+
+        tokio::spawn(async move { schema_server_task.await.unwrap() });
+        tokio::spawn(async move { metrics_server_task.await.unwrap() });
+        // Accept and serve Kafka sessions until we're signaled to stop.
+        loop {
+            let acceptor = acceptor.clone();
+            tokio::select! {
+                accept = kafka_listener.accept() => {
+                    let (socket, addr) = accept?;
+                    let socket = acceptor.accept(socket).await?;
+
+                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
+                }
+                _ = &mut stop => break,
             }
-            _ = &mut stop => break,
         }
-    }
+    } else {
+        let schema_server_task =
+            axum_server::bind(schema_addr).serve(schema_router.into_make_service());
+        let metrics_server_task =
+            axum_server::bind(metrics_addr).serve(metrics_router.into_make_service());
+
+        tokio::spawn(async move { schema_server_task.await.unwrap() });
+        tokio::spawn(async move { metrics_server_task.await.unwrap() });
+
+        // Accept and serve Kafka sessions until we're signaled to stop.
+        loop {
+            tokio::select! {
+                accept = kafka_listener.accept() => {
+                    let (socket, addr) = accept?;
+                    socket.set_nodelay(true)?;
+
+                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
+                }
+                _ = &mut stop => break,
+            }
+        }
+    };
 
     Ok(())
 }
 
 #[tracing::instrument(level = "info", ret, err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
-async fn serve(
+async fn serve<S>(
     mut session: Session,
-    mut socket: tokio::net::TcpStream,
+    socket: S,
     addr: std::net::SocketAddr,
     _stop: impl futures::Future<Output = ()>, // TODO(johnny): stop.
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     tracing::info!("accepted client connection");
     metrics::gauge!("total_connections").increment(1);
     let result = async {
-        socket.set_nodelay(true)?;
-        let (r, mut w) = socket.split();
+        let (r, mut w) = split(socket);
 
         let mut r = tokio_util::codec::FramedRead::new(
             r,
@@ -177,7 +244,7 @@ async fn serve(
                     .await
             {
                 // Close the connection on error
-                socket.shutdown().await?;
+                w.shutdown().await?;
                 return err;
             }
             () = w.write_all(&mut out).await?;
@@ -191,6 +258,21 @@ async fn serve(
     metrics::gauge!("total_connections").decrement(1);
 
     result
+}
+
+fn load_certs(path: &Path) -> io::Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
+    rustls_pemfile::certs(&mut io::BufReader::new(File::open(path)?)).collect()
+}
+
+fn load_key(path: &Path) -> io::Result<rustls::pki_types::PrivateKeyDer<'static>> {
+    Ok(
+        rustls_pemfile::private_key(&mut io::BufReader::new(File::open(path)?))
+            .unwrap()
+            .ok_or(io::Error::new(
+                io::ErrorKind::Other,
+                "no private key found".to_string(),
+            ))?,
+    )
 }
 
 const MANAGED_API_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";

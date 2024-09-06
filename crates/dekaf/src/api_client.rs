@@ -1,6 +1,5 @@
 use anyhow::{anyhow, bail, Context};
 use bytes::{Bytes, BytesMut};
-use futures::lock::Mutex;
 use futures::{SinkExt, TryStreamExt};
 use kafka_protocol::{
     error::ParseResponseErrorCode,
