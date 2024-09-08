@@ -6,8 +6,8 @@
 <title data-rh="true">Schema evolution | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/concepts/advanced/evolutions/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Schema evolution | Estuary Flow Documentation"><meta data-rh="true" name="description" content="Schema evolutions are a feature you can use to update your whole Data Flow to reflect edits to a collection, preventing your Data Flow from failing due to mismatched components."><meta data-rh="true" property="og:description" content="Schema evolutions are a feature you can use to update your whole Data Flow to reflect edits to a collection, preventing your Data Flow from failing due to mismatched components."><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/concepts/advanced/evolutions/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/concepts/advanced/evolutions/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/concepts/advanced/evolutions/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.ce05321b.js" defer="defer"></script>
-<script src="/assets/js/main.a789f06d.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.31fa5733.js" defer="defer"></script>
+<script src="/assets/js/main.cd86516b.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -67,6 +67,19 @@ Evolutions add to the draft so that when it is published and updates the active 
 </ul>
 <p>In either case, the names of the destination resources will remain the same. For example, a materialization to Postgres would drop and re-create the affected tables with the same names they had previously.</p>
 <p>Also in either case, only the specific bindings that had incompatible changes will be affected. Other bindings will remain untouched, and will not re-backfill.</p>
+<p>The <code>onIncompatibleSchemaChange</code> field in materialization specs provides granular control over responses to incompatible schema changes.
+This field can be set at the top level of a materialization spec or within each binding.
+If not specified at the binding level, the top-level setting applies by default.
+The <code>onIncompatibleSchemaChange</code> field offers four options:</p>
+<ul>
+<li>backfill (default if unspecified): Increments the backfill counter for affected bindings, recreating the destination resources to fit the new schema and backfilling them.</li>
+<li>disableBinding: Disables the affected bindings, requiring manual intervention to re-enable and resolve the incompatible fields.</li>
+<li>disableTask: Disables the entire materialization, necessitating human action to re-enable and address the incompatible fields.</li>
+<li>abort: Halts any automated action, leaving the resolution decision to a human.</li>
+</ul>
+<p>These behaviors are triggered only when an automated action detects an incompatible schema change.
+Manual changes via the UI will ignore <code>onIncompatibleSchemaChange</code>.
+This feature can be configured using <code>flowctl</code> or the &quot;Advanced specification editor&quot;.</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="what-causes-breaking-schema-changes">What causes breaking schema changes?<a class="hash-link" aria-label="Direct link to What causes breaking schema changes?" title="Direct link to What causes breaking schema changes?" href="/concepts/advanced/evolutions/#what-causes-breaking-schema-changes">​</a></h2>
 <p>Though changes to the collection <code>key</code> or logical partition can happen, the most common cause of a breaking change is a change to the collection schema.</p>
 <p>Generally materializations, not captures, require updates following breaking schema changes. This is because the new collection specs are usually discovered from the source, so the capture is edited at the same time as the collection.</p>
