@@ -67,7 +67,8 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         let (channel, metadata, logs) = self.dial_proxy(data_plane, task).await?;
         let mut client = proto_grpc::capture::connector_client::ConnectorClient::with_interceptor(
             channel, metadata,
-        );
+        )
+        .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
         Self::drive_unary_response(
             client.capture(futures::stream::once(async move { request })),
@@ -89,7 +90,8 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         let (channel, metadata, logs) = self.dial_proxy(data_plane, task).await?;
         let mut client = proto_grpc::derive::connector_client::ConnectorClient::with_interceptor(
             channel, metadata,
-        );
+        )
+        .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
         Self::drive_unary_response(
             client.derive(futures::stream::once(async move { request })),
@@ -112,7 +114,8 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         let mut client =
             proto_grpc::materialize::connector_client::ConnectorClient::with_interceptor(
                 channel, metadata,
-            );
+            )
+            .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
         Self::drive_unary_response(
             client.materialize(futures::stream::once(async move { request })),
