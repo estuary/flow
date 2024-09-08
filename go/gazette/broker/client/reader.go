@@ -95,10 +95,18 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 
 	// Lazy initialization: begin the Read RPC.
 	if r.stream == nil {
-		if r.stream, err = r.client.Read(
-			pb.WithDispatchItemRoute(r.ctx, r.client, r.Request.Journal.String(), false),
-			&r.Request,
-		); err == nil {
+		var ctx context.Context
+
+		// Prefer a prior response header route, and fall back to the route cache.
+		if r.Response.Header != nil {
+			ctx = pb.WithDispatchRoute(r.ctx, r.Response.Header.Route, pb.ProcessSpec_ID{})
+		} else {
+			ctx = pb.WithDispatchItemRoute(r.ctx, r.client, r.Request.Journal.String(), false)
+		}
+		// Clear last response of previous stream.
+		r.Response = pb.ReadResponse{}
+
+		if r.stream, err = r.client.Read(ctx, &r.Request); err == nil {
 			n, err = r.Read(p) // Recurse to attempt read against opened |r.stream|.
 		} else {
 			err = mapGRPCCtxErr(r.ctx, err)

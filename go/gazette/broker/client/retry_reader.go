@@ -117,7 +117,7 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 			// any data before being closed server-side, so clear `attempts` to
 			// reduce log noise: it's common to next see ErrNotJournalBroker
 			// on broker topology changes or when authorizations are refreshed.
-			attempt = 0
+			attempt = -1
 			squelch = true
 		default:
 		}
@@ -222,6 +222,8 @@ func backoff(attempt int) time.Duration {
 	// involves a couple of Nagle-like read delays (~30ms) as Etcd watch
 	// updates are applied by participants.
 	switch attempt {
+	case -1:
+		return 0
 	case 0, 1:
 		return time.Millisecond * 50
 	case 2, 3:

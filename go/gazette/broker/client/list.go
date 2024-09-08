@@ -97,6 +97,9 @@ func (pl *WatchedList) watch() {
 		} else {
 			stream = nil // Must restart.
 
+			if err == io.EOF {
+				attempt = 0 // Clean server-side close.
+			}
 			// Wait for back-off timer or context cancellation.
 			select {
 			case <-pl.ctx.Done():
