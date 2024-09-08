@@ -205,9 +205,9 @@ pub async fn start(
     });
 
     // Wait for container to become ready, or close its stderr (likely due to a crash),
-    // or for thirty seconds to elapse (timeout).
+    // or for a minute to elapse (timeout).
     tokio::select! {
-        _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+        _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
             anyhow::bail!("timeout waiting for the container to become ready");
         }
         _ = ready_rx => (),
