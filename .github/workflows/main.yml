@@ -82,7 +82,7 @@ jobs:
         run: git clean --force -d && git diff --exit-code || exit 1
 
       - name: Upload Binaries
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: linux-gnu-binaries
           path: |
@@ -120,7 +120,7 @@ jobs:
       - run: make linux-musl-binaries
 
       - name: Upload Binaries
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: linux-musl-binaries
           path: |
@@ -186,10 +186,11 @@ jobs:
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
       - name: Download gnu-linux-binaries
-        uses: actions/download-artifact@v4.1.7
+        uses: actions/download-artifact@v4
         with:
           name: linux-gnu-binaries
           path: linux-gnu-binaries
+
       - name: Move linux-gnu-binaries to PKGBIN
         run: |
           mkdir -p .build/package/bin && \
@@ -199,10 +200,11 @@ jobs:
           mv -f linux-gnu-binaries/crates/bindings/flow_bindings.h crates/bindings/
 
       - name: Download linux-musl-binaries
-        uses: actions/download-artifact@v4.1.7
+        uses: actions/download-artifact@v4
         with:
           name: linux-musl-binaries
           path: linux-musl-binaries
+
       - name: Move linux-musl-binaries to PKGBIN
         run: |
           mkdir -p .build/package/bin && \
