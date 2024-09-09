@@ -97,4 +97,74 @@ mod test {
         // 50 total items
         assert_eq!(output.count(), 148);
     }
+
+    /* The tests below have been run on TLC Trip Record Data, January 2024
+       Yellow Taxi Trip Records and For-Hire Vehicle Trip Records
+       They have been commented due to the file sizes of these datasets
+       It is recommended to run these tests against these files when changing the behavior
+       of the parser
+       Specifically download the two files for January 2024 and uncomment these tests:
+       https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+
+    #[test]
+    fn parse_sample_file_fhv() {
+        let input = input_for_file("tests/examples/fhv_tripdata.parquet");
+        let mut output = ParquetParser
+            .parse(input)
+            .expect("must return output iterator");
+
+        let first = output
+            .next()
+            .expect("expected a result")
+            .expect("must parse object Ok");
+        assert_eq!(json!({
+            "Affiliated_base_number": "B00014",
+            "DOlocationID": null,
+            "PUlocationID": null,
+            "SR_Flag": null,
+            "dispatching_base_num": "B00053",
+            "dropOff_datetime": "2024-01-01 02:13:00 +00:00",
+            "pickup_datetime": "2024-01-01 00:15:00 +00:00",
+        }), first);
+
+        // 50 total items
+        assert_eq!(output.count(), 1290115);
+    }
+
+    #[test]
+    fn parse_sample_file_yellow() {
+        let input = input_for_file("tests/examples/yellow_tripdata.parquet");
+        let mut output = ParquetParser
+            .parse(input)
+            .expect("must return output iterator");
+
+        let first = output
+            .next()
+            .expect("expected a result")
+            .expect("must parse object Ok");
+        assert_eq!(json!({
+            "Airport_fee": 0.0,
+            "DOLocationID": 79,
+            "PULocationID": 186,
+            "RatecodeID": 1,
+            "VendorID": 2,
+            "congestion_surcharge": 2.5,
+            "extra": 1.0,
+            "fare_amount": 17.7,
+            "improvement_surcharge": 1.0,
+            "mta_tax": 0.5,
+            "passenger_count": 1,
+            "payment_type": 2,
+            "store_and_fwd_flag": "N",
+            "tip_amount": 0.0,
+            "tolls_amount": 0.0,
+            "total_amount": 22.7,
+            "tpep_dropoff_datetime": "2024-01-01 01:17:43 +00:00",
+            "tpep_pickup_datetime": "2024-01-01 00:57:55 +00:00",
+            "trip_distance": 1.72
+        }), first);
+
+        // 50 total items
+        assert_eq!(output.count(), 2964623);
+    }*/
 }
