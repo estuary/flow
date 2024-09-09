@@ -56,8 +56,8 @@ pub enum ParseError {
     #[error("failed to parse parquet: {0}")]
     Parquet(#[from] ParquetError),
 
-    #[error("file is too large, maximum size is 1GB")]
-    FileTooLarge,
+    #[error("parquet file contains row group(s) larger than the 1GB maximum")]
+    RowGroupTooLarge,
 }
 
 /// Runs format inference if the config does not specify a `format`. The expectation is that more
