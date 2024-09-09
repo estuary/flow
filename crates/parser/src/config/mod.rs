@@ -319,11 +319,13 @@ pub enum Format {
     #[schemars(title = "W3C Extended Log")]
     W3cExtendedLog,
 
+    #[serde(rename="parquet")]
+    #[schemars(title = "Parquet")]
+    Parquet,
+
     /// Placeholders for files types that are unsupported at this time.
     #[schemars(skip)]
     Excel,
-    #[schemars(skip)]
-    Parquet,
     #[schemars(skip)]
     Xml,
     #[schemars(skip)]

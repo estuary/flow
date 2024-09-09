@@ -524,6 +524,20 @@ expression: schema
               "const": "w3cExtendedLog"
             }
           }
+        },
+        {
+          "title": "Parquet",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "default": "parquet",
+              "type": "string",
+              "const": "parquet"
+            }
+          }
         }
       ],
       "required": [

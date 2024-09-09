@@ -3,12 +3,14 @@ pub mod character_separated;
 pub mod json;
 pub mod protobuf;
 pub mod sanitize;
+pub mod parquet;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
 use crate::input::{detect_compression, CompressionError, Input};
 use crate::{Compression, Format, JsonPointer, ParseConfig};
 
+use ::parquet::errors::ParquetError;
 use serde_json::Value;
 use std::io::{self, Write};
 use std::path::Path;
@@ -50,6 +52,12 @@ pub enum ParseError {
 
     #[error("failed to sanitize documents: {0}")]
     SanitizeError(#[from] sanitize::SanitizeError),
+
+    #[error("failed to parse parquet: {0}")]
+    Parquet(#[from] ParquetError),
+
+    #[error("file is too large, maximum size is 1GB")]
+    FileTooLarge,
 }
 
 /// Runs format inference if the config does not specify a `format`. The expectation is that more
@@ -185,6 +193,7 @@ fn parser_for(format: Format) -> Box<dyn Parser> {
         Format::Protobuf(proto_config) => protobuf::new_protobuf_parser(proto_config),
         Format::W3cExtendedLog => character_separated::new_w3c_extended_log_parser(),
         Format::Avro => avro::new_parser(),
+        Format::Parquet => parquet::new_parser(),
         unsupported => Box::new(UnsupportedParser(unsupported)),
     }
 }
@@ -285,6 +294,7 @@ fn format_for_content_type(content_type: &str) -> Option<Format> {
         "text/json" => Some(Format::Json),
         "text/csv" => Some(Format::Csv(Default::default())),
         "text/tab-separated-values" => Some(Format::Csv(Default::default())),
+        "application/vnd.apache.parquet" => Some(Format::Parquet),
         _ => None,
     }
 }
