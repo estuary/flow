@@ -74,16 +74,16 @@ pub struct Cli {
 }
 
 #[derive(Args, Debug, serde::Serialize)]
-#[group(required = true)]
+#[group(required = false)]
 struct TlsArgs {
     /// The certificate file used to serve TLS connections. If provided, Dekaf must not be
     /// behind a TLS-terminating proxy and instead be directly exposed.
-    #[arg(long, env = "CERTIFICATE_FILE")]
-    certificate_file: PathBuf,
+    #[arg(long, env = "CERTIFICATE_FILE", requires="certificate_key_file")]
+    certificate_file: Option<PathBuf>,
     /// The key file used to serve TLS connections. If provided, Dekaf must not be
     /// behind a TLS-terminating proxy and instead be directly exposed.
-    #[arg(long, env = "CERTIFICATE_FILE")]
-    certificate_key_file: PathBuf,
+    #[arg(long, env = "CERTIFICATE_KEY_FILE", requires = "certificate_file")]
+    certificate_key_file: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -153,8 +153,8 @@ async fn main() -> anyhow::Result<()> {
     let metrics_router = dekaf::metrics::build_router(app.clone());
     if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
-            tls_cfg.certificate_file.clone(),
-            tls_cfg.certificate_key_file.clone(),
+            tls_cfg.certificate_file.clone().unwrap(),
+            tls_cfg.certificate_key_file.clone().unwrap(),
         )
         .await?;
 
@@ -163,8 +163,8 @@ async fn main() -> anyhow::Result<()> {
         let metrics_server_task = axum_server::bind_rustls(metrics_addr, axum_rustls_config)
             .serve(metrics_router.into_make_service());
 
-        let certs = load_certs(&tls_cfg.certificate_file)?;
-        let key = load_key(&tls_cfg.certificate_key_file)?;
+        let certs = load_certs(&tls_cfg.certificate_file.unwrap())?;
+        let key = load_key(&tls_cfg.certificate_key_file.unwrap())?;
         let config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
