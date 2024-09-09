@@ -20,5 +20,5 @@ WORKDIR /app
 COPY --from=builder /app/target/release/dekaf /
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
-    apt-get update && apt-get install libssl3
+    apt-get update && apt-get install -y libssl3 ca-certificates
 CMD ["/dekaf"]
