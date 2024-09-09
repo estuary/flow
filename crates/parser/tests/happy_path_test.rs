@@ -102,6 +102,15 @@ fn csv_multi_archive_with_headers_is_parsed() {
     result.assert_success(27);
 }
 
+#[test]
+fn parquet_file_is_parsed() {
+    let config = ParseConfig {
+        format: Format::Parquet,
+        ..Default::default()
+    };
+    assert_file_is_parsed_with_config("tests/examples/iris.parquet".into(), config);
+}
+
 fn assert_file_is_parsed(file: PathBuf) {
     assert_file_is_parsed_with_config(file, ParseConfig::default());
 }

@@ -84,6 +84,7 @@ num-bigint = "0.4"
 
 open = "3"
 
+parquet = { version = "53", features = ["json"] }
 pathfinding = "3.0"
 pbjson = "0.7"
 pbjson-types = "0.7"
