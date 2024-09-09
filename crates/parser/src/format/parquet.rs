@@ -12,21 +12,18 @@ pub fn new_parser() -> Box<dyn Parser> {
     Box::new(ParquetParser)
 }
 
-const MAX_FILE_SIZE: i64 = 1024 * 1024 * 1024;
+// Maximum size for row groups (1GB)
+const MAX_RG_SIZE: i64 = 1024 * 1024 * 1024;
 
 impl Parser for ParquetParser {
     fn parse(&self, content: Input) -> Result<Output, ParseError> {
         let file = content.into_file()?;
         let file_reader = SerializedFileReader::try_from(file)?;
     
-        let mut total_size: i64 = 0;
         for rg in file_reader.metadata().row_groups() {
-            total_size += rg.total_byte_size()
-        }
-
-        // Files larger than 1GB are not allowed due to memory constraints
-        if total_size > MAX_FILE_SIZE {
-            return Err(ParseError::FileTooLarge)
+            if rg.total_byte_size() > MAX_RG_SIZE {
+                return Err(ParseError::RowGroupTooLarge)
+            }
         }
 
         let iter = file_reader.into_iter();
@@ -68,7 +65,7 @@ mod test {
     }
 
     #[test]
-    fn parse_sample_file() {
+    fn parse_sample_file_iris() {
         let input = input_for_file("tests/examples/iris.parquet");
         let mut output = ParquetParser
             .parse(input)
