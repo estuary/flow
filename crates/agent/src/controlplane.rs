@@ -308,8 +308,10 @@ impl ControlPlane for PGControlPlane {
                 row.id.into(),
                 row.data_plane_id.into(),
                 row.last_pub_id.into(),
+                row.last_build_id.into(),
                 model_json,
                 built_spec_json,
+                row.dependency_hash,
             )
             .with_context(|| format!("deserializing specs for {:?}", row.catalog_name))?;
         }
@@ -373,15 +375,17 @@ impl ControlPlane for PGControlPlane {
                 return Ok(built.build_failed());
             }
             let commit_result = self.publications_handler.commit(built).await?;
-            let JobStatus::ExpectPubIdMismatch { failures } = &commit_result.status else {
+
+            // Has there been an optimistic locking failure?
+            let JobStatus::BuildIdLockFailure { failures } = &commit_result.status else {
+                // All other statuses are terminal.
                 return Ok(commit_result);
             };
-            // There's been an optimistic locking failure.
             if attempt == Publisher::MAX_OPTIMISTIC_LOCKING_RETRIES {
                 tracing::error!(%attempt, ?failures, "giving up after maximum number of optimistic locking retries");
                 return Ok(commit_result);
             } else {
-                tracing::info!(%attempt, ?failures, "publish failed due to optimistic locking failures (will retry)");
+                tracing::info!(%attempt, ?failures, "publish failed due to optimistic locking failure (will retry)");
                 maybe_draft = Some(commit_result.draft);
             }
         }

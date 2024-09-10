@@ -14,13 +14,14 @@ pub async fn persist_updates(
 ) -> anyhow::Result<Vec<LockFailure>> {
     let UncommittedBuild {
         ref publication_id,
+        ref build_id,
         output,
         ref user_id,
         ref detail,
         ..
     } = uncommitted;
 
-    let lock_failures = update_live_specs(*publication_id, output, txn).await?;
+    let lock_failures = update_live_specs(*publication_id, *build_id, output, txn).await?;
     if !lock_failures.is_empty() {
         return Ok(lock_failures);
     }
@@ -84,7 +85,7 @@ async fn update_drafted_live_spec_flows(
         .built
         .built_captures
         .iter()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough())
     {
         update_live_spec_flows(&r.catalog_name(), agent_sql::CatalogType::Capture, r, txn)
             .await
@@ -94,7 +95,7 @@ async fn update_drafted_live_spec_flows(
         .built
         .built_collections
         .iter()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough())
     {
         update_live_spec_flows(
             &r.catalog_name(),
@@ -109,7 +110,7 @@ async fn update_drafted_live_spec_flows(
         .built
         .built_materializations
         .iter()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough())
     {
         update_live_spec_flows(
             &r.catalog_name(),
@@ -120,7 +121,12 @@ async fn update_drafted_live_spec_flows(
         .await
         .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
     }
-    for r in build.built.built_tests.iter().filter(|r| !r.is_unchanged()) {
+    for r in build
+        .built
+        .built_tests
+        .iter()
+        .filter(|r| !r.is_passthrough())
+    {
         update_live_spec_flows(&r.catalog_name(), agent_sql::CatalogType::Test, r, txn)
             .await
             .with_context(|| format!("updating live_spec_flows for '{}'", r.catalog_name()))?;
@@ -130,6 +136,7 @@ async fn update_drafted_live_spec_flows(
 
 async fn update_live_specs(
     pub_id: Id,
+    build_id: Id,
     output: &mut build::Output,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<LockFailure>> {
@@ -139,44 +146,47 @@ async fn update_live_specs(
     let mut spec_types: Vec<agent_sql::CatalogType> = Vec::with_capacity(n_specs);
     let mut models = Vec::with_capacity(n_specs);
     let mut built_specs = Vec::with_capacity(n_specs);
-    let mut expect_pub_ids: Vec<agent_sql::Id> = Vec::with_capacity(n_specs);
+    let mut expect_build_ids: Vec<agent_sql::Id> = Vec::with_capacity(n_specs);
     let mut reads_froms = Vec::with_capacity(n_specs);
     let mut writes_tos = Vec::with_capacity(n_specs);
     let mut images = Vec::with_capacity(n_specs);
     let mut image_tags = Vec::with_capacity(n_specs);
     let mut data_plane_ids = Vec::with_capacity(n_specs);
+    let mut is_touches = Vec::with_capacity(n_specs);
+    let mut dependency_hashes = Vec::with_capacity(n_specs);
 
     for r in output
         .built
         .built_captures
         .iter_mut()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough())
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Capture);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_pub_ids.push(r.expect_pub_id().into());
+        expect_build_ids.push(r.expect_build_id().into());
         reads_froms.push(None);
         writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
         data_plane_ids.push(r.data_plane_id.into());
-
+        is_touches.push(r.is_touch());
         control_ids.insert(&r.capture, &mut r.control_id);
+        dependency_hashes.push(r.dependency_hash.as_deref());
     }
     for r in output
         .built
         .built_collections
         .iter_mut()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough())
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Collection);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_pub_ids.push(r.expect_pub_id().into());
+        expect_build_ids.push(r.expect_build_id().into());
         reads_froms.push(get_dependencies(
             // reads_from should be null for regular collections
             r.model().filter(|m| m.derive.is_some()),
@@ -187,62 +197,68 @@ async fn update_live_specs(
         images.push(image_name);
         image_tags.push(image_tag);
         data_plane_ids.push(r.data_plane_id.into());
-
+        is_touches.push(r.is_touch());
         control_ids.insert(&r.collection, &mut r.control_id);
+        dependency_hashes.push(r.dependency_hash.as_deref());
     }
     for r in output
         .built
         .built_materializations
         .iter_mut()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough())
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Materialization);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_pub_ids.push(r.expect_pub_id().into());
+        expect_build_ids.push(r.expect_build_id().into());
         reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
         writes_tos.push(None);
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
         data_plane_ids.push(r.data_plane_id.into());
-
+        is_touches.push(r.is_touch());
         control_ids.insert(&r.materialization, &mut r.control_id);
+        dependency_hashes.push(r.dependency_hash.as_deref());
     }
     for r in output
         .built
         .built_tests
         .iter_mut()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough())
     {
         catalog_names.push(r.catalog_name().to_string());
         spec_types.push(agent_sql::CatalogType::Test);
         models.push(to_raw_value(r.model(), agent_sql::TextJson)?);
         built_specs.push(to_raw_value(r.spec(), agent_sql::TextJson)?);
-        expect_pub_ids.push(r.expect_pub_id().into());
+        expect_build_ids.push(r.expect_build_id().into());
         reads_froms.push(get_dependencies(r.model(), ModelDef::reads_from));
         writes_tos.push(get_dependencies(r.model(), ModelDef::writes_to));
         let (image_name, image_tag) = image_and_tag(r.model());
         images.push(image_name);
         image_tags.push(image_tag);
         data_plane_ids.push(models::Id::zero().into());
-
+        is_touches.push(r.is_touch());
         control_ids.insert(&r.test, &mut r.control_id);
+        dependency_hashes.push(r.dependency_hash.as_deref());
     }
 
     let updates = agent_sql::publications::update_live_specs(
         pub_id.into(),
+        build_id.into(),
         &catalog_names,
         &spec_types,
         &models,
         &built_specs,
-        &expect_pub_ids,
+        &expect_build_ids,
         &reads_froms,
         &writes_tos,
         &images,
         &image_tags,
         &data_plane_ids,
+        &is_touches,
+        &dependency_hashes,
         txn,
     )
     .await?;
@@ -252,8 +268,8 @@ async fn update_live_specs(
     for update in updates {
         let LiveSpecUpdate {
             catalog_name,
-            expect_pub_id,
-            last_pub_id,
+            expect_build_id,
+            last_build_id,
             live_spec_id,
         } = update;
 
@@ -272,11 +288,11 @@ async fn update_live_specs(
             );
         }
 
-        if last_pub_id != expect_pub_id {
+        if last_build_id != expect_build_id {
             lock_failures.push(LockFailure {
-                catalog_name: catalog_name,
-                last_pub_id: Some(last_pub_id.into()).filter(|id: &models::Id| !id.is_zero()),
-                expect_pub_id: expect_pub_id.into(),
+                catalog_name,
+                actual: Some(last_build_id.into()).filter(|id: &models::Id| !id.is_zero()),
+                expected: expect_build_id.into(),
             })
         }
     }
@@ -376,7 +392,11 @@ async fn insert_publication_specs(
     built: &tables::Validations,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
-    for r in built.built_captures.iter().filter(|r| !r.is_unchanged()) {
+    for r in built
+        .built_captures
+        .iter()
+        .filter(|r| !r.is_passthrough() && !r.is_touch())
+    {
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
             r.control_id().into(),
@@ -390,7 +410,11 @@ async fn insert_publication_specs(
         .await
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
-    for r in built.built_collections.iter().filter(|r| !r.is_unchanged()) {
+    for r in built
+        .built_collections
+        .iter()
+        .filter(|r| !r.is_passthrough() && !r.is_touch())
+    {
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
             r.control_id().into(),
@@ -407,7 +431,7 @@ async fn insert_publication_specs(
     for r in built
         .built_materializations
         .iter()
-        .filter(|r| !r.is_unchanged())
+        .filter(|r| !r.is_passthrough() && !r.is_touch())
     {
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
@@ -422,7 +446,11 @@ async fn insert_publication_specs(
         .await
         .with_context(|| format!("inserting spec for '{}'", r.catalog_name()))?;
     }
-    for r in built.built_tests.iter().filter(|r| !r.is_unchanged()) {
+    for r in built
+        .built_tests
+        .iter()
+        .filter(|r| !r.is_passthrough() && !r.is_touch())
+    {
         let spec = to_raw_value(r.model(), agent_sql::TextJson)?;
         agent_sql::publications::insert_publication_spec(
             r.control_id().into(),
@@ -455,14 +483,14 @@ async fn verify_unchanged_revisions(
         .built
         .built_captures
         .iter()
-        .filter(|r| r.is_unchanged())
+        .filter(|r| r.is_passthrough())
         .map(|r| (r.catalog_name().as_str(), r.expect_pub_id()))
         .chain(
             output
                 .built
                 .built_collections
                 .iter()
-                .filter(|r| r.is_unchanged())
+                .filter(|r| r.is_passthrough())
                 .map(|r| (r.catalog_name().as_str(), r.expect_pub_id())),
         )
         .chain(
@@ -470,7 +498,7 @@ async fn verify_unchanged_revisions(
                 .built
                 .built_materializations
                 .iter()
-                .filter(|r| r.is_unchanged())
+                .filter(|r| r.is_passthrough())
                 .map(|r| (r.catalog_name().as_str(), r.expect_pub_id())),
         )
         .chain(
@@ -478,7 +506,7 @@ async fn verify_unchanged_revisions(
                 .built
                 .built_tests
                 .iter()
-                .filter(|r| r.is_unchanged())
+                .filter(|r| r.is_passthrough())
                 .map(|r| (r.catalog_name().as_str(), r.expect_pub_id())),
         )
         .collect();
@@ -495,8 +523,8 @@ async fn verify_unchanged_revisions(
             if expect_pub_id != last_pub_id.into() {
                 errors.push(LockFailure {
                     catalog_name,
-                    last_pub_id: Some(last_pub_id.into()),
-                    expect_pub_id,
+                    actual: Some(last_pub_id.into()),
+                    expected: expect_pub_id,
                 });
             }
         }
@@ -506,8 +534,8 @@ async fn verify_unchanged_revisions(
         if !expect_pub_id.is_zero() {}
         errors.push(LockFailure {
             catalog_name: catalog_name.to_string(),
-            last_pub_id: None,
-            expect_pub_id,
+            actual: None,
+            expected: expect_pub_id,
         });
     }
     Ok(errors)
@@ -703,6 +731,7 @@ pub async fn resolve_live_specs(
                 spec_row.id.into(),
                 spec_row.data_plane_id.into(),
                 spec_row.last_pub_id.into(),
+                spec_row.last_build_id.into(),
                 &model,
                 &spec_row
                     .built_spec
@@ -710,6 +739,7 @@ pub async fn resolve_live_specs(
                     .ok_or_else(|| {
                         anyhow::anyhow!("row has non-null spec, but null built_spec: catalog_name: {:?}, live_spec_id: {}", &spec_row.catalog_name, spec_row.id)
                     })?,
+                spec_row.dependency_hash,
             )
             .with_context(|| format!("adding live spec for {:?}", spec_row.catalog_name))?;
         }
@@ -867,6 +897,7 @@ pub async fn load_draft(
             scope,
             row.expect_pub_id.map(Into::into),
             row.spec.as_deref().map(|j| &**j),
+            false, // !is_touch
         ) {
             draft.errors.push(err);
         }

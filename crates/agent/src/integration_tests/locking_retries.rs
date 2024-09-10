@@ -65,12 +65,12 @@ async fn test_publication_optimistic_locking_failures() {
         }
     });
 
-    let pub_a = harness.control_plane().next_pub_id();
-    let build_a = harness
+    let will_fail_pub = harness.control_plane().next_pub_id();
+    let will_fail_build = harness
         .publisher
         .build(
             user_id,
-            pub_a,
+            will_fail_pub,
             Some("pub a".to_string()),
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
@@ -79,12 +79,12 @@ async fn test_publication_optimistic_locking_failures() {
         .await
         .expect("build a failed");
 
-    let pub_b = harness.control_plane().next_pub_id();
-    let build_b = harness
+    let will_commit_pub = harness.control_plane().next_pub_id();
+    let will_commit_build = harness
         .publisher
         .build(
             user_id,
-            pub_b,
+            will_commit_pub,
             Some("pub b".to_string()),
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
@@ -92,31 +92,33 @@ async fn test_publication_optimistic_locking_failures() {
         )
         .await
         .expect("build b failed");
+    let will_commit_build_id = will_commit_build.build_id;
 
-    let result_b = harness
+    let expect_success_result = harness
         .publisher
-        .commit(build_b)
+        .commit(will_commit_build)
         .await
         .expect("commit b failed");
-    assert!(result_b.status.is_success());
+    assert!(expect_success_result.status.is_success());
 
-    let result_a = harness
+    let expect_fail_result = harness
         .publisher
-        .commit(build_a)
+        .commit(will_fail_build)
         .await
         .expect("commit a failed");
     assert_lock_failures(
         &[
-            ("mice/cheese", Id::zero(), Some(pub_b)),
-            ("mice/seeds", Id::zero(), Some(pub_b)),
-            ("mice/capture", Id::zero(), Some(pub_b)),
+            ("mice/cheese", Id::zero(), Some(will_commit_build_id)),
+            ("mice/seeds", Id::zero(), Some(will_commit_build_id)),
+            ("mice/capture", Id::zero(), Some(will_commit_build_id)),
         ],
-        &result_a.status,
+        &expect_fail_result.status,
     );
 
     // Now simulate raced publications of cheese and seeds, wich each publication having "expanded"
     // to include the capture.
-    let cheese_pub = harness.control_plane().next_pub_id();
+    let expect_current_build_id = will_commit_build_id;
+    let will_fail_pub_id = harness.control_plane().next_pub_id();
     let cheese_draft = draft_catalog(serde_json::json!({
         "collections": {
             "mice/cheese": minimal_collection(None),
@@ -125,11 +127,11 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/capture": minimal_capture(None, &["mice/cheese", "mice/seeds"]),
         }
     }));
-    let cheese_build = harness
+    let will_fail_build = harness
         .publisher
         .build(
             user_id,
-            cheese_pub,
+            will_fail_pub_id,
             Some("cheese pub".to_string()),
             cheese_draft,
             Uuid::new_v4(),
@@ -137,10 +139,10 @@ async fn test_publication_optimistic_locking_failures() {
         )
         .await
         .expect("cheese build failed");
-    assert!(!cheese_build.has_errors());
+    assert!(!will_fail_build.has_errors());
 
-    let seeds_pub = harness.control_plane().next_pub_id();
-    let seeds_draft = draft_catalog(serde_json::json!({
+    let will_commit_pub = harness.control_plane().next_pub_id();
+    let will_commit_draft = draft_catalog(serde_json::json!({
         "collections": {
             "mice/seeds": minimal_collection(None),
         },
@@ -148,39 +150,95 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/capture": minimal_capture(None, &["mice/cheese", "mice/seeds"]),
         }
     }));
-    let seeds_build = harness
+    let will_commit_build = harness
         .publisher
         .build(
             user_id,
-            seeds_pub,
+            will_commit_pub,
             Some("seeds pub".to_string()),
-            seeds_draft,
+            will_commit_draft,
             Uuid::new_v4(),
             "ops/dp/public/test",
         )
         .await
         .expect("seeds build failed");
-    assert!(!seeds_build.has_errors());
-    let seeds_result = harness
+    assert!(!will_commit_build.has_errors());
+    let will_commit_build_id = will_commit_build.build_id;
+    let expect_success_result = harness
         .publisher
-        .commit(seeds_build)
+        .commit(will_commit_build)
         .await
         .expect("failed to commit seeds");
-    assert!(seeds_result.status.is_success());
+    assert!(expect_success_result.status.is_success());
+    assert_last_pub_build(
+        &mut harness,
+        "mice/seeds",
+        will_commit_pub,
+        will_commit_build_id,
+    )
+    .await;
+    assert_last_pub_build(
+        &mut harness,
+        "mice/capture",
+        will_commit_pub,
+        will_commit_build_id,
+    )
+    .await;
 
-    let cheese_result = harness
+    let expect_fail_result = harness
         .publisher
-        .commit(cheese_build)
+        .commit(will_fail_build)
         .await
         .expect("failed to commit cheese"); // lol
     assert_lock_failures(
-        &[("mice/capture", pub_b, Some(seeds_pub))],
-        &cheese_result.status,
+        &[(
+            "mice/capture",
+            expect_current_build_id,
+            Some(will_commit_build_id),
+        )],
+        &expect_fail_result.status,
+    );
+}
+
+async fn assert_last_pub_build(
+    harness: &mut TestHarness,
+    catalog_name: &str,
+    expect_last_pub: Id,
+    expect_last_build: Id,
+) {
+    let mut names = std::collections::BTreeSet::new();
+    names.insert(catalog_name.to_string());
+    let live = harness
+        .control_plane()
+        .get_live_specs(names)
+        .await
+        .expect("failed to fetch live specs");
+    let (last_pub, last_build) = live
+        .captures
+        .get(0)
+        .map(|r| (r.last_pub_id, r.last_build_id))
+        .or(live
+            .collections
+            .get(0)
+            .map(|r| (r.last_pub_id, r.last_build_id)))
+        .or(live
+            .materializations
+            .get(0)
+            .map(|r| (r.last_pub_id, r.last_build_id)))
+        .or(live.tests.get(0).map(|r| (r.last_pub_id, r.last_build_id)))
+        .expect("no live spec found");
+    assert_eq!(
+        expect_last_pub, last_pub,
+        "mismatched last_pub_id for {catalog_name}"
+    );
+    assert_eq!(
+        expect_last_build, last_build,
+        "mismatched last_build_id for {catalog_name}"
     );
 }
 
 fn assert_lock_failures(expected: &[(&'static str, Id, Option<Id>)], actual: &JobStatus) {
-    let JobStatus::ExpectPubIdMismatch { failures } = actual else {
+    let JobStatus::BuildIdLockFailure { failures } = actual else {
         panic!("unexpected publication status: {:?}", actual);
     };
     let mut act: Vec<LockFailure> = failures.iter().cloned().collect();
@@ -190,8 +248,8 @@ fn assert_lock_failures(expected: &[(&'static str, Id, Option<Id>)], actual: &Jo
         .iter()
         .map(|(name, expect, last)| LockFailure {
             catalog_name: name.to_string(),
-            expect_pub_id: *expect,
-            last_pub_id: *last,
+            expected: *expect,
+            actual: *last,
         })
         .collect();
     exp.sort_by(|l, r| l.catalog_name.cmp(&r.catalog_name));

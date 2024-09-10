@@ -24,13 +24,8 @@ impl TestStatus {
             .publications
             .resolve_dependencies(state, control_plane)
             .await?;
-        if let Some(pub_id) = dependencies.next_pub_id {
-            pending_pub.start_spec_update(
-                pub_id,
-                state,
-                format!("in response to publication of one or more depencencies"),
-            );
-
+        if dependencies.hash != state.live_dependency_hash {
+            pending_pub.start_touch(state);
             let result = pending_pub
                 .finish(state, &mut self.publications, control_plane)
                 .await
@@ -40,7 +35,7 @@ impl TestStatus {
             result.error_for_status().do_not_retry()?;
             // TODO(phil): This would be a great place to trigger an alert if the publication failed
         } else {
-            // We're up-to-date with our dependencies, which means the test has been published successfully
+            // We've successfully published against the latest versions of the dependencies
             self.passing = true;
         }
 

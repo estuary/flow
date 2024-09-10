@@ -138,6 +138,14 @@ async fn test_dependencies_and_controllers() {
     .collect::<BTreeSet<_>>();
 
     // Controller runs should have been immediately enqueued for all published specs.
+    let due_controllers = harness
+        .get_enqueued_controllers(chrono::Duration::seconds(1))
+        .await;
+    assert_eq!(
+        all_names.iter().cloned().collect::<Vec<_>>(),
+        due_controllers
+    );
+
     let runs = harness.run_pending_controllers(None).await;
     let run_names = runs
         .into_iter()
@@ -157,11 +165,21 @@ async fn test_dependencies_and_controllers() {
 
     // Fetch and re-publish just the hoots collection. This should trigger controller updates of
     // all the other specs.
-    let live = harness
+    let live_hoots = harness
         .control_plane()
-        .get_live_specs(std::iter::once("owls/hoots".to_string()).collect())
+        .get_collection(models::Collection::new("owls/hoots"))
         .await
-        .expect("failed to fetch hoots");
+        .unwrap()
+        .expect("hoots spec must be Some");
+    let hoots_last_activated = live_hoots.last_build_id;
+    let mut draft = tables::DraftCatalog::default();
+    draft.collections.insert(tables::DraftCollection {
+        collection: models::Collection::new("owls/hoots"),
+        scope: tables::synthetic_scope(models::CatalogType::Collection, "owls/hoots"),
+        expect_pub_id: None,
+        model: Some(live_hoots.model.clone()),
+        is_touch: false,
+    });
 
     let next_pub = harness.control_plane().next_pub_id();
     let result = harness
@@ -170,12 +188,13 @@ async fn test_dependencies_and_controllers() {
             next_pub,
             Some("test publication of owls/hoots".to_string()),
             Uuid::new_v4(),
-            super::live_to_draft(live),
+            draft,
         )
         .await
         .expect("publication failed");
     assert_eq!(1, result.draft.spec_count());
     assert!(result.status.is_success());
+    assert_eq!(next_pub, result.pub_id);
 
     // Simulate a failed call to activate the collection in the data plane
     harness.control_plane().fail_next_activation("owls/hoots");
@@ -193,12 +212,13 @@ async fn test_dependencies_and_controllers() {
         .unwrap()
         .contains("data_plane_delete simulated failure"));
     assert_eq!(
-        first_pub_id,
+        hoots_last_activated,
         hoots_state
             .current_status
             .unwrap_collection()
             .activation
-            .last_activated
+            .last_activated,
+        "expect hoots last_activated to be unchanged"
     );
     harness.control_plane().reset_activations();
 
@@ -213,15 +233,28 @@ async fn test_dependencies_and_controllers() {
     assert_eq!(0, hoots_state.failures);
     assert!(hoots_state.error.is_none());
     assert_eq!(
-        next_pub,
+        hoots_state.last_build_id,
         hoots_state
             .current_status
             .unwrap_collection()
             .activation
             .last_activated
     );
+    assert!(
+        hoots_state.last_build_id > hoots_last_activated,
+        "sanity check that the last_build_id increased"
+    );
 
     // Other controllers should run now that the activation of hoots was successful.
+    // Before running, fetch the current state of their live specs, so we can assert
+    // that they only get touched instead of being fully published.
+    let mut all_except_hoots = all_names.clone();
+    all_except_hoots.remove("owls/hoots");
+    let starting_specs = harness
+        .control_plane()
+        .get_live_specs(all_except_hoots.clone())
+        .await
+        .unwrap();
     let runs = harness.run_pending_controllers(None).await;
     assert_controllers_ran(
         &[
@@ -233,6 +266,7 @@ async fn test_dependencies_and_controllers() {
         ],
         runs,
     );
+    harness.assert_specs_touched_since(&starting_specs).await;
     harness.control_plane().assert_activations(
         "subsequent activations",
         vec![
@@ -242,6 +276,71 @@ async fn test_dependencies_and_controllers() {
             // tests do not get activated
         ],
     );
+
+    // Publish hoots again and expect dependents to be touched again in response.
+    // This time, we'll assert that the dependent's publication histories have collapsed both
+    // touch publications into one history entry.
+    let starting_specs = harness
+        .control_plane()
+        .get_live_specs(all_except_hoots)
+        .await
+        .unwrap();
+
+    let mut draft = tables::DraftCatalog::default();
+    draft.collections.insert(tables::DraftCollection {
+        collection: models::Collection::new("owls/hoots"),
+        scope: tables::synthetic_scope(models::CatalogType::Collection, "owls/hoots"),
+        expect_pub_id: None,
+        model: Some(live_hoots.model.clone()),
+        is_touch: false,
+    });
+    let pub_id = harness.control_plane().next_pub_id();
+    harness
+        .control_plane()
+        .publish(
+            pub_id,
+            Some("3rd pub of hoots".to_string()),
+            Uuid::new_v4(),
+            draft,
+        )
+        .await
+        .expect("publication must succeed");
+    let runs = harness.run_pending_controllers(None).await;
+    assert_controllers_ran(
+        &[
+            "owls/capture",
+            "owls/materialize",
+            "owls/hoots",
+            "owls/nests",
+            "owls/test-test",
+        ],
+        runs,
+    );
+    harness.assert_specs_touched_since(&starting_specs).await;
+    harness.control_plane().assert_activations(
+        "3rd activations",
+        vec![
+            ("owls/capture", Some(CatalogType::Capture)),
+            ("owls/materialize", Some(CatalogType::Materialization)),
+            ("owls/nests", Some(CatalogType::Collection)),
+            ("owls/hoots", Some(CatalogType::Collection)),
+            // tests do not get activated
+        ],
+    );
+
+    let mat_state = harness.get_controller_state("owls/materialize").await;
+    let mat_history = &mat_state
+        .current_status
+        .unwrap_materialization()
+        .publications
+        .history;
+    assert_eq!(
+        1,
+        mat_history.len(),
+        "unexpected entry count in materialize pub history: {:?}",
+        mat_history
+    );
+
     // Insert an inferred schema so that we can assert it gets deleted along with the collection
     harness
         .upsert_inferred_schema(mock_inferred_schema("owls/hoots", 3))
@@ -500,6 +599,6 @@ fn assert_controllers_ran(expected: &[&str], actual: Vec<ControllerState>) {
     let expected_names = expected.into_iter().map(|n| *n).collect::<BTreeSet<_>>();
     assert_eq!(
         expected_names, actual_names,
-        "mismatched controller runs, expected:\n{expected_names:?}\nactual:\n{actual:?}"
+        "mismatched controller runs, expected"
     );
 }

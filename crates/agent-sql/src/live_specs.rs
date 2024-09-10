@@ -38,6 +38,7 @@ pub struct LiveSpec {
     pub user_capability: Option<Capability>,
     // Capabilities of the specification with respect to other roles.
     pub spec_capabilities: Json<Vec<RoleGrant>>,
+    pub dependency_hash: Option<String>,
 }
 
 /// Returns a `LiveSpec` row for each of the given `names`. This will always return a row for each
@@ -69,7 +70,8 @@ pub async fn fetch_live_specs(
                 from role_grants
                 where starts_with(names, subject_role)),
                 '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>"
+            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
+            ls.dependency_hash
         from unnest($2::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
         "#,
@@ -149,7 +151,8 @@ pub async fn fetch_expanded_live_specs(
                 from role_grants
                 where starts_with(ls.catalog_name, subject_role)),
                 '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>"
+            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
+            ls.dependency_hash
         from exp
         join live_specs ls on ls.id = exp.id
         where ls.spec is not null and not ls.catalog_name = any($3);

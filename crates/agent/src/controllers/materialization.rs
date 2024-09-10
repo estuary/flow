@@ -37,13 +37,15 @@ impl MaterializationStatus {
             .publications
             .resolve_dependencies(state, control_plane)
             .await?;
-        if let Some(pub_id) = dependencies.next_pub_id {
-            let draft = pending_pub.start_spec_update(
-                pub_id,
-                state,
-                format!("in response to publication of one or more depencencies"),
-            );
-            if !dependencies.deleted.is_empty() {
+
+        if dependencies.hash != state.live_dependency_hash {
+            if dependencies.deleted.is_empty() {
+                pending_pub.start_touch(state);
+            } else {
+                let draft = pending_pub.start_spec_update(
+                    state,
+                    format!("in response to publication of one or more depencencies"),
+                );
                 let mat_name = models::Materialization::new(&state.catalog_name);
                 let draft_row = draft.materializations.get_mut_by_key(&mat_name);
                 let model = draft_row.unwrap().model.as_mut().unwrap();
@@ -153,6 +155,15 @@ impl MaterializationStatus {
             .materializations
             .get_mut_by_key(&mat_name)
             .ok_or_else(|| anyhow::anyhow!("missing draft row for materialization"))?;
+        if draft_materialization.is_touch {
+            // We started out just touching the spec, so we need to change to a "real" publication
+            // in order to update the model.
+            draft_materialization.is_touch = false;
+            draft_materialization.model = state
+                .live_spec
+                .as_ref()
+                .and_then(|s| s.as_materialization().cloned());
+        }
         let draft_model = draft_materialization
             .model
             .as_mut()
@@ -358,6 +369,7 @@ impl SourceCaptureStatus {
                 ),
                 expect_pub_id: Some(state.last_pub_id),
                 model: Some(model.clone()),
+                is_touch: false, // We intend to update the model
             });
 
         // Failures here are terminal
