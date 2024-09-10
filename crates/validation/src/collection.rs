@@ -53,11 +53,20 @@ fn walk_collection(
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltCollection> {
-    let (collection, scope, model, control_id, data_plane_id, expect_pub_id, live_spec) =
-        match walk_transition(pub_id, default_plane_id, eob, errors) {
-            Ok(ok) => ok,
-            Err(built) => return Some(built),
-        };
+    let (
+        collection,
+        scope,
+        model,
+        control_id,
+        data_plane_id,
+        expect_pub_id,
+        expect_build_id,
+        live_spec,
+        is_touch,
+    ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
+        Ok(ok) => ok,
+        Err(built) => return Some(built),
+    };
     let scope = Scope::new(scope);
 
     let models::CollectionDef {
@@ -215,10 +224,14 @@ fn walk_collection(
         control_id,
         data_plane_id,
         expect_pub_id,
+        expect_build_id,
         model: Some(model.clone()),
         spec: Some(built_spec),
         validated: None,
         previous_spec: live_spec.cloned(),
+        is_touch,
+        // Regular collections don't have dependencies. Derivation validation will set the hash.
+        dependency_hash: None,
     })
 }
 

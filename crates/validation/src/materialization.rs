@@ -17,6 +17,7 @@ pub async fn walk_all_materializations(
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
     storage_mappings: &tables::StorageMappings,
+    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
     // Outer join of live and draft materializations.
@@ -44,6 +45,7 @@ pub async fn walk_all_materializations(
                 data_planes,
                 default_plane_id,
                 storage_mappings,
+                dependencies,
                 &mut local_errors,
             )
             .await;
@@ -73,13 +75,23 @@ async fn walk_materialization(
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
     storage_mappings: &tables::StorageMappings,
+    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltMaterialization> {
-    let (materialization, scope, model, control_id, data_plane_id, expect_pub_id, live_spec) =
-        match walk_transition(pub_id, default_plane_id, eob, errors) {
-            Ok(ok) => ok,
-            Err(built) => return Some(built),
-        };
+    let (
+        materialization,
+        scope,
+        model,
+        control_id,
+        data_plane_id,
+        expect_pub_id,
+        expect_build_id,
+        live_spec,
+        is_touch,
+    ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
+        Ok(ok) => ok,
+        Err(built) => return Some(built),
+    };
     let scope = Scope::new(scope);
 
     let models::MaterializationDef {
@@ -338,16 +350,20 @@ async fn walk_materialization(
         network_ports,
     };
 
+    let dependency_hash = dependencies.compute_hash(model);
     Some(tables::BuiltMaterialization {
         materialization: materialization.clone(),
         scope: scope.flatten(),
         control_id,
         data_plane_id,
         expect_pub_id,
+        expect_build_id,
         model: Some(model.clone()),
         validated: Some(validated_response),
         spec: Some(built_spec),
         previous_spec: live_spec.cloned(),
+        is_touch,
+        dependency_hash,
     })
 }
 

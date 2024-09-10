@@ -1,6 +1,7 @@
 #[macro_use]
 mod macros;
 mod behaviors;
+mod dependencies;
 
 use std::str::FromStr;
 
@@ -19,6 +20,7 @@ mod built;
 mod draft;
 mod live;
 pub use built::{BuiltRow, Validations};
+pub use dependencies::Dependencies;
 pub use draft::{DraftCatalog, DraftRow};
 pub use live::{CatalogResolver, LiveCatalog, LiveRow};
 
@@ -107,6 +109,10 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of this capture, or None if the capture is being deleted.
         val model: Option<models::CaptureDef>,
+        // When true, this draft "touches" the capture, causing it to be built
+        // but not incrementing its publication ID. If `is_touch` is `true`,
+        // then `model` must be identical to the live model.
+        val is_touch: bool,
     }
 
     table DraftCollections (row DraftCollection, sql "draft_collections") {
@@ -118,6 +124,10 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of this collection, or None if the collection is being deleted.
         val model: Option<models::CollectionDef>,
+        // When true, this draft "touches" the capture, causing it to be built
+        // but not incrementing its publication ID. If `is_touch` is `true`,
+        // then `model` must be identical to the live model.
+        val is_touch: bool,
     }
 
     table DraftMaterializations (row DraftMaterialization, sql "draft_materializations") {
@@ -129,6 +139,10 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of this materialization, or None if the materialization is being deleted.
         val model: Option<models::MaterializationDef>,
+        // When true, this draft "touches" the capture, causing it to be built
+        // but not incrementing its publication ID. If `is_touch` is `true`,
+        // then `model` must be identical to the live model.
+        val is_touch: bool,
     }
 
     table DraftTests (row DraftTest, sql "draft_tests") {
@@ -140,6 +154,10 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of the test, or None if the test is being deleted.
         val model: Option<models::TestDef>,
+        // When true, this draft "touches" the capture, causing it to be built
+        // but not incrementing its publication ID. If `is_touch` is `true`,
+        // then `model` must be identical to the live model.
+        val is_touch: bool,
     }
 
     table LiveCaptures (row LiveCapture, sql "live_captures") {
@@ -151,10 +169,14 @@ tables!(
         val data_plane_id: models::Id,
         // Most recent publication ID of this capture.
         val last_pub_id: models::Id,
+        // Most recent build ID of this capture
+        val last_build_id: models::Id,
         // Model of the capture as-of `last_pub_id`
         val model: models::CaptureDef,
         // Built specification of this capture as-of `last_pub_id`.
         val spec: proto_flow::flow::CaptureSpec,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the capture
+        val dependency_hash: Option<String>,
     }
 
     table LiveCollections (row LiveCollection, sql "live_collections") {
@@ -166,10 +188,14 @@ tables!(
         val data_plane_id: models::Id,
         // Most recent publication ID of this collection.
         val last_pub_id: models::Id,
+        // Most recent build ID of this collection
+        val last_build_id: models::Id,
         // Model of the collection as-of `last_pub_id`.
         val model: models::CollectionDef,
         // Built specification of this collection as-of `last_pub_id`.
         val spec: proto_flow::flow::CollectionSpec,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the collection
+        val dependency_hash: Option<String>,
     }
 
     table LiveMaterializations (row LiveMaterialization, sql "live_materializations") {
@@ -181,10 +207,14 @@ tables!(
         val data_plane_id: models::Id,
         // Most recent publication ID of this materialization.
         val last_pub_id: models::Id,
+        // Most recent build ID of this materialization
+        val last_build_id: models::Id,
         // Model of the materialization as-of `last_pub_id`.
         val model: models::MaterializationDef,
         // Built specification of this materialization as-of `last_pub_id`.
         val spec: proto_flow::flow::MaterializationSpec,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the materialization
+        val dependency_hash: Option<String>,
     }
 
     table LiveTests (row LiveTest, sql "live_tests") {
@@ -194,10 +224,14 @@ tables!(
         val control_id: models::Id,
         // Most recent publication ID of this test.
         val last_pub_id: models::Id,
+        // Most recent build ID of this test
+        val last_build_id: models::Id,
         // Model of the test as-of `last_pub_id`.
         val model: models::TestDef,
         // Built specification of this test as-of `last_pub_id`.
         val spec: proto_flow::flow::TestSpec,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the test
+        val dependency_hash: Option<String>,
     }
 
     table BuiltCaptures (row BuiltCapture, sql "built_captures") {
@@ -220,6 +254,12 @@ tables!(
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::CaptureSpec>,
+        // Whether this was the result of a "touch" operation.
+        val is_touch: bool,
+        // Expected last build ID for optimistic concurrency.
+        val expect_build_id: models::Id,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the capture
+        val dependency_hash: Option<String>,
     }
 
     table BuiltCollections (row BuiltCollection, sql "built_collections") {
@@ -233,6 +273,8 @@ tables!(
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
+        // Expected last build ID for optimistic concurrency.
+        val expect_build_id: models::Id,
         // Model of this collection, or None if the collection is being deleted.
         val model: Option<models::CollectionDef>,
         // Validated response which was used to build this spec.
@@ -242,6 +284,10 @@ tables!(
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::CollectionSpec>,
+        // Whether this was the result of a "touch" operation.
+        val is_touch: bool,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the collection
+        val dependency_hash: Option<String>,
     }
 
     table BuiltMaterializations (row BuiltMaterialization, sql "built_materializations") {
@@ -255,6 +301,8 @@ tables!(
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
+        // Expected last build ID for optimistic concurrency.
+        val expect_build_id: models::Id,
         // Model of this materialization, or None if the materialization is being deleted.
         val model: Option<models::MaterializationDef>,
         // Validated response which was used to build this spec.
@@ -264,6 +312,10 @@ tables!(
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::MaterializationSpec>,
+        // Whether this was the result of a "touch" operation.
+        val is_touch: bool,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the materialization
+        val dependency_hash: Option<String>,
     }
 
     table BuiltTests (row BuiltTest, sql "built_tests") {
@@ -275,6 +327,8 @@ tables!(
         val control_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
+        // Expected last build ID for optimistic concurrency.
+        val expect_build_id: models::Id,
         // Model of the test, or None if the test is being deleted.
         val model: Option<models::TestDef>,
         // Built specification of this test, or None if being deleted.
@@ -282,6 +336,10 @@ tables!(
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::TestSpec>,
+        // Whether this was the result of a "touch" operation.
+        val is_touch: bool,
+        // Hash of the last_pub_ids of all the dependencies that were used to build the test
+        val dependency_hash: Option<String>,
     }
 
     table Errors (row Error, sql "errors") {

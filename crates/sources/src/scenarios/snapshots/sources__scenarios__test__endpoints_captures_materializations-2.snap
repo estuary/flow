@@ -23,6 +23,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftCapture {
             capture: capture/config-raw,
@@ -37,6 +38,7 @@ DraftCatalog {
               },
               "bindings": []
             },
+            is_touch: 0,
         },
         DraftCapture {
             capture: capture/local,
@@ -56,6 +58,7 @@ DraftCatalog {
               },
               "bindings": []
             },
+            is_touch: 0,
         },
         DraftCapture {
             capture: capture/second,
@@ -80,6 +83,7 @@ DraftCatalog {
                 "logLevel": "debug"
               }
             },
+            is_touch: 0,
         },
         DraftCapture {
             capture: first/capture,
@@ -104,6 +108,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
     ],
     materializations: [
@@ -156,6 +161,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftMaterialization {
             materialization: materialization/local,
@@ -186,6 +192,7 @@ DraftCatalog {
                 "ringBufferSize": 12345
               }
             },
+            is_touch: 0,
         },
         DraftMaterialization {
             materialization: materialization/missing-config,
@@ -208,6 +215,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftMaterialization {
             materialization: materialization/with-config,
@@ -231,6 +239,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftMaterialization {
             materialization: materialization/with-config-fragment,
@@ -245,6 +254,7 @@ DraftCatalog {
               },
               "bindings": []
             },
+            is_touch: 0,
         },
     ],
     imports: [

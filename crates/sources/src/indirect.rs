@@ -22,6 +22,7 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         scope,
         expect_pub_id: _,
         model,
+        is_touch: _,
     } in captures.iter_mut()
     {
         if let Some(model) = model {
@@ -33,6 +34,7 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         scope,
         expect_pub_id: _,
         model,
+        is_touch: _,
     } in collections.iter_mut()
     {
         if let Some(model) = model {
@@ -44,6 +46,7 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         scope,
         expect_pub_id: _,
         model,
+        is_touch: _,
     } in materializations.iter_mut()
     {
         if let Some(model) = model {
@@ -55,6 +58,7 @@ pub fn indirect_large_files(draft: &mut tables::DraftCatalog, threshold: usize) 
         scope,
         expect_pub_id: _,
         model,
+        is_touch: _,
     } in tests.iter_mut()
     {
         if let Some(model) = model {
@@ -105,6 +109,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         scope,
         expect_pub_id,
         model,
+        is_touch: _,
     } in captures.iter()
     {
         if let Some(model) = model {
@@ -120,6 +125,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         scope,
         expect_pub_id,
         model,
+        is_touch: _,
     } in collections.iter()
     {
         if let Some(model) = model {
@@ -135,6 +141,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         scope,
         expect_pub_id,
         model,
+        is_touch: _,
     } in materializations.iter()
     {
         if let Some(model) = model {
@@ -152,6 +159,7 @@ pub fn rebuild_catalog_resources(draft: &mut tables::DraftCatalog) {
         scope,
         expect_pub_id,
         model,
+        is_touch: _,
     } in tests.iter()
     {
         if let Some(model) = model {

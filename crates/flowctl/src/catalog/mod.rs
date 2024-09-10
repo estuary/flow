@@ -399,6 +399,7 @@ pub fn collect_specs(
                     &scope,
                     row.expect_pub_id(),
                     parse::<models::CaptureDef>(row.spec())?,
+                    false, // !is_touch
                 );
             }
             CatalogType::Collection => {
@@ -407,6 +408,7 @@ pub fn collect_specs(
                     &scope,
                     row.expect_pub_id(),
                     parse::<models::CollectionDef>(row.spec())?,
+                    false, // !is_touch
                 );
             }
             CatalogType::Materialization => {
@@ -415,6 +417,7 @@ pub fn collect_specs(
                     &scope,
                     row.expect_pub_id(),
                     parse::<models::MaterializationDef>(row.spec())?,
+                    false, // !is_touch
                 );
             }
             CatalogType::Test => {
@@ -423,6 +426,7 @@ pub fn collect_specs(
                     &scope,
                     row.expect_pub_id(),
                     parse::<models::TestDef>(row.spec())?,
+                    false, // !is_touch
                 );
             }
         }

@@ -21,11 +21,13 @@ pub async fn walk_all_derivations(
     imports: &tables::Imports,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> Vec<(
     usize,
     derive::response::Validated,
     flow::collection_spec::Derivation,
+    Option<String>,
 )> {
     // Outer join of live and draft collections.
     let it = live_collections.outer_join(
@@ -51,6 +53,7 @@ pub async fn walk_all_derivations(
                 imports,
                 project_root,
                 storage_mappings,
+                dependencies,
                 &mut local_errors,
             )
             .await;
@@ -81,24 +84,35 @@ async fn walk_derivation(
     imports: &tables::Imports,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
+    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> Option<(
     usize,
     derive::response::Validated,
     flow::collection_spec::Derivation,
+    Option<String>,
 )> {
-    let (collection, scope, model, last_pub_id, last_collection) = match eob {
+    let (collection, scope, model, last_pub_id, last_collection, dependency_hash) = match eob {
         // If this is a drafted derivation, pluck out its details.
         EOB::Right(tables::DraftCollection {
             collection,
             scope,
             model:
-                Some(models::CollectionDef {
-                    derive: Some(model),
-                    ..
-                }),
+                Some(
+                    collection_model @ models::CollectionDef {
+                        derive: Some(model),
+                        ..
+                    },
+                ),
             ..
-        }) => (collection, scope, model, None, None),
+        }) => (
+            collection,
+            scope,
+            model,
+            None,
+            None,
+            dependencies.compute_hash(collection_model),
+        ),
 
         EOB::Both(
             tables::LiveCollection {
@@ -108,10 +122,12 @@ async fn walk_derivation(
                 collection,
                 scope,
                 model:
-                    Some(models::CollectionDef {
-                        derive: Some(model),
-                        ..
-                    }),
+                    Some(
+                        collection_model @ models::CollectionDef {
+                            derive: Some(model),
+                            ..
+                        },
+                    ),
                 ..
             },
         ) => (
@@ -120,6 +136,7 @@ async fn walk_derivation(
             model,
             spec.derivation.is_some().then_some(last_pub_id),
             spec.derivation.is_some().then_some(spec),
+            dependencies.compute_hash(collection_model),
         ),
 
         // For all other cases, don't build this derivation.
@@ -491,7 +508,7 @@ async fn walk_derivation(
         network_ports,
     };
 
-    Some((built_index, validated_response, built_spec))
+    Some((built_index, validated_response, built_spec, dependency_hash))
 }
 
 fn walk_derive_transform<'a>(

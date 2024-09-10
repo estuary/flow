@@ -91,12 +91,15 @@ pub async fn validate(
         };
     }
 
+    let dependencies = tables::Dependencies::of_publication(pub_id, draft, live);
+
     let built_tests = test_step::walk_all_tests(
         pub_id,
         build_id,
         &draft.tests,
         &live.tests,
         &built_collections,
+        &dependencies,
         &mut errors,
     );
 
@@ -125,6 +128,7 @@ pub async fn validate(
         &live.data_planes,
         default_plane_id,
         &live.storage_mappings,
+        &dependencies,
         &mut capture_errors,
     );
 
@@ -140,6 +144,7 @@ pub async fn validate(
         &draft.imports,
         project_root,
         &live.storage_mappings,
+        &dependencies,
         &mut derive_errors,
     );
 
@@ -154,6 +159,7 @@ pub async fn validate(
         &live.data_planes,
         default_plane_id,
         &live.storage_mappings,
+        &dependencies,
         &mut materialize_errors,
     );
 
@@ -166,10 +172,11 @@ pub async fn validate(
     errors.extend(materialize_errors.into_iter());
 
     // Attach all built derivations to the corresponding collections.
-    for (built_index, validated, derivation) in built_derivations {
+    for (built_index, validated, derivation, dependency_hash) in built_derivations {
         let row = &mut built_collections[built_index];
         row.validated = Some(validated);
         row.spec.as_mut().unwrap().derivation = Some(derivation);
+        row.dependency_hash = dependency_hash;
     }
 
     // Look for name collisions among all top-level catalog entities.
@@ -209,6 +216,7 @@ pub async fn validate(
 
 fn walk_transition<'a, D, L, B>(
     pub_id: models::Id,
+    build_id: models::Id,
     default_plane_id: Option<models::Id>,
     eob: EOB<&'a L, &'a D>,
     errors: &mut tables::Errors,
@@ -221,7 +229,9 @@ fn walk_transition<'a, D, L, B>(
         models::Id,               // Live control-plane ID.
         models::Id,               // Assigned data-plane.
         models::Id,               // Live publication ID.
+        models::Id,               // Live last build ID.
         Option<&'a L::BuiltSpec>, // Live spec.
+        bool,                     // Is this a touch operation
     ),
     // Result::Err is a completed BuiltRow for this specification.
     B,
@@ -234,10 +244,10 @@ where
 {
     match eob {
         EOB::Left(live) => {
-            if live.last_pub_id() > pub_id {
-                Error::PublicationSuperseded {
-                    pub_id,
-                    larger_id: live.last_pub_id(),
+            if live.last_build_id() > build_id {
+                Error::BuildSuperseded {
+                    build_id,
+                    larger_id: live.last_build_id(),
                 }
                 .push(Scope::new(&live.scope()), errors);
             }
@@ -248,10 +258,13 @@ where
                 live.control_id(),
                 live.data_plane_id(),
                 live.last_pub_id(),
+                live.last_build_id(),
                 Some(live.model().clone()),
                 None,
                 Some(live.spec().clone()),
                 None,
+                false, // !is_touch
+                live.dependency_hash().map(|h| h.to_owned()),
             ))
         }
         EOB::Right(draft) => {
@@ -265,6 +278,9 @@ where
                     }
                     .push(Scope::new(draft.scope()), errors);
                 }
+            }
+            if draft.is_touch() {
+                Error::TouchSpecDoesNotExist.push(Scope::new(draft.scope()), errors);
             }
 
             let default_plane_id = default_plane_id.unwrap_or_else(|| {
@@ -284,7 +300,9 @@ where
                     models::Id::zero(), // No control-plane ID.
                     default_plane_id,   // Assign default data-plane.
                     last_pub_id,        // Not published (zero).
+                    last_pub_id,        // Not published (zero).
                     None,               // No live spec.
+                    false,              // !is_touch
                 )),
                 None => {
                     Error::DeletedSpecDoesNotExist.push(Scope::new(draft.scope()), errors);
@@ -295,23 +313,19 @@ where
                         draft.scope().clone(),
                         models::Id::zero(), // No control-plane ID.
                         models::Id::zero(), // Placeholder data-plane ID.
-                        last_pub_id,
+                        models::Id::zero(),
+                        models::Id::zero(),
                         None,
                         None,
                         None,
+                        None,
+                        false, // !is_touch
                         None,
                     ))
                 }
             }
         }
         EOB::Both(live, draft) => {
-            if live.last_pub_id() > pub_id {
-                Error::PublicationSuperseded {
-                    pub_id,
-                    larger_id: live.last_pub_id(),
-                }
-                .push(Scope::new(&live.scope()), errors);
-            }
             match draft.expect_pub_id() {
                 Some(expect) if expect != live.last_pub_id() => {
                     Error::ExpectPubIdNotMatched {
@@ -322,8 +336,50 @@ where
                 }
                 _ => (),
             }
+            if pub_id < live.last_pub_id() {
+                Error::PublicationSuperseded {
+                    pub_id,
+                    last_pub_id: live.last_pub_id(),
+                }
+                .push(Scope::new(draft.scope()), errors);
+            } else if !draft.is_touch() && pub_id == live.last_pub_id() {
+                // Only touch publications are allowed to publish at the same id.
+                // Even this might not be something we actually need to support, since
+                // a touch publication can always use a new pub_id (because it won't update)
+                // last_pub_id anyway. But it'll be supported for now, since currently agents
+                // are publishing at the same id.
+                Error::PubIdNotIncreased {
+                    pub_id,
+                    last_pub_id: live.last_pub_id(),
+                }
+                .push(Scope::new(draft.scope()), errors);
+            } else if live.last_build_id() > build_id {
+                Error::BuildSuperseded {
+                    build_id,
+                    larger_id: live.last_build_id(),
+                }
+                .push(Scope::new(draft.scope()), errors);
+            }
 
             match draft.model() {
+                Some(model) if draft.is_touch() && model != live.model() => {
+                    Error::TouchModelChanged.push(Scope::new(draft.scope()), errors);
+                    // Return a placeholder deletion of this specification.
+                    Err(B::new(
+                        draft.catalog_name().clone(),
+                        draft.scope().clone(),
+                        models::Id::zero(), // No control-plane ID.
+                        models::Id::zero(), // Placeholder data-plane ID.
+                        models::Id::zero(),
+                        models::Id::zero(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        true, // is_touch
+                        None,
+                    ))
+                }
                 Some(model) => Ok((
                     draft.catalog_name(),
                     draft.scope(),
@@ -331,21 +387,163 @@ where
                     live.control_id(),
                     live.data_plane_id(),
                     live.last_pub_id(),
+                    live.last_build_id(),
                     Some(live.spec()),
+                    draft.is_touch(),
                 )),
                 // Return a deletion of this specification.
-                None => Err(B::new(
-                    draft.catalog_name().clone(),
-                    draft.scope().clone(),
-                    live.control_id(),
-                    live.data_plane_id(),
-                    live.last_pub_id(),
-                    None, // Deletion has no draft model.
-                    None, // Deletion is not validated.
-                    None, // Deletion is not built into a spec.
-                    Some(live.spec().clone()),
-                )),
+                None => {
+                    if draft.is_touch() {
+                        // Draft must contain a model if is_touch is true
+                        Error::TouchMissingDraftModel.push(Scope::new(draft.scope()), errors);
+                    }
+                    Err(B::new(
+                        draft.catalog_name().clone(),
+                        draft.scope().clone(),
+                        live.control_id(),
+                        live.data_plane_id(),
+                        live.last_pub_id(),
+                        live.last_build_id(),
+                        None, // Deletion has no draft model.
+                        None, // Deletion is not validated.
+                        None, // Deletion is not built into a spec.
+                        Some(live.spec().clone()),
+                        false, // !is_touch
+                        live.dependency_hash().map(|h| h.to_owned()),
+                    ))
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use tables::{BuiltCollection, DraftCollection, LiveCollection};
+
+    use super::*;
+
+    #[test]
+    fn walk_transition_validates_is_touch_live_spec_exists() {
+        let name = models::Collection::new("test/a");
+        let pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
+        let build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
+        let dp_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 11]);
+
+        let draft = tables::DraftCollection {
+            collection: name.clone(),
+            scope: tables::synthetic_scope(models::CatalogType::Collection, &name),
+            expect_pub_id: None,
+            model: Some(models::CollectionDef::example()),
+            is_touch: true,
+        };
+        let mut errors = tables::Errors::default();
+        let _ = walk_transition::<DraftCollection, LiveCollection, BuiltCollection>(
+            pub_id,
+            build_id,
+            Some(dp_id),
+            EOB::Right(&draft),
+            &mut errors,
+        );
+        assert_eq!(1, errors.len(), "expected one error in {errors:?}");
+        assert!(errors[0]
+            .error
+            .to_string()
+            .contains("cannot touch because live model does not exist"));
+    }
+
+    #[test]
+    fn walk_transition_validates_is_touch_model_is_equal() {
+        let name = models::Collection::new("test/a");
+        let last_pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 5]);
+        let last_build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 6]);
+        let control_id = models::Id::new([0, 0, 0, 0, 0, 0, 1, 1]);
+        let data_plane_id = models::Id::new([0, 0, 0, 0, 0, 0, 2, 2]);
+        let live = tables::LiveCollection {
+            control_id,
+            data_plane_id,
+            collection: name.clone(),
+            last_pub_id,
+            last_build_id,
+            model: models::CollectionDef::example(),
+            spec: proto_flow::flow::CollectionSpec {
+                name: name.to_string(),
+                write_schema_json: String::from("{}"),
+                read_schema_json: String::from("{}"),
+                key: vec![String::from("/id")],
+                uuid_ptr: String::from("/_meta/uuid"),
+                partition_fields: vec![],
+                projections: vec![],
+                ack_template_json: String::from("{}"),
+                partition_template: None,
+                derivation: None,
+            },
+            dependency_hash: Some("abc123".to_owned()),
+        };
+
+        let mut draft = tables::DraftCollection {
+            collection: name.clone(),
+            scope: tables::synthetic_scope(models::CatalogType::Collection, &name),
+            expect_pub_id: None,
+            model: Some(models::CollectionDef::example()),
+            is_touch: true,
+        };
+
+        let mut errors = tables::Errors::default();
+        let pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
+        let build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
+
+        let result = walk_transition::<_, _, BuiltCollection>(
+            pub_id,
+            build_id,
+            None,
+            EOB::Both(&live, &draft),
+            &mut errors,
+        )
+        .unwrap();
+        assert!(errors.is_empty());
+        assert!(result.8); // is_touch
+        assert_eq!(last_pub_id, result.5);
+        assert_eq!(last_build_id, result.6);
+
+        draft.model.as_mut().unwrap().projections.insert(
+            models::Field::new("foo"),
+            models::Projection::Pointer(models::JsonPointer::new("/fooooooo")),
+        );
+        let _ = walk_transition::<_, _, tables::BuiltCollection>(
+            pub_id,
+            build_id,
+            None,
+            EOB::Both(&live, &draft),
+            &mut errors,
+        );
+        assert_eq!(1, errors.len());
+
+        let error = errors.pop().unwrap();
+        assert!(
+            error.error.to_string().contains(
+                "expected draft model to be equal to the live model because `is_touch: true`"
+            ),
+            "unexpected error: {error:?}"
+        );
+
+        draft.model = None;
+        let _ = walk_transition::<_, _, tables::BuiltCollection>(
+            pub_id,
+            build_id,
+            None,
+            EOB::Both(&live, &draft),
+            &mut errors,
+        );
+        assert_eq!(1, errors.len());
+
+        let error = errors.pop().unwrap();
+        assert!(
+            error
+                .error
+                .to_string()
+                .contains("missing draft model when `is_touch: true`"),
+            "unexpected error: {error:?}"
+        );
     }
 }

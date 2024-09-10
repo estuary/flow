@@ -204,7 +204,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -276,7 +276,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -321,7 +321,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -362,6 +362,9 @@ Outcome {
                 network_ports: [],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            expect_build_id: "0000000000000000",
+            dependency_hash: 60d7b44614a1cb1e,
         },
     ],
     built_collections: [
@@ -371,6 +374,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/acmeCo~1foo/schema","properties":{"id":{"type":"integer"},"val":{"type":"string"}},"required":["id","val"],"type":"object"},
               "key": [
@@ -535,7 +539,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -571,6 +575,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
     ],
     built_materializations: [
@@ -580,6 +586,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -803,7 +810,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -912,7 +919,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -957,7 +964,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -998,6 +1005,8 @@ Outcome {
                 network_ports: [],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 60d7b44614a1cb1e,
         },
     ],
     built_tests: [],
@@ -1023,6 +1032,7 @@ Outcome {
                 "disable": true
               }
             },
+            is_touch: 0,
         },
     ],
     collections: [
@@ -1036,6 +1046,7 @@ Outcome {
                 "/id"
               ]
             },
+            is_touch: 0,
         },
     ],
     errors: [],
@@ -1075,6 +1086,7 @@ Outcome {
                 "disable": true
               }
             },
+            is_touch: 0,
         },
     ],
     resources: [
