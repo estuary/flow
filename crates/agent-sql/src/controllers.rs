@@ -10,6 +10,7 @@ pub struct ControllerJob {
     pub live_spec_id: Id,
     pub catalog_name: String,
     pub last_pub_id: Id,
+    pub last_build_id: Id,
     pub live_spec: Option<TextJson<Box<RawValue>>>,
     pub built_spec: Option<TextJson<Box<RawValue>>>,
     pub spec_type: Option<CatalogType>,
@@ -21,6 +22,7 @@ pub struct ControllerJob {
     pub failures: i32,
     pub error: Option<String>,
     pub data_plane_id: Id,
+    pub live_dependency_hash: Option<String>,
 }
 
 /// Returns the next available controller job, if any are due to be run. Filters
@@ -39,9 +41,11 @@ pub async fn dequeue(
             ls.catalog_name as "catalog_name: String",
             ls.controller_next_run,
             ls.last_pub_id as "last_pub_id: Id",
+            ls.last_build_id as "last_build_id: Id",
             ls.spec as "live_spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.spec_type as "spec_type: CatalogType",
+            ls.dependency_hash as "live_dependency_hash",
             cj.controller_version as "controller_version: i32",
             cj.updated_at,
             cj.logs_token,

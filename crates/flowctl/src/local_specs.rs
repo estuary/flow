@@ -245,6 +245,8 @@ impl Resolver {
             model: models::RawValue,
             built_spec: models::RawValue,
             last_pub_id: models::Id,
+            last_build_id: models::Id,
+            dependency_hash: Option<String>,
         }
 
         let rows = catalog_names
@@ -255,7 +257,7 @@ impl Resolver {
                 let builder = self
                     .client
                     .from("live_specs_ext")
-                    .select("id,catalog_name,spec_type,spec,built_spec,last_pub_id")
+                    .select("id,catalog_name,spec_type,spec,built_spec,last_pub_id,last_build_id")
                     .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
 
@@ -272,6 +274,8 @@ impl Resolver {
             model,
             built_spec,
             last_pub_id,
+            last_build_id,
+            dependency_hash,
         } in rows.into_iter().flat_map(|i| i.into_iter())
         {
             match spec_type {
@@ -280,31 +284,39 @@ impl Resolver {
                     id,
                     models::Id::zero(),
                     last_pub_id,
+                    last_build_id,
                     serde_json::from_str::<models::CaptureDef>(model.get())?,
                     serde_json::from_str::<flow::CaptureSpec>(built_spec.get())?,
+                    dependency_hash,
                 ),
                 CatalogType::Collection => live.collections.insert_row(
                     models::Collection::new(catalog_name),
                     id,
                     models::Id::zero(),
                     last_pub_id,
+                    last_build_id,
                     serde_json::from_str::<models::CollectionDef>(model.get())?,
                     serde_json::from_str::<flow::CollectionSpec>(built_spec.get())?,
+                    dependency_hash,
                 ),
                 CatalogType::Materialization => live.materializations.insert_row(
                     models::Materialization::new(catalog_name),
                     id,
                     models::Id::zero(),
                     last_pub_id,
+                    last_build_id,
                     serde_json::from_str::<models::MaterializationDef>(model.get())?,
                     serde_json::from_str::<flow::MaterializationSpec>(built_spec.get())?,
+                    dependency_hash,
                 ),
                 CatalogType::Test => live.tests.insert_row(
                     models::Test::new(catalog_name),
                     id,
                     last_pub_id,
+                    last_build_id,
                     serde_json::from_str::<models::TestDef>(model.get())?,
                     serde_json::from_str::<flow::TestSpec>(built_spec.get())?,
+                    dependency_hash,
                 ),
             }
         }

@@ -10,7 +10,7 @@ expression: schema
       "properties": {
         "last_activated": {
           "$ref": "#/definitions/Id",
-          "description": "The publication id that was last activated in the data plane. If this is less than the `last_pub_id` of the controlled spec, then an activation is still pending."
+          "description": "The build id that was last activated in the data plane. If this is less than the `last_build_id` of the controlled spec, then an activation is still pending."
         }
       },
       "type": "object"
@@ -230,19 +230,34 @@ expression: schema
             "type"
           ],
           "type": "object"
+        },
+        {
+          "description": "Optimistic locking failure for one or more specs in the publication. This case should typically be retried by the publisher.",
+          "properties": {
+            "failures": {
+              "items": {
+                "$ref": "#/definitions/LockFailure"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "buildIdLockFailure"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
         }
       ]
     },
     "LockFailure": {
       "description": "Represents an optimistic lock failure when trying to update live specs.",
       "properties": {
-        "catalog_name": {
-          "type": "string"
-        },
-        "expect_pub_id": {
-          "$ref": "#/definitions/Id"
-        },
-        "last_pub_id": {
+        "actual": {
           "anyOf": [
             {
               "$ref": "#/definitions/Id"
@@ -251,11 +266,17 @@ expression: schema
               "type": "null"
             }
           ]
+        },
+        "catalog_name": {
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "#/definitions/Id"
         }
       },
       "required": [
         "catalog_name",
-        "expect_pub_id"
+        "expected"
       ],
       "type": "object"
     },
@@ -266,6 +287,10 @@ expression: schema
           "description": "Time at which the publication was completed",
           "format": "date-time",
           "type": "string"
+        },
+        "count": {
+          "minimum": 1.0,
+          "type": "integer"
         },
         "created": {
           "description": "Time at which the publication was initiated",
@@ -289,6 +314,10 @@ expression: schema
         "id": {
           "$ref": "#/definitions/Id"
         },
+        "is_touch": {
+          "default": false,
+          "type": "boolean"
+        },
         "result": {
           "anyOf": [
             {
@@ -309,6 +338,12 @@ expression: schema
     "PublicationStatus": {
       "description": "Information on the publications performed by the controller. This does not include any information on user-initiated publications.",
       "properties": {
+        "dependency_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "history": {
           "description": "A limited history of publications performed by this controller",
           "items": {
@@ -319,10 +354,6 @@ expression: schema
         "max_observed_pub_id": {
           "$ref": "#/definitions/Id",
           "description": "The publication id at which the controller has last notified dependent specs. A publication of the controlled spec will cause the controller to notify the controllers of all dependent specs. When it does so, it sets `max_observed_pub_id` to the current `last_pub_id`, so that it can avoid notifying dependent controllers unnecessarily."
-        },
-        "target_pub_id": {
-          "$ref": "#/definitions/Id",
-          "description": "The largest `last_pub_id` among all of this spec's dependencies. For example, for materializations the dependencies are all of the collections of all enabled binding `source`s, as well as the `sourceCapture`. If any of these are published, it will increase the `target_pub_id` and the materialization will be published at `target_pub_id` in turn."
         }
       },
       "required": [

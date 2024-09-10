@@ -34,13 +34,14 @@ impl CaptureStatus {
             .publications
             .resolve_dependencies(state, control_plane)
             .await?;
-        if let Some(pub_id) = dependencies.next_pub_id {
-            let draft = pending_pub.start_spec_update(
-                pub_id,
-                state,
-                format!("in response to publication of one or more depencencies"),
-            );
-            if !dependencies.deleted.is_empty() {
+        if dependencies.hash != state.live_dependency_hash {
+            if dependencies.deleted.is_empty() {
+                pending_pub.start_touch(state);
+            } else {
+                let draft = pending_pub.start_spec_update(
+                    state,
+                    format!("in response to publication of one or more depencencies"),
+                );
                 tracing::debug!(deleted_collections = ?dependencies.deleted, "disabling bindings for collections that have been deleted");
                 let draft_capture = draft
                     .captures

@@ -33,13 +33,15 @@ impl CollectionStatus {
             .publications
             .resolve_dependencies(state, control_plane)
             .await?;
-        if let Some(pub_id) = dependencies.next_pub_id {
-            let draft = pending_pub.start_spec_update(
-                pub_id,
-                state,
-                format!("in response to publication of one or more depencencies"),
-            );
-            if !dependencies.deleted.is_empty() {
+
+        if dependencies.hash != state.live_dependency_hash {
+            if dependencies.deleted.is_empty() {
+                pending_pub.start_touch(state);
+            } else {
+                let draft = pending_pub.start_spec_update(
+                    state,
+                    "in response to publication of one or more depencencies",
+                );
                 let add_detail = handle_deleted_dependencies(draft, state, dependencies);
                 pending_pub.update_pending_draft(add_detail);
             }
@@ -171,6 +173,7 @@ impl InferredSchemaStatus {
                     ),
                     expect_pub_id: Some(state.last_pub_id),
                     model: Some(collection_def.clone()),
+                    is_touch: false, // We intend to update the model
                 }
             });
             let (removed, new_schema) = collection_def
@@ -210,6 +213,7 @@ impl InferredSchemaStatus {
                         ),
                         expect_pub_id: Some(state.last_pub_id),
                         model: Some(collection_def.clone()),
+                        is_touch: false, // We intend to update the model
                     }
                 });
                 update_inferred_schema(draft_row, &schema)?;

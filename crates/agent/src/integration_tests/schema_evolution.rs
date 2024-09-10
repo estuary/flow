@@ -528,7 +528,7 @@ impl FailBuild for UnsatisfiableConstraints {
             .built
             .built_materializations
             .iter_mut()
-            .filter(|m| !m.is_unchanged())
+            .filter(|m| !m.is_passthrough())
             .next()
         else {
             panic!("no materialization in build");

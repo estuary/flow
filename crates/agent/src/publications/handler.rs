@@ -79,6 +79,7 @@ impl Handler for Publisher {
 impl Publisher {
     pub async fn process(&mut self, row: Row) -> anyhow::Result<PublicationResult> {
         info!(
+            %row.pub_id,
             %row.created_at,
             %row.draft_id,
             %row.dry_run,
@@ -94,10 +95,6 @@ impl Publisher {
         loop {
             attempt += 1;
             let draft = specs::load_draft(row.draft_id.into(), &self.db).await?;
-            // let all_drafted_specs = draft
-            //     .all_spec_names()
-            //     .map(|n| n.to_string())
-            //     .collect::<BTreeSet<_>>();
             tracing::debug!(
                 %attempt,
                 n_drafted = draft.all_spec_names().count(),
@@ -150,8 +147,9 @@ impl Publisher {
                 }
             }
 
-            let JobStatus::ExpectPubIdMismatch { failures } = &result.status else {
-                return Ok(result);
+            // Has there been an optimistic locking failure?
+            let JobStatus::BuildIdLockFailure { failures } = &result.status else {
+                return Ok(result); // All other statuses are terminal.
             };
             if attempt == Publisher::MAX_OPTIMISTIC_LOCKING_RETRIES {
                 tracing::error!(%attempt, ?failures, "giving up after maximum number of optimistic locking retries");
@@ -203,12 +201,16 @@ impl Publisher {
                 anyhow::bail!("missing spec for expanded row: {:?}", exp.catalog_name);
             };
             let scope = tables::synthetic_scope(spec_type, &exp.catalog_name);
+            // TODO(phil): currently we set `is_touch: false`, which is consistent with the prior
+            // behavior when publishing. It seems to make more sense to only "touch" expanded
+            // specs, but I'm holding off until a subsequent commit.
             if let Err(e) = draft.add_spec(
                 spec_type,
                 &exp.catalog_name,
                 scope,
                 Some(exp.last_pub_id.into()),
                 Some(&model_json),
+                false, // !is_touch
             ) {
                 draft.errors.push(e);
             }
