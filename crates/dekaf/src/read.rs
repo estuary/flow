@@ -1,5 +1,6 @@
 use super::{Collection, Partition};
 use anyhow::bail;
+use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
@@ -96,7 +97,20 @@ impl Read {
             } {
                 None => bail!("blocking gazette client read never returns EOF"),
                 Some(resp) => match resp {
-                    Ok(data) => Ok(data),
+                    Ok(data @ ReadJsonLine::Meta(_)) => Ok(data),
+                    Ok(ReadJsonLine::Doc { root, next_offset }) => match root.get() {
+                        doc::heap::ArchivedNode::Object(_) => {
+                            Ok(ReadJsonLine::Doc { root, next_offset })
+                        }
+                        non_object => {
+                            tracing::warn!(
+                                "skipping past non-object node at offset {}: {:?}",
+                                self.offset,
+                                non_object.to_debug_json_value()
+                            );
+                            continue;
+                        }
+                    },
                     Err(err) if err.is_transient() => {
                         tracing::warn!(%err, "Retrying transient read error");
                         // We can retry transient errors just by continuing to poll the stream
@@ -124,10 +138,13 @@ impl Read {
                 }
                 ReadJsonLine::Doc { root, next_offset } => (root, next_offset),
             };
+
             let Some(doc::ArchivedNode::String(uuid)) = self.uuid_ptr.query(root.get()) else {
+                let serialized_doc = root.get().to_debug_json_value();
                 anyhow::bail!(
-                    "document at offset {} does not have a valid UUID",
-                    self.offset
+                    "document at offset {} does not have a valid UUID: {:?}",
+                    self.offset,
+                    serialized_doc
                 );
             };
             let (producer, clock, flags) = gazette::uuid::parse_str(uuid.as_str())?;
