@@ -201,8 +201,8 @@ impl super::ModelDef for MaterializationDef {
         !self.shards.disable
     }
 
-    fn materialization_source_capture(&self) -> Option<crate::Capture> {
-        self.source_capture.clone()
+    fn materialization_source_capture(&self) -> Option<&crate::Capture> {
+        self.source_capture.as_ref()
     }
 
     fn connector_image(&self) -> Option<&str> {
