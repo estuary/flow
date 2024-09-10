@@ -9,6 +9,7 @@ DraftCatalog {
             scope: test://example/catalog.yaml#/captures/deleted~1capture,
             expect_pub_id: "0011223344556677",
             model: NULL,
+            is_touch: 0,
         },
     ],
     collections: [
@@ -17,6 +18,7 @@ DraftCatalog {
             scope: test://example/catalog.yaml#/collections/deleted~1collection,
             expect_pub_id: "0011223344556677",
             model: NULL,
+            is_touch: 0,
         },
     ],
     materializations: [
@@ -25,6 +27,7 @@ DraftCatalog {
             scope: test://example/catalog.yaml#/materializations/deleted~1materialization,
             expect_pub_id: "0011223344556677",
             model: NULL,
+            is_touch: 0,
         },
     ],
     tests: [
@@ -33,6 +36,7 @@ DraftCatalog {
             scope: test://example/catalog.yaml#/tests/deleted~1test,
             expect_pub_id: "0011223344556677",
             model: NULL,
+            is_touch: 0,
         },
     ],
     fetches: [

@@ -52,6 +52,7 @@ DraftCatalog {
                 ]
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: d2/collection,
@@ -94,6 +95,7 @@ DraftCatalog {
                 }
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: d3/collection,
@@ -130,6 +132,7 @@ DraftCatalog {
                 ]
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: d4/local,
@@ -153,6 +156,7 @@ DraftCatalog {
                 "transforms": []
               }
             },
+            is_touch: 0,
         },
     ],
     imports: [

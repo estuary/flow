@@ -89,12 +89,14 @@ impl DraftCatalog {
                 scope,
                 expect_pub_id,
                 model: None,
+                is_touch: false,
             }),
             CatalogType::Collection => self.collections.insert(crate::DraftCollection {
                 collection: models::Collection::new(catalog_name),
                 scope,
                 expect_pub_id,
                 model: None,
+                is_touch: false,
             }),
             CatalogType::Materialization => {
                 self.materializations.insert(crate::DraftMaterialization {
@@ -102,6 +104,7 @@ impl DraftCatalog {
                     scope,
                     expect_pub_id,
                     model: None,
+                    is_touch: false,
                 })
             }
             CatalogType::Test => self.tests.insert(crate::DraftTest {
@@ -109,6 +112,7 @@ impl DraftCatalog {
                 scope,
                 expect_pub_id,
                 model: None,
+                is_touch: false,
             }),
         };
     }
@@ -120,6 +124,7 @@ impl DraftCatalog {
         scope: url::Url,
         expect_pub_id: Option<models::Id>,
         maybe_model: Option<&RawValue>,
+        is_touch: bool,
     ) -> Result<(), Error> {
         match spec_type {
             models::CatalogType::Capture => {
@@ -139,6 +144,7 @@ impl DraftCatalog {
                     scope,
                     expect_pub_id,
                     model,
+                    is_touch,
                 });
             }
             models::CatalogType::Collection => {
@@ -157,6 +163,7 @@ impl DraftCatalog {
                     scope,
                     expect_pub_id,
                     model,
+                    is_touch,
                 });
             }
             models::CatalogType::Materialization => {
@@ -175,6 +182,7 @@ impl DraftCatalog {
                     scope,
                     expect_pub_id,
                     model,
+                    is_touch,
                 });
             }
             models::CatalogType::Test => {
@@ -193,6 +201,7 @@ impl DraftCatalog {
                     scope,
                     expect_pub_id,
                     model,
+                    is_touch,
                 });
             }
         }
@@ -241,6 +250,7 @@ impl From<models::Catalog> for DraftCatalog {
                         capture: name,
                         model: Some(spec),
                         expect_pub_id,
+                        is_touch: false,
                     }
                 })
                 .collect(),
@@ -254,6 +264,7 @@ impl From<models::Catalog> for DraftCatalog {
                         collection: name,
                         model: Some(spec),
                         expect_pub_id,
+                        is_touch: false,
                     }
                 })
                 .collect(),
@@ -267,6 +278,7 @@ impl From<models::Catalog> for DraftCatalog {
                         materialization: name,
                         model: Some(spec),
                         expect_pub_id,
+                        is_touch: false,
                     }
                 })
                 .collect(),
@@ -280,6 +292,7 @@ impl From<models::Catalog> for DraftCatalog {
                         test: name,
                         model: Some(spec),
                         expect_pub_id,
+                        is_touch: false,
                     }
                 })
                 .collect(),
@@ -359,6 +372,7 @@ pub trait DraftRow: crate::Row {
         scope: url::Url,
         expect_pub_id: Option<models::Id>,
         model: Option<Self::ModelDef>,
+        is_touch: bool,
     ) -> Self;
 
     /// Convert this DraftRow into its parts.
@@ -379,6 +393,8 @@ pub trait DraftRow: crate::Row {
     fn expect_pub_id(&self) -> Option<models::Id>;
     /// Model of this specification.
     fn model(&self) -> Option<&Self::ModelDef>;
+    /// Whether this represents a touch operation. If true, then `model` must be `None`.
+    fn is_touch(&self) -> bool;
 }
 
 impl DraftRow for crate::DraftCapture {
@@ -389,12 +405,14 @@ impl DraftRow for crate::DraftCapture {
         scope: url::Url,
         expect_pub_id: Option<models::Id>,
         model: Option<Self::ModelDef>,
+        is_touch: bool,
     ) -> Self {
         Self {
             capture,
             scope,
             expect_pub_id,
             model,
+            is_touch,
         }
     }
 
@@ -421,6 +439,9 @@ impl DraftRow for crate::DraftCapture {
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
+    fn is_touch(&self) -> bool {
+        self.is_touch
+    }
 }
 
 impl DraftRow for crate::DraftCollection {
@@ -431,12 +452,14 @@ impl DraftRow for crate::DraftCollection {
         scope: url::Url,
         expect_pub_id: Option<models::Id>,
         model: Option<Self::ModelDef>,
+        is_touch: bool,
     ) -> Self {
         Self {
             collection,
             scope,
             expect_pub_id,
             model,
+            is_touch,
         }
     }
 
@@ -463,6 +486,9 @@ impl DraftRow for crate::DraftCollection {
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
+    fn is_touch(&self) -> bool {
+        self.is_touch
+    }
 }
 
 impl DraftRow for crate::DraftMaterialization {
@@ -473,12 +499,14 @@ impl DraftRow for crate::DraftMaterialization {
         scope: url::Url,
         expect_pub_id: Option<models::Id>,
         model: Option<Self::ModelDef>,
+        is_touch: bool,
     ) -> Self {
         Self {
             materialization,
             scope,
             expect_pub_id,
             model,
+            is_touch,
         }
     }
 
@@ -510,6 +538,9 @@ impl DraftRow for crate::DraftMaterialization {
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
+    fn is_touch(&self) -> bool {
+        self.is_touch
+    }
 }
 
 impl DraftRow for crate::DraftTest {
@@ -520,12 +551,14 @@ impl DraftRow for crate::DraftTest {
         scope: url::Url,
         expect_pub_id: Option<models::Id>,
         model: Option<Self::ModelDef>,
+        is_touch: bool,
     ) -> Self {
         Self {
             test,
             scope,
             expect_pub_id,
             model,
+            is_touch,
         }
     }
 
@@ -551,5 +584,8 @@ impl DraftRow for crate::DraftTest {
     }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
+    }
+    fn is_touch(&self) -> bool {
+        self.is_touch
     }
 }

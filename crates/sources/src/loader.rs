@@ -469,6 +469,7 @@ impl<F: Fetcher> Loader<F> {
             scope.flatten(),
             spec.expect_pub_id.take(),
             (!spec.delete).then_some(spec),
+            false, // !is_touch
         )
     }
 
@@ -641,6 +642,7 @@ impl<F: Fetcher> Loader<F> {
             scope.flatten(),
             spec.expect_pub_id.take(),
             (!spec.delete).then_some(spec),
+            false, // !is_touch
         );
     }
 
@@ -712,6 +714,7 @@ impl<F: Fetcher> Loader<F> {
             scope.flatten(),
             spec.expect_pub_id.take(),
             (!spec.delete).then_some(spec),
+            false, // !is_touch
         );
     }
 
@@ -742,6 +745,7 @@ impl<F: Fetcher> Loader<F> {
             scope.flatten(),
             spec.expect_pub_id.take(),
             (!spec.delete).then_some(spec),
+            false, // !is_touch
         );
     }
 

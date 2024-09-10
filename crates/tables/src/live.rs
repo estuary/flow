@@ -40,10 +40,14 @@ pub trait LiveRow: crate::Row {
     fn data_plane_id(&self) -> models::Id;
     // Most recent publication ID of this specification.
     fn last_pub_id(&self) -> models::Id;
+    // Most recent publication ID of this specification.
+    fn last_build_id(&self) -> models::Id;
     // Model of this specification.
     fn model(&self) -> &Self::ModelDef;
     // Most-recent built specification.
     fn spec(&self) -> &Self::BuiltSpec;
+    /// Hash of the dependencies that were used to build this row
+    fn dependency_hash(&self) -> Option<&str>;
 }
 
 impl LiveRow for crate::LiveCapture {
@@ -65,11 +69,17 @@ impl LiveRow for crate::LiveCapture {
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
     }
+    fn last_build_id(&self) -> models::Id {
+        self.last_build_id
+    }
     fn model(&self) -> &Self::ModelDef {
         &self.model
     }
     fn spec(&self) -> &Self::BuiltSpec {
         &self.spec
+    }
+    fn dependency_hash(&self) -> Option<&str> {
+        self.dependency_hash.as_deref()
     }
 }
 
@@ -95,11 +105,17 @@ impl LiveRow for crate::LiveCollection {
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
     }
+    fn last_build_id(&self) -> models::Id {
+        self.last_build_id
+    }
     fn model(&self) -> &Self::ModelDef {
         &self.model
     }
     fn spec(&self) -> &Self::BuiltSpec {
         &self.spec
+    }
+    fn dependency_hash(&self) -> Option<&str> {
+        self.dependency_hash.as_deref()
     }
 }
 
@@ -125,11 +141,17 @@ impl LiveRow for crate::LiveMaterialization {
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
     }
+    fn last_build_id(&self) -> models::Id {
+        self.last_build_id
+    }
     fn model(&self) -> &Self::ModelDef {
         &self.model
     }
     fn spec(&self) -> &Self::BuiltSpec {
         &self.spec
+    }
+    fn dependency_hash(&self) -> Option<&str> {
+        self.dependency_hash.as_deref()
     }
 }
 
@@ -152,11 +174,17 @@ impl LiveRow for crate::LiveTest {
     fn last_pub_id(&self) -> models::Id {
         self.last_pub_id
     }
+    fn last_build_id(&self) -> models::Id {
+        self.last_build_id
+    }
     fn model(&self) -> &Self::ModelDef {
         &self.model
     }
     fn spec(&self) -> &Self::BuiltSpec {
         &self.spec
+    }
+    fn dependency_hash(&self) -> Option<&str> {
+        self.dependency_hash.as_deref()
     }
 }
 
@@ -279,8 +307,10 @@ impl LiveCatalog {
         control_id: models::Id,
         data_plane_id: models::Id,
         last_pub_id: models::Id,
+        last_build_id: models::Id,
         model_json: &RawValue,
         built_spec_json: &RawValue,
+        dependency_hash: Option<String>,
     ) -> anyhow::Result<()> {
         match spec_type {
             models::CatalogType::Capture => {
@@ -293,8 +323,10 @@ impl LiveCatalog {
                     control_id,
                     data_plane_id,
                     last_pub_id,
+                    last_build_id,
                     model,
                     spec: built,
+                    dependency_hash,
                 });
             }
             models::CatalogType::Collection => {
@@ -307,8 +339,10 @@ impl LiveCatalog {
                     control_id,
                     data_plane_id,
                     last_pub_id,
+                    last_build_id,
                     model,
                     spec: built,
+                    dependency_hash,
                 });
             }
             models::CatalogType::Materialization => {
@@ -321,8 +355,10 @@ impl LiveCatalog {
                     control_id,
                     data_plane_id,
                     last_pub_id,
+                    last_build_id,
                     model,
                     spec: built,
+                    dependency_hash,
                 });
             }
             models::CatalogType::Test => {
@@ -334,8 +370,10 @@ impl LiveCatalog {
                     test: models::Test::new(catalog_name),
                     control_id,
                     last_pub_id,
+                    last_build_id,
                     model,
                     spec: built,
+                    dependency_hash,
                 });
             }
         }

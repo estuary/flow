@@ -13,10 +13,13 @@ pub trait BuiltRow: crate::Row {
         control_id: models::Id,
         data_plane_id: models::Id,
         expect_pub_id: models::Id,
+        expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
+        is_touch: bool,
+        dependency_hash: Option<String>,
     ) -> Self;
 
     // Name of this specification.
@@ -29,6 +32,8 @@ pub trait BuiltRow: crate::Row {
     fn data_plane_id(&self) -> models::Id;
     // Expected last publication ID for optimistic concurrency.
     fn expect_pub_id(&self) -> models::Id;
+    // Expected last build ID for optimistic concurrency.
+    fn expect_build_id(&self) -> models::Id;
     // Model of the built specification.
     fn model(&self) -> Option<&Self::ModelDef>;
     // Validated response which was used to build this spec.
@@ -39,9 +44,13 @@ pub trait BuiltRow: crate::Row {
     // or None if unchanged OR this is an insertion.
     fn previous_spec(&self) -> Option<&Self::BuiltSpec>;
 
-    // Is this specification unchanged (passed through) from its live specification?
-    fn is_unchanged(&self) -> bool {
-        !self.expect_pub_id().is_zero() && self.previous_spec().is_none()
+    /// Whether this is the result of a "touch" operation, which updates the built spec without
+    /// updating the model.
+    fn is_touch(&self) -> bool;
+
+    /// Is this specification untouched (passed through) from its live specification?
+    fn is_passthrough(&self) -> bool {
+        !self.expect_pub_id().is_zero() && self.previous_spec().is_none() && !self.is_touch()
     }
     fn is_insert(&self) -> bool {
         self.expect_pub_id().is_zero()
@@ -50,7 +59,10 @@ pub trait BuiltRow: crate::Row {
         !self.expect_pub_id().is_zero() && self.previous_spec().is_some() && self.spec().is_some()
     }
     fn is_delete(&self) -> bool {
-        !self.expect_pub_id().is_zero() && self.previous_spec().is_some() && self.spec().is_none()
+        !self.expect_pub_id().is_zero()
+            && self.previous_spec().is_some()
+            && self.spec().is_none()
+            && !self.is_touch()
     }
 }
 
@@ -65,10 +77,13 @@ impl BuiltRow for crate::BuiltCapture {
         control_id: models::Id,
         data_plane_id: models::Id,
         expect_pub_id: models::Id,
+        expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
+        is_touch: bool,
+        dependency_hash: Option<String>,
     ) -> Self {
         Self {
             capture: catalog_name,
@@ -76,10 +91,13 @@ impl BuiltRow for crate::BuiltCapture {
             control_id,
             data_plane_id,
             expect_pub_id,
+            expect_build_id,
             model,
             validated,
             spec,
             previous_spec,
+            is_touch,
+            dependency_hash,
         }
     }
     fn catalog_name(&self) -> &Self::Key {
@@ -97,6 +115,9 @@ impl BuiltRow for crate::BuiltCapture {
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
     }
+    fn expect_build_id(&self) -> models::Id {
+        self.expect_build_id
+    }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
@@ -108,6 +129,9 @@ impl BuiltRow for crate::BuiltCapture {
     }
     fn previous_spec(&self) -> Option<&Self::BuiltSpec> {
         self.previous_spec.as_ref()
+    }
+    fn is_touch(&self) -> bool {
+        self.is_touch
     }
 }
 
@@ -122,10 +146,13 @@ impl BuiltRow for crate::BuiltCollection {
         control_id: models::Id,
         data_plane_id: models::Id,
         expect_pub_id: models::Id,
+        expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
+        is_touch: bool,
+        dependency_hash: Option<String>,
     ) -> Self {
         Self {
             collection: catalog_name,
@@ -133,10 +160,13 @@ impl BuiltRow for crate::BuiltCollection {
             control_id,
             data_plane_id,
             expect_pub_id,
+            expect_build_id,
             model,
             validated,
             spec,
             previous_spec,
+            is_touch,
+            dependency_hash,
         }
     }
     fn catalog_name(&self) -> &Self::Key {
@@ -154,6 +184,9 @@ impl BuiltRow for crate::BuiltCollection {
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
     }
+    fn expect_build_id(&self) -> models::Id {
+        self.expect_build_id
+    }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
@@ -165,6 +198,9 @@ impl BuiltRow for crate::BuiltCollection {
     }
     fn previous_spec(&self) -> Option<&Self::BuiltSpec> {
         self.previous_spec.as_ref()
+    }
+    fn is_touch(&self) -> bool {
+        self.is_touch
     }
 }
 
@@ -179,10 +215,13 @@ impl BuiltRow for crate::BuiltMaterialization {
         control_id: models::Id,
         data_plane_id: models::Id,
         expect_pub_id: models::Id,
+        expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
+        is_touch: bool,
+        dependency_hash: Option<String>,
     ) -> Self {
         Self {
             materialization: catalog_name,
@@ -190,10 +229,13 @@ impl BuiltRow for crate::BuiltMaterialization {
             control_id,
             data_plane_id,
             expect_pub_id,
+            expect_build_id,
             model,
             validated,
             spec,
             previous_spec,
+            is_touch,
+            dependency_hash,
         }
     }
     fn catalog_name(&self) -> &Self::Key {
@@ -211,6 +253,9 @@ impl BuiltRow for crate::BuiltMaterialization {
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
     }
+    fn expect_build_id(&self) -> models::Id {
+        self.expect_build_id
+    }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
@@ -222,6 +267,9 @@ impl BuiltRow for crate::BuiltMaterialization {
     }
     fn previous_spec(&self) -> Option<&Self::BuiltSpec> {
         self.previous_spec.as_ref()
+    }
+    fn is_touch(&self) -> bool {
+        self.is_touch
     }
 }
 
@@ -236,19 +284,25 @@ impl BuiltRow for crate::BuiltTest {
         control_id: models::Id,
         _data_plane_id: models::Id,
         expect_pub_id: models::Id,
+        expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
         _validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
+        is_touch: bool,
+        dependency_hash: Option<String>,
     ) -> Self {
         Self {
             test: catalog_name,
             scope,
             control_id,
             expect_pub_id,
+            expect_build_id,
             model,
             spec,
             previous_spec,
+            is_touch,
+            dependency_hash,
         }
     }
     fn catalog_name(&self) -> &Self::Key {
@@ -266,6 +320,9 @@ impl BuiltRow for crate::BuiltTest {
     fn expect_pub_id(&self) -> models::Id {
         self.expect_pub_id
     }
+    fn expect_build_id(&self) -> models::Id {
+        self.expect_build_id
+    }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
@@ -277,6 +334,9 @@ impl BuiltRow for crate::BuiltTest {
     }
     fn previous_spec(&self) -> Option<&Self::BuiltSpec> {
         self.previous_spec.as_ref()
+    }
+    fn is_touch(&self) -> bool {
+        self.is_touch
     }
 }
 

@@ -14,6 +14,7 @@ DraftCatalog {
                 "/key"
               ]
             },
+            is_touch: 0,
         },
     ],
     fetches: [

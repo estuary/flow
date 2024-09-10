@@ -259,7 +259,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -331,7 +331,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -401,7 +401,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -453,6 +453,9 @@ Outcome {
                 ],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            expect_build_id: "0000000000000000",
+            dependency_hash: 7b7094575b4afb18,
         },
         BuiltCapture {
             capture: testing/s3-source,
@@ -714,7 +717,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -937,7 +940,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -1009,7 +1012,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -1079,7 +1082,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -1131,6 +1134,9 @@ Outcome {
                 ],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            expect_build_id: "0000000000000000",
+            dependency_hash: 6dcefff2faa76c98,
         },
     ],
     built_collections: [
@@ -1140,6 +1146,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/array-key.schema","properties":{"arr":{"items":{"properties":{"aKey":{"type":"integer"}},"required":["aKey"],"type":"object"},"minItems":5,"type":"array"}},"required":["arr"],"type":"object"},
               "key": [
@@ -1328,7 +1335,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -1364,6 +1371,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltCollection {
             collection: testing/from-array-key,
@@ -1371,6 +1380,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema","properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"},
               "key": [
@@ -1555,7 +1565,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -1774,7 +1784,7 @@ Outcome {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "0101010101010101",
+                                                                value: "2121212121212121",
                                                                 prefix: false,
                                                             },
                                                             Label {
@@ -2024,7 +2034,7 @@ Outcome {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "0101010101010101",
+                                                                value: "2121212121212121",
                                                                 prefix: false,
                                                             },
                                                             Label {
@@ -2128,7 +2138,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -2173,7 +2183,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -2216,6 +2226,8 @@ Outcome {
                 ),
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 31b775be90a8be31,
         },
         BuiltCollection {
             collection: testing/int-halve,
@@ -2223,6 +2235,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
               "key": [
@@ -2640,7 +2653,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -3027,7 +3040,7 @@ Outcome {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "0101010101010101",
+                                                                value: "2121212121212121",
                                                                 prefix: false,
                                                             },
                                                             Label {
@@ -3451,7 +3464,7 @@ Outcome {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "0101010101010101",
+                                                                value: "2121212121212121",
                                                                 prefix: false,
                                                             },
                                                             Label {
@@ -3562,7 +3575,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -3607,7 +3620,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -3650,6 +3663,8 @@ Outcome {
                 ),
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 69cdcaa954eb68d0,
         },
         BuiltCollection {
             collection: testing/int-reverse,
@@ -3657,6 +3672,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
@@ -3868,7 +3884,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -4117,7 +4133,7 @@ Outcome {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "0101010101010101",
+                                                                value: "2121212121212121",
                                                                 prefix: false,
                                                             },
                                                             Label {
@@ -4217,7 +4233,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -4262,7 +4278,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -4305,6 +4321,8 @@ Outcome {
                 ),
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 7b7094575b4afb18,
         },
         BuiltCollection {
             collection: testing/int-string,
@@ -4312,6 +4330,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "key": [
@@ -4534,7 +4553,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -4570,6 +4589,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltCollection {
             collection: testing/int-string-inferred,
@@ -4577,6 +4598,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
@@ -4791,7 +4813,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -4827,6 +4849,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltCollection {
             collection: testing/int-string-inferred-not-found,
@@ -4834,6 +4858,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
@@ -5081,7 +5106,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -5117,6 +5142,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltCollection {
             collection: testing/int-string-rw,
@@ -5124,6 +5151,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
               "readSchema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
@@ -5482,7 +5510,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -5518,6 +5546,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltCollection {
             collection: testing/int-string.v2,
@@ -5525,6 +5555,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$defs":{"__flowInline1":{"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"}},"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"},
               "key": [
@@ -5715,7 +5746,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -5751,6 +5782,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
     ],
     built_materializations: [
@@ -5760,6 +5793,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -6016,7 +6050,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -6121,7 +6155,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -6166,7 +6200,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -6207,6 +6241,8 @@ Outcome {
                 network_ports: [],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 7b7094575b4afb18,
         },
         BuiltMaterialization {
             materialization: testing/webhook/deliveries,
@@ -6214,6 +6250,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -6538,7 +6575,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -6969,7 +7006,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -7086,7 +7123,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -7156,7 +7193,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -7208,6 +7245,8 @@ Outcome {
                 ],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: eb394238d06f9a98,
         },
     ],
     built_tests: [
@@ -7216,6 +7255,7 @@ Outcome {
             scope: test://example/int-string-tests#/tests/testing~1test,
             control_id: "0000000000000000",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "steps": [
                 {
@@ -7316,6 +7356,8 @@ Outcome {
                 ],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 7b7094575b4afb18,
         },
     ],
     captures: [
@@ -7342,6 +7384,7 @@ Outcome {
                 "hotStandbys": 1
               }
             },
+            is_touch: 0,
         },
         DraftCapture {
             capture: testing/s3-source,
@@ -7366,6 +7409,7 @@ Outcome {
               ],
               "interval": "10m"
             },
+            is_touch: 0,
         },
     ],
     collections: [
@@ -7382,6 +7426,7 @@ Outcome {
                 "aKeyOne": "/arr/1/aKey"
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/from-array-key,
@@ -7429,6 +7474,7 @@ Outcome {
                 ]
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/int-halve,
@@ -7505,6 +7551,7 @@ Outcome {
                 ]
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/int-reverse,
@@ -7535,6 +7582,7 @@ Outcome {
                 ]
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/int-string,
@@ -7553,6 +7601,7 @@ Outcome {
                 }
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/int-string-inferred,
@@ -7565,6 +7614,7 @@ Outcome {
                 "/int"
               ]
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/int-string-inferred-not-found,
@@ -7577,6 +7627,7 @@ Outcome {
                 "/int"
               ]
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/int-string-rw,
@@ -7598,6 +7649,7 @@ Outcome {
                 }
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/int-string.v2,
@@ -7614,6 +7666,7 @@ Outcome {
                 }
               }
             },
+            is_touch: 0,
         },
     ],
     errors: [],
@@ -7809,6 +7862,7 @@ Outcome {
                 "logLevel": "warn"
               }
             },
+            is_touch: 0,
         },
         DraftMaterialization {
             materialization: testing/webhook/deliveries,
@@ -7860,6 +7914,7 @@ Outcome {
                 }
               ]
             },
+            is_touch: 0,
         },
     ],
     resources: [
@@ -8036,6 +8091,7 @@ Outcome {
                 }
               ]
             },
+            is_touch: 0,
         },
     ],
 }

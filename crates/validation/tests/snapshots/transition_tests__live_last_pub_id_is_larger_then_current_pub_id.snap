@@ -4,23 +4,23 @@ expression: errors
 ---
 [
     Error {
-        scope: flow://collection/the/collection,
-        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
+        scope: test://example/catalog.yaml#/collections/the~1collection,
+        error: current publication ID 2020202020202020 has been superseded by a larger last_pub_id 9090909090909090 of the spec; please retry the operation,
     },
     Error {
-        scope: flow://collection/the/derivation,
-        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
+        scope: test://example/catalog.yaml#/collections/the~1derivation,
+        error: current publication ID 2020202020202020 has been superseded by a larger last_pub_id 9090909090909090 of the spec; please retry the operation,
     },
     Error {
-        scope: flow://test/the/test,
-        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
+        scope: test://example/catalog.yaml#/tests/the~1test,
+        error: current publication ID 2020202020202020 has been superseded by a larger last_pub_id 9090909090909090 of the spec; please retry the operation,
     },
     Error {
-        scope: flow://capture/the/capture,
-        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
+        scope: test://example/catalog.yaml#/captures/the~1capture,
+        error: current publication ID 2020202020202020 has been superseded by a larger last_pub_id 9090909090909090 of the spec; please retry the operation,
     },
     Error {
-        scope: flow://materialization/the/materialization,
-        error: current publication ID 2020202020202020 has been superseded by a larger publication ID 9090909090909090; please retry the operation,
+        scope: test://example/catalog.yaml#/materializations/the~1materialization,
+        error: current publication ID 2020202020202020 has been superseded by a larger last_pub_id 9090909090909090 of the spec; please retry the operation,
     },
 ]

@@ -25,6 +25,7 @@ DraftCatalog {
                 }
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: test/collection-no-schema,
@@ -35,6 +36,7 @@ DraftCatalog {
                 "/key"
               ]
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: test/collection-with-write-and-inferred-read,
@@ -48,6 +50,7 @@ DraftCatalog {
                 "/key/0"
               ]
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: test/collection-with-write-and-read,
@@ -61,6 +64,7 @@ DraftCatalog {
                 "/key/0"
               ]
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: test/collection/with-journals,
@@ -80,6 +84,7 @@ DraftCatalog {
                 }
               }
             },
+            is_touch: 0,
         },
     ],
 }

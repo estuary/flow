@@ -9,6 +9,7 @@ pub fn walk_all_tests(
     draft_tests: &tables::DraftTests,
     live_tests: &tables::LiveTests,
     built_collections: &tables::BuiltCollections,
+    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> tables::BuiltTests {
     // Outer join of live and draft tests.
@@ -18,22 +19,41 @@ pub fn walk_all_tests(
         EOB::Both(live, (_test, draft)) => Some(EOB::Both(live, draft)),
     });
 
-    it.filter_map(|eob| walk_test(pub_id, build_id, eob, built_collections, errors))
-        .collect()
+    it.filter_map(|eob| {
+        walk_test(
+            pub_id,
+            build_id,
+            eob,
+            built_collections,
+            dependencies,
+            errors,
+        )
+    })
+    .collect()
 }
 
 fn walk_test(
     pub_id: models::Id,
-    _build_id: models::Id,
+    build_id: models::Id,
     eob: EOB<&tables::LiveTest, &tables::DraftTest>,
     built_collections: &tables::BuiltCollections,
+    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltTest> {
-    let (test, scope, model, control_id, _data_plane_id, expect_pub_id, live_spec) =
-        match walk_transition(pub_id, Some(models::Id::zero()), eob, errors) {
-            Ok(ok) => ok,
-            Err(built) => return Some(built),
-        };
+    let (
+        test,
+        scope,
+        model,
+        control_id,
+        _data_plane_id,
+        expect_pub_id,
+        expect_build_id,
+        live_spec,
+        is_touch,
+    ) = match walk_transition(pub_id, build_id, Some(models::Id::zero()), eob, errors) {
+        Ok(ok) => ok,
+        Err(built) => return Some(built),
+    };
     let scope = Scope::new(scope);
 
     let models::TestDef { steps, .. } = model;
@@ -60,14 +80,18 @@ fn walk_test(
         steps: built_steps,
     };
 
+    let dependency_hash = dependencies.compute_hash(model);
     Some(tables::BuiltTest {
         test: test.clone(),
         scope: scope.flatten(),
         control_id,
         expect_pub_id,
+        expect_build_id,
         model: Some(model.clone()),
         spec: Some(built_spec),
         previous_spec: live_spec.cloned(),
+        is_touch,
+        dependency_hash,
     })
 }
 

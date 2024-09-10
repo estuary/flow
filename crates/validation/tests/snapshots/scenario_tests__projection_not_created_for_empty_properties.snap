@@ -11,6 +11,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_empty_properties/schema","properties":{"":{"type":"string"},"a":{"properties":{"":{"type":"string"}},"type":"object"},"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -168,7 +169,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -204,6 +205,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
     ],
     built_materializations: [],
@@ -220,6 +223,7 @@ Outcome {
                 "/id"
               ]
             },
+            is_touch: 0,
         },
     ],
     errors: [],
