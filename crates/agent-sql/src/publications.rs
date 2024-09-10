@@ -43,8 +43,8 @@ pub async fn lock_live_specs(
 pub struct LiveSpecUpdate {
     pub catalog_name: String,
     pub live_spec_id: Id,
-    pub expect_pub_id: Id,
-    pub last_pub_id: Id,
+    pub expect_build_id: Id,
+    pub last_build_id: Id,
 }
 
 /// Updates all live_specs rows for a publication. Accepts all inputs as slices, which _must_ all
@@ -54,51 +54,70 @@ pub struct LiveSpecUpdate {
 /// roll back the transaction if any are found.
 pub async fn update_live_specs(
     pub_id: Id,
+    build_id: Id,
     catalog_names: &[String],
     spec_types: &[CatalogType],
     models: &[Option<Json<Box<RawValue>>>],
     built_specs: &[Option<Json<Box<RawValue>>>],
-    expect_revisions: &[Id],
+    expect_build_ids: &[Id],
     reads_from: &[Option<Json<Vec<String>>>],
     writes_to: &[Option<Json<Vec<String>>>],
     images: &[Option<String>],
     image_tags: &[Option<String>],
     data_plane_ids: &[Id],
+    is_touches: &[bool],
+    dependency_hashes: &[Option<&str>],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<LiveSpecUpdate>> {
     let fails = sqlx::query_as!(
         LiveSpecUpdate,
         r#"
-        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id) as (
+        with inputs(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash) as (
             select * from unnest(
-                $2::text[],
-                $3::catalog_spec_type[],
-                $4::json[],
+                $3::text[],
+                $4::catalog_spec_type[],
                 $5::json[],
-                $6::flowid[],
-                $7::json[],
+                $6::json[],
+                $7::flowid[],
                 $8::json[],
-                $9::text[],
+                $9::json[],
                 $10::text[],
-                $11::flowid[]
+                $11::text[],
+                $12::flowid[],
+                $13::boolean[],
+                $14::text[]
             )
         ),
-        joined(catalog_name, spec_type, spec, built_spec, expect_pub_id, reads_from, writes_to, image, image_tag, data_plane_id, last_pub_id) as (
+        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, last_build_id, next_pub_id) as (
             select
                 inputs.*,
-                case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_pub_id end as last_pub_id
+                case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_build_id end as last_build_id,
+                case when inputs.is_touch then ls.last_pub_id else $1::flowid end as next_pub_id
             from inputs
             left outer join live_specs ls on ls.catalog_name = inputs.catalog_name
         ),
         insert_live_specs(catalog_name,live_spec_id) as (
-            insert into live_specs (catalog_name, spec_type, spec, built_spec, last_build_id, last_pub_id, controller_next_run, reads_from, writes_to, connector_image_name, connector_image_tag, data_plane_id)
-            select
+            insert into live_specs (
                 catalog_name,
                 spec_type,
                 spec,
                 built_spec,
-                $1::flowid,
-                $1::flowid,
+                last_build_id,
+                last_pub_id,
+                controller_next_run,
+                reads_from,
+                writes_to,
+                connector_image_name,
+                connector_image_tag,
+                data_plane_id,
+                dependency_hash
+            ) select
+                catalog_name,
+                spec_type,
+                spec,
+                built_spec,
+                $2::flowid,
+                joined.next_pub_id,
                 now(),
                 case when json_typeof(reads_from) is null then
                     null
@@ -112,7 +131,8 @@ pub async fn update_live_specs(
                 end,
                 image,
                 image_tag,
-                data_plane_id
+                data_plane_id,
+                dependency_hash
             from joined
             on conflict (catalog_name) do update set
                 updated_at = now(),
@@ -125,10 +145,12 @@ pub async fn update_live_specs(
                 reads_from = excluded.reads_from,
                 writes_to = excluded.writes_to,
                 connector_image_name = excluded.connector_image_name,
-                connector_image_tag = excluded.connector_image_tag
+                connector_image_tag = excluded.connector_image_tag,
+                dependency_hash = excluded.dependency_hash
             returning
                 catalog_name,
-                id as live_spec_id
+                id as live_spec_id,
+                last_build_id
         ),
         insert_controller_jobs as (
             insert into controller_jobs(live_spec_id)
@@ -143,22 +165,25 @@ pub async fn update_live_specs(
         select
             joined.catalog_name as "catalog_name!: String",
             insert_live_specs.live_spec_id as "live_spec_id!: Id",
-            joined.expect_pub_id as "expect_pub_id!: Id",
-            joined.last_pub_id as "last_pub_id!: Id"
+            joined.expect_build_id as "expect_build_id!: Id",
+            joined.last_build_id as "last_build_id!: Id"
         from insert_live_specs
         join joined using (catalog_name)
     "#,
     pub_id as Id, // 1
-    catalog_names, // 2
-    spec_types as &[CatalogType], // 3
-    models as &[Option<Json<Box<RawValue>>>], // 4
-    built_specs as &[Option<Json<Box<RawValue>>>], // 5
-    expect_revisions as &[Id], // 6
-    reads_from as &[Option<Json<Vec<String>>>], // 7
-    writes_to as &[Option<Json<Vec<String>>>], // 8
-    images as &[Option<String>], // 9
-    image_tags as &[Option<String>], // 10
-    data_plane_ids as &[Id], // 11
+    build_id as Id, // 2
+    catalog_names, // 3
+    spec_types as &[CatalogType], // 4
+    models as &[Option<Json<Box<RawValue>>>], // 5
+    built_specs as &[Option<Json<Box<RawValue>>>], // 6
+    expect_build_ids as &[Id], // 7
+    reads_from as &[Option<Json<Vec<String>>>], // 8
+    writes_to as &[Option<Json<Vec<String>>>], // 9
+    images as &[Option<String>], // 10
+    image_tags as &[Option<String>], // 11
+    data_plane_ids as &[Id], // 12
+    is_touches as &[bool], // 13
+    dependency_hashes as &[Option<&str>], // 14
     )
     .fetch_all(txn)
     .await?;

@@ -5731,6 +5731,7 @@ dependencies = [
  "serde_json",
  "superslice",
  "url",
+ "xxhash-rust",
 ]
 
 [[package]]

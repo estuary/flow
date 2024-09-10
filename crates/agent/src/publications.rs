@@ -124,6 +124,7 @@ impl Publisher {
 
 pub struct UncommittedBuild {
     pub(crate) publication_id: models::Id,
+    pub(crate) build_id: models::Id,
     pub(crate) user_id: Uuid,
     pub(crate) detail: Option<String>,
     pub(crate) started_at: DateTime<Utc>,
@@ -167,6 +168,7 @@ impl UncommittedBuild {
             output,
             test_errors,
             incompatible_collections,
+            build_id: _,
         } = self;
         debug_assert!(
             incompatible_collections.is_empty(),
@@ -227,6 +229,7 @@ impl Publisher {
             };
             return Ok(UncommittedBuild {
                 publication_id,
+                build_id,
                 user_id,
                 detail,
                 started_at: start_time,
@@ -241,6 +244,7 @@ impl Publisher {
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
                 publication_id,
+                build_id,
                 user_id,
                 detail,
                 started_at: start_time,
@@ -270,6 +274,7 @@ impl Publisher {
             };
             return Ok(UncommittedBuild {
                 publication_id,
+                build_id,
                 user_id,
                 detail,
                 started_at: start_time,
@@ -347,6 +352,7 @@ impl Publisher {
 
         Ok(UncommittedBuild {
             publication_id,
+            build_id,
             user_id,
             detail,
             started_at: start_time,
@@ -358,6 +364,7 @@ impl Publisher {
 
     #[tracing::instrument(err, skip_all, fields(
         publication_id = %uncommitted.publication_id,
+        build_id = %uncommitted.publication_id,
         user_id = %uncommitted.user_id,
         detail = ?uncommitted.detail
     ))]
@@ -398,7 +405,7 @@ impl Publisher {
         let failures = specs::persist_updates(&mut uncommitted, &mut txn).await?;
         if !failures.is_empty() {
             return Ok(
-                uncommitted.into_result(completed_at, JobStatus::ExpectPubIdMismatch { failures })
+                uncommitted.into_result(completed_at, JobStatus::BuildIdLockFailure { failures })
             );
         }
 
@@ -414,13 +421,13 @@ fn is_empty_draft(build: &UncommittedBuild) -> bool {
     use tables::BuiltRow;
 
     let built = &build.output.built;
-    built.built_captures.iter().all(BuiltRow::is_unchanged)
-        && built.built_collections.iter().all(BuiltRow::is_unchanged)
+    built.built_captures.iter().all(BuiltRow::is_passthrough)
+        && built.built_collections.iter().all(BuiltRow::is_passthrough)
         && built
             .built_materializations
             .iter()
-            .all(BuiltRow::is_unchanged)
-        && built.built_tests.iter().all(BuiltRow::is_unchanged)
+            .all(BuiltRow::is_passthrough)
+        && built.built_tests.iter().all(BuiltRow::is_passthrough)
 }
 
 pub fn partitions(projections: &BTreeMap<models::Field, models::Projection>) -> Vec<String> {
@@ -492,6 +499,7 @@ mod test {
     fn test_errors_result_in_test_failed_status() {
         let build = UncommittedBuild {
             publication_id: models::Id::zero(),
+            build_id: models::Id::zero(),
             user_id: Uuid::new_v4(),
             detail: None,
             started_at: Utc::now(),

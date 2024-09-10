@@ -27,7 +27,7 @@ pub use handler::ControllerHandler;
 /// to "upgrade" it. Any controller state having a higher version than this _must_ be ignored.
 ///
 /// Increment this version whenever we need to ensure that controllers re-visit all live specs.
-pub const CONTROLLER_VERSION: i32 = 1;
+pub const CONTROLLER_VERSION: i32 = 2;
 
 /// Represents the state of a specific controller and catalog_name.
 #[derive(Clone, Debug, Serialize)]
@@ -52,10 +52,10 @@ pub struct ControllerState {
     /// most recent run was successful. If `error` is `Some`, then `failures`
     /// will be > 0.
     pub error: Option<String>,
-    /// The `last_pub_id` of the corresponding `live_specs` row. This is used
-    /// to determine when the controller needs to re-publish a task, by
-    /// comparing this value to the `last_pub_id`s of all its dependencies.
+    /// The `last_pub_id` of the corresponding `live_specs` row.
     pub last_pub_id: Id,
+    /// The `last_build_id` of the corresponding `live_specs` row.
+    pub last_build_id: Id,
     /// The logs token that's used for all operations of this controller. Every
     /// run of a given controller uses the same `logs_token` so that you can
     /// see all the logs in one place.
@@ -68,6 +68,9 @@ pub struct ControllerState {
     pub current_status: Status,
     /// ID of the data plane in which this specification lives.
     pub data_plane_id: Id,
+    /// The `dependency_hash` of the `live_specs` row, used to determine whether any
+    /// dependencies have had their models changed.
+    pub live_dependency_hash: Option<String>,
 }
 
 impl ControllerState {
@@ -139,10 +142,12 @@ impl ControllerState {
             catalog_name: job.catalog_name.clone(),
             error: job.error.clone(),
             last_pub_id: job.last_pub_id.into(),
+            last_build_id: job.last_build_id.into(),
             logs_token: job.logs_token,
             controller_version: job.controller_version,
             current_status: status,
             data_plane_id: job.data_plane_id.into(),
+            live_dependency_hash: job.live_dependency_hash.clone(),
         };
         Ok(controller_state)
     }
@@ -442,21 +447,6 @@ impl Status {
     }
 }
 
-/// Selects the smallest next run from among the arguments, returning `None`
-/// only if all `next_runs` are `None`.
-#[allow(dead_code)]
-fn reduce_next_run(next_runs: &[Option<NextRun>]) -> Option<NextRun> {
-    let mut min: Option<NextRun> = None;
-    for next_run in next_runs {
-        match (min, *next_run) {
-            (Some(l), Some(r)) => min = Some(l.min(r)),
-            (None, Some(r)) => min = Some(r),
-            (_, None) => { /* nada */ }
-        }
-    }
-    min
-}
-
 fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({
         "type": "string",
@@ -505,6 +495,8 @@ mod test {
                 scope: Some("flow://materializations/snails/shells".to_string()),
                 detail: "a_field simply cannot be tolerated".to_string(),
             }],
+            count: 1,
+            is_touch: false,
         };
         let mut history = VecDeque::new();
         history.push_front(pub_status);
@@ -518,9 +510,9 @@ mod test {
                 add_bindings,
             }),
             publications: PublicationStatus {
-                target_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
                 history,
+                dependency_hash: Some("abc12345".to_string()),
             },
         });
 

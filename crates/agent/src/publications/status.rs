@@ -34,6 +34,12 @@ pub enum JobStatus {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         failures: Vec<LockFailure>,
     },
+    /// Optimistic locking failure for one or more specs in the publication. This case should
+    /// typically be retried by the publisher.
+    BuildIdLockFailure {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        failures: Vec<LockFailure>,
+    },
 }
 
 impl JobStatus {
@@ -67,8 +73,8 @@ impl JobStatus {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct LockFailure {
     pub catalog_name: String,
-    pub expect_pub_id: models::Id,
-    pub last_pub_id: Option<models::Id>,
+    pub expected: models::Id,
+    pub actual: Option<models::Id>,
 }
 
 /// Reasons why a draft collection spec would need to be published under a new name.

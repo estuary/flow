@@ -19,6 +19,7 @@ use tempfile::tempdir;
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Suppress lints for fields used only in test snapshots
 pub struct LiveSpec {
     pub catalog_name: String,
     pub connector_image_name: Option<String>,
@@ -47,6 +48,7 @@ pub struct TestHarness {
     pub test_name: String,
     pub pool: sqlx::PgPool,
     pub publisher: Publisher,
+    #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub controllers: ControllerHandler<TestControlPlane>,
 }
@@ -339,6 +341,116 @@ impl TestHarness {
         txn.commit().await.unwrap();
     }
 
+    pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
+        let user_id = self.control_plane().inner.system_user_id;
+        let owned_names: Vec<String> = prev_specs
+            .all_spec_names()
+            .map(|n| (*n).to_owned())
+            .collect();
+        let specs = agent_sql::live_specs::fetch_live_specs(user_id, &owned_names, &self.pool)
+            .await
+            .expect("failed to query live specs");
+        assert_eq!(
+            prev_specs.spec_count(),
+            specs.len(),
+            "expected to fetch {} specs, but got {}",
+            prev_specs.spec_count(),
+            specs.len()
+        );
+
+        for spec in specs {
+            let (expect_last_pub, prev_last_build) = match spec.spec_type.map(Into::into) {
+                None => panic!(
+                    "expected spec {} to have been touched, but spec_type is null",
+                    spec.catalog_name
+                ),
+                Some(CatalogType::Capture) => {
+                    let row = prev_specs
+                        .captures
+                        .get_by_key(&models::Capture::new(&spec.catalog_name))
+                        .unwrap();
+                    (row.last_pub_id, row.last_build_id)
+                }
+                Some(CatalogType::Collection) => {
+                    let row = prev_specs
+                        .collections
+                        .get_by_key(&models::Collection::new(&spec.catalog_name))
+                        .unwrap();
+                    (row.last_pub_id, row.last_build_id)
+                }
+                Some(CatalogType::Materialization) => {
+                    let row = prev_specs
+                        .materializations
+                        .get_by_key(&models::Materialization::new(&spec.catalog_name))
+                        .unwrap();
+                    (row.last_pub_id, row.last_build_id)
+                }
+                Some(CatalogType::Test) => {
+                    let row = prev_specs
+                        .tests
+                        .get_by_key(&models::Test::new(&spec.catalog_name))
+                        .unwrap();
+                    (row.last_pub_id, row.last_build_id)
+                }
+            };
+
+            assert_eq!(
+                expect_last_pub,
+                spec.last_pub_id.into(),
+                "expected touched spec '{}' to have last_pub_id: {}, but was: {}",
+                spec.catalog_name,
+                expect_last_pub,
+                spec.last_pub_id
+            );
+            assert!(
+                spec.last_build_id > prev_last_build,
+                "expected touched spec '{}' to have last_build_id ({}) > the previous last_build_id ({})",
+                spec.catalog_name,
+                spec.last_build_id,
+                prev_last_build,
+            );
+
+            assert!(
+                spec.last_build_id > spec.last_pub_id,
+                "sanity check to ensure that last_build_id > last_pub_id"
+            );
+            // sanity check that we haven't created publication specs
+            let rows = sqlx::query!(
+                r#"select
+                ls.catalog_name,
+                ps.pub_id as "pub_id: agent_sql::Id"
+                from live_specs ls
+                join publication_specs ps on ls.id = ps.live_spec_id
+                where ls.catalog_name = $1
+                and ps.pub_id > $2
+                order by ls.catalog_name;"#,
+                spec.catalog_name.as_str(),
+                agent_sql::Id::from(expect_last_pub) as agent_sql::Id,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .expect("failed to query publication_specs");
+            assert!(
+                rows.is_empty(),
+                "expected no publication specs to exist for touched specs, got {rows:?}"
+            );
+        }
+    }
+
+    pub async fn get_enqueued_controllers(&mut self, within: chrono::Duration) -> Vec<String> {
+        let threshold = chrono::Utc::now() + within;
+        sqlx::query_scalar!(
+            r#"select catalog_name
+            from live_specs
+            where controller_next_run is not null and controller_next_run <= $1
+            order by catalog_name"#,
+            threshold,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("failed to query enqueued controllers")
+    }
+
     pub async fn assert_live_spec_hard_deleted(&mut self, name: &str) {
         let rows = sqlx::query!(
             r#"select
@@ -422,9 +534,11 @@ impl TestHarness {
                 ls.catalog_name as "catalog_name!: String",
                 ls.controller_next_run,
                 ls.last_pub_id as "last_pub_id: agent_sql::Id",
+                ls.last_build_id as "last_build_id: agent_sql::Id",
                 ls.spec as "live_spec: TextJson<Box<RawValue>>",
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
                 ls.spec_type as "spec_type: agent_sql::CatalogType",
+                ls.dependency_hash as "live_dependency_hash",
                 cj.controller_version as "controller_version: i32",
                 cj.updated_at,
                 cj.logs_token,

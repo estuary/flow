@@ -126,7 +126,8 @@ impl Handler for ControllerHandler {
     catalog_name = %state.catalog_name,
     enqueued_at = ?state.next_run,
     last_update = %state.updated_at,
-    last_pub_id = %state.last_pub_id))]
+    last_pub_id = %state.last_pub_id,
+    last_build_id = %state.last_build_id))]
 async fn run_controller<C: ControlPlane>(
     state: &ControllerState,
     next_status: &mut Status,

@@ -212,6 +212,7 @@ async fn test_user_publications() {
         collection: noms_collection,
         expect_pub_id: Some(noms_last_pub_id),
         model: Some(noms_model),
+        is_touch: false,
     });
 
     let result = harness
