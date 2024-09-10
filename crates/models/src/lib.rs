@@ -79,7 +79,7 @@ pub trait ModelDef:
     /// If this spec is a materialization, returns the value of `source_capture`.
     /// This function is admittedly a little smelly, but it's included in the trait
     /// so that we can generically get all the dependencies of each spec.
-    fn materialization_source_capture(&self) -> Option<Capture> {
+    fn materialization_source_capture(&self) -> Option<&Capture> {
         None
     }
 
@@ -90,7 +90,7 @@ pub trait ModelDef:
         deps.extend(
             self.materialization_source_capture()
                 .into_iter()
-                .map(|c| c.into()),
+                .map(|c| c.to_string()),
         );
         deps
     }
@@ -225,7 +225,7 @@ impl ModelDef for AnySpec {
         }
     }
 
-    fn materialization_source_capture(&self) -> Option<Capture> {
+    fn materialization_source_capture(&self) -> Option<&Capture> {
         match self {
             AnySpec::Materialization(m) => m.materialization_source_capture(),
             _ => None,

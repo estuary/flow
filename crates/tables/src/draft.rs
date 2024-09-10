@@ -59,6 +59,9 @@ impl DraftCatalog {
                 for target in model.targets() {
                     out.push(target);
                 }
+                if let Some(cap) = model.materialization_source_capture() {
+                    out.push(cap.as_str());
+                }
             }
         }
 
