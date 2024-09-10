@@ -153,6 +153,7 @@ pub async fn do_discover(
                 expect_pub_id: None,
                 delete: false,
             }),
+            false, // !is_touch
         );
     }
 

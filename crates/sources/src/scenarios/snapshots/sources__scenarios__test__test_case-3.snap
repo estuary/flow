@@ -26,6 +26,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftTest {
             test: acmeCo/parse/failure,
@@ -41,6 +42,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftTest {
             test: acmeCo/parse/failure,
@@ -56,6 +58,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftTest {
             test: acmeCo/widgest/old-style-test,
@@ -79,6 +82,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftTest {
             test: acmeCo/widgest/test,
@@ -133,6 +137,7 @@ DraftCatalog {
                 }
               ]
             },
+            is_touch: 0,
         },
     ],
     imports: [

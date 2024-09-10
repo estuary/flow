@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1collection,
+        error: current build ID 2121212121212121 has been superseded by a larger build ID 9999999999999999; please retry the operation,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1derivation,
+        error: current build ID 2121212121212121 has been superseded by a larger build ID 9999999999999999; please retry the operation,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/tests/the~1test,
+        error: current build ID 2121212121212121 has been superseded by a larger build ID 9999999999999999; please retry the operation,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/captures/the~1capture,
+        error: current build ID 2121212121212121 has been superseded by a larger build ID 9999999999999999; please retry the operation,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization,
+        error: current build ID 2121212121212121 has been superseded by a larger build ID 9999999999999999; please retry the operation,
+    },
+]

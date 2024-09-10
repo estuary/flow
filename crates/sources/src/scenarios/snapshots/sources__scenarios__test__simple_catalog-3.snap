@@ -21,6 +21,7 @@ DraftCatalog {
                 "foo": "/bar"
               }
             },
+            is_touch: 0,
         },
     ],
     imports: [

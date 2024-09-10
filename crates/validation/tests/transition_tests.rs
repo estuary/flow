@@ -59,6 +59,52 @@ driver:
 }
 
 #[test]
+fn test_live_last_build_id_is_larger_than_current_build_id() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/collection:
+      expectPubId: null
+    the/derivation:
+      expectPubId: null
+  captures:
+    the/capture:
+      expectPubId: null
+  materializations:
+    the/materialization:
+      expectPubId: null
+  tests:
+    the/test:
+      expectPubId: null
+
+driver:
+  liveCaptures:
+    the/capture:
+      lastPubId: "19:19:19:19:19:19:19:19"
+      lastBuildId: "99:99:99:99:99:99:99:99"
+  liveCollections:
+    the/collection:
+      lastPubId: "19:19:19:19:19:19:19:19"
+      lastBuildId: "99:99:99:99:99:99:99:99"
+    the/derivation:
+      lastPubId: "19:19:19:19:19:19:19:19"
+      lastBuildId: "99:99:99:99:99:99:99:99"
+  liveMaterializations:
+    the/materialization:
+      lastPubId: "19:19:19:19:19:19:19:19"
+      lastBuildId: "99:99:99:99:99:99:99:99"
+  liveTests:
+    the/test:
+      lastPubId: "19:19:19:19:19:19:19:19"
+      lastBuildId: "99:99:99:99:99:99:99:99"
+    "#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_live_last_pub_id_is_larger_then_current_pub_id() {
     let errors = common::run_errors(
         MODEL_YAML,

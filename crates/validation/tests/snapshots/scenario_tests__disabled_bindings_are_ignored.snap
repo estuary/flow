@@ -70,7 +70,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -115,7 +115,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -156,6 +156,9 @@ Outcome {
                 network_ports: [],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            expect_build_id: "0000000000000000",
+            dependency_hash: NULL,
         },
         BuiltCapture {
             capture: testing/partially-disabled-capture,
@@ -331,7 +334,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -403,7 +406,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -448,7 +451,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -489,6 +492,9 @@ Outcome {
                 network_ports: [],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            expect_build_id: "0000000000000000",
+            dependency_hash: 3661f556721a8880,
         },
     ],
     built_collections: [
@@ -498,6 +504,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1collection/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -634,7 +641,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -670,6 +677,8 @@ Outcome {
                 derivation: None,
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltCollection {
             collection: testing/fully-disabled-derivation,
@@ -677,6 +686,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1fully-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -841,7 +851,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -911,7 +921,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -956,7 +966,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -999,6 +1009,8 @@ Outcome {
                 ),
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltCollection {
             collection: testing/partly-disabled-derivation,
@@ -1006,6 +1018,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1partly-disabled-derivation/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
               "key": [
@@ -1173,7 +1186,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -1343,7 +1356,7 @@ Outcome {
                                                             },
                                                             Label {
                                                                 name: "estuary.dev/build",
-                                                                value: "0101010101010101",
+                                                                value: "2121212121212121",
                                                                 prefix: false,
                                                             },
                                                             Label {
@@ -1443,7 +1456,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -1488,7 +1501,7 @@ Outcome {
                                             },
                                             Label {
                                                 name: "estuary.dev/build",
-                                                value: "0101010101010101",
+                                                value: "2121212121212121",
                                                 prefix: false,
                                             },
                                             Label {
@@ -1531,6 +1544,8 @@ Outcome {
                 ),
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 3661f556721a8880,
         },
     ],
     built_materializations: [
@@ -1540,6 +1555,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -1597,7 +1613,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -1642,7 +1658,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -1683,6 +1699,8 @@ Outcome {
                 network_ports: [],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
         },
         BuiltMaterialization {
             materialization: testing/partially-disabled-materialization,
@@ -1690,6 +1708,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -1871,7 +1890,7 @@ Outcome {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/build",
-                                                        value: "0101010101010101",
+                                                        value: "2121212121212121",
                                                         prefix: false,
                                                     },
                                                     Label {
@@ -1976,7 +1995,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -2021,7 +2040,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/build",
-                                        value: "0101010101010101",
+                                        value: "2121212121212121",
                                         prefix: false,
                                     },
                                     Label {
@@ -2062,6 +2081,8 @@ Outcome {
                 network_ports: [],
             },
             previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: 3661f556721a8880,
         },
     ],
     built_tests: [],
@@ -2090,6 +2111,7 @@ Outcome {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftCapture {
             capture: testing/partially-disabled-capture,
@@ -2114,6 +2136,7 @@ Outcome {
                 }
               ]
             },
+            is_touch: 0,
         },
     ],
     collections: [
@@ -2127,6 +2150,7 @@ Outcome {
                 "/id"
               ]
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/fully-disabled-derivation,
@@ -2163,6 +2187,7 @@ Outcome {
                 ]
               }
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: testing/partly-disabled-derivation,
@@ -2198,6 +2223,7 @@ Outcome {
                 ]
               }
             },
+            is_touch: 0,
         },
     ],
     errors: [],
@@ -2232,6 +2258,7 @@ Outcome {
                 }
               ]
             },
+            is_touch: 0,
         },
         DraftMaterialization {
             materialization: testing/partially-disabled-materialization,
@@ -2262,6 +2289,7 @@ Outcome {
                 }
               ]
             },
+            is_touch: 0,
         },
     ],
     resources: [

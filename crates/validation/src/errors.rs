@@ -195,9 +195,19 @@ pub enum Error {
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 
-    #[error("current publication ID {pub_id} has been superseded by a larger publication ID {larger_id}; please retry the operation")]
+    #[error("publication id must be creater than last_pub_id when `is_touch=false`")]
+    PubIdNotIncreased {
+        pub_id: models::Id,
+        last_pub_id: models::Id,
+    },
+    #[error("current publication ID {pub_id} has been superseded by a larger last_pub_id {last_pub_id} of the spec; please retry the operation")]
     PublicationSuperseded {
         pub_id: models::Id,
+        last_pub_id: models::Id,
+    },
+    #[error("current build ID {build_id} has been superseded by a larger build ID {larger_id}; please retry the operation")]
+    BuildSuperseded {
+        build_id: models::Id,
         larger_id: models::Id,
     },
     #[error("expected publication ID {expect_id} was not matched (it's actually {actual_id}): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.")]
@@ -222,6 +232,12 @@ pub enum Error {
         this_entity: String,
         data_plane_id: models::Id,
     },
+    #[error("expected draft model to be equal to the live model because `is_touch: true`")]
+    TouchModelChanged,
+    #[error("cannot touch because live model does not exist")]
+    TouchSpecDoesNotExist,
+    #[error("missing draft model when `is_touch: true`")]
+    TouchMissingDraftModel,
 }
 
 impl Error {

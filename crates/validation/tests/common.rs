@@ -168,8 +168,10 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             mock.control_id,
             mock.data_plane_id,
             mock.last_pub_id,
+            mock.last_build_id.unwrap_or(mock.last_pub_id),
             model,
             built_spec,
+            None,
         );
     }
     // Load into LiveCatalog::live_collections.
@@ -237,8 +239,10 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             mock.control_id,
             mock.data_plane_id,
             mock.last_pub_id,
+            mock.last_build_id.unwrap_or(mock.last_pub_id),
             model,
             built_spec,
+            None,
         );
     }
     // Load into LiveCatalog::live_materializations.
@@ -274,8 +278,10 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             mock.control_id,
             mock.data_plane_id,
             mock.last_pub_id,
+            mock.last_build_id.unwrap_or(mock.last_pub_id),
             model,
             built_spec,
+            None,
         );
     }
     // Load into LiveCatalog::live_tests.
@@ -290,8 +296,15 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             name: test.to_string(),
             steps: Vec::new(),
         };
-        live.tests
-            .insert_row(test, mock.control_id, mock.last_pub_id, model, built_spec);
+        live.tests.insert_row(
+            test,
+            mock.control_id,
+            mock.last_pub_id,
+            mock.last_build_id.unwrap_or(mock.last_pub_id),
+            model,
+            built_spec,
+            None,
+        );
     }
     // Load into LiveCatalog::inferred_schemas.
     for (collection, schema) in &mock_calls.inferred_schemas {
@@ -316,7 +329,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
 
     let validations = futures::executor::block_on(validation::validate(
         models::Id::new([32; 8]),
-        models::Id::new([1; 8]),
+        models::Id::new([33; 8]),
         &url::Url::parse("file:///project/root").unwrap(),
         &mock_calls,
         &draft,
@@ -376,6 +389,8 @@ struct MockLiveCapture {
     control_id: models::Id,
     data_plane_id: models::Id,
     last_pub_id: models::Id,
+    #[serde(default)]
+    last_build_id: Option<models::Id>,
 }
 
 #[derive(serde::Deserialize)]
@@ -384,6 +399,8 @@ struct MockLiveCollection {
     control_id: models::Id,
     data_plane_id: models::Id,
     last_pub_id: models::Id,
+    #[serde(default)]
+    last_build_id: Option<models::Id>,
     key: models::CompositeKey,
     #[serde(default)]
     derivation: bool,
@@ -397,6 +414,8 @@ struct MockLiveMaterialization {
     control_id: models::Id,
     data_plane_id: models::Id,
     last_pub_id: models::Id,
+    #[serde(default)]
+    last_build_id: Option<models::Id>,
 }
 
 #[derive(serde::Deserialize)]
@@ -404,6 +423,8 @@ struct MockLiveMaterialization {
 struct MockLiveTest {
     control_id: models::Id,
     last_pub_id: models::Id,
+    #[serde(default)]
+    last_build_id: Option<models::Id>,
 }
 
 #[derive(serde::Deserialize)]

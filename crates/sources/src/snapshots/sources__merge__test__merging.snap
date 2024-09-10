@@ -17,6 +17,7 @@ DraftCatalog {
               },
               "bindings": []
             },
+            is_touch: 0,
         },
         DraftCapture {
             capture: acmeCo/one/new,
@@ -31,6 +32,7 @@ DraftCatalog {
               },
               "bindings": []
             },
+            is_touch: 0,
         },
     ],
     collections: [
@@ -44,6 +46,7 @@ DraftCatalog {
                 "/int"
               ]
             },
+            is_touch: 0,
         },
         DraftCollection {
             collection: acmeCo/one/new,
@@ -55,6 +58,7 @@ DraftCatalog {
                 "/int"
               ]
             },
+            is_touch: 0,
         },
     ],
     materializations: [
@@ -71,6 +75,7 @@ DraftCatalog {
               },
               "bindings": []
             },
+            is_touch: 0,
         },
         DraftMaterialization {
             materialization: acmeCo/two/new,
@@ -85,6 +90,7 @@ DraftCatalog {
               },
               "bindings": []
             },
+            is_touch: 0,
         },
     ],
     tests: [
@@ -95,6 +101,7 @@ DraftCatalog {
             model: {
               "steps": []
             },
+            is_touch: 0,
         },
         DraftTest {
             test: acmeCo/two/new,
@@ -103,6 +110,7 @@ DraftCatalog {
             model: {
               "steps": []
             },
+            is_touch: 0,
         },
     ],
     fetches: [
