@@ -1,9 +1,10 @@
-use anyhow::Context;
+use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{KafkaApiClient, Session};
 use futures::{FutureExt, TryStreamExt};
 use rsasl::config::SASLConfig;
+use rustls::pki_types::CertificateDer;
 use std::{
     fs::File,
     io,
@@ -115,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Arc::new(dekaf::App {
         anon_client: postgrest::Postgrest::new(api_endpoint).insert_header("apikey", api_token),
-        advertise_host: cli.advertise_host,
+        advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
         kafka_client: KafkaApiClient::connect(
             upstream_kafka_host.as_str(),
@@ -167,10 +168,25 @@ async fn main() -> anyhow::Result<()> {
 
         let certs = load_certs(&tls_cfg.certificate_file.unwrap())?;
         let key = load_key(&tls_cfg.certificate_key_file.unwrap())?;
+
+        // Verify that our advertise-host is one of the cert's CNs
+        if validate_certificate_name(&certs, &cli.advertise_host) {
+            tracing::info!(
+                found_name = cli.advertise_host,
+                "Validated TLS certificate, Dekaf will terminate TLS"
+            )
+        } else {
+            bail!(format!(
+                "Provided certificate does not include '{}' as a common or alternative name",
+                cli.advertise_host
+            ))
+        }
+
         let config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
 
         tokio::spawn(async move { schema_server_task.await.unwrap() });
@@ -188,6 +204,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     } else {
+        tracing::info!("No TLS certificate provided, Dekaf will not terminate TLS");
         let schema_server_task =
             axum_server::bind(schema_addr).serve(schema_router.into_make_service());
 
@@ -271,6 +288,27 @@ fn load_key(path: &Path) -> io::Result<rustls::pki_types::PrivateKeyDer<'static>
                 "no private key found".to_string(),
             ))?,
     )
+}
+
+fn validate_certificate_name(
+    certs: &Vec<CertificateDer>,
+    advertise_host: &str,
+) -> anyhow::Result<bool> {
+    let parsed_name = webpki::DnsNameRef::try_from_ascii_str(advertise_host)
+        .ok()
+        .context(format!(
+            "Attempting to parse {advertise_host} as a DNS name"
+        ))?;
+    for cert in certs.iter() {
+        match webpki::EndEntityCert::try_from(cert.as_ref())
+            .map_err(|e| anyhow::anyhow!(format!("Failed to parse provided certificate: {:?}", e)))?
+            .verify_is_valid_for_dns_name(parsed_name)
+        {
+            Ok(_) => return Ok(true),
+            Err(e) => tracing::debug!(e=?e, "Certificate is not valid for provided hostname"),
+        }
+    }
+    return Ok(false);
 }
 
 const MANAGED_API_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
