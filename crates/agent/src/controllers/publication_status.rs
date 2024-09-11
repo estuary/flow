@@ -84,17 +84,24 @@ pub struct PublicationInfo {
     /// Errors will be non-empty for publications that were not successful
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<crate::draft::Error>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub is_touch: bool,
     #[serde(default = "default_count", skip_serializing_if = "is_one")]
     #[schemars(schema_with = "count_schema")]
     pub count: u32,
 }
 
+/// Used for publication info serde
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// Used for publication info serde
 fn default_count() -> u32 {
     1
 }
 
+/// Used for publication info serde
 fn is_one(i: &u32) -> bool {
     *i == 1
 }
@@ -178,8 +185,11 @@ impl PendingPublication {
         self.draft.spec_count() > 0
     }
 
-    pub fn start_touch(&mut self, state: &ControllerState) {
+    pub fn start_touch(&mut self, state: &ControllerState, new_dependency_hash: Option<&str>) {
         tracing::info!("starting touch");
+        let new_hash = new_dependency_hash.unwrap_or("None");
+        let old_hash = state.live_dependency_hash.as_deref().unwrap_or("None");
+        self.details.push(format!("in response to change in dependencies, prev hash: {old_hash}, new hash: {new_hash}"));
 
         let model = state
             .live_spec

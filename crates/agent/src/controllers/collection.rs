@@ -36,7 +36,7 @@ impl CollectionStatus {
 
         if dependencies.hash != state.live_dependency_hash {
             if dependencies.deleted.is_empty() {
-                pending_pub.start_touch(state);
+                pending_pub.start_touch(state, dependencies.hash.as_deref());
             } else {
                 let draft = pending_pub.start_spec_update(
                     state,
