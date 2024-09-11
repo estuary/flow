@@ -78,7 +78,7 @@ pub struct Cli {
 struct TlsArgs {
     /// The certificate file used to serve TLS connections. If provided, Dekaf must not be
     /// behind a TLS-terminating proxy and instead be directly exposed.
-    #[arg(long, env = "CERTIFICATE_FILE", requires="certificate_key_file")]
+    #[arg(long, env = "CERTIFICATE_FILE", requires = "certificate_key_file")]
     certificate_file: Option<PathBuf>,
     /// The key file used to serve TLS connections. If provided, Dekaf must not be
     /// behind a TLS-terminating proxy and instead be directly exposed.
@@ -149,8 +149,12 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to bind server port")?;
 
-    let schema_router = dekaf::registry::build_router(app.clone());
     let metrics_router = dekaf::metrics::build_router(app.clone());
+    let metrics_server_task =
+        axum_server::bind(metrics_addr).serve(metrics_router.into_make_service());
+    tokio::spawn(async move { metrics_server_task.await.unwrap() });
+
+    let schema_router = dekaf::registry::build_router(app.clone());
     if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
             tls_cfg.certificate_file.clone().unwrap(),
@@ -160,8 +164,6 @@ async fn main() -> anyhow::Result<()> {
 
         let schema_server_task = axum_server::bind_rustls(schema_addr, axum_rustls_config.clone())
             .serve(schema_router.into_make_service());
-        let metrics_server_task = axum_server::bind_rustls(metrics_addr, axum_rustls_config)
-            .serve(metrics_router.into_make_service());
 
         let certs = load_certs(&tls_cfg.certificate_file.unwrap())?;
         let key = load_key(&tls_cfg.certificate_key_file.unwrap())?;
@@ -172,7 +174,6 @@ async fn main() -> anyhow::Result<()> {
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
 
         tokio::spawn(async move { schema_server_task.await.unwrap() });
-        tokio::spawn(async move { metrics_server_task.await.unwrap() });
         // Accept and serve Kafka sessions until we're signaled to stop.
         loop {
             let acceptor = acceptor.clone();
@@ -189,11 +190,8 @@ async fn main() -> anyhow::Result<()> {
     } else {
         let schema_server_task =
             axum_server::bind(schema_addr).serve(schema_router.into_make_service());
-        let metrics_server_task =
-            axum_server::bind(metrics_addr).serve(metrics_router.into_make_service());
 
         tokio::spawn(async move { schema_server_task.await.unwrap() });
-        tokio::spawn(async move { metrics_server_task.await.unwrap() });
 
         // Accept and serve Kafka sessions until we're signaled to stop.
         loop {
