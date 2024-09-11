@@ -315,7 +315,6 @@ expression: schema
           "$ref": "#/definitions/Id"
         },
         "is_touch": {
-          "default": false,
           "type": "boolean"
         },
         "result": {

@@ -40,7 +40,7 @@ impl MaterializationStatus {
 
         if dependencies.hash != state.live_dependency_hash {
             if dependencies.deleted.is_empty() {
-                pending_pub.start_touch(state);
+                pending_pub.start_touch(state, dependencies.hash.as_deref());
             } else {
                 let draft = pending_pub.start_spec_update(
                     state,
@@ -155,15 +155,9 @@ impl MaterializationStatus {
             .materializations
             .get_mut_by_key(&mat_name)
             .ok_or_else(|| anyhow::anyhow!("missing draft row for materialization"))?;
-        if draft_materialization.is_touch {
-            // We started out just touching the spec, so we need to change to a "real" publication
-            // in order to update the model.
-            draft_materialization.is_touch = false;
-            draft_materialization.model = state
-                .live_spec
-                .as_ref()
-                .and_then(|s| s.as_materialization().cloned());
-        }
+
+        // We intend to modify the spec
+        draft_materialization.is_touch = false;
         let draft_model = draft_materialization
             .model
             .as_mut()

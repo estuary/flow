@@ -25,7 +25,7 @@ impl TestStatus {
             .resolve_dependencies(state, control_plane)
             .await?;
         if dependencies.hash != state.live_dependency_hash {
-            pending_pub.start_touch(state);
+            pending_pub.start_touch(state, dependencies.hash.as_deref());
             let result = pending_pub
                 .finish(state, &mut self.publications, control_plane)
                 .await
