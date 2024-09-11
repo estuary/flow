@@ -23,10 +23,7 @@ use self::{
 pub use handler::ControllerHandler;
 
 /// This version is used to determine if the controller state is compatible with the current
-/// code. Any controller state having a lower version than this will need to be run in order
-/// to "upgrade" it. Any controller state having a higher version than this _must_ be ignored.
-///
-/// Increment this version whenever we need to ensure that controllers re-visit all live specs.
+/// code. Any controller state having a higher version than this will be ignored.
 pub const CONTROLLER_VERSION: i32 = 2;
 
 /// Represents the state of a specific controller and catalog_name.
