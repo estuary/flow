@@ -14,9 +14,11 @@ RUN apt update -y \
      && apt update -y \
      && apt upgrade -y \
      && DEBIAN_FRONTEND=noninteractive apt install --no-install-recommends -y \
+     crun \
      docker.io \
      google-cloud-cli \
      jq \
+     netavark \
      podman \
      slirp4netns \
      uidmap \
