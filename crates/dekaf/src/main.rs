@@ -170,7 +170,7 @@ async fn main() -> anyhow::Result<()> {
         let key = load_key(&tls_cfg.certificate_key_file.unwrap())?;
 
         // Verify that our advertise-host is one of the cert's CNs
-        if validate_certificate_name(&certs, &cli.advertise_host) {
+        if validate_certificate_name(&certs, &cli.advertise_host)? {
             tracing::info!(
                 found_name = cli.advertise_host,
                 "Validated TLS certificate, Dekaf will terminate TLS"
