@@ -5,7 +5,7 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
     use axum::routing::get;
 
     let schema_router = axum::Router::new()
-        .route("/prometheus", get(prometheus_metrics))
+        .route("/metrics", get(prometheus_metrics))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(app);
 
