@@ -1,4 +1,6 @@
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+/// RawValue is like serde_json::value::RawValue, but removes newlines to ensure
+/// values can safely be used in newline-delimited contexts.
+#[derive(serde::Serialize, Clone)]
 pub struct RawValue(Box<serde_json::value::RawValue>);
 
 impl RawValue {
@@ -6,16 +8,28 @@ impl RawValue {
         return self.get() == "null";
     }
     pub fn from_str(s: &str) -> serde_json::Result<Self> {
-        serde_json::value::RawValue::from_string(s.to_owned()).map(Into::into)
+        Self::from_string(s.to_owned())
     }
-    pub fn from_string(s: String) -> serde_json::Result<Self> {
-        serde_json::value::RawValue::from_string(s).map(Into::into)
+    pub fn from_string(mut s: String) -> serde_json::Result<Self> {
+        s.retain(|c| c != '\n'); // Strip newlines.
+        let value = serde_json::value::RawValue::from_string(s)?;
+        Ok(Self(value))
     }
     pub fn from_value(value: &serde_json::Value) -> Self {
         Self::from_string(value.to_string()).unwrap()
     }
     pub fn to_value(&self) -> serde_json::Value {
         serde_json::from_str(self.get()).unwrap()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RawValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let inner = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
+        Ok(inner.into())
     }
 }
 
@@ -27,7 +41,12 @@ impl Default for RawValue {
 
 impl From<Box<serde_json::value::RawValue>> for RawValue {
     fn from(value: Box<serde_json::value::RawValue>) -> Self {
-        Self(value)
+        if value.get().contains('\n') {
+            let s: Box<str> = value.into();
+            Self::from_string(s.into()).unwrap()
+        } else {
+            Self(value)
+        }
     }
 }
 
@@ -71,5 +90,23 @@ impl schemars::JsonSchema for RawValue {
     }
     fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
         serde_json::Value::json_schema(gen)
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn test_newlines_are_removed() {
+        let fixture = serde_json::to_string_pretty(&serde_json::json!({
+            "one": 2,
+            "three": [4, 5]
+        }))
+        .unwrap();
+
+        let v = serde_json::value::RawValue::from_string(fixture).unwrap();
+        assert!(v.get().contains('\n'));
+        let v = super::RawValue::from(v);
+        assert!(!v.get().contains('\n'));
     }
 }
