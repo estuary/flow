@@ -185,7 +185,8 @@ impl TestHarness {
                     ops_l2_stats_transform,
                     broker_address,
                     reactor_address,
-                    hmac_keys
+                    hmac_keys,
+                    enable_l2
                 ) values (
                     'ops/dp/public/test',
                     'test.dp.estuary-data.com',
@@ -197,7 +198,8 @@ impl TestHarness {
                     'from-L1-stats',
                     'broker:address',
                     'reactor:address',
-                    '{secret-key}'
+                    '{secret-key}',
+                    false
                 ) on conflict do nothing
             )
             select 1 as "something: bool";
