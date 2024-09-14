@@ -6147,6 +6147,7 @@ dependencies = [
  "serde_json",
  "superslice",
  "url",
+ "uuid 1.10.0",
  "xxhash-rust",
 ]
 
