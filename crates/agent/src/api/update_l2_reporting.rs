@@ -108,11 +108,9 @@ export class Derivation extends Types.IDerivation {"#
             ops_l1_inferred_name  as "ops_l1_inferred_name: models::Collection",
             ops_l2_inferred_transform,
             ops_l1_stats_name     as "ops_l1_stats_name:    models::Collection",
-            ops_l2_stats_transform
+            ops_l2_stats_transform,
+            enable_l2
         from data_planes
-        -- Data-planes without configured HMAC keys are presumed to not be ready,
-        -- and we hold back from processing their L1 derivations.
-        where hmac_keys != '{}'
         order by data_plane_name asc;
         "#,
     )
@@ -123,6 +121,7 @@ export class Derivation extends Types.IDerivation {"#
         l2_inferred_transforms.push(models::TransformDef {
             name: models::Transform::new(&data_plane.ops_l2_inferred_transform),
             source: models::Source::Collection(data_plane.ops_l1_inferred_name.clone()),
+            disable: !data_plane.enable_l2,
 
             shuffle: models::Shuffle::Key(models::CompositeKey::new([models::JsonPointer::new(
                 "/collection_name",
@@ -132,7 +131,6 @@ export class Derivation extends Types.IDerivation {"#
             )),
 
             backfill: 0,
-            disable: false,
             priority: 0,
             read_delay: None,
         });
@@ -140,15 +138,18 @@ export class Derivation extends Types.IDerivation {"#
         l2_stats_transforms.push(models::TransformDef {
             name: models::Transform::new(&data_plane.ops_l2_stats_transform),
             source: models::Source::Collection(data_plane.ops_l1_stats_name.clone()),
+            disable: !data_plane.enable_l2,
 
             backfill: 0,
-            disable: false,
             lambda: models::RawValue::default(),
             priority: 0,
             read_delay: None,
             shuffle: models::Shuffle::Any,
         });
 
+        if !data_plane.enable_l2 {
+            l2_stats_module.push_str("\n/*");
+        }
         l2_stats_module.push_str(&format!(
             r#"
     {method_name}(read: {{ doc: Types.{type_name}}}): Types.Document[] {{
@@ -160,6 +161,9 @@ export class Derivation extends Types.IDerivation {"#
                 camel_case(&data_plane.ops_l2_stats_transform, true)
             )
         ));
+        if !data_plane.enable_l2 {
+            l2_stats_module.push_str("\n*/");
+        }
     }
 
     l2_stats_module.push_str("\n}\n");

@@ -147,9 +147,10 @@ async fn do_create_data_plane(
             ops_l2_stats_transform,
             broker_address,
             reactor_address,
-            hmac_keys
+            hmac_keys,
+            enable_l2
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
         )
         on conflict (data_plane_name) do update set
             broker_address = $9,
@@ -171,6 +172,7 @@ async fn do_create_data_plane(
         broker_address,
         reactor_address,
         hmac_keys.as_slice(),
+        !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
     )
     .fetch_one(pg_pool)
     .await?;
