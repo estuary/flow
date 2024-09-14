@@ -3,7 +3,10 @@ use std::sync::{Arc, Mutex};
 
 mod authorize;
 mod create_data_plane;
+mod snapshot;
 mod update_l2_reporting;
+
+use snapshot::Snapshot;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
@@ -36,7 +39,7 @@ struct App {
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
-    snapshot: std::sync::RwLock<authorize::Snapshot>,
+    snapshot: std::sync::RwLock<Snapshot>,
 }
 
 /// Build the agent's API router.
@@ -51,7 +54,7 @@ pub fn build_router(
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
-    let (snapshot, seed_rx) = authorize::seed_snapshot();
+    let (snapshot, seed_rx) = snapshot::seed();
 
     let app = Arc::new(App {
         id_generator: Mutex::new(id_generator),
@@ -61,7 +64,7 @@ pub fn build_router(
         publisher,
         snapshot: std::sync::RwLock::new(snapshot),
     });
-    tokio::spawn(authorize::snapshot_loop(app.clone(), seed_rx));
+    tokio::spawn(snapshot::fetch_loop(app.clone(), seed_rx));
 
     use axum::routing::post;
 
@@ -154,4 +157,12 @@ async fn authorize(
 
     req.extensions_mut().insert(token.claims);
     next.run(req).await
+}
+
+fn exp_seconds() -> u64 {
+    use rand::Rng;
+
+    // Select a random expiration time in range [40, 80) minutes,
+    // which spreads out load from re-authorization requests over time.
+    rand::thread_rng().gen_range(40 * 60..80 * 60)
 }
