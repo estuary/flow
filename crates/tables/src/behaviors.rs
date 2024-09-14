@@ -52,72 +52,147 @@ impl super::Import {
 }
 
 impl super::RoleGrant {
-    /// Given a task name, enumerate all roles and capabilities granted to the task.
+    /// Given a role or name, enumerate all granted roles and capabilities.
     pub fn transitive_roles<'a>(
-        role_grants: &'a [Self],
-        task_name: &'a str,
-    ) -> impl Iterator<Item = super::RoleGrantRef<'a>> + 'a {
-        let seed = super::RoleGrantRef {
-            subject_role: "",
-            object_role: task_name,
+        role_grants: &'a [super::RoleGrant],
+        role_or_name: &'a str,
+    ) -> impl Iterator<Item = super::GrantRef<'a>> + 'a {
+        let seed = super::GrantRef {
+            subject_role: role_or_name,
+            object_role: role_or_name,
             capability: models::Capability::Admin,
         };
-        pathfinding::directed::bfs::bfs_reach(seed, |f| Self::edges(role_grants, *f)).skip(1)
+        pathfinding::directed::bfs::bfs_reach(seed, |f| {
+            grant_edges(*f, role_grants, &[], uuid::Uuid::nil())
+        })
+        .skip(1) // Skip `seed`.
     }
 
-    /// Given a task name, determine if it's authorized to the object name for the given capability.
+    /// Given a role or name, determine if it's authorized to the object name for the given capability.
     pub fn is_authorized<'a>(
-        role_grants: &'a [Self],
-        task_name: &'a str,
+        role_grants: &'a [super::RoleGrant],
+        role_or_name: &'a str,
         object_name: &'a str,
         capability: models::Capability,
     ) -> bool {
-        Self::transitive_roles(role_grants, task_name).any(|role_grant| {
+        Self::transitive_roles(role_grants, role_or_name).any(|role_grant| {
             object_name.starts_with(role_grant.object_role) && role_grant.capability >= capability
         })
     }
 
-    /// Cheaply convert a &RoleGrant into an owned type which holds borrows.
-    pub fn to_ref<'a>(&'a self) -> super::RoleGrantRef<'a> {
-        super::RoleGrantRef {
+    fn to_ref<'a>(&'a self) -> super::GrantRef<'a> {
+        super::GrantRef {
             subject_role: self.subject_role.as_str(),
             object_role: self.object_role.as_str(),
             capability: self.capability,
         }
     }
+}
 
-    fn edges<'a>(
-        role_grants: &'a [Self],
-        from: super::RoleGrantRef<'a>,
-    ) -> impl Iterator<Item = super::RoleGrantRef<'a>> + 'a {
-        // Split the source object role into its prefixes:
-        // "acmeCo/one/two/three" => ["acmeCo/one/two/", "acmeCo/one/", "acmeCo/"].
-        let prefixes = from.object_role.char_indices().filter_map(|(ind, chr)| {
-            if chr == '/' {
-                Some(&from.object_role[..ind + 1])
-            } else {
-                None
-            }
-        });
-
-        // For each prefix, find all `role_grants` where it's the `subject_role`.
-        let edges = prefixes
-            .map(|prefix| {
-                role_grants
-                    .equal_range_by(|role_grant| role_grant.subject_role.as_str().cmp(prefix))
-            })
-            .map(|range| role_grants[range].into_iter().map(Self::to_ref))
-            .flatten();
-
-        // Only 'admin' grants are walked transitively.
-        if from.capability >= models::Capability::Admin {
-            Some(edges)
-        } else {
-            None
-        }
-        .into_iter()
-        .flatten()
+impl super::UserGrant {
+    /// Given a user, enumerate all granted roles and capabilities.
+    pub fn transitive_roles<'a>(
+        role_grants: &'a [super::RoleGrant],
+        user_grants: &'a [super::UserGrant],
+        user_id: uuid::Uuid,
+    ) -> impl Iterator<Item = super::GrantRef<'a>> + 'a {
+        let seed = super::GrantRef {
+            subject_role: "",
+            object_role: "", // Empty role causes us to map through user_grants.
+            capability: models::Capability::Admin,
+        };
+        pathfinding::directed::bfs::bfs_reach(seed, move |f| {
+            grant_edges(*f, role_grants, user_grants, user_id)
+        })
+        .skip(1) // Skip `seed`.
     }
+
+    /// Given a user, determine if they're authorized to the object name for the given capability.
+    pub fn is_authorized<'a>(
+        role_grants: &'a [super::RoleGrant],
+        user_grants: &'a [super::UserGrant],
+        user_id: uuid::Uuid,
+        object_name: &'a str,
+        capability: models::Capability,
+    ) -> bool {
+        Self::transitive_roles(role_grants, user_grants, user_id).any(|role_grant| {
+            object_name.starts_with(role_grant.object_role) && role_grant.capability >= capability
+        })
+    }
+
+    fn to_ref<'a>(&'a self) -> super::GrantRef<'a> {
+        super::GrantRef {
+            subject_role: "",
+            object_role: self.object_role.as_str(),
+            capability: self.capability,
+        }
+    }
+}
+
+fn grant_edges<'a>(
+    from: super::GrantRef<'a>,
+    role_grants: &'a [super::RoleGrant],
+    user_grants: &'a [super::UserGrant],
+    user_id: uuid::Uuid,
+) -> impl Iterator<Item = super::GrantRef<'a>> + 'a {
+    let (user_grants, role_grants, prefixes) = match (from.capability, from.object_role) {
+        // `from` is a place-holder which kicks of exploration through `user_grants` for `user_id`.
+        (models::Capability::Admin, "") => {
+            let range = user_grants.equal_range_by(|user_grant| user_grant.user_id.cmp(&user_id));
+            (&user_grants[range], &role_grants[..0], None)
+        }
+        // We're an admin of `role_or_name`, and are projecting through
+        // role_grants to identify other roles and capabilities we take on.
+        (models::Capability::Admin, role_or_name) => {
+            // Expand to all roles having a subject_role prefixed by role_or_name.
+            // In other words, an admin of `acmeCo/org/` may use a role with
+            // subject `acmeCo/org/team/`. Intuitively, this is because the root
+            // subject is authorized to create any name under `acmeCo/org/`,
+            // which implies an ability to create a name under `acmeCo/org/team/`.
+            let range = role_grants.equal_range_by(|role_grant| {
+                if role_grant.subject_role.starts_with(role_or_name) {
+                    std::cmp::Ordering::Equal
+                } else {
+                    role_grant.subject_role.as_str().cmp(role_or_name)
+                }
+            });
+            // Expand to all roles having a subject_role which prefixes role_or_name.
+            // In other words, a task `acmeCo/org/task` or admin of `acmeCo/org/`
+            // may use a role with subject `acmeCo/`. Intuitively, this is because
+            // the role granted to `acmeCo/` is also granted to any name underneath
+            // `acmeCo/`, which includes the present role or name.
+            //
+            // First split the source object role into its prefixes:
+            // "acmeCo/one/two/three" => ["acmeCo/one/two/", "acmeCo/one/", "acmeCo/"].
+            let prefixes = role_or_name.char_indices().filter_map(|(ind, chr)| {
+                if chr == '/' {
+                    Some(&role_or_name[..ind + 1])
+                } else {
+                    None
+                }
+            });
+            // Then for each prefix, find all role_grants where it's the exact subject_role.
+            let edges = prefixes
+                .map(|prefix| {
+                    role_grants
+                        .equal_range_by(|role_grant| role_grant.subject_role.as_str().cmp(prefix))
+                })
+                .map(|range| role_grants[range].into_iter().map(super::RoleGrant::to_ref))
+                .flatten();
+
+            (&user_grants[..0], &role_grants[range], Some(edges))
+        }
+        (_not_admin, _) => {
+            // We perform no expansion through grants which are not Admin.
+            (&user_grants[..0], &role_grants[..0], None)
+        }
+    };
+
+    let p1 = user_grants.iter().map(super::UserGrant::to_ref);
+    let p2 = role_grants.iter().map(super::RoleGrant::to_ref);
+    let p3 = prefixes.into_iter().flatten();
+
+    p1.chain(p2).chain(p3)
 }
 
 impl super::StorageMapping {
@@ -128,7 +203,7 @@ impl super::StorageMapping {
 
 #[cfg(test)]
 mod test {
-    use crate::{Import, Imports, RoleGrant, RoleGrants};
+    use crate::{Import, Imports, RoleGrant, RoleGrants, UserGrant, UserGrants};
 
     #[test]
     fn test_transitive_imports() {
@@ -186,6 +261,20 @@ mod test {
                 capability: cap,
             }),
         );
+        let user_grants = UserGrants::from_iter(
+            [
+                (uuid::Uuid::nil(), "bobCo/", Read),
+                (uuid::Uuid::nil(), "daveCo/", Admin),
+                (uuid::Uuid::max(), "aliceCo/widgets/", Admin),
+                (uuid::Uuid::max(), "carolCo/shared/", Admin),
+            ]
+            .into_iter()
+            .map(|(user_id, obj, cap)| UserGrant {
+                user_id,
+                object_role: models::Prefix::new(obj),
+                capability: cap,
+            }),
+        );
 
         insta::assert_json_snapshot!(
             RoleGrant::transitive_roles(&role_grants, "aliceCo/anvils/thing").collect::<Vec<_>>(),
@@ -236,6 +325,62 @@ mod test {
             "carolCo/even/more/hidden/thing",
             Write
         ));
+
+        insta::assert_json_snapshot!(
+            UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::nil()).collect::<Vec<_>>(),
+            @r###"
+        [
+          {
+            "subject_role": "",
+            "object_role": "bobCo/",
+            "capability": "read"
+          },
+          {
+            "subject_role": "",
+            "object_role": "daveCo/",
+            "capability": "admin"
+          },
+          {
+            "subject_role": "daveCo/hidden/",
+            "object_role": "carolCo/hidden/",
+            "capability": "admin"
+          },
+          {
+            "subject_role": "carolCo/hidden/",
+            "object_role": "carolCo/even/more/hidden/",
+            "capability": "read"
+          }
+        ]
+        "###,
+        );
+
+        insta::assert_json_snapshot!(
+            UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::max()).collect::<Vec<_>>(),
+            @r###"
+        [
+          {
+            "subject_role": "",
+            "object_role": "aliceCo/widgets/",
+            "capability": "admin"
+          },
+          {
+            "subject_role": "",
+            "object_role": "carolCo/shared/",
+            "capability": "admin"
+          },
+          {
+            "subject_role": "aliceCo/widgets/",
+            "object_role": "bobCo/burgers/",
+            "capability": "admin"
+          },
+          {
+            "subject_role": "carolCo/shared/",
+            "object_role": "carolCo/hidden/",
+            "capability": "read"
+          }
+        ]
+        "###,
+        );
     }
 
     #[test]

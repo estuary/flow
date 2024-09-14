@@ -100,6 +100,15 @@ tables!(
         val capability: models::Capability,
     }
 
+    table UserGrants (row #[derive(serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
+        // User ID to which a capability is bestowed.
+        key user_id: uuid::Uuid,
+        // Object of the grant, to which a capability is bestowed upon the subject.
+        key object_role: models::Prefix,
+        // Capability of the subject with respect to the object.
+        val capability: models::Capability,
+    }
+
     table DraftCaptures (row DraftCapture, sql "draft_captures") {
         // Catalog name of this capture.
         key capture: models::Capture,
@@ -355,7 +364,7 @@ tables!(
 );
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize)]
-pub struct RoleGrantRef<'a> {
+pub struct GrantRef<'a> {
     subject_role: &'a str,
     object_role: &'a str,
     capability: models::Capability,
@@ -439,6 +448,7 @@ json_sql_types!(
     models::Schema,
     models::TestDef,
     proto_flow::flow::ContentType,
+    uuid::Uuid,
 );
 
 proto_sql_types!(
