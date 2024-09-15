@@ -56,7 +56,7 @@ async fn do_create_data_plane(
         id_generator,
         ..
     }: &App,
-    super::Claims { sub: user_id, .. }: super::Claims,
+    super::ControlClaims { sub: user_id, .. }: super::ControlClaims,
     Request {
         name,
         private,
@@ -228,7 +228,7 @@ async fn do_create_data_plane(
 #[axum::debug_handler]
 pub async fn create_data_plane(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(claims): axum::Extension<super::Claims>,
+    axum::Extension(claims): axum::Extension<super::ControlClaims>,
     super::Request(request): super::Request<Request>,
 ) -> axum::response::Response {
     super::wrap(async move { do_create_data_plane(&app, claims, request).await }).await

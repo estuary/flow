@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+pub mod authorizations;
 mod captures;
 mod catalogs;
 pub mod collate;

@@ -28,7 +28,7 @@ async fn do_update_l2_reporting(
         id_generator,
         ..
     }: &App,
-    super::Claims { sub: user_id, .. }: super::Claims,
+    super::ControlClaims { sub: user_id, .. }: super::ControlClaims,
     Request {
         default_data_plane,
         dry_run,
@@ -228,7 +228,7 @@ export class Derivation extends Types.IDerivation {"#
 #[axum::debug_handler]
 pub async fn update_l2_reporting(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(claims): axum::Extension<super::Claims>,
+    axum::Extension(claims): axum::Extension<super::ControlClaims>,
     super::Request(request): super::Request<Request>,
 ) -> axum::response::Response {
     super::wrap(async move { do_update_l2_reporting(&app, claims, request).await }).await

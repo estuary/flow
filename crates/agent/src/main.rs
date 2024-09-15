@@ -42,8 +42,12 @@ struct Args {
     /// The port to listen on for API requests.
     #[clap(long, default_value = "8080", env = "API_PORT")]
     api_port: u16,
+    /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
+    /// Origin to allow in CORS contexts. May be specified multiple times.
+    #[clap(long = "allow-origin")]
+    allow_origin: Vec<String>,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -147,7 +151,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         jwt_secret.into_bytes(),
         pg_pool.clone(),
         publisher.clone(),
-    );
+        &args.allow_origin,
+    )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
