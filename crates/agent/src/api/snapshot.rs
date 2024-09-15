@@ -9,12 +9,18 @@ pub struct Snapshot {
     pub taken: std::time::SystemTime,
     // Platform collections, indexed on `journal_template_name`.
     pub collections: Vec<SnapshotCollection>,
+    // Indices of `collections`, indexed on `collection_name`.
+    pub collections_idx_name: Vec<usize>,
     // Platform data-planes.
     pub data_planes: tables::DataPlanes,
     // Platform role grants.
     pub role_grants: tables::RoleGrants,
+    // Platform user grants.
+    pub user_grants: tables::UserGrants,
     // Platform tasks, indexed on `shard_template_id`.
     pub tasks: Vec<SnapshotTask>,
+    // Indices of `tasks`, indexed on `task_name`.
+    pub tasks_idx_name: Vec<usize>,
     // `refresh` is take()-en when the current snapshot should be refreshed.
     pub refresh_tx: Option<futures::channel::oneshot::Sender<()>>,
 }
@@ -90,6 +96,28 @@ impl Snapshot {
         }
     }
 
+    pub fn task_by_catalog_name<'s>(&'s self, name: &models::Name) -> Option<&'s SnapshotTask> {
+        self.tasks_idx_name
+            .binary_search_by(|i| self.tasks[*i].task_name.as_str().cmp(name))
+            .ok()
+            .map(|index| {
+                let task = &self.tasks[self.tasks_idx_name[index]];
+                assert_eq!(&task.task_name, name);
+                task
+            })
+    }
+
+    pub fn collection_by_catalog_name<'s>(&'s self, name: &str) -> Option<&'s SnapshotCollection> {
+        self.collections_idx_name
+            .binary_search_by(|i| self.collections[*i].collection_name.as_str().cmp(name))
+            .ok()
+            .map(|index| {
+                let collection = &self.collections[self.collections_idx_name[index]];
+                assert_eq!(collection.collection_name.as_str(), name);
+                collection
+            })
+    }
+
     fn begin_refresh<'m>(
         guard: std::sync::RwLockReadGuard<'_, Self>,
         mu: &'m std::sync::RwLock<Self>,
@@ -113,9 +141,12 @@ pub fn seed() -> (Snapshot, futures::channel::oneshot::Receiver<()>) {
         Snapshot {
             taken: std::time::SystemTime::UNIX_EPOCH,
             collections: Vec::new(),
+            collections_idx_name: Vec::new(),
             data_planes: tables::DataPlanes::default(),
             role_grants: tables::RoleGrants::default(),
+            user_grants: tables::UserGrants::default(),
             tasks: Vec::new(),
+            tasks_idx_name: Vec::new(),
             refresh_tx: Some(next_tx),
         },
         next_rx,
@@ -193,6 +224,20 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
     .await
     .context("failed to fetch role_grants")?;
 
+    let user_grants = sqlx::query_as!(
+        tables::UserGrant,
+        r#"
+            select
+                user_id as "user_id: uuid::Uuid",
+                object_role as "object_role: models::Prefix",
+                capability as "capability: models::Capability"
+            from user_grants
+            "#,
+    )
+    .fetch_all(pg_pool)
+    .await
+    .context("failed to fetch role_grants")?;
+
     let mut tasks = sqlx::query_as!(
         SnapshotTask,
         r#"
@@ -211,6 +256,7 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
 
     let data_planes = tables::DataPlanes::from_iter(data_planes);
     let role_grants = tables::RoleGrants::from_iter(role_grants);
+    let user_grants = tables::UserGrants::from_iter(user_grants);
 
     // Shard ID and journal name templates are prefixes which are always
     // extended with a slash-separated suffix. Avoid inadvertent matches
@@ -225,20 +271,33 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
     tasks.sort_by(|t1, t2| t1.shard_template_id.cmp(&t2.shard_template_id));
     collections.sort_by(|c1, c2| c1.journal_template_name.cmp(&c2.journal_template_name));
 
+    let mut collections_idx_name = Vec::from_iter(0..collections.len());
+    collections_idx_name.sort_by(|i1, i2| {
+        collections[*i1]
+            .collection_name
+            .cmp(&collections[*i2].collection_name)
+    });
+    let mut tasks_idx_name = Vec::from_iter(0..tasks.len());
+    tasks_idx_name.sort_by(|i1, i2| tasks[*i1].task_name.cmp(&tasks[*i2].task_name));
+
     tracing::info!(
         collections = collections.len(),
         data_planes = data_planes.len(),
         role_grants = role_grants.len(),
         tasks = tasks.len(),
+        user_grants = user_grants.len(),
         "fetched authorization snapshot",
     );
 
     Ok(Snapshot {
         taken,
         collections,
+        collections_idx_name,
         data_planes,
         role_grants,
+        user_grants,
         tasks,
+        tasks_idx_name,
         refresh_tx: None,
     })
 }

@@ -176,7 +176,7 @@ tokio-util = { version = "0.7", features = ["io", "compat"] }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 hyper-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.5", features = ["trace"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
     "time",

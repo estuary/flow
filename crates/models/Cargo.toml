@@ -23,6 +23,7 @@ superslice = { workspace = true }
 time = { workspace = true }
 unicode-normalization = { workspace = true }
 url = { workspace = true }
+uuid = { workspace = true }
 validator = { workspace = true }
 
 [dev-dependencies]
