@@ -4,9 +4,9 @@ os.putenv("DATABASE_URL", DATABASE_URL)
 os.putenv("RUST_LOG", "info")
 os.putenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
 
-# Secret used to sign Authorizations within a local data plane, as base64("secret").
+# Secret used to sign Authorizations within a local data plane, as base64("supersecret").
 # Also allow requests without an Authorization (to not break data-plane-gateway just yet).
-AUTH_KEYS="c2VjcmV0,AA=="
+AUTH_KEYS="c3VwZXJzZWNyZXQ=,AA=="
 os.putenv("CONSUMER_AUTH_KEYS", AUTH_KEYS)
 os.putenv("BROKER_AUTH_KEYS", AUTH_KEYS)
 
@@ -83,8 +83,9 @@ local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve
 local_resource('agent', serve_cmd='%s/flow/.build/package/bin/agent \
     --connector-network supabase_network_flow \
     --allow-local \
-    --builds-root %s \
+    --allow-origin http://localhost:3000 \
     --api-port 8675 \
+    --builds-root %s \
     --serve-handlers \
     --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, FLOW_BUILDS_ROOT, REPO_BASE),
     resource_deps=['reactor', 'gazette']
@@ -101,7 +102,7 @@ local_resource('create-data-plane-local-cluster',
                 "manual": {\
                     "brokerAddress": "http://localhost:8080",\
                     "reactorAddress": "http://localhost:9000",\
-                    "hmacKeys": ["c2VjcmV0"]\
+                    "hmacKeys": ["c3VwZXJzZWNyZXQ="]\
                 }\
             }\
         }\' http://localhost:8675/admin/create-data-plane' % SYSTEM_USER_TOKEN,

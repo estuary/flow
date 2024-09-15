@@ -1,11 +1,14 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::{Arc, Mutex};
 
-mod authorize;
+mod authorize_task;
+mod authorize_user_collection;
+mod authorize_user_task;
 mod create_data_plane;
 mod snapshot;
 mod update_l2_reporting;
 
+use anyhow::Context;
 use snapshot::Snapshot;
 
 /// Request wraps a JSON-deserialized request type T which
@@ -13,15 +16,19 @@ use snapshot::Snapshot;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Request<T>(pub T);
 
-/// Claims are the JWT claims attached to control-plane access tokens.
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct Claims {
-    // Note that many more fields, such as additional user metadata,
-    // are available if we choose to parse them.
-    pub sub: uuid::Uuid,
-    pub email: String,
-    pub iat: usize,
-    pub exp: usize,
+/// ControlClaims are claims encoded within control-plane access tokens.
+type ControlClaims = models::authorizations::ControlClaims;
+
+/// DataClaims are claims encoded within data-plane access tokens.
+/// TODO(johnny): This should be a bare alias for proto_gazette::Claims.
+/// We can do this once data-plane-gateway is updated to be a "dumb" proxy
+/// which requires / forwards authorizations but doesn't inspect them.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct DataClaims {
+    #[serde(flatten)]
+    inner: proto_gazette::Claims,
+    // prefixes exclusively used by legacy auth checks in data-plane-gateway.
+    prefixes: Vec<String>,
 }
 
 /// Rejection is an error type of reasons why an API request may fail.
@@ -48,7 +55,8 @@ pub fn build_router(
     jwt_secret: Vec<u8>,
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
-) -> axum::Router<()> {
+    allow_origin: &[String],
+) -> anyhow::Result<axum::Router<()>> {
     let jwt_secret = jsonwebtoken::DecodingKey::from_secret(&jwt_secret);
 
     let mut jwt_validation = jsonwebtoken::Validation::default();
@@ -68,8 +76,45 @@ pub fn build_router(
 
     use axum::routing::post;
 
+    let allow_origin = allow_origin
+        .into_iter()
+        .map(|o| o.parse())
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to parse allowed origins")?;
+
+    let allow_headers = [
+        "Cache-Control",
+        "Content-Language",
+        "Content-Length",
+        "Content-Type",
+        "Expires",
+        "Last-Modified",
+        "Pragma",
+        "Authorization",
+    ]
+    .into_iter()
+    .map(|h| h.parse().unwrap())
+    .collect::<Vec<_>>();
+
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_methods(tower_http::cors::AllowMethods::mirror_request())
+        .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
+        .allow_headers(allow_headers);
+
     let schema_router = axum::Router::new()
-        .route("/authorize/task", post(authorize::authorize_task))
+        .route("/authorize/task", post(authorize_task::authorize_task))
+        .route(
+            "/authorize/user/task",
+            post(authorize_user_task::authorize_user_task)
+                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+                .options(preflight_handler),
+        )
+        .route(
+            "/authorize/user/collection",
+            post(authorize_user_collection::authorize_user_collection)
+                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+                .options(preflight_handler),
+        )
         .route(
             "/admin/create-data-plane",
             post(create_data_plane::create_data_plane)
@@ -81,9 +126,14 @@ pub fn build_router(
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
         )
         .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(cors)
         .with_state(app);
 
-    schema_router
+    Ok(schema_router)
+}
+
+async fn preflight_handler() -> impl IntoResponse {
+    (StatusCode::NO_CONTENT, "")
 }
 
 #[axum::async_trait]
@@ -140,7 +190,7 @@ async fn authorize(
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let token = match jsonwebtoken::decode::<Claims>(
+    let token = match jsonwebtoken::decode::<ControlClaims>(
         bearer.token(),
         &app.jwt_secret,
         &app.jwt_validation,
@@ -165,4 +215,27 @@ fn exp_seconds() -> u64 {
     // Select a random expiration time in range [40, 80) minutes,
     // which spreads out load from re-authorization requests over time.
     rand::thread_rng().gen_range(40 * 60..80 * 60)
+}
+
+fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
+    let ops_kind = match task.spec_type {
+        models::CatalogType::Capture => "capture",
+        models::CatalogType::Collection => "derivation",
+        models::CatalogType::Materialization => "materialization",
+        models::CatalogType::Test => "test",
+    };
+    format!(
+        "/kind={ops_kind}/name={}/pivot=00",
+        labels::percent_encoding(&task.task_name).to_string(),
+    )
+}
+
+// Support the legacy data-plane by re-writing its internal service
+// addresses to use the data-plane-gateway in external contexts.
+fn maybe_rewrite_address(external: bool, address: &str) -> String {
+    if external && address.contains("svc.cluster.local:") {
+        "https://us-central1.v1.estuary-data.dev".to_string()
+    } else {
+        address.to_string()
+    }
 }

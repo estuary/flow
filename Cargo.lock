@@ -3770,6 +3770,7 @@ dependencies = [
  "time 0.3.36",
  "unicode-normalization",
  "url",
+ "uuid 1.10.0",
  "validator",
 ]
 

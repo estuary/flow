@@ -2,24 +2,8 @@ use super::{App, Snapshot};
 use anyhow::Context;
 use std::sync::Arc;
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Request {
-    // # JWT token to be authorized and signed.
-    token: String,
-}
-
-#[derive(Default, Debug, serde::Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct Response {
-    // # JWT token which has been authorized for use.
-    token: String,
-    // # Address of Gazette brokers for the issued token.
-    broker_address: String,
-    // # Number of milliseconds to wait before retrying the request.
-    // Non-zero if and only if token is not set.
-    retry_millis: u64,
-}
+type Request = models::authorizations::TaskAuthorizationRequest;
+type Response = models::authorizations::TaskAuthorization;
 
 #[axum::debug_handler]
 pub async fn authorize_task(
@@ -108,12 +92,11 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
 
 fn evaluate_authorization(
     Snapshot {
-        taken: _,
         collections,
         data_planes,
         role_grants,
         tasks,
-        refresh_tx: _,
+        ..
     }: &Snapshot,
     shard_id: &str,
     shard_data_plane_fqdn: &str,
@@ -188,22 +171,12 @@ fn evaluate_authorization(
         );
     };
 
-    let ops_kind = match task.spec_type {
-        models::CatalogType::Capture => "capture",
-        models::CatalogType::Collection => "derivation",
-        models::CatalogType::Materialization => "materialization",
-        models::CatalogType::Test => "test",
-    };
-
     // As a special case outside of the RBAC system, allow a task to write
     // to its designated partition within its ops collections.
     if required_role == models::Capability::Write
         && (collection.collection_name == task_data_plane.ops_logs_name
             || collection.collection_name == task_data_plane.ops_stats_name)
-        && journal_name_or_prefix.ends_with(&format!(
-            "/kind={ops_kind}/name={}/pivot=00",
-            labels::percent_encoding(&task.task_name).to_string(),
-        ))
+        && journal_name_or_prefix.ends_with(&super::ops_suffix(task))
     {
         // Authorized write into designated ops partition.
     } else if tables::RoleGrant::is_authorized(
@@ -214,10 +187,6 @@ fn evaluate_authorization(
     ) {
         // Authorized access through RBAC.
     } else {
-        let ops_suffix = format!(
-            "/kind={ops_kind}/name={}/pivot=00",
-            labels::percent_encoding(&task.task_name).to_string(),
-        );
         tracing::warn!(
             %task.spec_type,
             %shard_id,
@@ -225,7 +194,7 @@ fn evaluate_authorization(
             ?required_role,
             ops_logs=%task_data_plane.ops_logs_name,
             ops_stats=%task_data_plane.ops_stats_name,
-            %ops_suffix,
+            ops_suffix=%super::ops_suffix(task),
             "task authorization rejection context"
         );
         anyhow::bail!(
@@ -244,6 +213,9 @@ fn evaluate_authorization(
     Ok((
         encoding_key,
         collection_data_plane.data_plane_fqdn.clone(),
-        collection_data_plane.broker_address.clone(),
+        super::maybe_rewrite_address(
+            task.data_plane_id != collection.data_plane_id,
+            &collection_data_plane.broker_address,
+        ),
     ))
 }
