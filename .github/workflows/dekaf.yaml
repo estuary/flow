@@ -26,7 +26,7 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
 
-      - run: sudo apt install -y musl-tools
+      - run: sudo apt install -y musl-tools musl-g++
 
       - name: Login to GitHub container registry
         run: |
