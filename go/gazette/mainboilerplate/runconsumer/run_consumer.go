@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gogo/gateway"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -25,6 +27,10 @@ import (
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
+
+	// This import isn't required, but it convinces `go mod tidy` to not remove
+	// packages which are required for building the protoc-gen-grpc-gateway plugin.
+	_ "github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway/descriptor"
 )
 
 // Application is the user-defined consumer Application which is executed
@@ -182,6 +188,13 @@ func (sc Cmd) Execute(args []string) error {
 		signalCh = make(chan os.Signal, 1)
 	)
 	pc.RegisterShardServer(srv.GRPCServer, pc.NewVerifiedShardServer(service, service.Verifier))
+
+	var mux *runtime.ServeMux = runtime.NewServeMux(
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, new(gateway.JSONPb)),
+		runtime.WithProtoErrorHandler(runtime.DefaultHTTPProtoErrorHandler),
+	)
+	pc.RegisterShardHandler(tasks.Context(), mux, srv.GRPCLoopback)
+	srv.HTTPMux.Handle("/v1/", bc.Consumer.CORSWrapper(mux))
 	ks.WatchApplyDelay = bc.Consumer.WatchDelay
 
 	// Register Resolver as a prometheus.Collector for tracking shard status

@@ -111,12 +111,24 @@ ${WORKDIR}/rocksdb-v%/librocksdb.so:
 %.pb.go: %.proto ${WORKDIR}/protoc-gen-gogo
 	PATH=${WORKDIR}:$${PATH} ;\
 	protoc -I . $(foreach module, $(PROTOC_INC_MODULES), -I$(module_path)) \
-	--gogo_out=paths=source_relative,plugins=grpc:. $*.proto
+	--gogo_out=paths=source_relative,plugins=grpc:. \
+	$*.proto
+
+%.pb.gw.go: %.proto ${WORKDIR}/protoc-gen-grpc-gateway
+	PATH=${WORKDIR}:$${PATH} ;\
+	protoc -I . $(foreach module, $(PROTOC_INC_MODULES), -I$(module_path)) \
+	--grpc-gateway_out=logtostderr=true,paths=source_relative,generate_unbound_methods=false,grpc_api_configuration=$*_gateway.yaml:. \
+	$*.proto
 
 # Rule to build protoc-gen-gogo.
 ${WORKDIR}/protoc-gen-gogo:
 	go mod download github.com/golang/protobuf
 	go build -o $@ github.com/gogo/protobuf/protoc-gen-gogo
+
+# Rule to build protoc-gen-grpc-gateway.
+${WORKDIR}/protoc-gen-grpc-gateway:
+	go mod download github.com/grpc-ecosystem/grpc-gateway
+	go build -o $@ github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway
 
 # Rule for generic go-install-able Go binaries.
 ${WORKDIR}/go-path/bin/%: go-install

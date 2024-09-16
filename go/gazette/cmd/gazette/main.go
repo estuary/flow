@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gogo/gateway"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/jessevdk/go-flags"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
@@ -116,6 +118,13 @@ func (cmdServe) Execute(args []string) error {
 		signalCh = make(chan os.Signal, 1)
 	)
 	pb.RegisterJournalServer(srv.GRPCServer, pb.NewVerifiedJournalServer(service, verifier))
+
+	var mux *runtime.ServeMux = runtime.NewServeMux(
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, new(gateway.JSONPb)),
+		runtime.WithProtoErrorHandler(runtime.DefaultHTTPProtoErrorHandler),
+	)
+	pb.RegisterJournalHandler(tasks.Context(), mux, srv.GRPCLoopback)
+	srv.HTTPMux.Handle("/v1/", Config.Broker.CORSWrapper(mux))
 	srv.HTTPMux.Handle("/", http_gateway.NewGateway(pb.NewRoutedJournalClient(lo, pb.NoopDispatchRouter{})))
 	ks.WatchApplyDelay = Config.Broker.WatchDelay
 
