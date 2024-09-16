@@ -43,6 +43,7 @@ metrics-prometheus = { workspace = true }
 percent-encoding = { workspace = true }
 postgrest = { workspace = true }
 prometheus = { workspace = true }
+rand = { workspace = true }
 regex = { workspace = true }
 rsasl = { workspace = true }
 rustls = { workspace = true }
