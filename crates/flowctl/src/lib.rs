@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
 use anyhow::Context;
-use clap::AppSettings;
 use clap::Parser;
 
 mod auth;
@@ -26,12 +25,7 @@ use poll::poll_while_queued;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]
-#[clap(
-    author,
-    about,
-    version,
-    global_setting = AppSettings::DeriveDisplayOrder
-)]
+#[command(author, about, version, next_display_order = None)]
 pub struct Cli {
     /// Configuration profile to use.
     ///

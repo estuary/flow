@@ -40,7 +40,7 @@ byteorder = "1.4"
 caseless = "0.2"
 chardetng = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "3.2", features = ["derive", "env"] }
+clap = { package = "clap", version = "4", features = ["derive", "env"] }
 colored_json = "3"
 comfy-table = "6.1"
 # The `console_error_panic_hook` crate causes panics in a Rust WASM module to be logged
