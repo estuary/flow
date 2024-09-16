@@ -10,54 +10,54 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+aes-siv = { workspace = true }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
+flowctl = { path = "../flowctl" }
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }
 ops = { path = "../ops" }
-flowctl = { path = "../flowctl" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 simd-doc = { path = "../simd-doc" }
 
 anyhow = { workspace = true }
 axum = { workspace = true }
-axum-server = { workspace = true }
 axum-extra = { workspace = true }
+axum-server = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 # TODO(jshearer): Upgrade every other usage of clap to v4 and change this to:
 # clap = { workspace = true }
-clap = { package = "clap", version = "4", features = ["derive", "env"] }
+clap = { workspace = true }
+crypto-common = { workspace = true }
+deadpool = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
+hexdump = { workspace = true }
 itertools = { workspace = true }
 kafka-protocol = { workspace = true }
 md5 = { workspace = true }
+metrics = { workspace = true }
+metrics-prometheus = { workspace = true }
+percent-encoding = { workspace = true }
 postgrest = { workspace = true }
+prometheus = { workspace = true }
+regex = { workspace = true }
 rsasl = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 socket2 = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tokio-rustls = { workspace = true }
+tokio-util = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 typestate = { workspace = true }
 url = { workspace = true }
-rustls-native-certs = { workspace = true }
-deadpool = { workspace = true }
-regex = { workspace = true }
-hex = { workspace = true }
-crypto-common = { workspace = true }
-aes-siv = { workspace = true }
-percent-encoding = { workspace = true }
-rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
 webpki = { workspace = true }
-metrics = { workspace = true }
-metrics-prometheus = { workspace = true }
-prometheus = { workspace = true }
-hexdump = { workspace = true }
