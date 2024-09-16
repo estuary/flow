@@ -36,7 +36,7 @@ jobs:
           workspaces: |
             crates/dekaf
       - name: build `dekaf`
-        run: cargo build --release -p dekaf
+        run: cargo build --release -p dekaf && cp target/release/dekaf ./dekaf-bin
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
