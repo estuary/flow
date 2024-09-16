@@ -1,5 +1,6 @@
-use crate::{api_exec, api_exec_paginated, catalog::SpecSummaryItem, controlplane, local_specs};
+use crate::{api_exec, catalog::SpecSummaryItem, controlplane, local_specs};
 use anyhow::Context;
+use futures::{stream::FuturesUnordered, StreamExt};
 use serde::Serialize;
 
 #[derive(Debug, clap::Args)]
@@ -46,13 +47,13 @@ pub async fn upsert_draft_specs(
         expect_pub_id: Option<models::Id>,
     }
 
-    let mut body: Vec<u8> = Vec::new();
-    body.push('[' as u8);
+    // Serialize DraftSpecs directly to JSON without going through
+    // serde_json::Value in order to avoid re-ordering fields which
+    // breaks sops hmac hashes.
+    let mut draft_specs: Vec<String> = vec![];
 
     for row in collections.iter() {
-        if body.len() != 1 {
-            body.push(',' as u8);
-        }
+        let mut body = vec![];
         serde_json::to_writer(
             &mut body,
             &DraftSpec {
@@ -62,13 +63,11 @@ pub async fn upsert_draft_specs(
                 spec: &row.model,
                 expect_pub_id: row.expect_pub_id,
             },
-        )
-        .unwrap();
+        )?;
+        draft_specs.push(String::from_utf8(body).expect("serialized JSON is always UTF-8"));
     }
     for row in captures.iter() {
-        if body.len() != 1 {
-            body.push(',' as u8);
-        }
+        let mut body = vec![];
         serde_json::to_writer(
             &mut body,
             &DraftSpec {
@@ -78,13 +77,11 @@ pub async fn upsert_draft_specs(
                 spec: &row.model,
                 expect_pub_id: row.expect_pub_id,
             },
-        )
-        .unwrap();
+        )?;
+        draft_specs.push(String::from_utf8(body).expect("serialized JSON is always UTF-8"));
     }
     for row in materializations.iter() {
-        if body.len() != 1 {
-            body.push(',' as u8);
-        }
+        let mut body = vec![];
         serde_json::to_writer(
             &mut body,
             &DraftSpec {
@@ -94,13 +91,11 @@ pub async fn upsert_draft_specs(
                 spec: &row.model,
                 expect_pub_id: row.expect_pub_id,
             },
-        )
-        .unwrap();
+        )?;
+        draft_specs.push(String::from_utf8(body).expect("serialized JSON is always UTF-8"));
     }
     for row in tests.iter() {
-        if body.len() != 1 {
-            body.push(',' as u8);
-        }
+        let mut body = vec![];
         serde_json::to_writer(
             &mut body,
             &DraftSpec {
@@ -110,19 +105,32 @@ pub async fn upsert_draft_specs(
                 spec: &row.model,
                 expect_pub_id: row.expect_pub_id,
             },
-        )
-        .unwrap();
+        )?;
+        draft_specs.push(String::from_utf8(body).expect("serialized JSON is always UTF-8"));
     }
-    body.push(']' as u8);
 
-    let rows: Vec<SpecSummaryItem> = api_exec_paginated(
-        client
-            .from("draft_specs")
-            .select("catalog_name,spec_type")
-            .upsert(String::from_utf8(body).expect("serialized JSON is always UTF-8"))
-            .on_conflict("draft_id,catalog_name"),
-    )
-    .await?;
+    const BATCH_SIZE: usize = 100;
+
+    // Upsert draft specs in batches
+    let mut futures = draft_specs
+        .chunks(BATCH_SIZE)
+        .map(|batch| {
+            let builder = client
+                .clone()
+                .from("draft_specs")
+                .select("catalog_name,spec_type")
+                .upsert(format!("[{}]", batch.join(",")))
+                .on_conflict("draft_id,catalog_name");
+            async move { api_exec::<Vec<SpecSummaryItem>>(builder).await }
+        })
+        .collect::<FuturesUnordered<_>>();
+
+    let mut rows = Vec::new();
+
+    while let Some(result) = futures.next().await {
+        rows.extend(result.context("executing live_specs_ext fetch")?);
+    }
+
     Ok(rows)
 }
 

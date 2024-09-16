@@ -6,13 +6,9 @@ mod test;
 use crate::{
     api_exec, api_exec_paginated, controlplane,
     output::{to_table_row, CliOutput, JsonCell},
-    pagination::into_items,
 };
 use anyhow::Context;
-use futures::{
-    stream::{FuturesUnordered, StreamExt},
-    TryStreamExt,
-};
+use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
 use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
@@ -262,7 +258,10 @@ where
                 // not the original builder. And also to clarify that we're not
                 // moving `batch` into the async block.
                 let builder = builder.clone().in_("catalog_name", batch);
-                async move { into_items::<T>(builder).try_collect::<Vec<T>>().await }
+                async move {
+                    // No need for pagination because we're paginating the inputs.
+                    api_exec::<Vec<T>>(builder).await
+                }
             })
             .collect::<FuturesUnordered<_>>();
         let mut rows = Vec::with_capacity(list.name_selector.name.len());
@@ -592,7 +591,7 @@ async fn do_draft(
     };
     tracing::debug!(?draft_spec, "inserting draft");
 
-    let rows: Vec<SpecSummaryItem> = api_exec_paginated(
+    let rows: Vec<SpecSummaryItem> = api_exec(
         ctx.controlplane_client()
             .await?
             .from("draft_specs")
