@@ -195,7 +195,7 @@ pub enum Error {
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 
-    #[error("publication id must be creater than last_pub_id when `is_touch=false`")]
+    #[error("publication id must be greater than last_pub_id when `is_touch=false`")]
     PubIdNotIncreased {
         pub_id: models::Id,
         last_pub_id: models::Id,

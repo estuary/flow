@@ -383,6 +383,7 @@ pub trait DraftRow: crate::Row {
         url::Url,
         Option<models::Id>,
         Option<Self::ModelDef>,
+        bool,
     );
 
     /// Name of this specification.
@@ -423,8 +424,15 @@ impl DraftRow for crate::DraftCapture {
         url::Url,
         Option<models::Id>,
         Option<Self::ModelDef>,
+        bool,
     ) {
-        (self.capture, self.scope, self.expect_pub_id, self.model)
+        (
+            self.capture,
+            self.scope,
+            self.expect_pub_id,
+            self.model,
+            self.is_touch,
+        )
     }
 
     fn catalog_name(&self) -> &Self::Key {
@@ -470,8 +478,15 @@ impl DraftRow for crate::DraftCollection {
         url::Url,
         Option<models::Id>,
         Option<Self::ModelDef>,
+        bool,
     ) {
-        (self.collection, self.scope, self.expect_pub_id, self.model)
+        (
+            self.collection,
+            self.scope,
+            self.expect_pub_id,
+            self.model,
+            self.is_touch,
+        )
     }
 
     fn catalog_name(&self) -> &Self::Key {
@@ -517,12 +532,14 @@ impl DraftRow for crate::DraftMaterialization {
         url::Url,
         Option<models::Id>,
         Option<Self::ModelDef>,
+        bool,
     ) {
         (
             self.materialization,
             self.scope,
             self.expect_pub_id,
             self.model,
+            self.is_touch,
         )
     }
 
@@ -569,8 +586,15 @@ impl DraftRow for crate::DraftTest {
         url::Url,
         Option<models::Id>,
         Option<Self::ModelDef>,
+        bool,
     ) {
-        (self.test, self.scope, self.expect_pub_id, self.model)
+        (
+            self.test,
+            self.scope,
+            self.expect_pub_id,
+            self.model,
+            self.is_touch,
+        )
     }
 
     fn catalog_name(&self) -> &Self::Key {
