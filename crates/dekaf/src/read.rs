@@ -4,6 +4,7 @@ use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
+use std::time::Duration;
 
 pub struct Read {
     /// Journal offset to be served by this Read.
@@ -112,7 +113,11 @@ impl Read {
                         }
                     },
                     Err(err) if err.is_transient() => {
+                        use rand::Rng;
+
                         tracing::warn!(%err, "Retrying transient read error");
+                        let delay = Duration::from_millis(rand::thread_rng().gen_range(300..2000));
+                        tokio::time::sleep(delay).await;
                         // We can retry transient errors just by continuing to poll the stream
                         // TODO: We might have a counter here and give up after a few attempts
                         continue;
