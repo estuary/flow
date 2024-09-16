@@ -188,6 +188,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"consumer",
 		"--broker.address", gazetteAddr,
 		"--broker.cache.size", "128",
+		"--consumer.allow-origin", "http://localhost:3000",
 		"--consumer.limit", "1024",
 		"--consumer.max-hot-standbys", "0",
 		"--consumer.port", port,
@@ -195,6 +196,8 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--consumer.watch-delay", "0ms", // Speed test execution.
 		"--etcd.address", etcdAddr,
 		"--flow.builds-root", buildsRoot,
+		"--flow.control-api", "http://agent.flow.localhost:8675",
+		"--flow.dashboard", "http://dashboard.flow.localhost:3000",
 		"--flow.test-apis",
 		"--log.format", cmd.Log.Format,
 		"--log.level", cmd.Log.Level,

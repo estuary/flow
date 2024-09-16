@@ -1,38 +1,79 @@
 # This file is interpreted by `tilt`, and describes how to get a local flow environment running.
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
-os.putenv("DATABASE_URL", DATABASE_URL)
-os.putenv("RUST_LOG", "info")
-os.putenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
+DATABASE_URL="postgresql://postgres:postgres@db.flow.localhost:5432/postgres"
 
 # Secret used to sign Authorizations within a local data plane, as base64("supersecret").
 # Also allow requests without an Authorization (to not break data-plane-gateway just yet).
 AUTH_KEYS="c3VwZXJzZWNyZXQ=,AA=="
-os.putenv("CONSUMER_AUTH_KEYS", AUTH_KEYS)
-os.putenv("BROKER_AUTH_KEYS", AUTH_KEYS)
-
 
 REPO_BASE= '%s/..' % os.getcwd()
 TEST_KMS_KEY="projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/testing"
 
-HOME_DIR=os.getenv("HOME")
-FLOW_DIR=os.getenv("FLOW_DIR", os.path.join(HOME_DIR, "flow-local"))
+FLOW_DIR=os.getenv("FLOW_DIR", os.path.join(os.getenv("HOME"), "flow-local"))
 ETCD_DATA_DIR=os.path.join(FLOW_DIR, "etcd")
 
 FLOW_BUILDS_ROOT="file://"+os.path.join(FLOW_DIR, "builds")+"/"
-# Or alternatively, use an actual bucket when testing with external data-planes:
-# FLOW_BUILDS_ROOT="gs://example/builds/"
 
 # A token for the local-stack system user signed against the local-stack
 # supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).
 SYSTEM_USER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU"
 
-# Start supabase, which is needed in order to compile the agent
-local_resource('supabase', cmd='supabase start', links='http://localhost:5433')
+# Paths for CA and server certificates
+CA_KEY_PATH = "%s/ca.key" % FLOW_DIR
+CA_CERT_PATH = "%s/ca.crt" % FLOW_DIR
+TLS_KEY_PATH = "%s/server.key" % FLOW_DIR
+TLS_CERT_PATH = "%s/server.crt" % FLOW_DIR
 
-# Builds many of the binaries that we'll need
-local_resource('make', cmd='make', resource_deps=['supabase'])
+local_resource(
+    'supabase',
+    cmd='supabase start',
+    links='http://db.flow.localhost:5433',
+)
 
-local_resource('etcd', serve_cmd='%s/flow/.build/package/bin/etcd \
+local_resource(
+    'make',
+    cmd='make',
+    resource_deps=['supabase'],
+)
+
+local_resource(
+    'self-signed-tls-cert',
+    dir=REPO_BASE,
+    cmd='[ -f "%s" ] && [ -f "%s" ] || (\
+        openssl req -x509 -nodes -days 3650 \
+            -subj "/C=US/ST=QC/O=Estuary/CN=Estuary Root CA" \
+            -addext basicConstraints=critical,CA:TRUE,pathlen:0 \
+            -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+            -keyout "%s" \
+            -out "%s" \
+    ) && (\
+        openssl req -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+            -subj "/C=US/ST=QC/O=Estuary/CN=flow.localhost" \
+            -addext "subjectAltName=DNS:flow.localhost,DNS:*.flow.localhost,IP:127.0.0.1" \
+            -keyout "%s" -out server.csr \
+    ) && (\
+        echo "subjectAltName=DNS:flow.localhost,DNS:*.flow.localhost,IP:127.0.0.1" > extfile.txt && \
+        echo "basicConstraints=CA:FALSE" >> extfile.txt && \
+        openssl x509 -req -days 365 \
+            -in server.csr -CA "%s" -CAkey "%s" -CAcreateserial \
+            -out "%s" \
+            -extfile extfile.txt \
+    ) && (\
+        rm server.csr extfile.txt \
+    )' % (
+        TLS_CERT_PATH,   # Check if server certificate already exists
+        TLS_KEY_PATH,    # Check if server key already exists
+        CA_KEY_PATH,     # CA key output path (ECDSA)
+        CA_CERT_PATH,    # CA certificate output path
+        TLS_KEY_PATH,    # Server key output path (ECDSA)
+        CA_CERT_PATH,    # CA certificate input path
+        CA_KEY_PATH,     # CA key input path
+        TLS_CERT_PATH    # Server certificate output path
+    )
+)
+
+local_resource(
+    'etcd',
+    serve_cmd='%s/flow/.build/package/bin/etcd \
     --data-dir %s \
     --log-level info \
     --logger zap' % (REPO_BASE, ETCD_DATA_DIR),
@@ -43,56 +84,89 @@ local_resource('etcd', serve_cmd='%s/flow/.build/package/bin/etcd \
     )
 )
 
-local_resource('gazette', serve_cmd='%s/flow/.build/package/bin/gazette serve \
-    --broker.port=8080 \
-    --broker.host=localhost \
+local_resource(
+    'gazette',
+    serve_cmd='%s/flow/.build/package/bin/gazette serve \
+    --broker.allow-origin http://localhost:3000 \
     --broker.disable-stores \
-    --broker.max-replication=1 \
-    --log.level=info' % REPO_BASE,
-    links='http://localhost:8080/debug/pprof',
+    --broker.host gazette.flow.localhost \
+    --broker.max-replication 1 \
+    --broker.port 8080 \
+    --etcd.address http://etcd.flow.localhost:2379 \
+    --log.level=info \
+    ' % REPO_BASE,
+    serve_env={
+        "BROKER_AUTH_KEYS": AUTH_KEYS,
+        "BROKER_PEER_CA_FILE": CA_CERT_PATH,
+        "BROKER_SERVER_CERT_FILE": TLS_CERT_PATH,
+        "BROKER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
+    },
+    links='https://gazette.flow.localhost:8080/debug/pprof',
     resource_deps=['etcd'],
     readiness_probe=probe(
         initial_delay_secs=5,
-        http_get=http_get_action(port=8080, path='/debug/ready')
+        http_get=http_get_action(port=8080, path='/debug/ready', scheme='https')
     )
 )
 
-local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
-    --flow.allow-local \
-    --broker.address http://localhost:8080 \
+local_resource(
+    'reactor',
+    serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
+    --broker.address https://gazette.flow.localhost:8080 \
     --broker.cache.size 128 \
-    --consumer.host localhost \
+    --consumer.allow-origin http://localhost:3000 \
+    --consumer.host reactor.flow.localhost \
     --consumer.limit 1024 \
     --consumer.max-hot-standbys 0 \
     --consumer.port 9000 \
-    --etcd.address http://localhost:2379 \
-    --flow.builds-root %s \
-    --flow.network supabase_network_flow \
-    --flow.control-api http://localhost:8675 \
+    --etcd.address http://etcd.flow.localhost:2379 \
+    --flow.allow-local \
+    --flow.control-api http://agent.flow.localhost:8675 \
+    --flow.dashboard   http://localhost:3000 \
     --flow.data-plane-fqdn local-cluster.dp.estuary-data.com \
-    --log.format text \
-    --log.level info' % (REPO_BASE, FLOW_BUILDS_ROOT),
-    links='http://localhost:9000/debug/pprof',
+    --flow.network supabase_network_flow \
+    --log.level info \
+    ' % (REPO_BASE),
+    serve_env={
+        "BROKER_AUTH_KEYS": AUTH_KEYS,
+        "BROKER_TRUSTED_CA_FILE": CA_CERT_PATH,
+        "CONSUMER_AUTH_KEYS": AUTH_KEYS,
+        "CONSUMER_PEER_CA_FILE": CA_CERT_PATH,
+        "CONSUMER_SERVER_CERT_FILE": TLS_CERT_PATH,
+        "CONSUMER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
+        "DOCKER_DEFAULT_PLATFORM": "linux/amd64",
+        "FLOW_BUILDS_ROOT": FLOW_BUILDS_ROOT,
+    },
+    links='https://reactor.flow.localhost:9000/debug/pprof',
     resource_deps=['etcd'],
     readiness_probe=probe(
         initial_delay_secs=5,
-        http_get=http_get_action(port=9000, path='/debug/ready')
-    )
+        http_get=http_get_action(port=9000, path='/debug/ready', scheme='https')
+    ),
 )
 
-local_resource('agent', serve_cmd='%s/flow/.build/package/bin/agent \
+local_resource(
+    'agent',
+    serve_cmd='%s/flow/.build/package/bin/agent \
     --connector-network supabase_network_flow \
     --allow-local \
     --allow-origin http://localhost:3000 \
     --api-port 8675 \
-    --builds-root %s \
     --serve-handlers \
-    --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, FLOW_BUILDS_ROOT, REPO_BASE),
+    ' % (REPO_BASE),
+    serve_env={
+        "BIN_DIR": '%s/flow/.build/package/bin' % REPO_BASE,
+        "BUILDS_ROOT": FLOW_BUILDS_ROOT,
+        "DATABASE_URL": DATABASE_URL,
+        "RUST_LOG": "info",
+        "SSL_CERT_FILE": CA_CERT_PATH,
+    },
     resource_deps=['reactor', 'gazette']
 )
 
-local_resource('create-data-plane-local-cluster',
-    cmd='sleep 5 && curl -v \
+local_resource(
+    'create-data-plane-local-cluster',
+    cmd='sleep 2 && curl -v \
         -X POST \
         -H "content-type: application/json" \
         -H "authorization: bearer %s" \
@@ -100,16 +174,17 @@ local_resource('create-data-plane-local-cluster',
             "name":"local-cluster",\
             "category": {\
                 "manual": {\
-                    "brokerAddress": "http://localhost:8080",\
-                    "reactorAddress": "http://localhost:9000",\
+                    "brokerAddress": "https://gazette.flow.localhost:8080",\
+                    "reactorAddress": "https://reactor.flow.localhost:9000",\
                     "hmacKeys": ["c3VwZXJzZWNyZXQ="]\
                 }\
             }\
-        }\' http://localhost:8675/admin/create-data-plane' % SYSTEM_USER_TOKEN,
+        }\' http://agent.flow.localhost:8675/admin/create-data-plane' % SYSTEM_USER_TOKEN,
     resource_deps=['agent']
 )
 
-local_resource('update-l2-reporting',
+local_resource(
+    'update-l2-reporting',
     cmd='curl -v \
         -X POST \
         -H "content-type: application/json" \
@@ -117,16 +192,18 @@ local_resource('update-l2-reporting',
         --data-binary \'{ \
             "defaultDataPlane":"ops/dp/public/local-cluster",\
             "dryRun":false\
-        }\' http://localhost:8675/admin/update-l2-reporting' % SYSTEM_USER_TOKEN,
+        }\' http://agent.flow.localhost:8675/admin/update-l2-reporting' % SYSTEM_USER_TOKEN,
     resource_deps=['create-data-plane-local-cluster']
 )
 
-local_resource('local-ops-view',
+local_resource(
+    'local-ops-view',
     cmd='./local/ops-publication.sh ops-catalog/local-view.bundle.json | psql "%s"' % DATABASE_URL,
     resource_deps=['update-l2-reporting']
 )
 
-local_resource('config-encryption',
+local_resource(
+    'config-encryption',
     serve_cmd='%s/config-encryption/target/debug/flow-config-encryption --gcp-kms %s' % (REPO_BASE, TEST_KMS_KEY)
 )
 
@@ -137,45 +214,8 @@ local_resource(
 )
 
 local_resource(
-    'ui',
+    'dashboard',
     serve_dir='%s/ui' % REPO_BASE,
     serve_cmd='BROWSER=none npm start',
     links='http://localhost:3000'
 )
-
-DPG_REPO='%s/data-plane-gateway' % REPO_BASE
-DPG_TLS_CERT_PATH='%s/local-tls-cert.pem' % DPG_REPO
-DPG_TLS_KEY_PATH='%s/local-tls-private-key.pem' % DPG_REPO
-
-local_resource('dpg-tls-cert',
-    dir='%s/data-plane-gateway' % REPO_BASE,
-    # These incantations create a non-CA self-signed certificate which is
-    # valid for localhost and its subdomains. rustls is quite fiddly about
-    # accepting self-signed certificates so all of these are required.
-    cmd='[ -f %s ] || openssl req -x509 -nodes -days 365 \
-        -subj  "/ST=QC/O=Estuary/CN=localhost" \
-        -addext basicConstraints=critical,CA:FALSE,pathlen:1 \
-        -addext "subjectAltName=DNS:localhost,DNS:*.localhost,IP:127.0.0.1" \
-        -newkey rsa:2048 -keyout "%s" \
-        -out "%s"' % (DPG_TLS_KEY_PATH, DPG_TLS_KEY_PATH, DPG_TLS_CERT_PATH)
-)
-
-local_resource('data-plane-gateway',
-    dir=DPG_REPO,
-    serve_dir=DPG_REPO,
-    cmd='go build .',
-    serve_cmd='./data-plane-gateway \
-        --tls-private-key=%s \
-        --tls-certificate=%s \
-        --broker-address=localhost:8080 \
-        --consumer-address=localhost:9000 \
-        --log.level=debug \
-        --inference-address=localhost:9090 \
-        --control-plane-auth-url=http://localhost:3000' % (
-            DPG_TLS_KEY_PATH,
-            DPG_TLS_CERT_PATH
-        ),
-    links='https://localhost:28318/',
-    resource_deps=['gazette', 'reactor', 'dpg-tls-cert']
-)
-

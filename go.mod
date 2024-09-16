@@ -12,6 +12,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/jgraettinger/gorocksdb v0.0.0-20240221161858-8f4873ee26e0
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
@@ -22,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
-	go.gazette.dev/core v0.99.1-0.20240908182145-d0c9d56a6796
+	go.gazette.dev/core v0.99.1-0.20240920050446-fc9749109d92
 	golang.org/x/net v0.26.0
 	google.golang.org/api v0.126.0
 	google.golang.org/grpc v1.65.0
@@ -49,6 +50,9 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0 // indirect
+	github.com/ghodss/yaml v1.0.0 // indirect
+	github.com/gogo/gateway v1.1.0 // indirect
+	github.com/golang/glog v1.2.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
@@ -57,6 +61,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/googleapis/gax-go/v2 v2.11.0 // indirect
 	github.com/gorilla/schema v1.4.1 // indirect
+	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/jgraettinger/cockroach-encoding v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
