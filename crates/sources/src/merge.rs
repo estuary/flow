@@ -230,8 +230,8 @@ where
                         add_imports(draft, &chain);
                         *count += 1;
 
-                        let is_touch = rhs.is_touch();
-                        let (catalog_name, _scope, expect_pub_id, model) = rhs.into_parts();
+                        let (catalog_name, _scope, expect_pub_id, model, is_touch) =
+                            rhs.into_parts();
                         Some(R::new(
                             catalog_name,
                             last.clone(),
@@ -249,8 +249,8 @@ where
                         add_imports(draft, &chain);
                         *count += 1;
 
-                        let is_touch = rhs.is_touch();
-                        let (catalog_name, _scope, expect_pub_id, model) = rhs.into_parts();
+                        let (catalog_name, _scope, expect_pub_id, model, is_touch) =
+                            rhs.into_parts();
                         Some(R::new(
                             catalog_name,
                             last.clone(),
