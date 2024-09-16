@@ -54,9 +54,9 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         .output
         .filter(|ot| *ot != OutputType::Json)
     {
-        let name = clap::ValueEnum::to_possible_value(&naughty_output_type)
-            .expect("possible value cannot be None")
-            .get_name();
+        let clap_enum = clap::ValueEnum::to_possible_value(&naughty_output_type)
+            .expect("possible value cannot be None");
+        let name = clap_enum.get_name();
         anyhow::bail!(
             "cannot use --output {name} when reading collection data (only json is supported)"
         );

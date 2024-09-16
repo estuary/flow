@@ -1,8 +1,6 @@
 //! Contains helpers and things that are used by all Flow rust executables.
 mod logging;
 
-use clap::AppSettings::NoAutoHelp;
-
 pub use logging::{init_logging, LogArgs, LogFormat, LogLevel};
 
 /// An arguments container that accepts all arguments verbatim. This is used by external
@@ -10,7 +8,11 @@ pub use logging::{init_logging, LogArgs, LogFormat, LogLevel};
 // These settings prevent clap from automatically using its own help
 // handling, so that --help and -h are simply forwarded to the external subcommand.
 #[derive(Debug, clap::Args)]
-#[clap(setting = NoAutoHelp, disable_help_flag = true, allow_hyphen_values = true)]
+#[clap(
+    disable_help_subcommand = true,
+    disable_help_flag = true,
+    allow_hyphen_values = true
+)]
 pub struct ExternalArgs {
     pub args: Vec<String>,
 }

@@ -5,20 +5,21 @@
 #[derive(Debug, clap::Args)]
 pub struct LogArgs {
     /// The log verbosity. Can be one of trace|debug|info|warn|error|off
-    #[clap(
+    #[arg(
         long = "log.level",
         default_value_t = LogLevel::Warn,
         group = "logging",
-        ignore_case(true),
-        arg_enum,
+        ignore_case = true,
+        value_enum,
         global = true
     )]
     pub level: LogLevel,
-    #[clap(long = "log.format", arg_enum, group = "logging", global = true)]
+
+    #[arg(long = "log.format", value_enum, global = true, group = "logging")]
     pub format: Option<LogFormat>,
 }
 
-#[derive(Debug, clap::ArgEnum, Clone, Copy)]
+#[derive(Debug, clap::ValueEnum, Clone, Copy)]
 pub enum LogLevel {
     Trace,
     Debug,
@@ -41,7 +42,7 @@ impl ToString for LogLevel {
 }
 
 /// The format for logs.
-#[derive(Debug, clap::ArgEnum, Clone, Copy)]
+#[derive(Debug, clap::ValueEnum, Clone, Copy)]
 pub enum LogFormat {
     /// Logs are written to stderr in jsonl format. This format is very compatible with Flow's log
     /// parsing, which means that they will get forwarded with the proper level and will retain the
