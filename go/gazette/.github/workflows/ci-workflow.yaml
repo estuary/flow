@@ -114,7 +114,7 @@ jobs:
         # We upload this to the artifacts that are attached to the action just to make it easy for
         # someone to pull down a build from another branch.
       - name: "Upload Binaries"
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: "gazette-x86_64-linux-gnu.zip"
           path: ".build-ci/gazette-x86_64-linux-gnu.zip"
