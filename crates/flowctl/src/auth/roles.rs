@@ -33,7 +33,7 @@ pub enum Command {
     Revoke(Revoke),
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, clap::ArgEnum)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "camelCase")]
 enum Capability {
     Read,
@@ -58,7 +58,7 @@ pub struct Grant {
     #[clap(long)]
     object_role: String,
     /// Granted capability of the subject to the object role.
-    #[clap(long, arg_enum)]
+    #[clap(long, value_enum)]
     capability: Capability,
     /// Free-form details of the grant, such as a reason or audit log message.
     #[clap(long)]

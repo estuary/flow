@@ -13,7 +13,7 @@ const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
 const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
 const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
 
-#[derive(Debug, Clone, Copy, clap::ArgEnum)]
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
 #[clap(rename_all = "kebab_case")]
 enum ChargeType {
     AutoCharge,
@@ -37,7 +37,7 @@ pub struct PublishInvoice {
     #[clap(long, conflicts_with("tenants"))]
     all_tenants: bool,
     /// The month to generate invoices for, in format "YYYY-MM-DD"
-    #[clap(long, parse(try_from_str = parse_date))]
+    #[clap(long, value_parser = parse_date)]
     month: NaiveDate,
     /// Whether to delete and recreate finalized invoices
     #[clap(long)]
