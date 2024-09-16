@@ -10,6 +10,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -157,7 +158,6 @@ Outcome {
             },
             previous_spec: NULL,
             is_touch: 0,
-            expect_build_id: "0000000000000000",
             dependency_hash: NULL,
         },
         BuiltCapture {
@@ -166,6 +166,7 @@ Outcome {
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
                 "connector": {
@@ -493,7 +494,6 @@ Outcome {
             },
             previous_spec: NULL,
             is_touch: 0,
-            expect_build_id: "0000000000000000",
             dependency_hash: 3661f556721a8880,
         },
     ],

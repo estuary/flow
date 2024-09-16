@@ -245,6 +245,8 @@ tables!(
         val data_plane_id: models::Id,
         // Expected last publication ID for optimistic concurrency.
         val expect_pub_id: models::Id,
+        // Expected last build ID for optimistic concurrency.
+        val expect_build_id: models::Id,
         // Model of this capture, or None if the capture is being deleted.
         val model: Option<models::CaptureDef>,
         // Validated response which was used to build this spec.
@@ -256,8 +258,6 @@ tables!(
         val previous_spec: Option<proto_flow::flow::CaptureSpec>,
         // Whether this was the result of a "touch" operation.
         val is_touch: bool,
-        // Expected last build ID for optimistic concurrency.
-        val expect_build_id: models::Id,
         // Hash of the last_pub_ids of all the dependencies that were used to build the capture
         val dependency_hash: Option<String>,
     }
