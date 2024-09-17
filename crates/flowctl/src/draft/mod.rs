@@ -2,7 +2,6 @@ use std::collections::BTreeSet;
 
 use crate::{
     api_exec, api_exec_paginated,
-    controlplane::Client,
     output::{to_table_row, CliOutput, JsonCell},
 };
 use anyhow::Context;
@@ -128,7 +127,7 @@ impl CliOutput for DraftRow {
     }
 }
 
-pub async fn create_draft(client: Client) -> Result<DraftRow, anyhow::Error> {
+pub async fn create_draft(client: &crate::Client) -> Result<DraftRow, anyhow::Error> {
     let row: DraftRow = api_exec(
         client
             .from("drafts")
@@ -141,7 +140,10 @@ pub async fn create_draft(client: Client) -> Result<DraftRow, anyhow::Error> {
     Ok(row)
 }
 
-pub async fn delete_draft(client: Client, draft_id: models::Id) -> Result<DraftRow, anyhow::Error> {
+pub async fn delete_draft(
+    client: &crate::Client,
+    draft_id: models::Id,
+) -> Result<DraftRow, anyhow::Error> {
     let row: DraftRow = api_exec(
         client
             .from("drafts")
@@ -156,10 +158,9 @@ pub async fn delete_draft(client: Client, draft_id: models::Id) -> Result<DraftR
 }
 
 async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client().await?;
-    let row = create_draft(client).await?;
+    let row = create_draft(&ctx.client).await?;
 
-    ctx.config_mut().draft = Some(row.id.clone());
+    ctx.config.draft = Some(row.id.clone());
     ctx.write_all(Some(row), ())
 }
 
@@ -181,11 +182,10 @@ async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             to_table_row(self, &["/id", "/updated_at"])
         }
     }
-    let client = ctx.controlplane_client().await?;
-    let draft_id = ctx.config().cur_draft()?;
-    let row = delete_draft(client, draft_id).await?;
+    let draft_id = ctx.config.selected_draft()?;
+    let row = delete_draft(&ctx.client, draft_id).await?;
 
-    ctx.config_mut().draft.take();
+    ctx.config.draft.take();
     ctx.write_all(Some(row), ())
 }
 
@@ -223,8 +223,7 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let rows: Vec<Row> = api_exec_paginated(
-        ctx.controlplane_client()
-            .await?
+        ctx.client
             .from("draft_specs_ext")
             .select(
                 vec![
@@ -237,7 +236,7 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
                 ]
                 .join(","),
             )
-            .eq("draft_id", ctx.config().cur_draft()?.to_string()),
+            .eq("draft_id", ctx.config.selected_draft()?.to_string()),
     )
     .await?;
 
@@ -269,8 +268,7 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let rows: Vec<Row> = api_exec_paginated(
-        ctx.controlplane_client()
-            .await?
+        ctx.client
             .from("drafts_ext")
             .select("created_at,detail,id,num_specs,updated_at"),
     )
@@ -278,7 +276,7 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 
     // Decorate the id to mark the selected draft, but only if we're outputting a table
     let cur_draft = ctx
-        .config()
+        .config
         .draft
         .map(|id| id.to_string())
         .unwrap_or_default();
@@ -298,7 +296,7 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 /// that are identical to their live specs, accounting for changes to inferred schemas.
 /// Returns the set of specs that were removed from the draft (as a `BTreeSet` so they're ordered).
 pub async fn remove_unchanged(
-    client: &Client,
+    client: &crate::Client,
     draft_id: models::Id,
 ) -> anyhow::Result<BTreeSet<String>> {
     #[derive(Deserialize)]
@@ -321,8 +319,7 @@ async fn do_select(
     Select { id: select_id }: &Select,
 ) -> anyhow::Result<()> {
     let matched: Vec<serde_json::Value> = api_exec_paginated(
-        ctx.controlplane_client()
-            .await?
+        ctx.client
             .from("drafts")
             .eq("id", select_id.to_string())
             .select("id"),
@@ -333,7 +330,7 @@ async fn do_select(
         anyhow::bail!("draft {select_id} does not exist");
     }
 
-    ctx.config_mut().draft = Some(select_id.clone());
+    ctx.config.draft = Some(select_id.clone());
     do_list(ctx).await
 }
 
@@ -342,19 +339,18 @@ async fn do_publish(
     data_plane_name: &str,
     dry_run: bool,
 ) -> anyhow::Result<()> {
-    let draft_id = ctx.config().cur_draft()?;
-    let client = ctx.controlplane_client().await?;
+    let draft_id = ctx.config.selected_draft()?;
 
-    publish(client, data_plane_name, draft_id, dry_run).await?;
+    publish(&ctx.client, data_plane_name, draft_id, dry_run).await?;
 
     if !dry_run {
-        ctx.config_mut().draft.take();
+        ctx.config.draft.take();
     }
     Ok(())
 }
 
 pub async fn publish(
-    client: Client,
+    client: &crate::Client,
     default_data_plane_name: &str,
     draft_id: models::Id,
     dry_run: bool,

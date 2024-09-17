@@ -1,29 +1,114 @@
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-lazy_static::lazy_static! {
-    static ref DEFAULT_DASHBOARD_URL: url::Url = url::Url::parse("https://dashboard.estuary.dev/").unwrap();
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
+/// Configuration of `flowctl`.
+///
+/// We generally keep this minimal and prefer to use built-in default
+/// or local value fallbacks, because that means we can update these
+/// defaults in future releases of flowctl without breaking local
+/// User configuration.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Config {
+    /// URL endpoint of the Flow control-plane Agent API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_url: Option<url::Url>,
     /// URL of the Flow UI, which will be used as a base when flowctl generates links to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dashboard_url: Option<url::Url>,
     /// ID of the current draft, or None if no draft is configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<models::Id>,
-    // Current access token, or None if no token is set.
-    pub api: Option<API>,
+    /// Public (shared) anonymous token of the control-plane API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pg_public_token: Option<String>,
+    /// URL endpoint of the Flow control-plane PostgREST API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pg_url: Option<url::Url>,
+    /// Users's access token for the control-plane API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_access_token: Option<String>,
+    /// User's refresh token for the control-plane API,
+    /// used to generate access_token when it's unset or expires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_refresh_token: Option<RefreshToken>,
+
+    #[serde(skip)]
+    is_local: bool,
+
+    // Legacy API stanza, which is being phased out.
+    #[serde(default, skip_serializing)]
+    api: Option<DeprecatedAPISection>,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct RefreshToken {
+    pub id: models::Id,
+    pub secret: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DeprecatedAPISection {
+    #[allow(dead_code)]
+    endpoint: url::Url,
+    #[allow(dead_code)]
+    public_token: String,
+    access_token: String,
+    refresh_token: Option<RefreshToken>,
 }
 
 impl Config {
+    pub fn selected_draft(&self) -> anyhow::Result<models::Id> {
+        self.draft
+            .ok_or(anyhow::anyhow!("No draft is currently selected"))
+    }
+
+    pub fn get_agent_url(&self) -> &url::Url {
+        if let Some(agent_url) = &self.agent_url {
+            agent_url
+        } else if self.is_local {
+            &LOCAL_AGENT_URL
+        } else {
+            &DEFAULT_AGENT_URL
+        }
+    }
+
+    pub fn get_dashboard_url(&self) -> &url::Url {
+        if let Some(dashboard_url) = &self.dashboard_url {
+            dashboard_url
+        } else if self.is_local {
+            &LOCAL_DASHBOARD_URL
+        } else {
+            &DEFAULT_DASHBOARD_URL
+        }
+    }
+
+    pub fn get_pg_public_token(&self) -> &str {
+        if let Some(pg_public_token) = &self.pg_public_token {
+            pg_public_token
+        } else if self.is_local {
+            LOCAL_PG_PUBLIC_TOKEN
+        } else {
+            DEFAULT_PG_PUBLIC_TOKEN
+        }
+    }
+
+    pub fn get_pg_url(&self) -> &url::Url {
+        if let Some(pg_url) = &self.pg_url {
+            pg_url
+        } else if self.is_local {
+            &LOCAL_PG_URL
+        } else {
+            &DEFAULT_PG_URL
+        }
+    }
+
     /// Loads the config corresponding to the given named `profile`.
     /// This loads from:
     /// - $HOME/.config/flowctl/${profile}.json on linux
     /// - $HOME/Library/Application Support/flowctl/${profile}.json on macos
     pub fn load(profile: &str) -> anyhow::Result<Config> {
         let config_file = Config::file_path(profile)?;
-        let config = match std::fs::read(&config_file) {
+        let mut config = match std::fs::read(&config_file) {
             Ok(v) => {
                 let cfg = serde_json::from_slice(&v).with_context(|| {
                     format!(
@@ -43,9 +128,35 @@ impl Config {
                 Config::default()
             }
             Err(err) => {
-                return Err(err).context("opening config");
+                return Err(err).context("failed to read config");
             }
         };
+
+        // Migrate legacy portions of the config.
+        if let Some(DeprecatedAPISection {
+            endpoint: _,
+            public_token: _,
+            access_token,
+            refresh_token,
+        }) = config.api.take()
+        {
+            config.user_access_token = Some(access_token);
+            config.user_refresh_token = refresh_token;
+        }
+
+        // If a refresh token is not defined, attempt to parse one from the environment.
+        if config.user_refresh_token.is_none() {
+            if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
+                let decoded = base64::decode(env_token).context("FLOW_AUTH_TOKEN is not base64")?;
+                let token: RefreshToken =
+                    serde_json::from_slice(&decoded).context("FLOW_AUTH_TOKEN is invalid JSON")?;
+
+                tracing::info!("using refresh token from environment variable {FLOW_AUTH_TOKEN}");
+                config.user_refresh_token = Some(token);
+            }
+        }
+        config.is_local = profile == "local";
+
         Ok(config)
     }
 
@@ -83,86 +194,21 @@ impl Config {
         let path = Config::config_dir()?.join(format!("{profile}.json"));
         Ok(path)
     }
-
-    pub fn cur_draft(&self) -> anyhow::Result<models::Id> {
-        match self.draft {
-            Some(draft) => Ok(draft),
-            None => {
-                anyhow::bail!("You must create or select a draft");
-            }
-        }
-    }
-
-    pub fn set_access_token(&mut self, access_token: String) {
-        // Don't overwrite the other fields of api if they are already present.
-        if let Some(api) = self.api.as_mut() {
-            api.access_token = access_token;
-        } else {
-            self.api = Some(API::managed(access_token));
-        }
-    }
-
-    pub fn set_refresh_token(&mut self, refresh_token: RefreshToken) {
-        // Don't overwrite the other fields of api if they are already present.
-        if let Some(api) = self.api.as_mut() {
-            api.refresh_token = Some(refresh_token);
-        }
-    }
-
-    pub fn get_dashboard_url(&self, path: &str) -> anyhow::Result<url::Url> {
-        let base = self
-            .dashboard_url
-            .as_ref()
-            .unwrap_or(&*DEFAULT_DASHBOARD_URL);
-        let url = base.join(path).context(
-            "failed to join path to configured dashboard_url, the dashboard_url is likely invalid",
-        )?;
-        Ok(url)
-    }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct RefreshToken {
-    pub id: String,
-    pub secret: String,
+lazy_static::lazy_static! {
+    static ref DEFAULT_AGENT_URL:  url::Url = url::Url::parse("https://agent-api-1084703453822.us-central1.run.app").unwrap();
+    static ref DEFAULT_DASHBOARD_URL: url::Url = url::Url::parse("https://dashboard.estuary.dev/").unwrap();
+    static ref DEFAULT_PG_URL: url::Url = url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap();
+
+    // Used only when profile is "local".
+    static ref LOCAL_AGENT_URL: url::Url = url::Url::parse("http://localhost:8675/").unwrap();
+    static ref LOCAL_DASHBOARD_URL: url::Url = url::Url::parse("http://localhost:3000/").unwrap();
+    static ref LOCAL_PG_URL: url::Url = url::Url::parse("http://localhost:5431/rest/v1").unwrap();
 }
 
-impl RefreshToken {
-    pub fn from_base64(encoded_token: &str) -> anyhow::Result<RefreshToken> {
-        let decoded = base64::decode(encoded_token).context("invalid base64")?;
-        let tk: RefreshToken = serde_json::from_slice(&decoded)?;
-        Ok(tk)
-    }
+const DEFAULT_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
+const LOCAL_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 
-    pub fn to_base64(&self) -> anyhow::Result<String> {
-        let ser = serde_json::to_vec(self)?;
-        Ok(base64::encode(&ser))
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct API {
-    // URL endpoint of the Flow control-plane Rest API.
-    pub endpoint: url::Url,
-    // Public (shared) anonymous token of the control-plane API.
-    pub public_token: String,
-    // Secret access token of the control-plane API.
-    pub access_token: String,
-    // Secret refresh token of the control-plane API, used to generate access_token when it expires.
-    pub refresh_token: Option<RefreshToken>,
-}
-
-pub const PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
-
-pub const ENDPOINT: &str = "https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1";
-
-impl API {
-    fn managed(access_token: String) -> Self {
-        Self {
-            endpoint: url::Url::parse(ENDPOINT).unwrap(),
-            public_token: PUBLIC_TOKEN.to_string(),
-            access_token,
-            refresh_token: None,
-        }
-    }
-}
+// Environment variable which is inspected for a base64-encoded refresh token.
+const FLOW_AUTH_TOKEN: &str = "FLOW_AUTH_TOKEN";

@@ -44,8 +44,7 @@ impl Generate {
 
         build::write_files(&project_root, files)?;
 
-        let client = ctx.controlplane_client().await?;
-        let () = local_specs::generate_files(client, draft).await?;
+        let () = local_specs::generate_files(&ctx.client, draft).await?;
         Ok(())
     }
 }

@@ -3,7 +3,7 @@ use serde::Deserialize;
 // Poll an async task in `table` having `id` until it's no longer queued.
 // While we're waiting print out logs under `logs_token`.
 pub async fn poll_while_queued(
-    client: &postgrest::Postgrest,
+    client: &crate::Client,
     table: &str,
     id: models::Id,
     logs_token: &str,
