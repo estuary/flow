@@ -88,8 +88,8 @@ async fn validate(
     } else {
         build::validate(
             models::Id::new([0xff; 8]), // Must be larger than all real last_pub_id's.
-            models::Id::new([1; 8]),
-            true, // Allow local connectors.
+            models::Id::new([0xff; 8]), // Must be larger than all real last_build_id's.
+            true,                       // Allow local connectors.
             network,
             ops::tracing_log_handler,
             noop_captures,
