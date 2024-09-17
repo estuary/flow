@@ -25,7 +25,7 @@ pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{split_image_tag, ConnectorConfig, LocalConfig};
-pub use source_capture::{SourceCaptureDef, SourceCaptureSchemaMode};
+pub use source_capture::{SourceCaptureDef, SourceCapture, SourceCaptureSchemaMode};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
@@ -288,6 +288,10 @@ fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::s
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+fn is_default<D: Default + PartialEq>(b: &D) -> bool {
+    D::default() == *b
 }
 
 fn is_u32_zero(u: &u32) -> bool {

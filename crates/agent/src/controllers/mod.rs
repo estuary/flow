@@ -457,7 +457,7 @@ mod test {
     use std::collections::{BTreeSet, VecDeque};
 
     use chrono::TimeZone;
-    use models::{SourceCaptureDef, Capture};
+    use models::Capture;
 
     use super::*;
     use crate::controllers::materialization::SourceCaptureStatus;
@@ -506,10 +506,6 @@ mod test {
             source_capture: Some(SourceCaptureStatus {
                 up_to_date: false,
                 add_bindings,
-                source_capture: SourceCaptureDef {
-                    capture: Capture::new("snails/capture"),
-                    ..Default::default()
-                }
             }),
             publications: PublicationStatus {
                 max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
