@@ -63,14 +63,14 @@ async fn update_live_spec_flows<B: tables::BuiltRow>(
 
     let reads_from = model.reads_from();
     let writes_to = model.writes_to();
-    let source_capture = model.materialization_source_capture();
+    let source_capture = model.materialization_source_capture_name();
 
     agent_sql::publications::insert_live_spec_flows(
         built.control_id().into(),
         catalog_type,
         Some(reads_from.iter().map(|c| c.as_str()).collect::<Vec<_>>()).filter(|a| !a.is_empty()),
         Some(writes_to.iter().map(|c| c.as_str()).collect::<Vec<_>>()).filter(|a| !a.is_empty()),
-        source_capture.as_ref().map(|c| c.capture.as_str()),
+        source_capture.as_ref().map(|c| c.as_str()),
         txn,
     )
     .await?;

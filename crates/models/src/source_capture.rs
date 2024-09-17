@@ -28,7 +28,7 @@ pub struct SourceCaptureDef {
 
     /// When adding new bindings from a source capture to a materialization, how should the schema
     /// of the materialization binding be set
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "super::is_default")]
     pub schema_mode: SourceCaptureSchemaMode,
 
     /// When adding new bindings from a source capture to a materialization, should the new
@@ -52,7 +52,8 @@ impl SourceCapture {
         }
     }
 
-    pub fn def(&self) -> SourceCaptureDef {
+    /// Convert the enum to a normalized SourceCaptureDef by normalizing the Simple case
+    pub fn to_normalized_def(&self) -> SourceCaptureDef {
         match self {
             SourceCapture::Simple(capture) => SourceCaptureDef {
                 capture: capture.clone(),
