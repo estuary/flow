@@ -1,11 +1,10 @@
-use crate::dataplane::{self};
 use crate::{collection::CollectionJournalSelector, output::OutputType};
 use anyhow::Context;
 use futures::StreamExt;
 use gazette::journal::ReadJsonLine;
 use proto_gazette::broker;
+use std::io::Write;
 use time::OffsetDateTime;
-use tokio::io::AsyncWriteExt;
 
 #[derive(clap::Args, Default, Debug, Clone)]
 pub struct ReadArgs {
@@ -20,8 +19,6 @@ pub struct ReadArgs {
     /// the default.
     #[clap(long)]
     pub uncommitted: bool,
-    #[clap(skip)]
-    pub auth_prefixes: Vec<String>,
 }
 
 /// Common definition for arguments specifying the begin and and bounds of a read command.
@@ -42,18 +39,21 @@ pub struct ReadBounds {
 /// - Only uncommitted reads are supported
 /// - Any acknowledgements (documents with `/_meta/ack` value `true`) are also printed
 /// These limitations should all be addressed in the future when we add support for committed reads.
-pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> anyhow::Result<()> {
-    if !args.uncommitted {
+pub async fn read_collection(
+    ctx: &mut crate::CliContext,
+    ReadArgs {
+        selector,
+        bounds,
+        uncommitted,
+    }: &ReadArgs,
+) -> anyhow::Result<()> {
+    if !uncommitted {
         anyhow::bail!("missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default.");
     }
     // output can be either None or Some(OutputType::Json), but cannot be explicitly set to
     // anything else. _Eventually_, we may want to support outputting collection data as yaml
     // or a table, but certainly not right now.
-    if let Some(naughty_output_type) = ctx
-        .output_args()
-        .output
-        .filter(|ot| *ot != OutputType::Json)
-    {
+    if let Some(naughty_output_type) = ctx.output.output.filter(|ot| *ot != OutputType::Json) {
         let clap_enum = clap::ValueEnum::to_possible_value(&naughty_output_type)
             .expect("possible value cannot be None");
         let name = clap_enum.get_name();
@@ -62,17 +62,12 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         );
     }
 
-    let auth_prefixes = if args.auth_prefixes.is_empty() {
-        vec![args.selector.collection.clone()]
-    } else {
-        args.auth_prefixes.clone()
-    };
-    let cp_client = ctx.controlplane_client().await?;
-    let client = dataplane::journal_client_for(cp_client, auth_prefixes).await?;
+    let (journal_name_prefix, journal_client) =
+        crate::client::fetch_collection_authorization(&ctx.client, &selector.collection).await?;
 
-    let list_resp = client
+    let list_resp = journal_client
         .list(broker::ListRequest {
-            selector: Some(args.selector.build_label_selector()),
+            selector: Some(selector.build_label_selector(journal_name_prefix)),
             ..Default::default()
         })
         .await
@@ -84,7 +79,7 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         .map(|j| j.spec.unwrap())
         .collect::<Vec<_>>();
 
-    tracing::debug!(journal_count = journals.len(), collection = %args.selector.collection, "listed journals");
+    tracing::debug!(journal_count = journals.len(), collection = %selector.collection, "listed journals");
     let maybe_journal = journals.pop();
     if !journals.is_empty() {
         // TODO: implement a sequencer and allow reading from multiple journals
@@ -94,11 +89,19 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
     let journal = maybe_journal.ok_or_else(|| {
         anyhow::anyhow!(
             "collection '{}' does not exist or has never been written to (it has no journals)",
-            args.selector.collection
+            selector.collection
         )
     })?;
 
-    let begin_mod_time = if let Some(since) = args.bounds.since {
+    read_collection_journal(journal_client, &journal.name, bounds).await
+}
+
+pub async fn read_collection_journal(
+    journal_client: gazette::journal::Client,
+    journal_name: &str,
+    bounds: &ReadBounds,
+) -> anyhow::Result<()> {
+    let begin_mod_time = if let Some(since) = bounds.since {
         let start_time = OffsetDateTime::now_utc() - *since;
         tracing::debug!(%since, begin_mod_time = %start_time, "resolved --since to begin_mod_time");
         (start_time - OffsetDateTime::UNIX_EPOCH).as_seconds_f64() as i64
@@ -106,27 +109,23 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         0
     };
 
-    let mut lines = client.read_json_lines(
+    let mut lines = journal_client.read_json_lines(
         broker::ReadRequest {
-            journal: journal.name.clone(),
+            journal: journal_name.to_string(),
             offset: 0,
-            block: args.bounds.follow,
+            block: bounds.follow,
             begin_mod_time,
             ..Default::default()
         },
         1,
     );
-    tracing::debug!(journal = %journal.name, "starting read of journal");
+    tracing::debug!(%journal_name, "starting read of journal");
 
     let policy = doc::SerPolicy::noop();
+    let mut stdout = std::io::stdout();
 
     while let Some(line) = lines.next().await {
         match line {
-            Err(err) if err.is_transient() => {
-                tracing::warn!(%err, "error reading collection (will retry)");
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-            Err(err) => anyhow::bail!(err),
             Ok(ReadJsonLine::Meta(_)) => (),
             Ok(ReadJsonLine::Doc {
                 root,
@@ -134,8 +133,16 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
             }) => {
                 let mut v = serde_json::to_vec(&policy.on(root.get())).unwrap();
                 v.push(b'\n');
-                tokio::io::stdout().write_all(&v).await?;
+                () = stdout.write_all(&v)?;
             }
+            Err(gazette::Error::BrokerStatus(broker::Status::OffsetNotYetAvailable)) => {
+                break; // Graceful EOF of non-blocking read.
+            }
+            Err(err) if err.is_transient() => {
+                tracing::warn!(%err, "error reading collection (will retry)");
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            Err(err) => anyhow::bail!(err),
         }
     }
 

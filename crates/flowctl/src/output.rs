@@ -15,7 +15,7 @@ pub enum OutputType {
     Json,
     /// Format output as YAML
     Yaml,
-    /// Format the output as a prett-printed table
+    /// Format the output as a pretty-printed table
     Table,
 }
 

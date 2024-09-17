@@ -1,4 +1,4 @@
-use crate::{api_exec, catalog::SpecSummaryItem, controlplane, local_specs};
+use crate::{api_exec, catalog::SpecSummaryItem, local_specs};
 use anyhow::Context;
 use futures::{stream::FuturesOrdered, StreamExt};
 use serde::Serialize;
@@ -11,7 +11,7 @@ pub struct Author {
     source: String,
 }
 
-pub async fn clear_draft(client: controlplane::Client, draft_id: models::Id) -> anyhow::Result<()> {
+pub async fn clear_draft(client: &crate::Client, draft_id: models::Id) -> anyhow::Result<()> {
     tracing::info!(%draft_id, "clearing existing specs from draft");
     api_exec::<Vec<serde_json::Value>>(
         client
@@ -25,7 +25,7 @@ pub async fn clear_draft(client: controlplane::Client, draft_id: models::Id) -> 
 }
 
 pub async fn upsert_draft_specs(
-    client: controlplane::Client,
+    client: &crate::Client,
     draft_id: models::Id,
     draft: &tables::DraftCatalog,
 ) -> anyhow::Result<Vec<SpecSummaryItem>> {
@@ -130,12 +130,11 @@ pub async fn do_author(
     ctx: &mut crate::CliContext,
     Author { source }: &Author,
 ) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client().await?;
-    let draft_id = ctx.config().cur_draft()?;
-    let (draft, _) = local_specs::load_and_validate(client.clone(), &source).await?;
+    let draft_id = ctx.config.selected_draft()?;
+    let (draft, _) = local_specs::load_and_validate(&ctx.client, &source).await?;
 
-    clear_draft(client.clone(), draft_id).await?;
-    let rows = upsert_draft_specs(client, draft_id, &draft).await?;
+    clear_draft(&ctx.client, draft_id).await?;
+    let rows = upsert_draft_specs(&ctx.client, draft_id, &draft).await?;
 
     ctx.write_all(rows, ())
 }

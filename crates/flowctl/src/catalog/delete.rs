@@ -69,9 +69,8 @@ pub async fn do_delete(
         type_selector: type_selector.clone(),
     };
 
-    let client = ctx.controlplane_client().await?;
     let specs = catalog::fetch_live_specs::<catalog::LiveSpecRow>(
-        client.clone(),
+        &ctx.client,
         &list_args,
         vec![
             "id",
@@ -98,7 +97,7 @@ pub async fn do_delete(
         anyhow::bail!("delete operation cancelled");
     }
 
-    let draft = draft::create_draft(client.clone())
+    let draft = draft::create_draft(&ctx.client)
         .await
         .context("failed to create draft")?;
     println!(
@@ -121,8 +120,7 @@ pub async fn do_delete(
         .collect::<Vec<DraftSpec>>();
 
     api_exec::<Vec<serde_json::Value>>(
-        ctx.controlplane_client()
-            .await?
+        ctx.client
             .from("draft_specs")
             //.select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_specs).unwrap())
@@ -131,7 +129,7 @@ pub async fn do_delete(
     .await?;
     tracing::debug!("added deletions to draft");
 
-    draft::publish(client.clone(), "", draft.id, false).await?;
+    draft::publish(&ctx.client, "", draft.id, false).await?;
 
     // extra newline before, since `publish` will output a bunch of logs
     println!("\nsuccessfully deleted {} spec(s)", draft_specs.len());

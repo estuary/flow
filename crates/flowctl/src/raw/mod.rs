@@ -1,5 +1,5 @@
 use crate::{
-    collection::read::{read_collection, ReadBounds},
+    collection::read::ReadBounds,
     local_specs,
     ops::{OpsCollection, TaskSelector},
 };
@@ -163,14 +163,13 @@ pub struct Stats {
 
 impl Stats {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let read_args = crate::ops::read_args(
+        crate::ops::read_task_ops_journal(
+            &ctx.client,
             &self.task.task,
             OpsCollection::Stats,
             &self.bounds,
-            self.uncommitted,
-        );
-        read_collection(ctx, &read_args).await?;
-        Ok(())
+        )
+        .await
     }
 }
 
@@ -199,8 +198,7 @@ impl Advanced {
 }
 
 async fn do_get(ctx: &mut crate::CliContext, Get { table, query }: &Get) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client().await?;
-    let req = client.from(table).build().query(query);
+    let req = ctx.client.from(table).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -211,8 +209,7 @@ async fn do_update(
     ctx: &mut crate::CliContext,
     Update { table, query, body }: &Update,
 ) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client().await?;
-    let req = client.from(table).update(body).build().query(query);
+    let req = ctx.client.from(table).update(body).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -227,8 +224,7 @@ async fn do_rpc(
         body,
     }: &Rpc,
 ) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client().await?;
-    let req = client.rpc(function, body).build().query(query);
+    let req = ctx.client.rpc(function, body.clone()).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -236,8 +232,9 @@ async fn do_rpc(
 }
 
 async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client().await?;
-    let resolver = local_specs::Resolver { client };
+    let resolver = local_specs::Resolver {
+        client: ctx.client.clone(),
+    };
 
     let Build {
         db_path,
@@ -299,8 +296,7 @@ async fn do_combine(
     ctx: &mut crate::CliContext,
     Combine { source, collection }: &Combine,
 ) -> anyhow::Result<()> {
-    let (_sources, validations) =
-        local_specs::load_and_validate(ctx.controlplane_client().await?, source).await?;
+    let (_sources, validations) = local_specs::load_and_validate(&ctx.client, source).await?;
 
     let collection = match validations
         .built_collections

@@ -5,10 +5,9 @@ use clap::Parser;
 
 mod auth;
 mod catalog;
+mod client;
 mod collection;
 mod config;
-mod controlplane;
-mod dataplane;
 mod draft;
 mod generate;
 mod local_specs;
@@ -19,8 +18,8 @@ mod poll;
 mod preview;
 mod raw;
 
+use client::Client;
 use output::{Output, OutputType};
-use pagination::into_items;
 use poll::poll_while_queued;
 
 /// A command-line tool for working with Estuary Flow.
@@ -97,38 +96,14 @@ pub enum Command {
     Raw(raw::Advanced),
 }
 
-#[derive(Debug)]
 pub struct CliContext {
+    client: Client,
     config: config::Config,
     output: output::Output,
-    controlplane_client: Option<controlplane::Client>,
 }
 
 impl CliContext {
-    /// Returns a client to the controlplane, creating a new one if necessary.
-    /// This function will return an error if the authentication credentials
-    /// are missing, invalid, or expired.
-    pub async fn controlplane_client(&mut self) -> anyhow::Result<controlplane::Client> {
-        if self.controlplane_client.is_none() {
-            let client = controlplane::new_client(self).await?;
-            self.controlplane_client = Some(client.clone())
-        }
-        Ok(self.controlplane_client.clone().unwrap())
-    }
-
-    pub fn config_mut(&mut self) -> &mut config::Config {
-        &mut self.config
-    }
-
-    pub fn config(&self) -> &config::Config {
-        &self.config
-    }
-
-    pub fn output_args(&self) -> &output::Output {
-        &self.output
-    }
-
-    pub fn write_all<I, T>(&mut self, items: I, table_alt: T::TableAlt) -> anyhow::Result<()>
+    fn write_all<I, T>(&mut self, items: I, table_alt: T::TableAlt) -> anyhow::Result<()>
     where
         T: output::CliOutput,
         I: IntoIterator<Item = T>,
@@ -140,7 +115,7 @@ impl CliContext {
         }
     }
 
-    pub fn get_output_type(&mut self) -> OutputType {
+    fn get_output_type(&mut self) -> OutputType {
         use crossterm::tty::IsTty;
 
         if let Some(ty) = self.output.output {
@@ -157,12 +132,71 @@ impl CliContext {
 
 impl Cli {
     pub async fn run(&self) -> anyhow::Result<()> {
-        let config = config::Config::load(&self.profile)?;
+        let mut config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
+
+        // If the configured access token has expired then remove it before continuing.
+        if let Some(token) = &config.user_access_token {
+            let claims: models::authorizations::ControlClaims =
+                parse_jwt_claims(token).context("failed to parse control-plane access token")?;
+
+            let now = time::OffsetDateTime::now_utc();
+            let exp = time::OffsetDateTime::from_unix_timestamp(claims.exp as i64).unwrap();
+
+            if now + std::time::Duration::from_secs(60) > exp {
+                tracing::info!(expired=%exp, "removing expired user access token from configuration");
+                config.user_access_token = None;
+            }
+        }
+
+        if config.user_access_token.is_some() && config.user_refresh_token.is_some() {
+            // Authorization is current: nothing to do.
+        } else if config.user_access_token.is_some() {
+            // We have an access token but no refresh token. Create one.
+            let refresh_token = api_exec::<config::RefreshToken>(
+                Client::new(&config).rpc(
+                    "create_refresh_token",
+                    serde_json::json!({"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"})
+                        .to_string(),
+                ),
+            )
+            .await?;
+
+            config.user_refresh_token = Some(refresh_token);
+
+            tracing::info!("created new refresh token");
+        } else if let Some(config::RefreshToken { id, secret }) = &config.user_refresh_token {
+            // We have a refresh token but no access token. Generate one.
+
+            #[derive(serde::Deserialize)]
+            struct Response {
+                access_token: String,
+                refresh_token: Option<config::RefreshToken>, // Set iff the token was single-use.
+            }
+            let Response {
+                access_token,
+                refresh_token: next_refresh_token,
+            } = api_exec::<Response>(Client::new(&config).rpc(
+                "generate_access_token",
+                serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
+            ))
+            .await
+            .context("failed to obtain access token")?;
+
+            if next_refresh_token.is_some() {
+                config.user_refresh_token = next_refresh_token;
+            }
+            config.user_access_token = Some(access_token);
+
+            tracing::info!("generated a new access token");
+        } else {
+            tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
+        }
+
         let mut context = CliContext {
+            client: Client::new(&config),
             config,
             output,
-            controlplane_client: None,
         };
 
         match &self.cmd {
@@ -176,7 +210,7 @@ impl Cli {
             Command::Raw(advanced) => advanced.run(&mut context).await,
         }?;
 
-        context.config().write(&self.profile)?;
+        context.config.write(&self.profile)?;
 
         Ok(())
     }
@@ -213,7 +247,7 @@ where
 {
     use futures::TryStreamExt;
 
-    let pages = into_items(b).try_collect().await?;
+    let pages = pagination::into_items(b).try_collect().await?;
 
     Ok(pages)
 }
@@ -257,4 +291,13 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
         email = email.unwrap_or_default(),
         id = id.map(|id| id.to_string()).unwrap_or_default(),
     )
+}
+
+fn parse_jwt_claims<T: serde::de::DeserializeOwned>(token: &str) -> anyhow::Result<T> {
+    let claims = token
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("malformed token"))?;
+    let claims = base64::decode_config(claims, base64::URL_SAFE_NO_PAD)?;
+    anyhow::Result::Ok(serde_json::from_slice(&claims)?)
 }

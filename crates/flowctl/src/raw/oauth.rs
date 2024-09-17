@@ -54,6 +54,9 @@ pub async fn do_oauth(
         injected_values,
     }: &Oauth,
 ) -> anyhow::Result<()> {
+    let Some(user_access_token) = &ctx.config.user_access_token else {
+        anyhow::bail!("This comment can only be run when authenticated");
+    };
     let source = build::arg_source_to_url(source, false)?;
     let draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
 
@@ -175,13 +178,8 @@ pub async fn do_oauth(
     tracing::warn!(
         "Make sure that your application has {redirect_uri} set as an allowed redirect URL"
     );
-    let api = ctx
-        .config
-        .api
-        .as_ref()
-        .expect("Cannot connect to edge functions");
 
-    let mut oauth_endpoint = api.endpoint.clone();
+    let mut oauth_endpoint = ctx.config.get_pg_url().clone();
     oauth_endpoint.set_path("functions/v1/oauth");
 
     #[derive(serde::Deserialize, serde::Serialize)]
@@ -192,8 +190,8 @@ pub async fn do_oauth(
 
     let authorize_response_bytes = reqwest::Client::new()
         .post(oauth_endpoint.clone())
-        .bearer_auth(api.access_token.to_owned())
-        .header("apikey", api.public_token.to_owned())
+        .bearer_auth(user_access_token)
+        .header("apikey", ctx.config.get_pg_public_token())
         .json(&serde_json::json!({
             "operation": "auth-url",
             "connector_config": {
@@ -253,8 +251,8 @@ pub async fn do_oauth(
 
     let code_response = reqwest::Client::new()
         .post(oauth_endpoint)
-        .bearer_auth(api.access_token.to_owned())
-        .header("apikey", api.public_token.to_owned())
+        .bearer_auth(user_access_token)
+        .header("apikey", ctx.config.get_pg_public_token())
         .json(&code_request_body)
         .send()
         .await?

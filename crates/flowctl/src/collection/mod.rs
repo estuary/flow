@@ -6,7 +6,6 @@ use proto_flow::flow;
 use proto_gazette::broker;
 use time::OffsetDateTime;
 
-use crate::dataplane::journal_client_for;
 use crate::output::{to_table_row, CliOutput, JsonCell};
 
 use self::read::ReadArgs;
@@ -30,12 +29,13 @@ fn parse_partition_selector(arg: &str) -> Result<models::PartitionSelector, anyh
 }
 
 impl CollectionJournalSelector {
-    pub fn build_label_selector(&self) -> broker::LabelSelector {
+    pub fn build_label_selector(&self, journal_name_prefix: String) -> broker::LabelSelector {
         assemble::journal_selector(
+            // Synthesize a minimal CollectionSpec to satisfy `journal_selector()`.
             &flow::CollectionSpec {
                 name: self.collection.to_string(),
                 partition_template: Some(broker::JournalSpec {
-                    name: self.collection.to_string(),
+                    name: journal_name_prefix,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -110,13 +110,15 @@ pub struct ListFragmentsArgs {
     #[clap(flatten)]
     pub selector: CollectionJournalSelector,
 
-    /// If provided, then the frament listing will include a pre-signed URL for each fragment, which is valid for the given duration.
+    /// If provided, then the fragment listing will include a pre-signed URL for each fragment,
+    /// which is valid for the given duration.
     /// This can be used to fetch fragment data directly from cloud storage.
     #[clap(long)]
     pub signature_ttl: Option<humantime::Duration>,
 
     /// Only include fragments which were written within the provided duration from the present.
-    /// For example, `--since 10m` will only output fragments that have been written within the last 10 minutes.
+    /// For example, `--since 10m` will only output fragments that have been written within
+    /// the last 10 minutes.
     #[clap(long)]
     pub since: Option<humantime::Duration>,
 }
@@ -176,22 +178,23 @@ impl CliOutput for broker::fragments_response::Fragment {
 
 async fn do_list_fragments(
     ctx: &mut crate::CliContext,
-    args: &ListFragmentsArgs,
+    ListFragmentsArgs {
+        selector,
+        signature_ttl,
+        since,
+    }: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
-    let client = journal_client_for(
-        ctx.controlplane_client().await?,
-        vec![args.selector.collection.clone()],
-    )
-    .await?;
+    let (journal_name_prefix, client) =
+        crate::client::fetch_collection_authorization(&ctx.client, &selector.collection).await?;
 
     let list_resp = client
         .list(broker::ListRequest {
-            selector: Some(args.selector.build_label_selector()),
+            selector: Some(selector.build_label_selector(journal_name_prefix)),
             ..Default::default()
         })
         .await?;
 
-    let start_time = if let Some(since) = args.since {
+    let start_time = if let Some(since) = *since {
         let timepoint = OffsetDateTime::now_utc() - *since;
         tracing::debug!(%since, begin_mod_time = %timepoint, "resolved --since to begin_mod_time");
         timepoint.unix_timestamp()
@@ -199,9 +202,7 @@ async fn do_list_fragments(
         0
     };
 
-    let signature_ttl = args
-        .signature_ttl
-        .map(|ttl| std::time::Duration::from(*ttl).into());
+    let signature_ttl = signature_ttl.map(|ttl| std::time::Duration::from(*ttl).into());
     let mut fragments = Vec::with_capacity(32);
     for journal in list_resp.journals {
         let req = broker::FragmentsRequest {
@@ -216,22 +217,19 @@ async fn do_list_fragments(
         fragments.extend(frag_resp.fragments);
     }
 
-    ctx.write_all(fragments, args.signature_ttl.is_some())
+    ctx.write_all(fragments, signature_ttl.is_some())
 }
 
 async fn do_list_journals(
     ctx: &mut crate::CliContext,
-    args: &CollectionJournalSelector,
+    selector: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let client = journal_client_for(
-        ctx.controlplane_client().await?,
-        vec![args.collection.clone()],
-    )
-    .await?;
+    let (journal_name_prefix, client) =
+        crate::client::fetch_collection_authorization(&ctx.client, &selector.collection).await?;
 
     let list_resp = client
         .list(broker::ListRequest {
-            selector: Some(args.build_label_selector()),
+            selector: Some(selector.build_label_selector(journal_name_prefix)),
             ..Default::default()
         })
         .await?;

@@ -7,7 +7,7 @@ use proto_gazette::{broker, consumer};
 /// collection journals.
 #[derive(Clone)]
 pub struct Reader {
-    control_plane: crate::controlplane::Client,
+    client: crate::Client,
     delay: std::time::Duration,
 }
 
@@ -25,9 +25,9 @@ impl Reader {
     ///
     /// `delay` is an artificial, injected delay between a read and a subsequent checkpoint.
     /// It emulates back-pressure and encourages amortized transactions and reductions.
-    pub fn new(control_plane: crate::controlplane::Client, delay: std::time::Duration) -> Self {
+    pub fn new(client: &crate::Client, delay: std::time::Duration) -> Self {
         Self {
-            control_plane,
+            client: client.clone(),
             delay,
         }
     }
@@ -38,50 +38,42 @@ impl Reader {
         mut resume: proto_gazette::consumer::Checkpoint,
     ) -> mpsc::Receiver<anyhow::Result<runtime::harness::Read>> {
         let reader = coroutines::try_coroutine(move |mut co| async move {
-            // We must be able to access all sourced collections.
-            let access_prefixes = sources
-                .iter()
-                .map(|source| source.collection.clone())
-                .collect();
-
-            let data_plane_client =
-                crate::dataplane::journal_client_for(self.control_plane, access_prefixes).await?;
+            // Concurrently fetch authorizations for all sourced collections.
+            let sources = futures::future::try_join_all(sources.iter().map(|source| {
+                crate::client::fetch_collection_authorization(&self.client, &source.collection)
+                    .map_ok(move |(_journal_name_prefix, client)| (source, client))
+            }))
+            .await?;
 
             // Concurrently list the journals of every Source.
-            let journals: Vec<(&Source, Vec<broker::JournalSpec>)> =
-                futures::future::try_join_all(sources.iter().map(|source| {
-                    Self::list_journals(source, data_plane_client.clone())
-                        .map_ok(move |l| (source, l))
+            let journals: Vec<(&Source, Vec<broker::JournalSpec>, &gazette::journal::Client)> =
+                futures::future::try_join_all(sources.iter().map(|(source, client)| {
+                    Self::list_journals(*source, client).map_ok(move |l| (*source, l, client))
                 }))
                 .await?;
 
-            // Flatten into (binding, source, journal).
-            let journals: Vec<(u32, &Source, String)> = journals
-                .into_iter()
+            // Flatten into (binding, source, journal, client).
+            let journals: Vec<(u32, &Source, String, &gazette::journal::Client)> = journals
+                .iter()
                 .enumerate()
-                .flat_map(|(binding, (source, journals))| {
+                .flat_map(|(binding, (source, journals, client))| {
                     journals.into_iter().map(move |journal| {
                         (
                             binding as u32,
-                            source,
+                            *source,
                             format!("{};{}", journal.name, source.read_suffix),
+                            *client,
                         )
                     })
                 })
                 .collect();
 
             // Map into a stream that yields lines from across all journals, as they're ready.
-            let mut journals =
-                futures::stream::select_all(journals.iter().map(|(binding, source, journal)| {
-                    Self::read_journal_lines(
-                        *binding,
-                        data_plane_client.clone(),
-                        journal,
-                        &resume,
-                        source,
-                    )
-                    .boxed()
-                }));
+            let mut journals = futures::stream::select_all(journals.iter().map(
+                |(binding, source, journal, client)| {
+                    Self::read_journal_lines(*binding, client, journal, &resume, source).boxed()
+                },
+            ));
 
             // Reset-able timer for delivery of delayed checkpoints.
             let deadline = tokio::time::sleep(std::time::Duration::MAX);
@@ -147,7 +139,7 @@ impl Reader {
 
     async fn list_journals(
         source: &Source,
-        client: gazette::journal::Client,
+        client: &gazette::journal::Client,
     ) -> anyhow::Result<Vec<broker::JournalSpec>> {
         let resp = client
             .list(broker::ListRequest {
@@ -179,7 +171,7 @@ impl Reader {
 
     fn read_journal_lines<'s>(
         binding: u32,
-        client: gazette::journal::Client,
+        client: &gazette::journal::Client,
         journal: &'s String,
         resume: &consumer::Checkpoint,
         source: &Source,
@@ -198,7 +190,7 @@ impl Reader {
             .map(|b| b.seconds)
             .unwrap_or_default();
 
-        let mut lines = client.read_json_lines(
+        let mut lines = client.clone().read_json_lines(
             broker::ReadRequest {
                 journal: journal.clone(),
                 offset,
