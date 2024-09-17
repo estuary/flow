@@ -4,6 +4,9 @@ use futures::TryStreamExt;
 use proto_gazette::broker;
 
 impl Client {
+    /// Invoke the Gazette journal Read API.
+    /// This routine directly fetches journal fragments from cloud storage where possible,
+    /// rather than reading through the broker.
     pub fn read(
         self,
         mut req: broker::ReadRequest,
@@ -46,7 +49,7 @@ impl Client {
         write_head: &mut i64,
     ) -> crate::Result<()> {
         let route = req.header.as_ref().and_then(|hdr| hdr.route.as_ref());
-        let mut client = self.into_sub(self.router.route(route, false).await?);
+        let mut client = self.into_sub(self.router.route(route, false, &self.default).await?);
 
         // Fetch metadata first before we start the actual read.
         req.metadata_only = true;
