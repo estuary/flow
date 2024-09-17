@@ -14,22 +14,43 @@ type SubClient = proto_grpc::broker::journal_client::JournalClient<
 
 #[derive(Clone)]
 pub struct Client {
+    default: broker::process_spec::Id,
     http: reqwest::Client,
     metadata: crate::Metadata,
     router: crate::Router,
 }
 
 impl Client {
-    pub fn new(http: reqwest::Client, router: crate::Router, metadata: crate::Metadata) -> Self {
+    /// Build a Client which dispatches request to the given default endpoint with the given Metadata.
+    /// The provider Router enables re-use of connections to brokers.
+    pub fn new(endpoint: String, metadata: crate::Metadata, router: crate::Router) -> Self {
         Self {
+            default: broker::process_spec::Id {
+                zone: String::new(),
+                suffix: endpoint,
+            },
             metadata,
-            http,
+            http: reqwest::Client::default(),
             router,
         }
     }
 
+    /// Build a new Client which uses a different endpoint and metadata but re-uses underlying connections.
+    pub fn with_endpoint_and_metadata(&self, endpoint: String, metadata: crate::Metadata) -> Self {
+        Self {
+            default: broker::process_spec::Id {
+                zone: String::new(),
+                suffix: endpoint,
+            },
+            http: self.http.clone(),
+            metadata,
+            router: self.router.clone(),
+        }
+    }
+
+    /// Invoke the Gazette journal Apply API.
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
-        let mut client = self.into_sub(self.router.route(None, false).await?);
+        let mut client = self.into_sub(self.router.route(None, false, &self.default).await?);
 
         let resp = client
             .apply(req)
@@ -40,11 +61,12 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
+    /// Invoke the Gazette journal ListFragments API.
     pub async fn list_fragments(
         &self,
         req: broker::FragmentsRequest,
     ) -> crate::Result<broker::FragmentsResponse> {
-        let mut client = self.into_sub(self.router.route(None, false).await?);
+        let mut client = self.into_sub(self.router.route(None, false, &self.default).await?);
 
         let resp = client
             .list_fragments(req)

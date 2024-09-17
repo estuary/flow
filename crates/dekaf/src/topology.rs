@@ -248,7 +248,7 @@ impl Collection {
             gateway_url: String,
         }
 
-        let auth: [Auth; 1] = client
+        let [auth]: [Auth; 1] = client
             .rpc("gateway_auth_token", body)
             .build()
             .send()
@@ -260,15 +260,15 @@ impl Collection {
 
         tracing::debug!(
             collection,
-            gateway = auth[0].gateway_url,
+            gateway = auth.gateway_url,
             "fetched data-plane token"
         );
 
         let mut metadata = gazette::Metadata::default();
-        metadata.bearer_token(&auth[0].token)?;
+        metadata.bearer_token(&auth.token)?;
 
-        let router = gazette::Router::new(&auth[0].gateway_url, "dekaf")?;
-        let client = journal::Client::new(Default::default(), router, metadata);
+        let router = gazette::Router::new("dekaf");
+        let client = journal::Client::new(auth.gateway_url, metadata, router);
 
         Ok(client)
     }

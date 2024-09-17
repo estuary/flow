@@ -51,7 +51,7 @@ impl Client {
         router: &crate::Router,
         req: &broker::ListRequest,
     ) -> crate::Result<tonic::Streaming<broker::ListResponse>> {
-        let mut client = self.into_sub(router.route(None, false).await?);
+        let mut client = self.into_sub(router.route(None, false, &self.default).await?);
         Ok(client.list(req.clone()).await?.into_inner())
     }
 }
