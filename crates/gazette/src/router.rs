@@ -21,26 +21,21 @@ pub struct Router {
 }
 struct Inner {
     states: std::sync::Mutex<HashMap<MemberId, DialState>>,
-    default_endpoint: String,
     zone: String,
 }
 
 impl Router {
     /// Create a new Router with the given default service endpoint,
     /// which prefers to route to members in `zone` where possible.
-    pub fn new(default_endpoint: &str, zone: &str) -> Result<Self, Error> {
-        let (default_endpoint, zone) = (default_endpoint.to_string(), zone.to_string());
+    pub fn new(zone: &str) -> Self {
+        let zone = zone.to_string();
 
-        let _endpoint = tonic::transport::Endpoint::from_shared(default_endpoint.clone())
-            .map_err(|_err| Error::InvalidEndpoint(default_endpoint.clone()))?;
-
-        Ok(Self {
+        Self {
             inner: Arc::new(Inner {
                 states: Default::default(),
-                default_endpoint,
                 zone,
             }),
-        })
+        }
     }
 
     /// Map an optional broker::Route and indication of whether the "primary"
@@ -52,10 +47,11 @@ impl Router {
         &self,
         route: Option<&broker::Route>,
         primary: bool,
+        default: &MemberId,
     ) -> Result<Channel, Error> {
-        let (index, state) = self.pick(route, primary);
+        let (index, state) = self.pick(route, primary, &default);
 
-        // Acquire `id`-specific, async-aware lock.
+        // Acquire MemberId-specific, async-aware lock.
         let mut state = state.lock().await;
 
         // Fast path: client is dialed and ready.
@@ -67,7 +63,7 @@ impl Router {
         // Slow path: start dialing the endpoint.
         let channel = super::dial_channel(match index {
             Some(index) => &route.unwrap().endpoints[index],
-            None => &self.inner.default_endpoint,
+            None => &default.suffix,
         })
         .await?;
 
@@ -76,16 +72,19 @@ impl Router {
         Ok(channel)
     }
 
-    fn pick(&self, route: Option<&broker::Route>, primary: bool) -> (Option<usize>, DialState) {
+    fn pick(
+        &self,
+        route: Option<&broker::Route>,
+        primary: bool,
+        default: &MemberId,
+    ) -> (Option<usize>, DialState) {
         // Acquire non-async lock which *cannot* be held across an await point.
         let mut states = self.inner.states.lock().unwrap();
         let index = pick(route, primary, &self.inner.zone, &states);
 
-        let default_id = MemberId::default();
-
         let id = match index {
             Some(index) => &route.unwrap().members[index],
-            None => &default_id,
+            None => default,
         };
 
         let state = match states.get(id) {
@@ -96,7 +95,7 @@ impl Router {
         (index, state)
     }
 
-    // Identify Channels which have not been used since the preceeding sweep, and close them.
+    // Identify Channels which have not been used since the preceding sweep, and close them.
     // As members come and go, Channels may no longer needed.
     // Call sweep() periodically to clear them out.
     pub fn sweep(&self) {

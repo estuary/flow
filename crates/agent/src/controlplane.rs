@@ -212,14 +212,14 @@ impl PGControlPlane {
             .context("failed to sign claims for data-plane")?;
 
         // Create the journal and shard clients that are used for interacting with the data plane
-        let journal_router = gazette::Router::new(&data_plane.broker_address, "local")?;
+        let router = gazette::Router::new("local");
         let journal_client = gazette::journal::Client::new(
-            reqwest::Client::default(),
-            journal_router,
+            data_plane.broker_address,
             metadata.clone(),
+            router.clone(),
         );
-        let shard_router = gazette::Router::new(&data_plane.reactor_address, "local")?;
-        let shard_client = gazette::shard::Client::new(shard_router, metadata);
+        let shard_client =
+            gazette::shard::Client::new(data_plane.reactor_address, metadata, router);
 
         Ok((
             shard_client,
