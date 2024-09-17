@@ -90,11 +90,10 @@ impl Preview {
         } = self;
 
         let source = build::arg_source_to_url(source, false)?;
-        let client = ctx.controlplane_client().await?;
 
         // TODO(johnny): validate only `name`, if presented.
         let (_sources, validations) =
-            local_specs::load_and_validate_full(client, source.as_str(), &network).await?;
+            local_specs::load_and_validate_full(&ctx.client, source.as_str(), &network).await?;
 
         let runtime = runtime::Runtime::new(
             true, // Allow local.
@@ -134,7 +133,7 @@ impl Preview {
         } else {
             None
         };
-        let journal_reader = journal_reader::Reader::new(ctx.controlplane_client().await?, delay);
+        let journal_reader = journal_reader::Reader::new(&ctx.client, delay);
 
         let initial_state =
             models::RawValue::from_str(initial_state).context("initial state is not valid JSON")?;
@@ -274,8 +273,16 @@ async fn preview_capture<L: runtime::LogHandler>(
     output_state: bool,
     output_apply: bool,
 ) -> anyhow::Result<()> {
-    let responses_rx =
-        runtime::harness::run_capture(delay, runtime, sessions, &spec, state, state_dir, timeout, output_apply);
+    let responses_rx = runtime::harness::run_capture(
+        delay,
+        runtime,
+        sessions,
+        &spec,
+        state,
+        state_dir,
+        timeout,
+        output_apply,
+    );
     tokio::pin!(responses_rx);
 
     while let Some(response) = responses_rx.try_next().await? {
@@ -303,7 +310,11 @@ async fn preview_capture<L: runtime::LogHandler>(
                 internal.checkpoint.unwrap_or_default();
 
             let collection = "connectorState";
-            let state_json = state.as_ref().map(|s| serde_json::to_string(s)).transpose()?.unwrap_or("{}".to_string());
+            let state_json = state
+                .as_ref()
+                .map(|s| serde_json::to_string(s))
+                .transpose()?
+                .unwrap_or("{}".to_string());
 
             if output_state {
                 print!("[{collection:?},{state_json}]\n");
@@ -350,7 +361,11 @@ async fn preview_derivation<L: runtime::LogHandler>(
             tracing::debug!(stats=?ops::DebugJson(stats), "flushed");
         } else if let Some(derive::response::StartedCommit { state }) = response.started_commit {
             let collection = "connectorState";
-            let state_json = state.as_ref().map(|s| serde_json::to_string(s)).transpose()?.unwrap_or("{}".to_string());
+            let state_json = state
+                .as_ref()
+                .map(|s| serde_json::to_string(s))
+                .transpose()?
+                .unwrap_or("{}".to_string());
             if output_state {
                 print!("[{collection:?},{state_json}]\n");
             }
@@ -373,7 +388,14 @@ async fn preview_materialization<L: runtime::LogHandler>(
     output_apply: bool,
 ) -> anyhow::Result<()> {
     let responses_rx = runtime::harness::run_materialize(
-        reader, runtime, sessions, &spec, state, state_dir, timeout, output_apply,
+        reader,
+        runtime,
+        sessions,
+        &spec,
+        state,
+        state_dir,
+        timeout,
+        output_apply,
     );
     tokio::pin!(responses_rx);
 
@@ -389,7 +411,11 @@ async fn preview_materialization<L: runtime::LogHandler>(
         } else if let Some(materialize::response::StartedCommit { state }) = response.started_commit
         {
             let collection = "connectorState";
-            let state_json = state.as_ref().map(|s| serde_json::to_string(s)).transpose()?.unwrap_or("{}".to_string());
+            let state_json = state
+                .as_ref()
+                .map(|s| serde_json::to_string(s))
+                .transpose()?
+                .unwrap_or("{}".to_string());
             if output_state {
                 print!("[{collection:?},{state_json}]\n");
             }

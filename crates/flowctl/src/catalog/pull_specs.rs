@@ -23,10 +23,9 @@ pub struct PullSpecs {
 }
 
 pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client().await?;
     // Retrieve identified live specifications.
     let live_specs = fetch_live_specs::<LiveSpecRow>(
-        client.clone(),
+        &ctx.client,
         &List {
             flows: false,
             name_selector: args.name_selector.clone(),
@@ -58,7 +57,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
     let sources = local_specs::indirect_and_write_resources(sources)?;
 
     println!("Wrote {count} specifications under {target}.");
-    let () = local_specs::generate_files(client, sources).await?;
+    let () = local_specs::generate_files(&ctx.client, sources).await?;
 
     Ok(())
 }

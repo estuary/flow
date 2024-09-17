@@ -24,10 +24,9 @@ pub async fn do_develop(
         flat,
     }: &Develop,
 ) -> anyhow::Result<()> {
-    let draft_id = ctx.config().cur_draft()?;
-    let client = ctx.controlplane_client().await?;
+    let draft_id = ctx.config.selected_draft()?;
     let rows: Vec<DraftSpecRow> = api_exec_paginated(
-        client
+        ctx.client
             .from("draft_specs")
             .select("catalog_name,spec,spec_type,expect_pub_id")
             .not("is", "spec_type", "null")
@@ -46,7 +45,7 @@ pub async fn do_develop(
     let sources = local_specs::indirect_and_write_resources(sources)?;
 
     println!("Wrote {count} specifications under {target}.");
-    let () = local_specs::generate_files(client, sources).await?;
+    let () = local_specs::generate_files(&ctx.client, sources).await?;
 
     Ok(())
 }

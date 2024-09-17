@@ -4,7 +4,7 @@ mod pull_specs;
 mod test;
 
 use crate::{
-    api_exec, api_exec_paginated, controlplane,
+    api_exec, api_exec_paginated,
     output::{to_table_row, CliOutput, JsonCell},
 };
 use anyhow::Context;
@@ -226,7 +226,7 @@ impl Catalog {
 /// # Panics
 /// If the name_selector `name` and `prefix` are both non-empty.
 pub async fn fetch_live_specs<T>(
-    cp_client: controlplane::Client,
+    client: &crate::Client,
     list: &List,
     columns: Vec<&'static str>,
 ) -> anyhow::Result<Vec<T>>
@@ -242,7 +242,7 @@ where
         panic!("cannot specify both 'name' and 'prefix' for filtering live specs");
     }
 
-    let builder = cp_client.from("live_specs_ext").select(columns.join(","));
+    let builder = client.from("live_specs_ext").select(columns.join(","));
     let builder = list.type_selector.add_spec_type_filters(builder);
 
     // Drive the actual request(s) based on the name selector, since the arguments there may
@@ -448,8 +448,7 @@ async fn do_list(ctx: &mut crate::CliContext, list_args: &List) -> anyhow::Resul
         columns.push("reads_from");
         columns.push("writes_to");
     }
-    let client = ctx.controlplane_client().await?;
-    let rows = fetch_live_specs::<LiveSpecRow>(client, list_args, columns).await?;
+    let rows = fetch_live_specs::<LiveSpecRow>(&ctx.client, list_args, columns).await?;
 
     ctx.write_all(rows, list_args.flows)
 }
@@ -499,8 +498,7 @@ async fn do_history(ctx: &mut crate::CliContext, History { name }: &History) -> 
         }
     }
     let rows: Vec<Row> = api_exec_paginated(
-        ctx.controlplane_client()
-            .await?
+        ctx.client
             .from("publication_specs_ext")
             .like("catalog_name", format!("{name}%"))
             .select(
@@ -531,7 +529,7 @@ async fn do_draft(
         publication_id,
     }: &Draft,
 ) -> anyhow::Result<()> {
-    let draft_id = ctx.config().cur_draft()?;
+    let draft_id = ctx.config.selected_draft()?;
 
     #[derive(Deserialize)]
     struct Row {
@@ -550,8 +548,7 @@ async fn do_draft(
         spec_type,
     } = if let Some(publication_id) = publication_id {
         api_exec(
-            ctx.controlplane_client()
-                .await?
+            ctx.client
                 .from("publication_specs_ext")
                 .eq("catalog_name", name)
                 .eq("pub_id", publication_id.to_string())
@@ -561,8 +558,7 @@ async fn do_draft(
         .await?
     } else {
         api_exec(
-            ctx.controlplane_client()
-                .await?
+            ctx.client
                 .from("live_specs")
                 .eq("catalog_name", name)
                 .not("is", "spec_type", "null")
@@ -596,8 +592,7 @@ async fn do_draft(
     tracing::debug!(?draft_spec, "inserting draft");
 
     let rows: Vec<SpecSummaryItem> = api_exec(
-        ctx.controlplane_client()
-            .await?
+        ctx.client
             .from("draft_specs")
             .select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_spec).unwrap())

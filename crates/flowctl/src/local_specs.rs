@@ -6,7 +6,7 @@ use tables::CatalogResolver;
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
-    client: crate::controlplane::Client,
+    client: &crate::Client,
     source: &str,
 ) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
     let source = build::arg_source_to_url(source, false)?;
@@ -17,7 +17,7 @@ pub(crate) async fn load_and_validate(
 
 /// Load and validate sources and all connectors.
 pub(crate) async fn load_and_validate_full(
-    client: crate::controlplane::Client,
+    client: &crate::Client,
     source: &str,
     network: &str,
 ) -> anyhow::Result<(tables::DraftCatalog, tables::Validations)> {
@@ -29,7 +29,7 @@ pub(crate) async fn load_and_validate_full(
 
 /// Generate connector files by validating sources with derivation connectors.
 pub(crate) async fn generate_files(
-    client: crate::controlplane::Client,
+    client: &crate::Client,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
     let (mut draft, built) = validate(client, true, false, true, sources, "").await;
@@ -67,7 +67,7 @@ pub(crate) async fn load(source: &url::Url) -> tables::DraftCatalog {
 }
 
 async fn validate(
-    client: crate::controlplane::Client,
+    client: &crate::Client,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
@@ -77,7 +77,11 @@ async fn validate(
     let source = &draft.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
-    let mut live = Resolver { client }.resolve(draft.all_catalog_names()).await;
+    let mut live = Resolver {
+        client: client.clone(),
+    }
+    .resolve(draft.all_catalog_names())
+    .await;
 
     let output = if !live.errors.is_empty() {
         // If there's a live catalog resolution error, surface it through built tables.
@@ -191,7 +195,7 @@ pub(crate) fn pick_policy(
 }
 
 pub(crate) struct Resolver {
-    pub client: crate::controlplane::Client,
+    pub client: crate::Client,
 }
 
 impl tables::CatalogResolver for Resolver {
