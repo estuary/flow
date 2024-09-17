@@ -1,7 +1,7 @@
 use crate::Capture;
 use crate::{source::OnIncompatibleSchemaChange, Collection, Id};
 
-use crate::source_capture::{SourceCapture, SourceCaptureDef};
+use crate::source_capture::SourceCapture;
 
 use super::{
     ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
