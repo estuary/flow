@@ -1,4 +1,4 @@
-use models::{SourceCaptureDef, SourceCaptureSchemaMode};
+use models::{SourceCaptureSchemaMode, SourceCapture, SourceCaptureDef};
 use serde_json::Value;
 
 ///
@@ -6,7 +6,7 @@ use serde_json::Value;
 /// If the `full_collection_name` doesn't contain any `/` characters, which should never
 /// be the case since we should have already validated the collection name.
 pub fn update_materialization_resource_spec(
-    source_capture: &SourceCaptureDef,
+    source_capture: &SourceCapture,
     resource_spec: &mut Value,
     resource_spec_pointers: &ResourceSpecPointers,
     full_collection_name: &str,
@@ -33,18 +33,28 @@ pub fn update_materialization_resource_spec(
 
     let _ = std::mem::replace(x_collection_name_prev, x_collection_name.into());
 
-    if source_capture.schema_mode == SourceCaptureSchemaMode::CollectionSchema {
+    let source_capture_def = source_capture.to_normalized_def();
+
+    if source_capture_def.schema_mode == SourceCaptureSchemaMode::CollectionSchema {
         if let Some(x_schema_name_ptr) = &resource_spec_pointers.x_schema_name {
             if let Some(x_schema_name_prev) = x_schema_name_ptr.create_value(resource_spec) {
                 let _ = std::mem::replace(x_schema_name_prev, x_schema_name.into());
+            } else {
+                anyhow::bail!(
+                    "cannot create location '{x_schema_name_ptr}' in resource spec '{resource_spec}'"
+                );
             }
         }
     }
 
-    if source_capture.delta_updates {
+    if source_capture_def.delta_updates {
         if let Some(x_delta_updates_ptr) = &resource_spec_pointers.x_delta_updates {
             if let Some(x_delta_updates_prev) = x_delta_updates_ptr.create_value(resource_spec) {
                 let _ = std::mem::replace(x_delta_updates_prev, true.into());
+            } else {
+                anyhow::bail!(
+                    "cannot create location '{x_delta_updates_ptr}' in resource spec '{resource_spec}'"
+                );
             }
         }
     }
