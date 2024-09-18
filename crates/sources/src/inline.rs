@@ -266,6 +266,9 @@ fn inline_materialization(
                 resources,
             )
         }
+        // Dekaf isn't a pluggable connector, and so does not have dynamic config that could possibly
+        // live in a separate file. All of its config is defined directly within models::DekafConfig.
+        models::MaterializationEndpoint::Dekaf(_) => {}
     }
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()
