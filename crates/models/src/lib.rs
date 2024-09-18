@@ -12,21 +12,20 @@ mod derive_typescript;
 mod id;
 mod journals;
 mod labels;
-mod source_capture;
 mod materializations;
 mod raw_value;
 mod references;
 mod schemas;
 mod shards;
 mod source;
+mod source_capture;
 mod tests;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
-pub use connector::{split_image_tag, ConnectorConfig, LocalConfig};
-pub use source_capture::{SourceCaptureDef, SourceCapture, SourceCaptureSchemaMode};
+pub use connector::{split_image_tag, ConnectorConfig, DekafConfig, LocalConfig};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
@@ -48,6 +47,7 @@ pub use references::{
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
+pub use source_capture::{SourceCapture, SourceCaptureDef, SourceCaptureSchemaMode};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 
 /// ModelDef is the common trait of top-level Flow specifications.

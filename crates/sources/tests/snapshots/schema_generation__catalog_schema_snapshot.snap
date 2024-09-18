@@ -1,5 +1,6 @@
 ---
 source: crates/sources/tests/schema_generation.rs
+assertion_line: 4
 expression: "&schema"
 ---
 {
@@ -460,6 +461,10 @@ expression: "&schema"
         }
       }
     },
+    "DekafConfig": {
+      "description": "Dekaf configuration. Currently empty, but present to enable easy addition of config options when they show up in the future.",
+      "type": "object"
+    },
     "Derivation": {
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
@@ -914,6 +919,19 @@ expression: "&schema"
           "properties": {
             "local": {
               "$ref": "#/definitions/LocalConfig"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "A Dekaf connection",
+          "type": "object",
+          "required": [
+            "dekaf"
+          ],
+          "properties": {
+            "dekaf": {
+              "$ref": "#/definitions/DekafConfig"
             }
           },
           "additionalProperties": false

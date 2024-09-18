@@ -1,5 +1,5 @@
 use crate::{unseal, LogHandler, Runtime};
-use anyhow::Context;
+use anyhow::{bail, Context};
 use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
 use proto_flow::{
     flow::materialization_spec::ConnectorType,
@@ -87,6 +87,9 @@ pub async fn start<L: LogHandler>(
             )?
             .boxed()
         }
+        models::MaterializationEndpoint::Dekaf(_) => {
+            bail!("Dekaf endpoint types are purely descriptive and cannot be started.")
+        }
     };
 
     Ok((connector_tx, connector_rx))
@@ -136,6 +139,13 @@ fn extract_endpoint<'r>(
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
             models::MaterializationEndpoint::Local(
+                serde_json::from_str(config_json).context("parsing local config")?,
+            ),
+            config_json,
+        ))
+    } else if connector_type == ConnectorType::Dekaf as i32 {
+        Ok((
+            models::MaterializationEndpoint::Dekaf(
                 serde_json::from_str(config_json).context("parsing local config")?,
             ),
             config_json,

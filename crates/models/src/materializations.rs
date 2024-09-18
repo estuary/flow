@@ -1,11 +1,9 @@
 use crate::Capture;
-use crate::{source::OnIncompatibleSchemaChange, Collection, Id};
+use crate::{connector::DekafConfig, source::OnIncompatibleSchemaChange, Collection, Id};
 
 use crate::source_capture::SourceCapture;
 
-use super::{
-    ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
-};
+use super::{ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -53,6 +51,8 @@ pub enum MaterializationEndpoint {
     Connector(ConnectorConfig),
     /// # A local command (development only).
     Local(LocalConfig),
+    /// # A Dekaf connection
+    Dekaf(DekafConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
@@ -208,7 +208,7 @@ impl super::ModelDef for MaterializationDef {
         match &self.source_capture {
             Some(SourceCapture::Simple(capture_name)) => Some(capture_name),
             Some(SourceCapture::Configured(sc)) => Some(&sc.capture),
-            None => None
+            None => None,
         }
     }
 
