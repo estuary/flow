@@ -1,4 +1,4 @@
-use crate::{source::OnIncompatibleSchemaChange, Collection, Id};
+use crate::{connector::DekafConfig, source::OnIncompatibleSchemaChange, Collection, Id};
 
 use super::{
     Capture, ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
@@ -50,6 +50,8 @@ pub enum MaterializationEndpoint {
     Connector(ConnectorConfig),
     /// # A local command (development only).
     Local(LocalConfig),
+    /// # A Dekaf connection
+    Dekaf(DekafConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]

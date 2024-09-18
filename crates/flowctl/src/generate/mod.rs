@@ -288,6 +288,14 @@ async fn generate_missing_materialization_configs(
             },
             serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
+        models::MaterializationEndpoint::Dekaf(config) => (
+            materialize::request::Spec {
+                connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
+                config_json: serde_json::to_string(config).unwrap(),
+            },
+            // Dekaf isn't a pluggable connector, and so does not have dynamic config.
+            None,
+        ),
     };
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings
         .iter()

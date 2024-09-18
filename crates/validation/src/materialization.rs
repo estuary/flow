@@ -122,6 +122,10 @@ async fn walk_materialization(
             flow::materialization_spec::ConnectorType::Local as i32,
             serde_json::to_string(config).unwrap(),
         ),
+        models::MaterializationEndpoint::Dekaf(config) => (
+            flow::materialization_spec::ConnectorType::Dekaf as i32,
+            serde_json::to_string(config).unwrap(),
+        ),
     };
 
     // We only validate and build enabled bindings, in their declaration order.
@@ -187,7 +191,11 @@ async fn walk_materialization(
     });
 
     // If shards are disabled, then don't ask the connector to validate.
-    let response = if shard_template.disable {
+    let response = if shard_template.disable
+    // TODO(jshearer): Are we sure that Dekaf is okay with _any_ projection?
+    // Currently, `NoOpConnectors` report every field as `FieldOptional`
+        || connector_type == flow::materialization_spec::ConnectorType::Dekaf as i32
+    {
         NoOpConnectors.validate_materialization(wrapped_request, data_plane)
     } else {
         connectors.validate_materialization(wrapped_request, data_plane)

@@ -687,6 +687,9 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            // Dekaf isn't a pluggable connector, and so does not have dynamic config to possibly
+            // load from a reference. All of its config is defined directly within models::DekafConfig.
+            models::MaterializationEndpoint::Dekaf(_) => {}
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {

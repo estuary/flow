@@ -4000,6 +4000,7 @@ impl serde::Serialize for materialization_spec::ConnectorType {
             Self::Invalid => "INVALID",
             Self::Image => "IMAGE",
             Self::Local => "LOCAL",
+            Self::Dekaf => "DEKAF",
         };
         serializer.serialize_str(variant)
     }
@@ -4014,6 +4015,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::ConnectorType {
             "INVALID",
             "IMAGE",
             "LOCAL",
+            "DEKAF",
         ];
 
         struct GeneratedVisitor;
@@ -4057,6 +4059,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::ConnectorType {
                     "INVALID" => Ok(materialization_spec::ConnectorType::Invalid),
                     "IMAGE" => Ok(materialization_spec::ConnectorType::Image),
                     "LOCAL" => Ok(materialization_spec::ConnectorType::Local),
+                    "DEKAF" => Ok(materialization_spec::ConnectorType::Dekaf),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
