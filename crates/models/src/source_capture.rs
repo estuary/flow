@@ -10,7 +10,7 @@ pub enum SourceCaptureSchemaMode {
     LeaveEmpty,
     /// Use the 2nd-to-last component of the collection name as the schema of the materialization
     /// binding
-    CollectionSchema,
+    FromSourceName,
 }
 
 impl Default for SourceCaptureSchemaMode {
@@ -29,7 +29,7 @@ pub struct SourceCaptureDef {
     /// When adding new bindings from a source capture to a materialization, how should the schema
     /// of the materialization binding be set
     #[serde(default, skip_serializing_if = "super::is_default")]
-    pub schema_mode: SourceCaptureSchemaMode,
+    pub target_schema: SourceCaptureSchemaMode,
 
     /// When adding new bindings from a source capture to a materialization, should the new
     /// bindings be marked as delta updates
