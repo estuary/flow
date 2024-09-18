@@ -651,6 +651,7 @@ pub mod materialization_spec {
         Invalid = 0,
         Image = 8,
         Local = 9,
+        Dekaf = 10,
     }
     impl ConnectorType {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -662,6 +663,7 @@ pub mod materialization_spec {
                 ConnectorType::Invalid => "INVALID",
                 ConnectorType::Image => "IMAGE",
                 ConnectorType::Local => "LOCAL",
+                ConnectorType::Dekaf => "DEKAF",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -670,6 +672,7 @@ pub mod materialization_spec {
                 "INVALID" => Some(Self::Invalid),
                 "IMAGE" => Some(Self::Image),
                 "LOCAL" => Some(Self::Local),
+                "DEKAF" => Some(Self::Dekaf),
                 _ => None,
             }
         }
