@@ -1,4 +1,4 @@
-use models::{SourceCaptureSchemaMode, SourceCapture, SourceCaptureDef};
+use models::{SourceCaptureSchemaMode, SourceCapture};
 use serde_json::Value;
 
 ///
@@ -35,7 +35,7 @@ pub fn update_materialization_resource_spec(
 
     let source_capture_def = source_capture.to_normalized_def();
 
-    if source_capture_def.schema_mode == SourceCaptureSchemaMode::CollectionSchema {
+    if source_capture_def.target_schema == SourceCaptureSchemaMode::FromSourceName {
         if let Some(x_schema_name_ptr) = &resource_spec_pointers.x_schema_name {
             if let Some(x_schema_name_prev) = x_schema_name_ptr.create_value(resource_spec) {
                 let _ = std::mem::replace(x_schema_name_prev, x_schema_name.into());
