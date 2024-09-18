@@ -9,6 +9,36 @@ fn test_golden_all_visits() {
 }
 
 #[test]
+fn test_dekaf_materialization() {
+    let fixture = r##"
+test://example/catalog.yaml:
+  collections:
+    testing/schema_with_properties:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+  materializations:
+    testing/test_dekaf:
+      endpoint:
+        dekaf: {}
+      bindings:
+        - source: testing/schema_with_properties
+          resource: {}
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+"##;
+
+    let outcome = common::run(fixture, "{}");
+    // Expect not to see any projections for the empty properties
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
 fn test_projection_not_created_for_empty_properties() {
     let fixture = r##"
 test://example/catalog.yaml:
