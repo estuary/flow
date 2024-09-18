@@ -498,6 +498,10 @@ fn indirect_materialization(
             resources,
             threshold,
         ),
+        // Dekaf isn't a pluggable connector, and so does not have dynamic config.
+        // All of its config is defined directly within models::DekafConfig, and so
+        // should not be indirected.
+        models::MaterializationEndpoint::Dekaf(_) => {}
     }
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()

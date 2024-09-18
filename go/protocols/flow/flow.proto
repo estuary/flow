@@ -345,6 +345,7 @@ message MaterializationSpec {
     INVALID = 0;
     IMAGE = 8;
     LOCAL = 9;
+    DEKAF = 10;
   }
   ConnectorType connector_type = 2;
   // JSON-encoded connector configuration of this materialization.

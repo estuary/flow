@@ -65,3 +65,14 @@ impl LocalConfig {
         }
     }
 }
+
+/// Dekaf configuration. Currently empty, but present to enable easy addition
+/// of config options when they show up in the future.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
+pub struct DekafConfig {}
+
+impl DekafConfig {
+    pub fn example() -> Self {
+        Self {}
+    }
+}
