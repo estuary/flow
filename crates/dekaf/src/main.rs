@@ -161,7 +161,8 @@ async fn main() -> anyhow::Result<()> {
             tls_cfg.certificate_file.clone().unwrap(),
             tls_cfg.certificate_key_file.clone().unwrap(),
         )
-        .await?;
+        .await
+        .context("failed to open or read certificate or certificate key file")?;
 
         let schema_server_task = axum_server::bind_rustls(schema_addr, axum_rustls_config.clone())
             .serve(schema_router.into_make_service());
@@ -195,8 +196,12 @@ async fn main() -> anyhow::Result<()> {
             let acceptor = acceptor.clone();
             tokio::select! {
                 accept = kafka_listener.accept() => {
-                    let (socket, addr) = accept?;
-                    let socket = acceptor.accept(socket).await?;
+                    let Ok((socket, addr)) = accept else {
+                        continue
+                    };
+                    let Ok(socket) = acceptor.accept(socket).await else {
+                        continue
+                    };
 
                     tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
                 }
@@ -214,7 +219,9 @@ async fn main() -> anyhow::Result<()> {
         loop {
             tokio::select! {
                 accept = kafka_listener.accept() => {
-                    let (socket, addr) = accept?;
+                    let Ok((socket, addr)) = accept else {
+                        continue
+                    };
                     socket.set_nodelay(true)?;
 
                     tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
