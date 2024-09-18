@@ -168,7 +168,7 @@ async fn test_source_captures_collection_name() {
             "ducks/materializeA": {
                 "sourceCapture": {
                     "capture": "ducks/capture",
-                    "schemaMode": "collectionSchema",
+                    "targetSchema": "fromSourceName",
                     "deltaUpdates": true,
                 },
                 "endpoint": {
