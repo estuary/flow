@@ -114,6 +114,13 @@ fn count_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Sch
     .unwrap()
 }
 
+fn is_touch_pub(draft: &tables::DraftCatalog) -> bool {
+    draft.tests.iter().all(|r| r.is_touch)
+        && draft.collections.iter().all(|r| r.is_touch)
+        && draft.captures.iter().all(|r| r.is_touch)
+        && draft.materializations.iter().all(|r| r.is_touch)
+}
+
 impl PublicationInfo {
     pub fn is_success(&self) -> bool {
         // TODO: should EmptyDraft be considered successful?
@@ -121,14 +128,7 @@ impl PublicationInfo {
     }
 
     pub fn observed(publication: &PublicationResult) -> Self {
-        let is_touch = publication.draft.tests.iter().all(|r| r.is_touch)
-            && publication.draft.collections.iter().all(|r| r.is_touch)
-            && publication.draft.captures.iter().all(|r| r.is_touch)
-            && publication
-                .draft
-                .materializations
-                .iter()
-                .all(|r| r.is_touch);
+        let is_touch = is_touch_pub(&publication.draft);
         PublicationInfo {
             id: publication.pub_id,
             created: Some(publication.started_at),
@@ -156,7 +156,6 @@ impl PublicationInfo {
 /// Represents a draft that is pending publication
 #[derive(Debug)]
 pub struct PendingPublication {
-    pub is_touch: bool,
     /// The draft to be published
     pub draft: tables::DraftCatalog,
     /// Reasons for updating the draft, which will be joined together to become
@@ -175,7 +174,6 @@ impl PartialEq for PendingPublication {
 impl PendingPublication {
     pub fn new() -> Self {
         PendingPublication {
-            is_touch: false,
             draft: tables::DraftCatalog::default(),
             details: Vec::new(),
         }
@@ -189,8 +187,9 @@ impl PendingPublication {
         tracing::info!("starting touch");
         let new_hash = new_dependency_hash.unwrap_or("None");
         let old_hash = state.live_dependency_hash.as_deref().unwrap_or("None");
-        self.details.push(format!("in response to change in dependencies, prev hash: {old_hash}, new hash: {new_hash}"));
-
+        self.details.push(format!(
+            "in response to change in dependencies, prev hash: {old_hash}, new hash: {new_hash}"
+        ));
         let model = state
             .live_spec
             .as_ref()
@@ -205,7 +204,7 @@ impl PendingPublication {
                 scope,
                 Some(state.last_pub_id),
                 Some(&model.to_raw_value()),
-                true,
+                true, // is_touch
             )
             .unwrap();
     }
@@ -237,7 +236,6 @@ impl PendingPublication {
     }
 
     pub fn update_pending_draft(&mut self, detail: impl Into<String>) -> &mut tables::DraftCatalog {
-        self.is_touch = false;
         self.details.push(detail.into());
         &mut self.draft
     }
@@ -248,33 +246,14 @@ impl PendingPublication {
         status: &mut PublicationStatus,
         control_plane: &mut C,
     ) -> anyhow::Result<PublicationResult> {
-        let pub_id = if self.is_touch {
-            debug_assert!(
-                self.draft.captures.iter().all(|c| c.is_touch),
-                "all drafted specs must have is_touch: true for touch pub"
-            );
-            debug_assert!(
-                self.draft.collections.iter().all(|c| c.is_touch),
-                "all drafted specs must have is_touch: true for touch pub"
-            );
-            debug_assert!(
-                self.draft.materializations.iter().all(|c| c.is_touch),
-                "all drafted specs must have is_touch: true for touch pub"
-            );
-            debug_assert!(
-                self.draft.tests.iter().all(|c| c.is_touch),
-                "all drafted specs must have is_touch: true for touch pub"
-            );
-
+        let is_touch = is_touch_pub(&self.draft);
+        let pub_id = if is_touch {
             state.last_pub_id
         } else {
             control_plane.next_pub_id()
         };
-        let PendingPublication {
-            is_touch,
-            draft,
-            details,
-        } = std::mem::replace(self, PendingPublication::new());
+        let PendingPublication { draft, details } =
+            std::mem::replace(self, PendingPublication::new());
 
         let detail = details.join(", ");
         let result = control_plane
