@@ -365,8 +365,9 @@ impl SourceCaptureStatus {
                 model: Some(model.clone()),
                 is_touch: false, // We intend to update the model
             });
+        // In case the spec was already drafted as a touch operation, ensure it's a regular publication now
+        draft_row.is_touch = false;
 
-        // Failures here are terminal
         update_linked_materialization(
             collection_name_pointer,
             &self.add_bindings,
