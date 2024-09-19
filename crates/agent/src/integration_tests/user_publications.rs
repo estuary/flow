@@ -1,4 +1,4 @@
-use super::harness::{draft_catalog, TestHarness};
+use super::harness::{draft_catalog, set_of, TestHarness};
 use crate::{controllers::ControllerState, ControlPlane};
 use agent_sql::Capability;
 use models::{CatalogType, Id};
@@ -215,6 +215,14 @@ async fn test_user_publications() {
         is_touch: false,
     });
 
+    // Snapshot the current state of the capture and materialization, so that we can assert they
+    // get touched by the publication of noms.
+    let starting_expanded_specs = harness
+        .control_plane()
+        .get_live_specs(set_of(&["cats/capture", "cats/materialize"]))
+        .await
+        .unwrap();
+
     let result = harness
         .user_publication(
             cats_user,
@@ -223,13 +231,13 @@ async fn test_user_publications() {
         )
         .await;
     assert!(result.status.is_success());
-    // Assert that the drafted specs were properly expanded
-    assert_publication_included(
-        result.publication_id,
-        &["cats/noms", "cats/capture", "cats/materialize"],
-        &mut harness,
-    )
-    .await;
+    // only noms should have been modified by the publication
+    assert_publication_included(result.publication_id, &["cats/noms"], &mut harness).await;
+    // Assert that the drafted specs were properly expanded, and that the expanded specs
+    // were only touched.
+    harness
+        .assert_specs_touched_since(&starting_expanded_specs)
+        .await;
     assert_publication_excluded(result.publication_id, &["dogs/materialize"], &mut harness).await;
 
     harness.run_pending_controllers(None).await;

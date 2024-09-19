@@ -18,6 +18,10 @@ use tempfile::tempdir;
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
+pub fn set_of(names: &[&str]) -> BTreeSet<String> {
+    names.into_iter().map(|n| n.to_string()).collect()
+}
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)] // Suppress lints for fields used only in test snapshots
 pub struct LiveSpec {
