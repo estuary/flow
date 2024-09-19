@@ -110,4 +110,74 @@ async fn test_source_captures() {
         no_source_status.publications.history[0].detail.as_deref()
     );
     assert!(no_source_status.source_capture.is_none());
+
+    // Now add another binding to the source capture and assert that it gets added to the materialization
+    let draft2 = draft_catalog(serde_json::json!({
+        "collections": {
+            "ducks/ponds": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"]
+            }
+        },
+        "captures": {
+            "ducks/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": {
+                            "name": "greetings",
+                            "prefix": "Hello {}!"
+                        },
+                        "target": "ducks/quacks"
+                    },
+                    {
+                        "resource": {
+                            "name": "something else",
+                        },
+                        "target": "ducks/ponds"
+                    }
+                ]
+            }
+        },
+    }));
+
+    let result = harness
+        .user_publication(user_id, "test sourceCapture update", draft2)
+        .await;
+    assert!(result.status.is_success());
+
+    harness.run_pending_controllers(None).await;
+
+    let a_state = harness.get_controller_state("ducks/materializeA").await;
+    let a_model = a_state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_materialization()
+        .unwrap();
+    assert_eq!(2, a_model.bindings.len());
+    assert_eq!(
+        "ducks/ponds",
+        a_model.bindings[1].source.collection().as_str()
+    );
+    let a_status = a_state.current_status.unwrap_materialization();
+    assert!(a_status.source_capture.as_ref().unwrap().up_to_date);
+    assert!(a_status
+        .source_capture
+        .as_ref()
+        .unwrap()
+        .add_bindings
+        .is_empty());
+    let last_detail = a_status.publications.history[0].detail.as_deref().unwrap();
+    assert!(last_detail.contains("adding binding(s) to match the sourceCapture: [ducks/ponds]"));
 }
