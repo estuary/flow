@@ -201,16 +201,13 @@ impl Publisher {
                 anyhow::bail!("missing spec for expanded row: {:?}", exp.catalog_name);
             };
             let scope = tables::synthetic_scope(spec_type, &exp.catalog_name);
-            // TODO(phil): currently we set `is_touch: false`, which is consistent with the prior
-            // behavior when publishing. It seems to make more sense to only "touch" expanded
-            // specs, but I'm holding off until a subsequent commit.
             if let Err(e) = draft.add_spec(
                 spec_type,
                 &exp.catalog_name,
                 scope,
                 Some(exp.last_pub_id.into()),
                 Some(&model_json),
-                false, // !is_touch
+                true, // is_touch
             ) {
                 draft.errors.push(e);
             }
