@@ -44,13 +44,13 @@ To create a role in the Neon Console:
 6. In the role creation dialog, specify a role name.
 7. Click **Create**. The role is created and you are provided with the password for the role.
 
-The following CLI command creates a role. To view the CLI documentation for this command, see [Neon CLI commands — roles](https://api-docs.neon.tech/reference/createprojectbranchrole).
+Alternatively, the following CLI command creates a role. To view the CLI documentation for this command, see [Neon CLI commands — roles](https://api-docs.neon.tech/reference/createprojectbranchrole).
 
 ```bash
 neon roles create --name <role>
 ```
 
-The following Neon API method creates a role. To view the API documentation for this method, refer to the Neon API reference.
+As a third option, the following Neon API method also creates a role. To view the API documentation for this method, refer to the Neon API reference.
 
 ```bash
 curl 'https://console.neon.tech/api/v2/projects/hidden-cell-763301/branches/br-blue-tooth-671580/roles' \
@@ -66,23 +66,20 @@ curl 'https://console.neon.tech/api/v2/projects/hidden-cell-763301/branches/br-b
 
 ### 3. Grant Schema Access to Your Postgres Role
 
-If your replication role does not own the schemas and tables you are replicating from, make sure to grant access. Run these commands for each schema:
+If your replication role does not own the schemas and tables you are replicating from, make sure to grant access. Run this commands for each schema:
 
 ```sql
-GRANT USAGE ON SCHEMA public TO cdc_role;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO cdc_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO cdc_role;
+GRANT pg_read_all_data TO cdc_role;
 ```
 
-Granting `SELECT ON ALL TABLES IN SCHEMA` instead of naming the specific tables avoids having to add privileges later if you add tables to your publication.
-
-### 4. Create a Publication
-
-Create a [publication](https://www.postgresql.org/docs/current/sql-createpublication.html) with the name `estuary_publication`. Include all the tables you would like to ingest into Estuary Flow.
+### 4. Create the watermarks table, grant privileges, and create publication:
 
 ```sql
-CREATE PUBLICATION flow_publication FOR TABLE <tbl1, tbl2, tbl3>;
+CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+CREATE PUBLICATION flow_publication;
 ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
 ```
 
 The `publish_via_partition_root`
@@ -108,14 +105,14 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
 3. Enter the connection details for your Neon database. You can get these details from your Neon connection string, which you'll find in the **Connection Details** widget on the **Dashboard** of your Neon project. Your connection string will look like this:
 
    ```bash
-   postgres://alex:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
+   postgres://cdc_role:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
    ```
    Enter the details for **your connection string** into the source connector fields. Based on the sample connection string above, the values would be specified as shown below. Your values will differ.
    
    - Name: Name of the Capture connector
    - Server Address: ep-cool-darkness-123456.us-east-2.aws.neon.tech:5432
    - User: cdc_role
-   - Password: Click **Add a new secret...**, then specify a name for that secret and `AbC123dEf` as its value
+   - Password: `AbC123dEf` in the example, or your own value based on the connection string.
    - Database: dbname
 
 3. Click **Next**. Estuary Flow will now scan the source database for all the tables that can be replicated. Select one or more table(s) by checking the checkbox next to their name.
