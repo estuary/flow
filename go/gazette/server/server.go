@@ -51,7 +51,12 @@ type Server struct {
 // and `port` for serving traffic directed at `host`.
 // `port` may be empty, in which case a random free port is assigned.
 // if `tlsConfig` is non-nil, the Server uses TLS (and is otherwise in the clear).
-func New(iface, host, port string, serverTLS, peerTLS *tls.Config, maxSize uint32) (*Server, error) {
+func New(
+	iface, host, port string,
+	serverTLS, peerTLS *tls.Config,
+	maxGRPCRecvSize uint32,
+	wrapListener func(net.Listener, *tls.Config) (net.Listener, error),
+) (*Server, error) {
 	var network, bind string
 	if port == "" {
 		network, bind = "tcp", fmt.Sprintf("%s:0", iface) // Assign a random free port.
@@ -100,10 +105,14 @@ func New(iface, host, port string, serverTLS, peerTLS *tls.Config, maxSize uint3
 		GRPCServer: grpc.NewServer(
 			grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 			grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),
-			grpc.MaxRecvMsgSize(int(maxSize)),
+			grpc.MaxRecvMsgSize(int(maxGRPCRecvSize)),
 		),
 	}
-	if serverTLS != nil {
+	if wrapListener != nil {
+		if listener, err = wrapListener(listener, serverTLS); err != nil {
+			return nil, fmt.Errorf("failed to wrap listener: %w", err)
+		}
+	} else if serverTLS != nil {
 		listener = tls.NewListener(listener, serverTLS)
 	}
 	srv.CMux = cmux.New(listener)
@@ -193,7 +202,7 @@ func BuildTLSConfig(certPath, keyPath, trustedCAPath string) (*tls.Config, error
 // MustLoopback builds and returns a new Server instance bound to a random
 // port on the loopback interface. It panics on error.
 func MustLoopback() *Server {
-	if srv, err := New("127.0.0.1", "127.0.0.1", "", nil, nil, 1<<20); err != nil {
+	if srv, err := New("127.0.0.1", "127.0.0.1", "", nil, nil, 1<<20, nil); err != nil {
 		log.WithField("err", err).Panic("failed to build Server")
 		panic("not reached")
 	} else {

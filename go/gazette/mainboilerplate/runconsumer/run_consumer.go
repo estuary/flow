@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -112,8 +113,9 @@ const iniFilename = "gazette.ini"
 
 // Cmd wraps a Config and Application to provide an Execute entry-point.
 type Cmd struct {
-	Cfg Config
-	App Application
+	Cfg          Config
+	App          Application
+	WrapListener func(net.Listener, *tls.Config) (net.Listener, error)
 }
 
 func (sc Cmd) Execute(args []string) error {
@@ -155,7 +157,14 @@ func (sc Cmd) Execute(args []string) error {
 	}
 
 	// Bind our server listener, grabbing a random available port if Port is zero.
-	srv, err := server.New("", bc.Consumer.Host, bc.Consumer.Port, serverTLS, peerTLS, bc.Consumer.MaxGRPCRecvSize)
+	srv, err := server.New(
+		"", // Bind all interfaces
+		bc.Consumer.Host,
+		bc.Consumer.Port,
+		serverTLS, peerTLS,
+		bc.Consumer.MaxGRPCRecvSize,
+		sc.WrapListener,
+	)
 	mbp.Must(err, "building Server instance")
 
 	if bc.Broker.Cache.Size <= 0 {

@@ -87,7 +87,7 @@ func (cmdServe) Execute(args []string) error {
 	}
 
 	// Bind our server listener, grabbing a random available port if Port is zero.
-	srv, err := server.New("", Config.Broker.Host, Config.Broker.Port, serverTLS, peerTLS, Config.Broker.MaxGRPCRecvSize)
+	srv, err := server.New("", Config.Broker.Host, Config.Broker.Port, serverTLS, peerTLS, Config.Broker.MaxGRPCRecvSize, nil)
 	mbp.Must(err, "building Server instance")
 
 	// If a file:// root was provided, ensure it exists and apply it.
