@@ -86,6 +86,7 @@ impl Read {
         let mut buf = bytes::BytesMut::new();
 
         let mut has_had_parsing_error = false;
+        let mut transient_errors = 0;
 
         while records_bytes < target_bytes {
             let read = match tokio::select! {
@@ -113,14 +114,15 @@ impl Read {
                             continue;
                         }
                     },
-                    Err(err) if err.is_transient() => {
+                    Err(err) if err.is_transient() && transient_errors < 5 => {
                         use rand::Rng;
 
-                        tracing::warn!(%err, "Retrying transient read error");
+                        transient_errors = transient_errors + 1;
+
+                        tracing::warn!(error = ?err, "Retrying transient read error");
                         let delay = Duration::from_millis(rand::thread_rng().gen_range(300..2000));
                         tokio::time::sleep(delay).await;
                         // We can retry transient errors just by continuing to poll the stream
-                        // TODO: We might have a counter here and give up after a few attempts
                         continue;
                     }
                     Err(err @ gazette::Error::Parsing { .. }) if !has_had_parsing_error => {
