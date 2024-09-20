@@ -10,6 +10,7 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/network"
 	"github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/derive"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -36,6 +37,7 @@ type FlowConsumerConfig struct {
 		AllowLocal    bool        `long:"allow-local" env:"ALLOW_LOCAL" description:"Allow local connectors. True for local stacks, and false otherwise."`
 		BuildsRoot    string      `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 		ControlAPI    pb.Endpoint `long:"control-api" env:"CONTROL_API" description:"Address of the control-plane API"`
+		Dashboard     pb.Endpoint `long:"dashboard" env:"DASHBOARD" description:"Address of the Estuary dashboard"`
 		DataPlaneFQDN string      `long:"data-plane-fqdn" env:"DATA_PLANE_FQDN" description:"Fully-qualified domain name of the data-plane to which this reactor belongs"`
 		Network       string      `long:"network" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
 		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"The number of proxy connector runtimes that may run concurrently"`
@@ -45,7 +47,14 @@ type FlowConsumerConfig struct {
 
 // Execute delegates to runconsumer.Cmd.Execute.
 func (c *FlowConsumerConfig) Execute(args []string) error {
-	return runconsumer.Cmd{Cfg: c, App: new(FlowConsumer)}.Execute(args)
+	var app = &FlowConsumer{
+		Tap: network.NewTap(),
+	}
+	return runconsumer.Cmd{
+		Cfg:          c,
+		App:          app,
+		WrapListener: app.Tap.Wrap,
+	}.Execute(args)
 }
 
 // FlowConsumer implements the Estuary Flow Consumer.
@@ -65,6 +74,8 @@ type FlowConsumer struct {
 	// It's important that we use a Context that's scoped to the life of the process,
 	// rather than the lives of individual shards, so we don't lose logs.
 	OpsContext context.Context
+	// Network listener tap.
+	Tap *network.Tap
 }
 
 // Application is the interface implemented by Flow shard task stores.
@@ -81,9 +92,9 @@ type Application interface {
 	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
 	ReadThrough(pb.Offsets) (pb.Offsets, error)
 
-	// proxyHook exposes a current Container and ops.Publisher
-	// for use by the network proxy server.
-	proxyHook() (*pr.Container, ops.Publisher)
+	// ProxyHook exposes a current Container and ops.Publisher
+	// for use by network.ProxyServer.
+	ProxyHook() (*pr.Container, ops.Publisher)
 }
 
 var _ consumer.Application = (*FlowConsumer)(nil)
@@ -197,7 +208,9 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return fmt.Errorf("catalog builds service: %w", err)
 	}
 
-	if keyedAuth, ok := args.Service.Authorizer.(*auth.KeyedAuth); ok && !config.Flow.TestAPIs {
+	var localAuthorizer = args.Service.Authorizer
+
+	if keyedAuth, ok := localAuthorizer.(*auth.KeyedAuth); ok && !config.Flow.TestAPIs {
 		// Wrap the underlying KeyedAuth Authorizer to use the control-plane's Authorize API.
 		args.Service.Authorizer = NewControlPlaneAuthorizer(
 			keyedAuth,
@@ -242,7 +255,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		pr.NewVerifiedShufflerServer(shuffle.NewAPI(args.Service.Resolver), f.Service.Verifier))
 
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
-		pf.NewVerifiedNetworkProxyServer(&proxyServer{resolver: args.Service.Resolver}, f.Service.Verifier))
+		pf.NewVerifiedNetworkProxyServer(&network.ProxyServer{Resolver: args.Service.Resolver}, f.Service.Verifier))
 
 	var connectorProxy = &connectorProxy{
 		address:   args.Server.Endpoint(),
@@ -254,6 +267,22 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	capture.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
 	derive.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
 	materialize.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
+
+	networkProxy, err := network.NewFrontend(
+		f.Tap,
+		config.Consumer.Host,
+		config.Flow.ControlAPI.URL(),
+		config.Flow.Dashboard.URL(),
+		pf.NewAuthNetworkProxyClient(pf.NewNetworkProxyClient(args.Server.GRPCLoopback), localAuthorizer),
+		pc.NewAuthShardClient(pc.NewShardClient(args.Server.GRPCLoopback), localAuthorizer),
+		args.Service.Verifier,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to build network proxy: %w", err)
+	}
+	args.Tasks.Queue("network-proxy-frontend", func() error {
+		return networkProxy.Serve(args.Tasks.Context())
+	})
 
 	return nil
 }

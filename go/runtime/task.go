@@ -148,7 +148,7 @@ func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
 	return nil
 }
 
-func (t *taskBase[TaskSpec]) proxyHook() (*pr.Container, ops.Publisher) {
+func (t *taskBase[TaskSpec]) ProxyHook() (*pr.Container, ops.Publisher) {
 	return t.container.Load(), t.opsPublisher
 }
 
