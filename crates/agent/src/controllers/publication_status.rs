@@ -247,17 +247,12 @@ impl PendingPublication {
         control_plane: &mut C,
     ) -> anyhow::Result<PublicationResult> {
         let is_touch = is_touch_pub(&self.draft);
-        let pub_id = if is_touch {
-            state.last_pub_id
-        } else {
-            control_plane.next_pub_id()
-        };
         let PendingPublication { draft, details } =
             std::mem::replace(self, PendingPublication::new());
 
         let detail = details.join(", ");
         let result = control_plane
-            .publish(pub_id, Some(detail), state.logs_token, draft)
+            .publish(Some(detail), state.logs_token, draft)
             .await;
         match result.as_ref() {
             Ok(r) => {
@@ -267,16 +262,16 @@ impl PendingPublication {
                         .notify_dependents(state.catalog_name.clone())
                         .await
                         .context("notifying dependents after successful publication")?;
-                    status.max_observed_pub_id = pub_id;
+                    status.max_observed_pub_id = r.pub_id;
                 }
             }
             Err(err) => {
                 let info = PublicationInfo {
-                    id: pub_id,
+                    id: models::Id::zero(),
                     completed: Some(control_plane.current_time()),
                     detail: Some(details.join(", ")),
                     errors: vec![crate::draft::Error {
-                        detail: format!("{err:#}"),
+                        detail: format!("publish error: {err:#}"),
                         ..Default::default()
                     }],
                     created: None,

@@ -108,15 +108,9 @@ async fn test_dependencies_and_controllers() {
         }
     }));
 
-    let first_pub_id = harness.control_plane().next_pub_id();
     let result = harness
         .control_plane()
-        .publish(
-            first_pub_id,
-            Some(format!("initial publication")),
-            Uuid::new_v4(),
-            draft,
-        )
+        .publish(Some(format!("initial publication")), Uuid::new_v4(), draft)
         .await
         .expect("initial publish failed");
     assert!(
@@ -181,11 +175,9 @@ async fn test_dependencies_and_controllers() {
         is_touch: false,
     });
 
-    let next_pub = harness.control_plane().next_pub_id();
     let result = harness
         .control_plane()
         .publish(
-            next_pub,
             Some("test publication of owls/hoots".to_string()),
             Uuid::new_v4(),
             draft,
@@ -194,7 +186,6 @@ async fn test_dependencies_and_controllers() {
         .expect("publication failed");
     assert_eq!(1, result.draft.spec_count());
     assert!(result.status.is_success());
-    assert_eq!(next_pub, result.pub_id);
 
     // Simulate a failed call to activate the collection in the data plane
     harness.control_plane().fail_next_activation("owls/hoots");
@@ -294,15 +285,9 @@ async fn test_dependencies_and_controllers() {
         model: Some(live_hoots.model.clone()),
         is_touch: false,
     });
-    let pub_id = harness.control_plane().next_pub_id();
     harness
         .control_plane()
-        .publish(
-            pub_id,
-            Some("3rd pub of hoots".to_string()),
-            Uuid::new_v4(),
-            draft,
-        )
+        .publish(Some("3rd pub of hoots".to_string()), Uuid::new_v4(), draft)
         .await
         .expect("publication must succeed");
     let runs = harness.run_pending_controllers(None).await;
@@ -350,20 +335,14 @@ async fn test_dependencies_and_controllers() {
     // notified after the deletion
     let mut draft = tables::DraftCatalog::default();
     draft.delete("owls/hoots", CatalogType::Collection, None);
-    let del_pub_id = harness.control_plane().next_pub_id();
     let del_result = harness
         .control_plane()
-        .publish(
-            del_pub_id,
-            Some("delete owls/hoots".to_string()),
-            Uuid::new_v4(),
-            draft,
-        )
+        .publish(Some("delete owls/hoots".to_string()), Uuid::new_v4(), draft)
         .await
         .expect("failed to publish collection deletion");
     assert!(del_result.status.is_success());
     harness
-        .assert_live_spec_soft_deleted("owls/hoots", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/hoots", del_result.pub_id)
         .await;
 
     // All the controllers ought to run now. The collection controller should run first and notfiy
@@ -469,20 +448,14 @@ async fn test_dependencies_and_controllers() {
     // Delete the capture, and expect the materialization to respond by removing the `sourceCapture`
     let mut draft = tables::DraftCatalog::default();
     draft.delete("owls/capture", CatalogType::Capture, None);
-    let del_pub_id = harness.control_plane().next_pub_id();
     let result = harness
         .control_plane()
-        .publish(
-            del_pub_id,
-            Some("deleting capture".to_string()),
-            Uuid::new_v4(),
-            draft,
-        )
+        .publish(Some("deleting capture".to_string()), Uuid::new_v4(), draft)
         .await
         .expect("failed to publish");
     assert!(result.status.is_success());
     harness
-        .assert_live_spec_soft_deleted("owls/capture", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/capture", result.pub_id)
         .await;
 
     harness.control_plane().fail_next_build(
@@ -540,11 +513,9 @@ async fn test_dependencies_and_controllers() {
     draft.delete("owls/nests", CatalogType::Collection, None);
     draft.delete("owls/test-test", CatalogType::Test, None);
 
-    let del_pub_id = harness.control_plane().next_pub_id();
     let del_result = harness
         .control_plane()
         .publish(
-            del_pub_id,
             Some("delete owls/ stuff".to_string()),
             Uuid::new_v4(),
             draft,
@@ -553,13 +524,13 @@ async fn test_dependencies_and_controllers() {
         .expect("failed to publish deletions");
     assert!(del_result.status.is_success());
     harness
-        .assert_live_spec_soft_deleted("owls/materialize", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/materialize", del_result.pub_id)
         .await;
     harness
-        .assert_live_spec_soft_deleted("owls/nests", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/nests", del_result.pub_id)
         .await;
     harness
-        .assert_live_spec_soft_deleted("owls/test-test", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/test-test", del_result.pub_id)
         .await;
 
     let runs = harness.run_pending_controllers(None).await;

@@ -130,7 +130,7 @@ async fn test_specs_with_null_bytes() {
         Error {
             catalog_name: "",
             scope: None,
-            detail: "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
+            detail: "publish error: a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
         },
     ]
     "###);
