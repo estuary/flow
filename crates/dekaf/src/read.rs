@@ -252,7 +252,7 @@ impl Read {
         }
 
         let opts = RecordEncodeOptions {
-            compression: Compression::Lz4,
+            compression: Compression::None,
             version: 2,
         };
         RecordBatchEncoder::encode(&mut buf, records.iter(), &opts)
