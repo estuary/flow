@@ -66,23 +66,20 @@ curl 'https://console.neon.tech/api/v2/projects/hidden-cell-763301/branches/br-b
 
 ### 3. Grant Schema Access to Your Postgres Role
 
-If your replication role does not own the schemas and tables you are replicating from, make sure to grant access. Run these commands for each schema:
+If your replication role does not own the schemas and tables you are replicating from, make sure to grant access. Run this commands for each schema:
 
 ```sql
-GRANT USAGE ON SCHEMA public TO cdc_role;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO cdc_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO cdc_role;
+GRANT pg_read_all_data TO cdc_role;
 ```
 
-Granting `SELECT ON ALL TABLES IN SCHEMA` instead of naming the specific tables avoids having to add privileges later if you add tables to your publication.
-
-### 4. Create a Publication
-
-Create a [publication](https://www.postgresql.org/docs/current/sql-createpublication.html) with the name `estuary_publication`. Include all the tables you would like to ingest into Estuary Flow.
+### 4. Create the watermarks table, grant privileges, and create publication:
 
 ```sql
-CREATE PUBLICATION flow_publication FOR TABLE <tbl1, tbl2, tbl3>;
+CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+CREATE PUBLICATION flow_publication;
 ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
 ```
 
 The `publish_via_partition_root`
