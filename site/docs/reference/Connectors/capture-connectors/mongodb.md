@@ -27,11 +27,57 @@ If you are using a user with access to all databases, then in your mongodb addre
 `?authSource=admin` parameter so that authentication is done through your admin database.
 :::
 
-- ReplicaSet enabled on your database, see [Deploy a Replica
-  Set](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set/).
-
 - If you are using MongoDB Atlas, or your MongoDB provider requires allowlisting of IPs, you need to
   [allowlist the Estuary IP addresses](/reference/allow-ip-addresses).
+
+## Capture Modes
+
+MongoDB [change streams](https://www.mongodb.com/docs/manual/changeStreams/) are
+the preferred way to capture on-going changes to collections. Change streams
+allow capturing real-time events representing new documents in your collections,
+updates to existing documents, and deletions of documents. If change streams are
+enabled on the MongoDB instance/deployment you are connecting to, they will be
+used preferentially for capturing changes.
+
+An alternate "batch" mode of capturing documents can be used for deployments
+that do not support change streams, and for MongoDB collection types that do not
+support change streams ([views](https://www.mongodb.com/docs/manual/core/views/)
+and [time
+series](https://www.mongodb.com/docs/manual/core/timeseries-collections/)
+collections). The capture mode is configured on a per-collection level in the
+**Bindings** configuration and can be one of the following:
+- **Change Stream Incremental**: This is the preferred mode and uses change streams to capture change events.
+- **Batch Snapshot**: Performs a "full refresh" by scanning the entire MongoDB
+  collection on a set schedule. A cursor field must be configured, which should
+  usually be the `_id` field.
+- **Batch Incremental**: Performs a scan on a set schedule where only documents
+  having a higher cursor field value than previously observed are captured. This
+  mode should be used for append-only collections, or where a field value is
+  known to be strictly increasing for all document insertions and updates.
+
+:::tip Using Cursor Fields
+For best performance the selected cursor field should have an
+[index](https://www.mongodb.com/docs/manual/indexes/). This ensures backfill
+queries are able to be run efficiently, since they require sorting the
+collection based on the cursor field.
+:::
+
+:::tip Time Series Collections
+Time series collections do _not_ have a default index on the `_id`, but do have
+an index on the `timeField` for the collection. This makes the `timeField` a
+good choice for an incremental cursor if new documents are only ever added to
+the collection with strictly increasing values for the `timeField`. The capture
+connector will automatically discover time series collections in **Batch
+Incremental** mode with the cursor set to the collection's `timeField`.
+:::
+
+Only the **Change Stream Incremental** mode is capable of capturing deletion
+events. **Batch Snapshot** will capture updates by virtue of it re-capturing the
+entire source collection periodically. **Batch Incremental** _may_ capture
+updates to documents if updated documents have strictly increasing values for
+the cursor field.
+
+
 
 ## Configuration
 
@@ -44,19 +90,25 @@ MongoDB source connector.
 
 #### Endpoint
 
-| Property        | Title    | Description                                                                                                                        | Type   | Required/Default |
-| --------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
-| **`/address`**  | Address  | Host and port of the database. Optionally can specify scheme for the URL such as mongodb+srv://host.                               | string | Required         |
-| **`/user`**     | User     | Database user to connect as.                                                                                                       | string | Required         |
-| **`/password`** | Password | Password for the specified database user.                                                                                          | string | Required         |
-| `/database`     | Database | Optional comma-separated list of the databases to discover. If not provided will discover all available databases in the instance. | string |                  |
+| Property                | Title                                                              | Description                                                                                                                                                                                                                                                                                                     | Type    | Required/Default |
+|-------------------------|--------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|------------------|
+| **`/address`**          | Address                                                            | Host and port of the database. Optionally can specify scheme for the URL such as mongodb+srv://host.                                                                                                                                                                                                            | string  | Required         |
+| **`/user`**             | User                                                               | Database user to connect as.                                                                                                                                                                                                                                                                                    | string  | Required         |
+| **`/password`**         | Password                                                           | Password for the specified database user.                                                                                                                                                                                                                                                                       | string  | Required         |
+| `/database`             | Database                                                           | Optional comma-separated list of the databases to discover. If not provided will discover all available databases in the instance.                                                                                                                                                                              | string  |                  |
+| `/batchAndChangeStream` | Capture Batch Collections in Addition to Change Stream Collections | Discover collections that can only be batch captured if the deployment supports change streams. Check this box to capture views and time series collections as well as change streams. All collections will be captured in batch mode if the server does not support change streams regardless of this setting. | boolean |                  |
+| `/pollSchedule`         | Default Batch Collection Polling Schedule                          | When and how often to poll batch collections. Accepts a Go duration string like '5m' or '6h' for frequency-based polling or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. Defaults to '24h' if unset                                                                 | string  |                  |
 
 #### Bindings
 
-| Property          | Title    | Description     | Type   | Required/Default |
-| ----------------- | -------- | --------------- | ------ | ---------------- |
-| **`/database`**   | Database | Database name   | string | Required         |
-| **`/collection`** | Stream   | Collection name | string | Required         |
+| Property          | Title            | Description                                                                                                                                                                                                                                                                                | Type   | Required/Default |
+|-------------------|------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
+| **`/database`**   | Database         | Database name                                                                                                                                                                                                                                                                              | string | Required         |
+| **`/collection`** | Stream           | Collection name                                                                                                                                                                                                                                                                            | string | Required         |
+| `/captureMode`    | Capture Mode     | Either **Change Stream Incremental**, **Batch Snapshot**, or **Batch Incremental**                                                                                                                                                                                                         | string |                  |
+| `/cursorField`    | Cursor Field     | The name of the field to use as a cursor for batch-mode bindings. For best performance this field should be indexed. When used with 'Batch Incremental' mode documents added to the collection are expected to always have the cursor field and for it to be strictly increasing.          | string |                  |
+| `/pollSchedule`   | Polling Schedule | When and how often to poll batch collections (overrides the connector default setting). Accepts a Go duration string like '5m' or '6h' for frequency-based polling or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. Defaults to '24h' if unset. | string |                  |
+
 
 ### Sample
 
