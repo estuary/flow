@@ -44,13 +44,13 @@ To create a role in the Neon Console:
 6. In the role creation dialog, specify a role name.
 7. Click **Create**. The role is created and you are provided with the password for the role.
 
-The following CLI command creates a role. To view the CLI documentation for this command, see [Neon CLI commands — roles](https://api-docs.neon.tech/reference/createprojectbranchrole).
+Alternatively, the following CLI command creates a role. To view the CLI documentation for this command, see [Neon CLI commands — roles](https://api-docs.neon.tech/reference/createprojectbranchrole).
 
 ```bash
 neon roles create --name <role>
 ```
 
-The following Neon API method creates a role. To view the API documentation for this method, refer to the Neon API reference.
+As a third option, the following Neon API method also creates a role. To view the API documentation for this method, refer to the Neon API reference.
 
 ```bash
 curl 'https://console.neon.tech/api/v2/projects/hidden-cell-763301/branches/br-blue-tooth-671580/roles' \
@@ -108,14 +108,14 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
 3. Enter the connection details for your Neon database. You can get these details from your Neon connection string, which you'll find in the **Connection Details** widget on the **Dashboard** of your Neon project. Your connection string will look like this:
 
    ```bash
-   postgres://alex:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
+   postgres://cdc_role:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
    ```
    Enter the details for **your connection string** into the source connector fields. Based on the sample connection string above, the values would be specified as shown below. Your values will differ.
    
    - Name: Name of the Capture connector
    - Server Address: ep-cool-darkness-123456.us-east-2.aws.neon.tech:5432
    - User: cdc_role
-   - Password: Click **Add a new secret...**, then specify a name for that secret and `AbC123dEf` as its value
+   - Password: `AbC123dEf` in the example, or your own value based on the connection string.
    - Database: dbname
 
 3. Click **Next**. Estuary Flow will now scan the source database for all the tables that can be replicated. Select one or more table(s) by checking the checkbox next to their name.
