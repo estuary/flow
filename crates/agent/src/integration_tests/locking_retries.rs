@@ -23,7 +23,7 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/also-new": minimal_capture(Some(Id::new([8, 7, 6, 5, 4, 3, 2, 1])), &["mice/does-not-exist"]),
         }
     }));
-    let naughty_pub_id = harness.control_plane().next_pub_id();
+    let naughty_pub_id = Id::new([8; 8]);
     // If a user explicitly sets `expectPubId` in the model, then a mismatch gets returned as a
     // build error, before we even try to commit.
     let result = harness
@@ -65,7 +65,7 @@ async fn test_publication_optimistic_locking_failures() {
         }
     });
 
-    let will_fail_pub = harness.control_plane().next_pub_id();
+    let will_fail_pub = Id::new([9; 8]);
     let will_fail_build = harness
         .publisher
         .build(
@@ -79,7 +79,7 @@ async fn test_publication_optimistic_locking_failures() {
         .await
         .expect("build a failed");
 
-    let will_commit_pub = harness.control_plane().next_pub_id();
+    let will_commit_pub = Id::new([10; 8]);
     let will_commit_build = harness
         .publisher
         .build(
@@ -118,7 +118,7 @@ async fn test_publication_optimistic_locking_failures() {
     // Now simulate raced publications of cheese and seeds, wich each publication having "expanded"
     // to include the capture.
     let expect_current_build_id = will_commit_build_id;
-    let will_fail_pub_id = harness.control_plane().next_pub_id();
+    let will_fail_pub_id = Id::new([11; 8]);
     let cheese_draft = draft_catalog(serde_json::json!({
         "collections": {
             "mice/cheese": minimal_collection(None),
@@ -141,7 +141,7 @@ async fn test_publication_optimistic_locking_failures() {
         .expect("cheese build failed");
     assert!(!will_fail_build.has_errors());
 
-    let will_commit_pub = harness.control_plane().next_pub_id();
+    let will_commit_pub = Id::new([12; 8]);
     let will_commit_draft = draft_catalog(serde_json::json!({
         "collections": {
             "mice/seeds": minimal_collection(None),
