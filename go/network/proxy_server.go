@@ -1,28 +1,29 @@
-package runtime
+package network
 
 import (
 	"context"
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"sync/atomic"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"golang.org/x/net/trace"
 )
 
-type proxyServer struct {
-	resolver *consumer.Resolver
+// ProxyServer is the "backend" of connector networking.
+// It accepts Proxy requests from the Frontend and connects them to the
+// corresponding TCP port of a running connector container.
+type ProxyServer struct {
+	Resolver *consumer.Resolver
 }
 
-func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServer) (_err error) {
+func (ps *ProxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServer) (_err error) {
 	var ctx = stream.Context()
 
 	var open, err = stream.Recv()
@@ -31,11 +32,8 @@ func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 	} else if err := validateOpen(open); err != nil {
 		return fmt.Errorf("invalid open proxy message: %w", err)
 	}
-	var labels = []string{
-		open.Open.ShardId.String(), strconv.Itoa(int(open.Open.TargetPort)),
-	}
 
-	resolution, err := ps.resolver.Resolve(consumer.ResolveArgs{
+	resolution, err := ps.Resolver.Resolve(consumer.ResolveArgs{
 		Context:     ctx,
 		Claims:      claims,
 		MayProxy:    false,
@@ -58,7 +56,9 @@ func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 	}
 
 	// Resolve the target port to the current container.
-	var container, publisher = resolution.Store.(Application).proxyHook()
+	var container, publisher = resolution.Store.(interface {
+		ProxyHook() (*pr.Container, ops.Publisher)
+	}).ProxyHook()
 	resolution.Done()
 
 	if tr, ok := trace.FromContext(ctx); ok {
@@ -109,8 +109,6 @@ func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 		"clientAddr", open.Open.ClientAddr,
 		"targetPort", open.Open.TargetPort,
 	)
-	proxyConnectionsAcceptedCounter.WithLabelValues(labels...).Inc()
-
 	var inbound, outbound uint64
 
 	defer func() {
@@ -121,18 +119,12 @@ func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 			"byteOut", outbound,
 			"error", _err,
 		)
-		if _err == nil {
-			proxyConnectionsClosedCounter.WithLabelValues(append(labels, "ok")...).Inc()
-		} else {
-			proxyConnectionsClosedCounter.WithLabelValues(append(labels, "error")...).Inc()
-		}
 	}()
 
 	// Forward loop that proxies from `client` => `delegate`.
 	go func() {
 		defer delegate.CloseWrite()
 
-		var counter = proxyConnBytesInboundCounter.WithLabelValues(labels...)
 		for {
 			if request, err := stream.Recv(); err != nil {
 				err = pf.UnwrapGRPCError(err)
@@ -151,7 +143,6 @@ func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 				return
 			} else {
 				atomic.AddUint64(&inbound, uint64(n))
-				counter.Add(float64(n))
 			}
 		}
 	}()
@@ -160,7 +151,6 @@ func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 	// When this loop completes, so does the Proxy RPC.
 
 	var buffer = make([]byte, 1<<14) // 16KB.
-	var counter = proxyConnBytesOutboundCounter.WithLabelValues(labels...)
 	for {
 		if n, err := delegate.Read(buffer); err == io.EOF {
 			return nil
@@ -172,7 +162,6 @@ func (ps *proxyServer) Proxy(claims pb.Claims, stream pf.NetworkProxy_ProxyServe
 			return nil
 		} else {
 			outbound += uint64(n)
-			counter.Add(float64(n))
 		}
 	}
 }
@@ -199,26 +188,6 @@ func validateOpen(req *pf.TaskNetworkProxyRequest) error {
 
 	return nil
 }
-
-// Prometheus metrics for connector TCP networking.
-// These metrics match those collected by data-plane-gateway.
-var proxyConnectionsAcceptedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "net_proxy_conns_accept_total",
-	Help: "counter of proxy connections that have been accepted",
-}, []string{"shard", "port"})
-var proxyConnectionsClosedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "net_proxy_conns_closed_total",
-	Help: "counter of proxy connections that have completed and closed",
-}, []string{"shard", "port", "status"})
-
-var proxyConnBytesInboundCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "net_proxy_conn_inbound_bytes_total",
-	Help: "total bytes proxied from client to container",
-}, []string{"shard", "port"})
-var proxyConnBytesOutboundCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "net_proxy_conn_outbound_bytes_total",
-	Help: "total bytes proxied from container to client",
-}, []string{"shard", "port"})
 
 // See crates/runtime/src/container.rs
 const connectorInitPort = 49092
