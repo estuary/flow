@@ -456,6 +456,10 @@
         }
       }
     },
+    "DekafConfig": {
+      "description": "Dekaf configuration. Currently empty, but present to enable easy addition of config options when they show up in the future.",
+      "type": "object"
+    },
     "Derivation": {
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
@@ -910,6 +914,19 @@
           "properties": {
             "local": {
               "$ref": "#/definitions/LocalConfig"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "A Dekaf connection",
+          "type": "object",
+          "required": [
+            "dekaf"
+          ],
+          "properties": {
+            "dekaf": {
+              "$ref": "#/definitions/DekafConfig"
             }
           },
           "additionalProperties": false
