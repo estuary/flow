@@ -103,10 +103,8 @@ impl MaterializationStatus {
                     .with_maybe_retry(backoff_publication_failure(state.failures))
                     .context("applying evolution actions")?;
 
-                // Always use a new pub_id since we're modifying the model
-                let publication_id = control_plane.next_pub_id();
                 let new_result = control_plane
-                    .publish(publication_id, detail, state.logs_token, draft)
+                    .publish(detail, state.logs_token, draft)
                     .await
                     .context("failed to execute publication")?;
                 self.publications

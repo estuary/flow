@@ -1016,11 +1016,11 @@ impl ControlPlane for TestControlPlane {
     /// one day allow this to be replaced with something less bespoke.
     async fn publish(
         &mut self,
-        publication_id: models::Id,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
     ) -> anyhow::Result<PublicationResult> {
+        let publication_id = self.inner.id_generator.next();
         let mut result = self
             .inner
             .publications_handler
@@ -1054,10 +1054,6 @@ impl ControlPlane for TestControlPlane {
         } else {
             self.inner.publications_handler.commit(result).await
         }
-    }
-
-    fn next_pub_id(&mut self) -> models::Id {
-        self.inner.next_pub_id()
     }
 
     async fn data_plane_activate(
