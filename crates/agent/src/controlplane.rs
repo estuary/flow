@@ -46,9 +46,6 @@ pub trait ControlPlane: Send {
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
 
-    /// Returns a new, globally unique publication id.
-    fn next_pub_id(&mut self) -> models::Id;
-
     /// Activates the given built spec in the data plane.
     async fn data_plane_activate(
         &mut self,
@@ -74,7 +71,6 @@ pub trait ControlPlane: Send {
     /// an `Ok`, where the `PublicationResult` has a non-success status.
     async fn publish(
         &mut self,
-        publication_id: models::Id,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
@@ -350,7 +346,6 @@ impl ControlPlane for PGControlPlane {
 
     async fn publish(
         &mut self,
-        publication_id: models::Id,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
@@ -360,6 +355,7 @@ impl ControlPlane for PGControlPlane {
         loop {
             let draft = maybe_draft.take().expect("draft must be Some");
             attempt += 1;
+            let publication_id = self.id_generator.next();
             let built = self
                 .publications_handler
                 .build(
@@ -389,10 +385,6 @@ impl ControlPlane for PGControlPlane {
                 maybe_draft = Some(commit_result.draft);
             }
         }
-    }
-
-    fn next_pub_id(&mut self) -> models::Id {
-        self.id_generator.next()
     }
 
     async fn data_plane_activate(
