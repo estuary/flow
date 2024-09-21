@@ -39,7 +39,10 @@ func dialShard(
 	shardStartedCounter.WithLabelValues(labels...).Inc()
 
 	var fetched, err = listShards(ctx, shardClient, parsed, resolved.shardIDPrefix)
-	if err != nil {
+	if err == context.Canceled {
+		shardHandledCounter.WithLabelValues(append(labels, "ListCancelled")...).Inc()
+		return nil, err
+	} else if err != nil {
 		shardHandledCounter.WithLabelValues(append(labels, "ErrList")...).Inc()
 		return nil, fmt.Errorf("failed to list matching task shards: %w", err)
 	}
@@ -68,14 +71,17 @@ func dialShard(
 	var picked = fetched[primary]
 
 	rpc, err := networkClient.Proxy(
+		// Build a context that routes to the shard primary and encodes `claims`.
+		// We do not wrap `ctx` because that's only the context for dialing,
+		// and not the context of the long-lived connection that results.
 		pb.WithDispatchRoute(
-			pb.WithClaims(ctx, claims),
+			pb.WithClaims(context.Background(), claims),
 			picked.Route,
 			picked.Route.Members[picked.Route.Primary],
 		),
 	)
 	if err != nil {
-		shardHandledCounter.WithLabelValues(append(labels, "ErrProxy")...).Inc()
+		shardHandledCounter.WithLabelValues(append(labels, "ErrCallProxy")...).Inc()
 		return nil, fmt.Errorf("failed to start network proxy RPC to task shard: %w", err)
 	}
 
@@ -90,7 +96,7 @@ func dialShard(
 
 	opened, err := rpc.Recv()
 	if err != nil {
-		err = fmt.Errorf("failed to read opened response from task shard: %w", err)
+		err = fmt.Errorf("failed to read opened response from task shard: %w", pf.UnwrapGRPCError(err))
 	} else if opened.OpenResponse == nil {
 		err = fmt.Errorf("task shard proxy RPC is missing expected OpenResponse")
 	} else if status := opened.OpenResponse.Status; status != pf.TaskNetworkProxyResponse_OK {
@@ -127,7 +133,7 @@ func dialShard(
 // Write to the shard proxy client. MUST not be called concurrently with Close.
 func (pc *proxyClient) Write(b []byte) (n int, err error) {
 	if err = pc.rpc.Send(&pf.TaskNetworkProxyRequest{Data: b}); err != nil {
-		return 0, err
+		return 0, err // This is io.EOF if the RPC is reset.
 	}
 	pc.nWrite.Add(float64(len(b)))
 	return len(b), nil
@@ -148,7 +154,7 @@ func (pc *proxyClient) Read(b []byte) (n int, err error) {
 			} else {
 				shardHandledCounter.WithLabelValues(append(pc.labels, "ErrRead")...).Inc()
 			}
-			return 0, err
+			return 0, pf.UnwrapGRPCError(err)
 		} else {
 			pc.buf = rx.Data
 			pc.rxCh <- struct{}{} // Yield token.
@@ -182,7 +188,7 @@ func (pc *proxyClient) Close() error {
 			return nil
 		} else if err != nil {
 			shardHandledCounter.WithLabelValues(append(pc.labels, "ErrClose")...).Inc()
-			return err
+			return pf.UnwrapGRPCError(err)
 		}
 	}
 }
