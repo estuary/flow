@@ -99,7 +99,10 @@ fn evaluate_authorization(
             },
         },
         // TODO(johnny): Temporary support for data-plane-gateway.
-        prefixes: vec![collection.journal_template_name.clone()],
+        prefixes: vec![
+            collection_name.to_string(),
+            collection.journal_template_name.clone(),
+        ],
     };
     let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
         .context("failed to encode authorized JWT")?;
