@@ -135,7 +135,7 @@ fn evaluate_authorization(
                 exclude: None,
             },
         },
-        prefixes: vec![task.task_name.to_string()],
+        prefixes: vec![task.task_name.to_string(), task.shard_template_id.clone()],
     };
     let reactor_token = jsonwebtoken::encode(&header, &claims, &encoding_key)
         .context("failed to encode authorized JWT")?;
