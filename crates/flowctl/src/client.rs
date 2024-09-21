@@ -85,15 +85,15 @@ impl Client {
             builder = builder.bearer_auth(token);
         }
 
-        let response = self
-            .http_client
-            .execute(builder.build()?)
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let response = self.http_client.execute(builder.build()?).await?;
+        let status = response.status();
 
-        Ok(response)
+        if status.is_success() {
+            Ok(response.json().await?)
+        } else {
+            let body = response.text().await?;
+            anyhow::bail!("{status}: {body}");
+        }
     }
 }
 
@@ -134,12 +134,26 @@ pub async fn fetch_task_authorization(
             .await?;
 
         if response.retry_millis != 0 {
-            tracing::debug!(response.retry_millis, "sleeping before retrying request");
+            tracing::warn!(
+                secs = response.retry_millis as f64 / 1000.0,
+                "authorization service tentatively rejected our request, but will retry before failing"
+            );
             () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
             continue;
         }
         break response;
     };
+
+    tracing::debug!(
+        broker_address,
+        broker_token,
+        ops_logs_journal,
+        ops_stats_journal,
+        reactor_address,
+        reactor_token,
+        shard_id_prefix,
+        "resolved task data-plane and authorization"
+    );
 
     let mut md = gazette::Metadata::default();
     md.bearer_token(&reactor_token)?;
@@ -191,12 +205,22 @@ pub async fn fetch_collection_authorization(
             .await?;
 
         if response.retry_millis != 0 {
-            tracing::debug!(response.retry_millis, "sleeping before retrying request");
+            tracing::warn!(
+                secs = response.retry_millis as f64 / 1000.0,
+                "authorization service tentatively rejected our request, but will retry before failing"
+            );
             () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
             continue;
         }
         break response;
     };
+
+    tracing::debug!(
+        broker_address,
+        broker_token,
+        journal_name_prefix,
+        "resolved collection data-plane and authorization"
+    );
 
     let mut md = gazette::Metadata::default();
     md.bearer_token(&broker_token)?;
