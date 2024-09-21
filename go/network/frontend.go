@@ -60,8 +60,7 @@ type Frontend struct {
 // frontendConn is the state of a connection initiated
 // by a user into the Frontend.
 type frontendConn struct {
-	id  uintptr
-	ctx context.Context
+	id uintptr
 
 	// Raw and TLS-wrapped connections to the user.
 	raw net.Conn
@@ -153,7 +152,6 @@ func (p *Frontend) Serve(ctx context.Context) (_err error) {
 func (p *Frontend) serveConn(ctx context.Context, raw net.Conn) {
 	var conn = &frontendConn{
 		id:  reflect.ValueOf(raw).Pointer(),
-		ctx: ctx,
 		raw: raw,
 		tls: tls.Server(raw, p.tlsConfig),
 	}
@@ -164,7 +162,7 @@ func (p *Frontend) serveConn(ctx context.Context, raw net.Conn) {
 	p.handshakeMu.Unlock()
 
 	// The TLS handshake machinery will next call into getTLSConfigForClient().
-	var err = conn.tls.HandshakeContext(conn.ctx)
+	var err = conn.tls.HandshakeContext(ctx)
 
 	// Clear `conn` from the map of current handshakes.
 	p.handshakeMu.Lock()
@@ -172,7 +170,10 @@ func (p *Frontend) serveConn(ctx context.Context, raw net.Conn) {
 	p.handshakeMu.Unlock()
 
 	if err != nil {
-		handshakeCounter.WithLabelValues(err.Error()).Inc() // `err` is low-variance.
+		if conn.dialed != nil {
+			_ = conn.dialed.Close() // Handshake failed after we dialed the shard.
+		}
+		handshakeCounter.WithLabelValues("ErrHandshake").Inc()
 		p.serveConnErr(conn.raw, 421, "This service may only be accessed using TLS, such as through an https:// URL.\n")
 		return
 	}
@@ -238,7 +239,7 @@ func (p *Frontend) getTLSConfigForClient(hello *tls.ClientHelloInfo) (*tls.Confi
 		// think it has a good connection.
 		var addr = conn.raw.RemoteAddr().String()
 		conn.dialed, conn.dialErr = dialShard(
-			conn.ctx, p.networkClient, p.shardClient, conn.parsed, conn.resolved, addr)
+			hello.Context(), p.networkClient, p.shardClient, conn.parsed, conn.resolved, addr)
 	}
 
 	var nextProtos []string
@@ -374,7 +375,6 @@ func (p *Frontend) serveConnHTTP(user *frontendConn) {
 		// MaxConcurrentStreams is an important setting left as the default (100).
 		IdleTimeout: time.Minute,
 	}).ServeConn(user.tls, &http2.ServeConnOpts{
-		Context: user.ctx,
 		Handler: http.HandlerFunc(handle),
 	})
 

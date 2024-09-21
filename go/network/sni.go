@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/estuary/flow/go/labels"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
@@ -108,7 +109,7 @@ func listShards(ctx context.Context, shards pc.ShardClient, parsed parsedSNI, sh
 		err = errors.New(resp.Status.String())
 	}
 	if err != nil {
-		return nil, err
+		return nil, pf.UnwrapGRPCError(err)
 	}
 
 	return resp.Shards, nil
