@@ -94,8 +94,13 @@ func NewFrontend(
 	if tap.raw == nil {
 		return nil, fmt.Errorf("Tap has not tapped a raw net.Listener")
 	}
+	if strings.ToLower(fqdn) != fqdn {
+		return nil, fmt.Errorf("fqdn must be lowercase, because DNS names are not case sensitive")
+	}
 
-	var domains, fqdnParts []string = nil, strings.Split(fqdn, ".")
+	// Generate all subdomains of `fqdn`, including itself.
+	// Also allow `localhost` to enable pass-through when port-forwarding.
+	var domains, fqdnParts = []string{"localhost"}, strings.Split(fqdn, ".")
 	for i := range fqdnParts {
 		domains = append(domains, strings.Join(fqdnParts[i:], "."))
 	}
