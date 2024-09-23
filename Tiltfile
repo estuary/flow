@@ -38,30 +38,34 @@ local_resource(
 local_resource(
     'self-signed-tls-cert',
     dir=REPO_BASE,
-    cmd='[ -f "%s" ] && [ -f "%s" ] || (\
+    cmd = '''
+    if [ ! -f "%s" ] || [ ! -f "%s" ]; then
+        mkdir -p $(dirname "%s")
+
         openssl req -x509 -nodes -days 3650 \
             -subj "/C=US/ST=QC/O=Estuary/CN=Estuary Root CA" \
-            -addext basicConstraints=critical,CA:TRUE,pathlen:0 \
             -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
             -keyout "%s" \
-            -out "%s" \
-    ) && (\
+            -out "%s"
+
         openssl req -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
             -subj "/C=US/ST=QC/O=Estuary/CN=flow.localhost" \
             -addext "subjectAltName=DNS:flow.localhost,DNS:*.flow.localhost,IP:127.0.0.1" \
-            -keyout "%s" -out server.csr \
-    ) && (\
-        echo "subjectAltName=DNS:flow.localhost,DNS:*.flow.localhost,IP:127.0.0.1" > extfile.txt && \
-        echo "basicConstraints=CA:FALSE" >> extfile.txt && \
+            -keyout "%s" -out server.csr
+
+        echo "subjectAltName=DNS:flow.localhost,DNS:*.flow.localhost,IP:127.0.0.1" > extfile.txt
+        echo "basicConstraints=CA:FALSE" >> extfile.txt
         openssl x509 -req -days 365 \
             -in server.csr -CA "%s" -CAkey "%s" -CAcreateserial \
             -out "%s" \
-            -extfile extfile.txt \
-    ) && (\
-        rm server.csr extfile.txt \
-    )' % (
-        TLS_CERT_PATH,   # Check if server certificate already exists
-        TLS_KEY_PATH,    # Check if server key already exists
+            -extfile extfile.txt
+
+        rm server.csr extfile.txt
+    fi
+    ''' % (
+        TLS_CERT_PATH,   # Check if server certificate exists
+        TLS_KEY_PATH,    # Check if server key exists
+        TLS_CERT_PATH,   # Server certificate path for mkdir
         CA_KEY_PATH,     # CA key output path (ECDSA)
         CA_CERT_PATH,    # CA certificate output path
         TLS_KEY_PATH,    # Server key output path (ECDSA)
