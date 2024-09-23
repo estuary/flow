@@ -81,7 +81,7 @@ These two different connection modes have some key differences:
 
    2. Give the role a name, for example, `estuary-integration-role`.
 
-   3. The easiest thing to do here is to click "Core Administrative Permissions". If you want to scope down the permissions given to the connector (which you should) you'll have to determine which permissions are necessary. This can get tricky because many different settings can expand the required permissions (for instance, a custom script on a record could require additional permissions).
+   3. The easiest thing to do here is to click "Core Administrative Permissions". If you want to scope down the permissions given to the connector (which you should) you'll have to determine which permissions are necessary. This is challenging because many different settings and configurations can expand the required permissions. [Check out this repository](https://github.com/iloveitaly/netsuite-permissions) for help with determining exactly which permissions are required in your case.
 
    4. Scroll to the **Permissions** section.
 
