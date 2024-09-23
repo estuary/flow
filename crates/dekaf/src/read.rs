@@ -1,10 +1,12 @@
 use super::{Collection, Partition};
 use anyhow::bail;
-use bytes::BufMut;
+use bytes::{Buf, BufMut, BytesMut};
 use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
+use kafka_protocol::records::Compression;
+use lz4_flex::frame::BlockMode;
 use std::time::Duration;
 
 pub struct Read {
@@ -255,7 +257,7 @@ impl Read {
             compression: Compression::None,
             version: 2,
         };
-        RecordBatchEncoder::encode(&mut buf, records.iter(), &opts)
+        RecordBatchEncoder::encode(&mut buf, records.iter(), &opts, Some(compressor))
             .expect("record encoding cannot fail");
 
         tracing::debug!(
@@ -275,4 +277,29 @@ impl Read {
 
         Ok((self, buf.freeze()))
     }
+}
+
+fn compressor<Output: BufMut>(
+    input: &mut BytesMut,
+    output: &mut Output,
+    c: Compression,
+) -> anyhow::Result<()> {
+    match c {
+        Compression::None => output.put(input),
+        Compression::Lz4 => {
+            let mut frame_info = lz4_flex::frame::FrameInfo::default();
+            // This breaks Go lz4 decoding
+            // frame_info.block_checksums = true;
+            frame_info.block_mode = BlockMode::Independent;
+
+            let mut encoder =
+                lz4_flex::frame::FrameEncoder::with_frame_info(frame_info, output.writer());
+
+            std::io::copy(&mut input.reader(), &mut encoder)?;
+
+            encoder.finish()?;
+        }
+        unsupported @ _ => bail!("Unsupported compression type {unsupported:?}"),
+    };
+    Ok(())
 }
