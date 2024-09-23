@@ -37,6 +37,7 @@ hex = { workspace = true }
 hexdump = { workspace = true }
 itertools = { workspace = true }
 kafka-protocol = { workspace = true }
+lz4_flex = { workspace = true }
 md5 = { workspace = true }
 metrics = { workspace = true }
 metrics-prometheus = { workspace = true }

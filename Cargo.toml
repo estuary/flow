@@ -59,7 +59,7 @@ flate2 = "1.0"
 futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
-fxhash = "0.2" # Used in `json` crate. Replace with xxhash.
+fxhash = "0.2"                                               # Used in `json` crate. Replace with xxhash.
 hex = "0.4.3"
 hexdump = "0.1"
 humantime = "2.1"
@@ -72,7 +72,9 @@ jemalloc-ctl = "0.3"
 json-patch = "0.3"
 jsonwebtoken = { version = "9", default-features = false }
 js-sys = "0.3.60"
-kafka-protocol = "0.11.0"
+# TODO(jshearer): Swap back after 0.13.0 is released, which includes
+# https://github.com/tychedelia/kafka-protocol-rs/pull/81
+kafka-protocol = { git = "https://github.com/tychedelia/kafka-protocol-rs.git", rev = "cabe835" }
 lazy_static = "1.4"
 libc = "0.2"
 librocksdb-sys = { version = "0.16.0", default-features = false, features = [
@@ -80,6 +82,7 @@ librocksdb-sys = { version = "0.16.0", default-features = false, features = [
     "rtti",
 ] }
 lz4 = "1.24.0"
+lz4_flex = "0.11.0"
 mime = "0.3"
 memchr = "2.5"
 metrics = "0.23.0"
