@@ -120,7 +120,7 @@ func (cmdServe) Execute(args []string) error {
 	pb.RegisterJournalServer(srv.GRPCServer, pb.NewVerifiedJournalServer(service, verifier))
 
 	var mux *runtime.ServeMux = runtime.NewServeMux(
-		runtime.WithMarshalerOption(runtime.MIMEWildcard, new(gateway.JSONPb)),
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, &gateway.JSONPb{EmitDefaults: true}),
 		runtime.WithProtoErrorHandler(runtime.DefaultHTTPProtoErrorHandler),
 	)
 	pb.RegisterJournalHandler(tasks.Context(), mux, srv.GRPCLoopback)

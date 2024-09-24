@@ -199,7 +199,7 @@ func (sc Cmd) Execute(args []string) error {
 	pc.RegisterShardServer(srv.GRPCServer, pc.NewVerifiedShardServer(service, service.Verifier))
 
 	var mux *runtime.ServeMux = runtime.NewServeMux(
-		runtime.WithMarshalerOption(runtime.MIMEWildcard, new(gateway.JSONPb)),
+		runtime.WithMarshalerOption(runtime.MIMEWildcard, &gateway.JSONPb{EmitDefaults: true}),
 		runtime.WithProtoErrorHandler(runtime.DefaultHTTPProtoErrorHandler),
 	)
 	pc.RegisterShardHandler(tasks.Context(), mux, srv.GRPCLoopback)
