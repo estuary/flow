@@ -687,9 +687,24 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
-            // Dekaf isn't a pluggable connector, and so does not have dynamic config to possibly
-            // load from a reference. All of its config is defined directly within models::DekafConfig.
-            models::MaterializationEndpoint::Dekaf(_) => {}
+            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Indirect(
+                location,
+            )) => {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("endpoint")
+                                .push_prop("dekaf")
+                                .push_prop("config"),
+                            location.as_str(),
+                        )
+                        .await
+                    }
+                    .boxed(),
+                );
+            }
+            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Direct(_)) => {}
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
