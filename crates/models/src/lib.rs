@@ -36,8 +36,8 @@ pub use journals::{
     AZURE_STORAGE_ACCOUNT_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
 };
 pub use materializations::{
-    MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
-    SqliteConfig,
+    DekafConfigContainer, MaterializationBinding, MaterializationDef, MaterializationEndpoint,
+    MaterializationFields, SqliteConfig,
 };
 pub use raw_value::RawValue;
 pub use references::{

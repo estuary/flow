@@ -462,8 +462,21 @@ expression: "&schema"
       }
     },
     "DekafConfig": {
-      "description": "Dekaf configuration. Currently empty, but present to enable easy addition of config options when they show up in the future.",
-      "type": "object"
+      "description": "Dekaf service configuration",
+      "type": "object",
+      "required": [
+        "config",
+        "variant"
+      ],
+      "properties": {
+        "config": {
+          "title": "Dekaf endpoint config."
+        },
+        "variant": {
+          "title": "Dekaf variant type",
+          "type": "string"
+        }
+      }
     },
     "Derivation": {
       "description": "Derive specifies how a collection is derived from other collections.",

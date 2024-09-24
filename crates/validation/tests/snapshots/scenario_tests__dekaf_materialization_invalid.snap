@@ -1,0 +1,51 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+assertion_line: 100
+expression: outcome
+---
+Outcome {
+    built_captures: [],
+    built_collections: [],
+    built_materializations: [],
+    built_tests: [],
+    captures: [],
+    collections: [],
+    errors: [],
+    errors_draft: [
+        Error {
+            scope: test://example/catalog.yaml,
+            error: failed to parse document (data did not match any variant of untagged enum DekafConfigContainer at line 1 column 288): data did not match any variant of untagged enum DekafConfigContainer at line 1 column 288,
+        },
+    ],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"collections":{"testing/schema_with_properties":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/test_dekaf":{"bindings":[{"resource":{},"source":"testing/schema_with_properties"}],"endpoint":{"dekaf":false}}}},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            catalog_prefix: ,
+            control_id: "0000000000000000",
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "a-bucket",
+                "prefix": null,
+                "region": null
+              }
+            ],
+        },
+    ],
+    tests: [],
+}
