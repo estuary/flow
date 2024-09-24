@@ -153,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to bind server port")?;
 
-    let metrics_router = dekaf::metrics::build_router(app.clone());
+    let metrics_router = dekaf::metrics_server::build_router(app.clone());
     let metrics_server_task =
         axum_server::bind(metrics_addr).serve(metrics_router.into_make_service());
     tokio::spawn(async move { metrics_server_task.await.unwrap() });
