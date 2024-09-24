@@ -7,11 +7,11 @@ use kafka_protocol::{
     protocol::{self, Decodable, Encodable, Request},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
-use std::{boxed::Box, collections::HashMap, fmt::Debug, io, time::Duration};
+use std::{boxed::Box, cell::Cell, collections::HashMap, fmt::Debug, io, time::Duration};
 use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::sync::RwLock;
 use tokio_rustls::rustls;
-use tokio_util::codec;
+use tokio_util::{codec, task::AbortOnDropHandle};
 use tracing::instrument;
 use url::Url;
 
@@ -239,6 +239,25 @@ async fn sasl_auth(
     Ok(())
 }
 
+async fn get_versions(
+    conn: &mut BoxedKafkaConnection,
+) -> anyhow::Result<messages::ApiVersionsResponse> {
+    let versions = send_request(
+        conn,
+        messages::ApiVersionsRequest::default()
+            .with_client_software_name(protocol::StrBytes::from_static_str("Dekaf"))
+            .with_client_software_version(protocol::StrBytes::from_static_str("1.0")),
+        None,
+    )
+    .await?;
+    match versions.error_code.err() {
+        None => {}
+        Some(e) => bail!("Error connecting to broker: {e}"),
+    };
+
+    Ok(versions)
+}
+
 #[derive(Clone)]
 struct KafkaConnectionParams {
     broker_url: String,
@@ -260,10 +279,16 @@ impl deadpool::managed::Manager for KafkaConnectionParams {
 
     async fn recycle(
         &self,
-        _: &mut BoxedKafkaConnection,
+        conn: &mut BoxedKafkaConnection,
         _: &deadpool::managed::Metrics,
     ) -> deadpool::managed::RecycleResult<anyhow::Error> {
-        Ok(())
+        // Other than auth, Kafka connections themselves are stateless
+        // so the only thing we need to do when recycling a connection
+        // is to confirm that it's still connected.
+        get_versions(conn).await.map(|_| ()).map_err(|e| {
+            tracing::warn!(err=?e, broker=self.broker_url, "Connection failed healthcheck");
+            deadpool::managed::RecycleError::Backend(e)
+        })
     }
 }
 
@@ -285,6 +310,7 @@ pub struct KafkaApiClient {
     // and should be propagated to newly created clients
     // when a new broker address is encounted.
     clients: Arc<RwLock<HashMap<String, KafkaApiClient>>>,
+    _pool_connection_reaper: Arc<AbortOnDropHandle<()>>,
 }
 
 impl KafkaApiClient {
@@ -323,6 +349,44 @@ impl KafkaApiClient {
         })
         .build()?;
 
+        // Close idle connections, and any free connection older than 30m.
+        // It seems that after running for a while, connections can get into
+        // a broken state where every response returns an error. This, plus
+        // the healthcheck when recycling a connection solves that problem.
+        let reap_interval = Duration::from_secs(30);
+        let max_age = Duration::from_secs(60 * 30);
+        let max_idle = Duration::from_secs(60);
+        let reaper = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({
+            let pool = pool.clone();
+            let broker_url = broker_url.to_string();
+            async move {
+                loop {
+                    let pool_state = pool.status();
+
+                    metrics::gauge!("pool_size", "upstream_broker" => broker_url.to_owned())
+                        .set(pool_state.size as f64);
+                    metrics::gauge!("pool_available", "upstream_broker" => broker_url.to_owned())
+                        .set(pool_state.available as f64);
+                    metrics::gauge!("pool_waiting", "upstream_broker" => broker_url.to_owned())
+                        .set(pool_state.waiting as f64);
+
+                    let age_sum = Cell::new(Duration::ZERO);
+                    let idle_sum = Cell::new(Duration::ZERO);
+                    let connections = Cell::new(0);
+                    tokio::time::sleep(reap_interval).await;
+                    pool.retain(|_, metrics: deadpool::managed::Metrics| {
+                        age_sum.set(age_sum.get() + metrics.age());
+                        idle_sum.set(idle_sum.get() + metrics.last_used());
+                        connections.set(connections.get() + 1);
+                        metrics.age() < max_age && metrics.last_used() < max_idle
+                    });
+
+                    metrics::gauge!("pool_connection_avg_age", "upstream_broker" => broker_url.to_owned()).set(if connections.get() > 0 { age_sum.get()/connections.get() } else { Duration::ZERO });
+                    metrics::gauge!("pool_connection_avg_idle", "upstream_broker" => broker_url.to_owned()).set(if connections.get() > 0 { idle_sum.get()/connections.get() } else { Duration::ZERO });
+                }
+            }
+        }));
+
         let mut conn = match pool.get().await {
             Ok(c) => c,
             Err(deadpool::managed::PoolError::Backend(e)) => return Err(e),
@@ -331,19 +395,7 @@ impl KafkaApiClient {
             }
         };
 
-        let versions = send_request(
-            conn.as_mut(),
-            messages::ApiVersionsRequest::default()
-                .with_client_software_name(protocol::StrBytes::from_static_str("Dekaf"))
-                .with_client_software_version(protocol::StrBytes::from_static_str("1.0")),
-            None,
-        )
-        .await?;
-        match versions.error_code.err() {
-            None => {}
-            Some(e) => bail!("Error connecting to broker: {e}"),
-        };
-        tracing::debug!(versions=?versions,"Got supported versions");
+        let versions = get_versions(conn.as_mut()).await?;
         drop(conn);
 
         Ok(Self {
@@ -352,6 +404,7 @@ impl KafkaApiClient {
             sasl_config: sasl_config,
             versions,
             clients: Arc::new(RwLock::new(HashMap::new())),
+            _pool_connection_reaper: Arc::new(reaper),
         })
     }
 
