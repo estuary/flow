@@ -460,6 +460,16 @@
       "description": "Dekaf configuration. Currently empty, but present to enable easy addition of config options when they show up in the future.",
       "type": "object"
     },
+    "DekafConfigContainer": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DekafConfig"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
     "Derivation": {
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
@@ -926,7 +936,7 @@
           ],
           "properties": {
             "dekaf": {
-              "$ref": "#/definitions/DekafConfig"
+              "$ref": "#/definitions/DekafConfigContainer"
             }
           },
           "additionalProperties": false
