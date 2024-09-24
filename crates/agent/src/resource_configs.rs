@@ -44,6 +44,10 @@ pub fn update_materialization_resource_spec(
                     "cannot create location '{x_schema_name_ptr}' in resource spec '{resource_spec}'"
                 );
             }
+        } else {
+            anyhow::bail!(
+                "sourceCapture.targetSchema set on a materialization which does not have x-schema-name annotation"
+            );
         }
     }
 
@@ -56,6 +60,10 @@ pub fn update_materialization_resource_spec(
                     "cannot create location '{x_delta_updates_ptr}' in resource spec '{resource_spec}'"
                 );
             }
+        } else {
+            anyhow::bail!(
+                "sourceCapture.deltaUpdates set on a materialization which does not have x-delta-updates annotation"
+            );
         }
     }
 
