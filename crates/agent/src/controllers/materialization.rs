@@ -66,7 +66,7 @@ impl MaterializationStatus {
                 dependencies.live.captures.get_by_key(&source_capture.capture_name())
             {
                 if self.source_capture.is_none() {
-                    self.source_capture = Some(SourceCaptureStatus::default())
+                    self.source_capture = Some(SourceCaptureStatus::default());
                 }
                 let source_capture_status = self.source_capture.as_mut().unwrap();
                 // Source capture errors are terminal
