@@ -3,6 +3,8 @@ use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use proto_flow::{capture, derive, flow, materialize};
+use std::str::FromStr;
+use url::Url;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -292,8 +294,10 @@ async fn generate_missing_materialization_configs(
                 connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
                 config_json: serde_json::to_string(config).unwrap(),
             },
-            // Dekaf isn't a pluggable connector, and so does not have dynamic config.
-            None,
+            match &config {
+                models::DekafConfigContainer::Indirect(s) => Url::from_str(s.as_str()).ok(),
+                _ => None,
+            },
         ),
     };
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings

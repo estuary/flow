@@ -1,5 +1,6 @@
 use super::Format;
 use crate::Scope;
+use models::RawValue;
 use proto_flow::flow::ContentType;
 use std::collections::BTreeMap;
 
@@ -498,10 +499,28 @@ fn indirect_materialization(
             resources,
             threshold,
         ),
-        // Dekaf isn't a pluggable connector, and so does not have dynamic config.
-        // All of its config is defined directly within models::DekafConfig, and so
-        // should not be indirected.
-        models::MaterializationEndpoint::Dekaf(_) => {}
+        // I don't think this case can ever get hit as `indirect_materialization` is only called by
+        // `do_discover`, `do_pull_specs`, and `do_develop`, all of which are working with fully
+        // inlined specs.
+        models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Indirect(_)) => {
+            tracing::warn!("Unexpectedly tried to indirect an already indirected location (dekaf)");
+        }
+        models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Direct(config)) => {
+            indirect_dom(
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("local")
+                    .push_prop("config"),
+                &mut RawValue::from_value(
+                    &serde_json::to_value(config).expect("Serializing DekafConfig should not fail"),
+                ),
+                ContentType::Config,
+                format!("{base}.config"),
+                imports,
+                resources,
+                threshold,
+            )
+        }
     }
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()

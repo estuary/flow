@@ -9,7 +9,7 @@ fn test_golden_all_visits() {
 }
 
 #[test]
-fn test_dekaf_materialization() {
+fn test_dekaf_materialization_inline_config() {
     let fixture = r##"
 test://example/catalog.yaml:
   collections:
@@ -24,6 +24,99 @@ test://example/catalog.yaml:
     testing/test_dekaf:
       endpoint:
         dekaf: {}
+      bindings:
+        - source: testing/schema_with_properties
+          resource: {}
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+"##;
+
+    let outcome = common::run(fixture, "{}");
+    // Expect not to see any projections for the empty properties
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_dekaf_materialization_indirect_config() {
+    let fixture = r##"
+test://example/dekaf.yaml: {}
+test://example/catalog.yaml:
+  collections:
+    testing/schema_with_properties:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+  materializations:
+    testing/test_dekaf:
+      endpoint:
+        dekaf: example/dekaf.yaml
+      bindings:
+        - source: testing/schema_with_properties
+          resource: {}
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+"##;
+
+    let outcome = common::run(fixture, "{}");
+    // Expect not to see any projections for the empty properties
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_dekaf_materialization_invalid() {
+    let fixture = r##"
+test://example/dekaf.yaml: {}
+test://example/catalog.yaml:
+  collections:
+    testing/schema_with_properties:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+  materializations:
+    testing/test_dekaf:
+      endpoint:
+        dekaf: false
+      bindings:
+        - source: testing/schema_with_properties
+          resource: {}
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+"##;
+
+    let outcome = common::run(fixture, "{}");
+    // Expect not to see any projections for the empty properties
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_dekaf_materialization_nonexistent() {
+    let fixture = r##"
+test://example/dekaf.yaml: {}
+test://example/catalog.yaml:
+  collections:
+    testing/schema_with_properties:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+  materializations:
+    testing/test_dekaf:
+      endpoint:
+        dekaf: foo/bar
       bindings:
         - source: testing/schema_with_properties
           resource: {}

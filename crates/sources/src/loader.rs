@@ -480,7 +480,7 @@ impl<F: Fetcher> Loader<F> {
             models::DeriveUsing::Connector(models::ConnectorConfig { config, .. }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("using")
                                 .push_prop("connector")
@@ -496,7 +496,7 @@ impl<F: Fetcher> Loader<F> {
                 for (index, migration) in migrations.iter().enumerate() {
                     tasks.push(
                         async move {
-                            self.load_config(
+                            self.maybe_load_config(
                                 scope
                                     .push_prop("using")
                                     .push_prop("sqlite")
@@ -513,7 +513,7 @@ impl<F: Fetcher> Loader<F> {
             models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module, .. }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("using")
                                 .push_prop("typescript")
@@ -528,7 +528,7 @@ impl<F: Fetcher> Loader<F> {
             models::DeriveUsing::Local(models::LocalConfig { config, .. }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("using")
                                 .push_prop("local")
@@ -545,7 +545,7 @@ impl<F: Fetcher> Loader<F> {
         for (index, transform) in spec.transforms.iter().enumerate() {
             tasks.push(
                 async move {
-                    self.load_config(
+                    self.maybe_load_config(
                         scope
                             .push_prop("transforms")
                             .push_item(index)
@@ -560,7 +560,7 @@ impl<F: Fetcher> Loader<F> {
             if let models::Shuffle::Lambda(lambda) = &transform.shuffle {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("transforms")
                                 .push_item(index)
@@ -590,7 +590,7 @@ impl<F: Fetcher> Loader<F> {
             models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("endpoint")
                                 .push_prop("connector")
@@ -605,7 +605,7 @@ impl<F: Fetcher> Loader<F> {
             models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("endpoint")
                                 .push_prop("local")
@@ -622,7 +622,7 @@ impl<F: Fetcher> Loader<F> {
         for (index, binding) in spec.bindings.iter().enumerate() {
             tasks.push(
                 async move {
-                    self.load_config(
+                    self.maybe_load_config(
                         scope
                             .push_prop("bindings")
                             .push_item(index)
@@ -660,7 +660,7 @@ impl<F: Fetcher> Loader<F> {
             }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("endpoint")
                                 .push_prop("connector")
@@ -675,7 +675,7 @@ impl<F: Fetcher> Loader<F> {
             models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("endpoint")
                                 .push_prop("local")
@@ -687,16 +687,31 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
-            // Dekaf isn't a pluggable connector, and so does not have dynamic config to possibly
-            // load from a reference. All of its config is defined directly within models::DekafConfig.
-            models::MaterializationEndpoint::Dekaf(_) => {}
+            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Indirect(
+                location,
+            )) => {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("endpoint")
+                                .push_prop("dekaf")
+                                .push_prop("config"),
+                            location.as_str(),
+                        )
+                        .await
+                    }
+                    .boxed(),
+                );
+            }
+            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Direct(_)) => {}
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
             if !binding.disable {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("bindings")
                                 .push_item(index)
@@ -752,19 +767,27 @@ impl<F: Fetcher> Loader<F> {
         );
     }
 
-    async fn load_config<'s>(&'s self, scope: Scope<'s>, config: &RawValue) {
-        // If `config` is a JSON string that has no whitespace then presume and
-        // require that it's a relative or absolute URL to an imported file.
+    /// If `config` is a JSON string that has no whitespace then presume and
+    /// require that it's a relative or absolute URL to an imported file.
+    async fn maybe_load_config<'s>(&'s self, scope: Scope<'s>, config: &RawValue) {
         match serde_json::from_str::<&str>(config.get()) {
             Ok(import) if !import.chars().any(char::is_whitespace) => {
-                self.load_import(
-                    scope,
-                    self.fallible(scope, scope.resource().join(&import)),
-                    flow::ContentType::Config,
-                )
-                .await;
+                self.load_config(scope, import).await
             }
             _ => {}
+        }
+    }
+
+    /// If `config` has no whitespace then presume and require that
+    /// it's a relative or absolute URL to an imported file.
+    async fn load_config<'s>(&'s self, scope: Scope<'s>, config: &str) {
+        if !config.chars().any(char::is_whitespace) {
+            self.load_import(
+                scope,
+                self.fallible(scope, scope.resource().join(config)),
+                flow::ContentType::Config,
+            )
+            .await;
         }
     }
 
