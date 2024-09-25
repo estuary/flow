@@ -1812,6 +1812,7 @@ name = "dekaf"
 version = "0.0.0"
 dependencies = [
  "aes-siv",
+ "allocator",
  "anyhow",
  "avro",
  "axum",
