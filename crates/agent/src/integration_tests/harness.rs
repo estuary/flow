@@ -919,6 +919,22 @@ pub trait FailBuild: std::fmt::Debug + Send + 'static {
     fn modify(&mut self, result: &mut UncommittedBuild);
 }
 
+#[derive(Debug)]
+pub struct InjectBuildError(Option<tables::Error>);
+impl InjectBuildError {
+    pub fn new(scope: url::Url, err: impl Into<anyhow::Error>) -> InjectBuildError {
+        InjectBuildError(Some(tables::Error {
+            scope,
+            error: err.into(),
+        }))
+    }
+}
+impl FailBuild for InjectBuildError {
+    fn modify(&mut self, result: &mut UncommittedBuild) {
+        result.output.built.errors.insert(self.0.take().unwrap());
+    }
+}
+
 /// A wrapper around `PGControlPlane` that has a few basic capbilities for verifying
 /// activation calls and simulating failures of activations and publications.
 pub struct TestControlPlane {
