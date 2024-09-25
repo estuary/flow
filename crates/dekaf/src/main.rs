@@ -1,3 +1,6 @@
+// Links in the allocator crate, which sets the global allocator to jemalloc
+extern crate allocator;
+
 use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};

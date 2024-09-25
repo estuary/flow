@@ -11,6 +11,7 @@ license.workspace = true
 
 [dependencies]
 aes-siv = { workspace = true }
+allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
 flowctl = { path = "../flowctl" }
