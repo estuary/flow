@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::{
     integration_tests::harness::{draft_catalog, TestHarness},
-    publications::{JobStatus, LockFailure},
+    publications::{DefaultRetryPolicy, JobStatus, LockFailure, RetryPolicy},
     ControlPlane,
 };
 
@@ -35,6 +35,8 @@ async fn test_publication_optimistic_locking_failures() {
             wrong_expect_pub_ids,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("build failed");
@@ -51,6 +53,10 @@ async fn test_publication_optimistic_locking_failures() {
             )
         ],
         errors);
+    assert!(
+        !DefaultRetryPolicy.retry(&result.build_failed()),
+        "expectPubId mismatch should be terminal"
+    );
 
     // Simulate a race between two publications of this initial draft, and assert that only one
     // of them can successfully commit.
@@ -75,6 +81,8 @@ async fn test_publication_optimistic_locking_failures() {
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("build a failed");
@@ -89,6 +97,8 @@ async fn test_publication_optimistic_locking_failures() {
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("build b failed");
@@ -114,6 +124,10 @@ async fn test_publication_optimistic_locking_failures() {
         ],
         &expect_fail_result.status,
     );
+    assert!(
+        DefaultRetryPolicy.retry(&expect_fail_result),
+        "build_id lock failure should be retryable"
+    );
 
     // Now simulate raced publications of cheese and seeds, wich each publication having "expanded"
     // to include the capture.
@@ -136,6 +150,8 @@ async fn test_publication_optimistic_locking_failures() {
             cheese_draft,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("cheese build failed");
@@ -159,6 +175,8 @@ async fn test_publication_optimistic_locking_failures() {
             will_commit_draft,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("seeds build failed");

@@ -42,11 +42,15 @@ async fn test_quota_single_task() {
     let mut results = harness
         .user_publication(user_id, "quota single task", draft)
         .await;
-    results.publication_id = models::Id::zero(); // make it stable for the snapshot
+    results.publication_row_id = models::Id::zero(); // make it stable for the snapshot
+    results.pub_id = Some(models::Id::zero());
 
     insta::assert_debug_snapshot!(results, @r###"
     ScenarioResult {
-        publication_id: 0000000000000000,
+        publication_row_id: 0000000000000000,
+        pub_id: Some(
+            0000000000000000,
+        ),
         status: PublishFailed,
         errors: [
             (
@@ -110,11 +114,15 @@ async fn test_quota_derivations() {
     let mut result = harness
         .user_publication(user_id, "test quota derivation", draft)
         .await;
-    result.publication_id = models::Id::zero();
+    result.publication_row_id = models::Id::zero();
+    result.pub_id = Some(models::Id::zero());
 
     insta::assert_debug_snapshot!(result, @r###"
     ScenarioResult {
-        publication_id: 0000000000000000,
+        publication_row_id: 0000000000000000,
+        pub_id: Some(
+            0000000000000000,
+        ),
         status: PublishFailed,
         errors: [
             (
@@ -170,11 +178,15 @@ async fn test_disable_when_over_quota() {
     let mut result = harness
         .user_publication(user_id, "disable captureA", draft)
         .await;
-    result.publication_id = models::Id::zero();
+    result.publication_row_id = models::Id::zero();
+    result.pub_id = Some(models::Id::zero());
 
     insta::assert_debug_snapshot!(result, @r###"
     ScenarioResult {
-        publication_id: 0000000000000000,
+        publication_row_id: 0000000000000000,
+        pub_id: Some(
+            0000000000000000,
+        ),
         status: Success,
         errors: [],
         live_specs: [

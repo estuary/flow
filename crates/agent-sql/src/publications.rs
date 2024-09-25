@@ -266,6 +266,7 @@ pub async fn dequeue(
 pub async fn resolve<S>(
     id: Id,
     status: &S,
+    final_pub_id: Option<Id>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()>
 where
@@ -274,12 +275,14 @@ where
     sqlx::query!(
         r#"update publications set
             job_status = $2,
-            updated_at = clock_timestamp()
+            updated_at = clock_timestamp(),
+            pub_id = $3
         where id = $1
         returning 1 as "must_exist";
         "#,
         id as Id,
         Json(status) as Json<&S>,
+        final_pub_id as Option<Id>,
     )
     .fetch_one(txn)
     .await?;
