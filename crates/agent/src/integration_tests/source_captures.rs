@@ -94,7 +94,13 @@ async fn test_source_captures() {
     );
     assert_eq!(
         "quacks",
-        a_model.bindings[0].resource.to_value().pointer("/id").unwrap().as_str().unwrap()
+        a_model.bindings[0]
+            .resource
+            .to_value()
+            .pointer("/id")
+            .unwrap()
+            .as_str()
+            .unwrap()
     );
     let a_status = a_state.current_status.unwrap_materialization();
     assert!(a_status.source_capture.as_ref().unwrap().up_to_date);
@@ -214,15 +220,33 @@ async fn test_source_captures_collection_name() {
     );
     assert_eq!(
         "pond",
-        a_model.bindings[0].resource.to_value().pointer("/schema").unwrap().as_str().unwrap()
+        a_model.bindings[0]
+            .resource
+            .to_value()
+            .pointer("/schema")
+            .unwrap()
+            .as_str()
+            .unwrap()
     );
     assert_eq!(
         true,
-        a_model.bindings[0].resource.to_value().pointer("/delta").unwrap().as_bool().unwrap()
+        a_model.bindings[0]
+            .resource
+            .to_value()
+            .pointer("/delta")
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
     assert_eq!(
         "quacks",
-        a_model.bindings[0].resource.to_value().pointer("/id").unwrap().as_str().unwrap()
+        a_model.bindings[0]
+            .resource
+            .to_value()
+            .pointer("/id")
+            .unwrap()
+            .as_str()
+            .unwrap()
     );
     let a_status = a_state.current_status.unwrap_materialization();
     assert!(a_status.source_capture.as_ref().unwrap().up_to_date);
@@ -320,6 +344,8 @@ async fn test_source_capture_no_annotations() {
             draft,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            false,
+            0,
         )
         .await
         .expect("build failed");

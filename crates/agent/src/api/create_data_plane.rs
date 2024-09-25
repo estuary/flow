@@ -2,7 +2,6 @@ use crate::publications::{DoNotRetry, DraftPublication, NoExpansion, PruneUnboun
 
 use super::App;
 use anyhow::Context;
-use regex::bytes::NoExpand;
 use std::sync::Arc;
 use validator::Validate;
 
@@ -48,16 +47,13 @@ pub struct Request {
 pub struct Response {}
 
 #[tracing::instrument(
-    skip(pg_pool, publisher, id_generator),
+    skip(pg_pool, publisher),
     ret,
     err(level = tracing::Level::WARN),
 )]
 async fn do_create_data_plane(
     App {
-        pg_pool,
-        publisher,
-        id_generator,
-        ..
+        pg_pool, publisher, ..
     }: &App,
     super::ControlClaims { sub: user_id, .. }: super::ControlClaims,
     Request {

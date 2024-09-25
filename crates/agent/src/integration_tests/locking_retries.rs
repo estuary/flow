@@ -1,8 +1,8 @@
-use models::Id;
+use models::{CatalogType, Id};
 use uuid::Uuid;
 
 use crate::{
-    integration_tests::harness::{draft_catalog, TestHarness},
+    integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
     publications::{DefaultRetryPolicy, JobStatus, LockFailure, RetryPolicy},
     ControlPlane,
 };
@@ -216,6 +216,45 @@ async fn test_publication_optimistic_locking_failures() {
         )],
         &expect_fail_result.status,
     );
+
+    // Assert that PublicationSuperseded and BuildSuperseded errors get retried
+    let capture_draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "mice/capture": minimal_capture(None, &["mice/cheese", "mice/seeds"]),
+        }
+    }));
+    harness.control_plane().fail_next_build(
+        "mice/capture",
+        InjectBuildError::new(
+            tables::synthetic_scope(CatalogType::Capture, "mice/capture"),
+            validation::Error::BuildSuperseded {
+                build_id: Id::zero(),
+                larger_id: Id::zero(),
+            },
+        ),
+    );
+    harness.control_plane().fail_next_build(
+        "mice/capture",
+        InjectBuildError::new(
+            tables::synthetic_scope(CatalogType::Capture, "mice/capture"),
+            validation::Error::PublicationSuperseded {
+                last_pub_id: Id::zero(),
+                pub_id: Id::zero(),
+            },
+        ),
+    );
+    let result = harness
+        .control_plane()
+        .publish(
+            Some("test retry Superseded errors".to_string()),
+            Uuid::new_v4(),
+            capture_draft.clone_specs(),
+        )
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    assert_eq!(2, result.retry_count);
 }
 
 async fn assert_last_pub_build(
