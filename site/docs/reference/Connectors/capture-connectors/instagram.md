@@ -9,9 +9,6 @@ It is available for use in the Flow web application. For local development or op
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 
-You can find their documentation [here](https://docs.airbyte.com/integrations/sources/instagram/),
-but keep in mind that the two versions may be significantly different.
-
 ## Supported data resources
 
 The following data resources are supported through the Instagram APIs:

@@ -32,7 +32,7 @@ See the [source connector reference documentation](../reference/Connectors/captu
 
 ### Batch sources
 
-Flow supports running both first and third party connectors to batch sources including Singer, Meltano and Airbyte as well as natively-written Estuary connectors.  
+Flow supports running both first and third party connectors to batch sources as well as natively-written Estuary connectors.
 These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
 Flow runs the connector at regular intervals to capture updated documents.
 

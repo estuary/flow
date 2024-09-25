@@ -6,8 +6,6 @@ This connector captures data from Confluence into Flow collections via the Confl
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-confluence:dev`](https://ghcr.io/estuary/source-confluence:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
-You can find their documentation [here](https://docs.airbyte.com/integrations/sources/confluence/),
-but keep in mind that the two versions may be significantly different.
 
 ## Supported data resources
 
@@ -17,11 +15,11 @@ From your selection, the following data resources are captured:
 
 ### resources
 
- - [Audit](https://developer.atlassian.com/cloud/confluence/rest/api-group-audit/#api-wiki-rest-api-audit-get) 
- - [Blog Posts](https://developer.atlassian.com/cloud/confluence/rest/api-group-content/#api-wiki-rest-api-content-get) 
- - [Group](https://developer.atlassian.com/cloud/confluence/rest/api-group-group/#api-wiki-rest-api-group-get) 
- - [Pages](https://developer.atlassian.com/cloud/confluence/rest/api-group-content/#api-wiki-rest-api-content-get) 
- - [Space](https://developer.atlassian.com/cloud/confluence/rest/api-group-space/#api-wiki-rest-api-space-get) 
+ - [Audit](https://developer.atlassian.com/cloud/confluence/rest/api-group-audit/#api-wiki-rest-api-audit-get)
+ - [Blog Posts](https://developer.atlassian.com/cloud/confluence/rest/api-group-content/#api-wiki-rest-api-content-get)
+ - [Group](https://developer.atlassian.com/cloud/confluence/rest/api-group-group/#api-wiki-rest-api-group-get)
+ - [Pages](https://developer.atlassian.com/cloud/confluence/rest/api-group-content/#api-wiki-rest-api-content-get)
+ - [Space](https://developer.atlassian.com/cloud/confluence/rest/api-group-space/#api-wiki-rest-api-space-get)
 
 Each resource is mapped to a Flow collection through a separate binding.
 
@@ -36,7 +34,7 @@ Each resource is mapped to a Flow collection through a separate binding.
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the GitHub source connector.
 
-1. Create an API Token 
+1. Create an API Token
  - For detailed instructions on creating an Atlassian API Token, please refer to the [official documentation](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
 2. Set up the Confluence connector in Estuary Flow
  - Log into Estuary Flow and click "Captures".
