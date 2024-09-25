@@ -652,6 +652,7 @@ pub async fn resolve_live_specs(
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     default_data_plane_name: &str,
+    verify_user_authz: bool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -702,7 +703,7 @@ pub async fn resolve_live_specs(
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
             // If the spec is included in the draft, then the user must have admin capability to it.
-            if !matches!(spec_row.user_capability, Some(Capability::Admin)) {
+            if verify_user_authz && !matches!(spec_row.user_capability, Some(Capability::Admin)) {
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -713,6 +714,7 @@ pub async fn resolve_live_specs(
                 // of referenced collections.
                 continue;
             }
+            // Spec authz must always be checked, even if we're not checking user authz
             for source in reads_from {
                 if !spec_row.spec_capabilities.iter().any(|c| {
                     source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read

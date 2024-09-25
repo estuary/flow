@@ -1,14 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::{Arc, Mutex};
 
+use crate::publications::{DefaultRetryPolicy, NoExpansion};
 use crate::{
     controllers::{ControllerHandler, ControllerState},
     controlplane::ConnectorSpec,
-    publications::{self, PublicationResult, Publisher, UncommittedBuild},
+    publications::{self, DraftPublication, PublicationResult, Publisher, UncommittedBuild},
     ControlPlane, HandleResult, Handler, PGControlPlane,
 };
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
-use models::CatalogType;
+use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use serde::Deserialize;
 use serde_json::{value::RawValue, Value};
@@ -36,7 +38,11 @@ pub struct LiveSpec {
 
 #[derive(Debug)]
 pub struct ScenarioResult {
-    pub publication_id: models::Id,
+    pub publication_row_id: Id,
+    /// The pub_id of a successfully committed publication, which will match with
+    /// the `live_specs.last_pub_id` and `publication_specs.pub_id`. Will be None if
+    /// the publication failed.
+    pub pub_id: Option<Id>,
     pub status: publications::JobStatus,
     pub errors: Vec<(String, String)>,
     pub live_specs: Vec<LiveSpec>,
@@ -445,14 +451,14 @@ impl TestHarness {
             let rows = sqlx::query!(
                 r#"select
                 ls.catalog_name,
-                ps.pub_id as "pub_id: agent_sql::Id"
+                ps.pub_id as "pub_id: Id"
                 from live_specs ls
                 join publication_specs ps on ls.id = ps.live_spec_id
                 where ls.catalog_name = $1
                 and ps.pub_id > $2
                 order by ls.catalog_name;"#,
                 spec.catalog_name.as_str(),
-                agent_sql::Id::from(expect_last_pub) as agent_sql::Id,
+                Id::from(expect_last_pub) as Id,
             )
             .fetch_all(&self.pool)
             .await
@@ -481,7 +487,7 @@ impl TestHarness {
     pub async fn assert_live_spec_hard_deleted(&mut self, name: &str) {
         let rows = sqlx::query!(
             r#"select
-            id as "id: agent_sql::Id",
+            id as "id: Id",
             spec as "spec: agent_sql::TextJson<Box<RawValue>>",
             spec_type as "spec_type: agent_sql::CatalogType"
             from live_specs where catalog_name = $1;"#,
@@ -506,12 +512,12 @@ impl TestHarness {
         );
     }
 
-    pub async fn assert_live_spec_soft_deleted(&mut self, name: &str, last_pub_id: models::Id) {
+    pub async fn assert_live_spec_soft_deleted(&mut self, name: &str, last_pub_id: Id) {
         let row = sqlx::query!(
             r#"
             select
-                id as "id: agent_sql::Id",
-                last_pub_id as "last_pub_id: agent_sql::Id",
+                id as "id: Id",
+                last_pub_id as "last_pub_id: Id",
                 spec_type as "spec_type?: agent_sql::CatalogType",
                 spec as "spec: agent_sql::TextJson<Box<RawValue>>",
                 reads_from as "reads_from: Vec<String>",
@@ -557,11 +563,11 @@ impl TestHarness {
         let job = sqlx::query_as!(
             agent_sql::controllers::ControllerJob,
             r#"select
-                ls.id as "live_spec_id: agent_sql::Id",
+                ls.id as "live_spec_id: Id",
                 ls.catalog_name as "catalog_name!: String",
                 ls.controller_next_run,
-                ls.last_pub_id as "last_pub_id: agent_sql::Id",
-                ls.last_build_id as "last_build_id: agent_sql::Id",
+                ls.last_pub_id as "last_pub_id: Id",
+                ls.last_build_id as "last_build_id: Id",
                 ls.spec as "live_spec: TextJson<Box<RawValue>>",
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
                 ls.spec_type as "spec_type: agent_sql::CatalogType",
@@ -572,7 +578,7 @@ impl TestHarness {
                 cj.status as "status: TextJson<Box<RawValue>>",
                 cj.failures,
                 cj.error,
-                ls.data_plane_id as "data_plane_id: agent_sql::Id"
+                ls.data_plane_id as "data_plane_id: Id"
             from live_specs ls
             join controller_jobs cj on ls.id = cj.live_spec_id
             where ls.catalog_name = $1;"#,
@@ -709,9 +715,7 @@ impl TestHarness {
         pub_result
     }
 
-    async fn get_publication_result(&mut self, publication_id: models::Id) -> ScenarioResult {
-        let pub_id: agent_sql::Id = publication_id.into();
-
+    async fn get_publication_result(&mut self, publication_row_id: Id) -> ScenarioResult {
         let specs = sqlx::query_as!(
             LiveSpec,
             r#"
@@ -722,10 +726,11 @@ impl TestHarness {
                                writes_to,
                                spec,
                                spec_type as "spec_type: String"
-                        from live_specs
-                        where live_specs.last_pub_id = $1::flowid
-                        order by live_specs.catalog_name;"#,
-            pub_id as agent_sql::Id
+                        from publications p
+                        join live_specs ls on p.pub_id = ls.last_pub_id
+                        where p.id = $1::flowid
+                        order by ls.catalog_name;"#,
+            publication_row_id as Id
         )
         .fetch_all(&self.pool)
         .await
@@ -734,9 +739,10 @@ impl TestHarness {
         let result = sqlx::query!(
             r#"
             select job_status as "job_status: agent_sql::TextJson<publications::JobStatus>",
-            draft_id as "draft_id: agent_sql::Id"
+            draft_id as "draft_id: Id",
+            pub_id as "pub_id: Id"
             from publications where id = $1"#,
-            pub_id as agent_sql::Id
+            publication_row_id as Id
         )
         .fetch_one(&self.pool)
         .await
@@ -744,7 +750,7 @@ impl TestHarness {
 
         let errors = sqlx::query!(
             r#"select scope, detail from draft_errors where draft_id = $1;"#,
-            result.draft_id as agent_sql::Id
+            result.draft_id as Id
         )
         .fetch_all(&self.pool)
         .await
@@ -754,7 +760,8 @@ impl TestHarness {
         .collect::<Vec<(String, String)>>();
 
         ScenarioResult {
-            publication_id,
+            publication_row_id,
+            pub_id: result.pub_id,
             status: result.job_status.0,
             errors,
             live_specs: specs,
@@ -766,7 +773,7 @@ impl TestHarness {
         user_id: Uuid,
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
-    ) -> agent_sql::Id {
+    ) -> Id {
         use agent_sql::drafts as drafts_sql;
         let detail = detail.into();
 
@@ -777,7 +784,7 @@ impl TestHarness {
             .expect("failed to start transaction");
 
         let draft_id = sqlx::query!(
-            r#"insert into drafts (user_id, detail) values ($1, $2) returning id as "id: agent_sql::Id";"#,
+            r#"insert into drafts (user_id, detail) values ($1, $2) returning id as "id: Id";"#,
             user_id,
             detail.as_str()
         )
@@ -918,7 +925,33 @@ pub struct TestControlPlane {
     inner: PGControlPlane,
     activations: Vec<Activation>,
     fail_activations: BTreeSet<String>,
-    build_failures: BTreeMap<String, VecDeque<Box<dyn FailBuild>>>,
+    build_failures: InjectBuildFailures,
+}
+
+/// A `Finalize` that can inject build failures in order to test failure scenarios.
+/// `FailBuild`s are applied based on matching catalog names in the publication.
+#[derive(Clone)]
+struct InjectBuildFailures(Arc<Mutex<BTreeMap<String, VecDeque<Box<dyn FailBuild>>>>>);
+impl crate::publications::FinalizeBuild for InjectBuildFailures {
+    fn finalize(&self, build: &mut UncommittedBuild) -> anyhow::Result<()> {
+        let mut build_failures = self.0.lock().unwrap();
+        for (catalog_name, modifications) in build_failures.iter_mut() {
+            if !build
+                .output
+                .built
+                .all_spec_names()
+                .any(|name| name == catalog_name.as_str())
+            {
+                continue;
+            }
+            if let Some(mut failure) = modifications.pop_front() {
+                // log just to make it easier to debug tests
+                tracing::info!(publication_id = %build.publication_id, %catalog_name, ?failure, "modifing test publication");
+                failure.modify(build);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TestControlPlane {
@@ -927,7 +960,7 @@ impl TestControlPlane {
             inner,
             activations: Vec::new(),
             fail_activations: BTreeSet::new(),
-            build_failures: BTreeMap::new(),
+            build_failures: InjectBuildFailures(Arc::new(Mutex::new(BTreeMap::new()))),
         }
     }
 
@@ -980,10 +1013,8 @@ impl TestControlPlane {
     where
         F: FailBuild,
     {
-        let modifications = self
-            .build_failures
-            .entry(catalog_name.to_string())
-            .or_default();
+        let mut build_failures = self.build_failures.0.lock().unwrap();
+        let modifications = build_failures.entry(catalog_name.to_string()).or_default();
         modifications.push_back(Box::new(modify));
     }
 }
@@ -1020,47 +1051,28 @@ impl ControlPlane for TestControlPlane {
         logs_token: Uuid,
         draft: tables::DraftCatalog,
     ) -> anyhow::Result<PublicationResult> {
-        let publication_id = self.inner.id_generator.next();
-        let mut result = self
-            .inner
-            .publications_handler
-            .build(
-                self.inner.system_user_id,
-                publication_id,
-                detail,
-                draft,
-                logs_token,
-                "ops/dp/public/test",
-            )
-            .await?;
+        let finalize = self.build_failures.clone();
+        let publication = DraftPublication {
+            user_id: self.inner.system_user_id,
+            detail,
+            draft,
+            logs_token,
+            dry_run: false,
+            default_data_plane_name: Some("ops/dp/public/test".to_string()),
+            verify_user_authz: false,
+            initialize: NoExpansion,
+            finalize,
+            retry: DefaultRetryPolicy,
+        };
 
-        for (catalog_name, modifications) in self.build_failures.iter_mut() {
-            if !result
-                .output
-                .built
-                .all_spec_names()
-                .any(|name| name == catalog_name.as_str())
-            {
-                continue;
-            }
-            if let Some(mut failure) = modifications.pop_front() {
-                // log just to make it easier to debug tests
-                tracing::info!(%publication_id, %catalog_name, ?failure, "modifing test publication");
-                failure.modify(&mut result);
-            }
-        }
-        if result.has_errors() {
-            Ok(result.build_failed())
-        } else {
-            self.inner.publications_handler.commit(result).await
-        }
+        self.inner.publications_handler.publish(publication).await
     }
 
     async fn data_plane_activate(
         &mut self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
-        _data_plane_id: models::Id,
+        _data_plane_id: Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
@@ -1083,7 +1095,7 @@ impl ControlPlane for TestControlPlane {
         &mut self,
         catalog_name: String,
         catalog_type: CatalogType,
-        _data_plane_id: models::Id,
+        _data_plane_id: Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
