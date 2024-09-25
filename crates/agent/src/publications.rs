@@ -219,9 +219,13 @@ impl Publisher {
         let forbidden_images = specs::check_connector_images(&draft, &self.db)
             .await
             .context("checking connector images")?;
-        if !forbidden_images.is_empty() {
+        let forbidden_source_capture = specs::check_source_capture_annotations(&draft, &self.db)
+            .await
+            .context("checking source capture")?;
+        if !forbidden_images.is_empty() || !forbidden_source_capture.is_empty() {
             let mut built = tables::Validations::default();
             built.errors = forbidden_images;
+            built.errors.extend(forbidden_source_capture.into_iter());
             let output = build::Output {
                 draft,
                 built,
