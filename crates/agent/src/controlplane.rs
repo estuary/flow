@@ -7,7 +7,10 @@ use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::{collections::BTreeSet, ops::Deref};
 
-use crate::publications::{JobStatus, PublicationResult, Publisher};
+use crate::publications::{
+    DefaultRetryPolicy, DraftPublication, JobStatus, NoExpansion, NoopFinalize, PublicationResult,
+    Publisher,
+};
 
 macro_rules! unwrap_single {
     ($catalog:expr; expect $expected:ident not $( $unexpected:ident ),+) => {
@@ -350,41 +353,21 @@ impl ControlPlane for PGControlPlane {
         logs_token: Uuid,
         draft: tables::DraftCatalog,
     ) -> anyhow::Result<PublicationResult> {
-        let mut maybe_draft = Some(draft);
-        let mut attempt = 0;
-        loop {
-            let draft = maybe_draft.take().expect("draft must be Some");
-            attempt += 1;
-            let publication_id = self.id_generator.next();
-            let built = self
-                .publications_handler
-                .build(
-                    self.system_user_id,
-                    publication_id,
-                    detail.clone(),
-                    draft,
-                    logs_token,
-                    "", // No default data-plane.
-                )
-                .await?;
-            if built.errors().next().is_some() {
-                return Ok(built.build_failed());
-            }
-            let commit_result = self.publications_handler.commit(built).await?;
-
-            // Has there been an optimistic locking failure?
-            let JobStatus::BuildIdLockFailure { failures } = &commit_result.status else {
-                // All other statuses are terminal.
-                return Ok(commit_result);
-            };
-            if attempt == Publisher::MAX_OPTIMISTIC_LOCKING_RETRIES {
-                tracing::error!(%attempt, ?failures, "giving up after maximum number of optimistic locking retries");
-                return Ok(commit_result);
-            } else {
-                tracing::info!(%attempt, ?failures, "publish failed due to optimistic locking failure (will retry)");
-                maybe_draft = Some(commit_result.draft);
-            }
-        }
+        let publication = DraftPublication {
+            user_id: self.system_user_id,
+            logs_token,
+            draft,
+            detail,
+            dry_run: false,
+            // Controllers don't publish new specs currently, so this is not needed
+            default_data_plane_name: None,
+            // skip authz checks for controller-initiated publications
+            verify_user_authz: false,
+            initialize: NoExpansion,
+            finalize: NoopFinalize,
+            retry: DefaultRetryPolicy,
+        };
+        self.publications_handler.publish(publication).await
     }
 
     async fn data_plane_activate(

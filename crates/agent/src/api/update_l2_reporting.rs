@@ -1,3 +1,5 @@
+use crate::publications::{DoNotRetry, DraftPublication, NoExpansion, NoopFinalize};
+
 use super::App;
 use anyhow::Context;
 use std::sync::Arc;
@@ -18,15 +20,12 @@ pub struct Response {
 }
 
 #[tracing::instrument(
-    skip(pg_pool, publisher, id_generator),
+    skip(pg_pool, publisher),
     err(level = tracing::Level::WARN),
 )]
 async fn do_update_l2_reporting(
     App {
-        pg_pool,
-        publisher,
-        id_generator,
-        ..
+        pg_pool, publisher, ..
     }: &App,
     super::ControlClaims { sub: user_id, .. }: super::ControlClaims,
     Request {
@@ -174,41 +173,32 @@ export class Derivation extends Types.IDerivation {"#
         ..Default::default()
     };
 
-    let pub_id = id_generator.lock().unwrap().next();
     let logs_token = uuid::Uuid::new_v4();
-
-    let uncommitted = publisher
-        .build(
-            user_id,
-            pub_id,
-            Some(format!("publication for updating L2 reporting")),
-            draft,
-            logs_token,
-            &default_data_plane,
-        )
-        .await?;
-
-    if uncommitted.has_errors() {
-        for err in uncommitted.output.errors() {
-            tracing::error!(scope=%err.scope, err=format!("{:#}", err.error), "data-plane-template build error")
+    let publication = DraftPublication {
+        user_id,
+        logs_token,
+        draft,
+        dry_run,
+        detail: Some(format!("publication for updating L2 reporting")),
+        default_data_plane_name: Some(default_data_plane.clone()),
+        // TODO: should we verify user authz for updating L2 reporting?
+        verify_user_authz: true,
+        initialize: NoExpansion,
+        finalize: NoopFinalize,
+        retry: DoNotRetry,
+    };
+    let result = publisher
+        .publish(publication)
+        .await
+        .context("publishing L2 reporting catalog")?;
+    if !result.status.is_success() {
+        for err in result.draft_errors() {
+            tracing::error!(error = ?err, "data-plane-template build error");
         }
         anyhow::bail!("data-plane-template build failed");
     }
 
-    let (live, draft) = if !dry_run {
-        let published = publisher
-            .commit(uncommitted)
-            .await
-            .context("committing publication")?
-            .error_for_status()?;
-
-        (published.live.collections, published.draft.collections)
-    } else {
-        (
-            uncommitted.output.live.collections,
-            uncommitted.output.draft.collections,
-        )
-    };
+    let (live, draft) = (result.live.collections, result.draft.collections);
     tracing::info!(%logs_token, %dry_run, "updated L2 reporting");
 
     let previous = serde_json::json!({

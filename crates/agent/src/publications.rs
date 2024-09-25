@@ -7,17 +7,56 @@ use sqlx::types::Uuid;
 use tables::LiveRow;
 
 pub mod builds;
+mod finalize;
 mod handler;
-mod prune;
+mod initialize;
+mod retry;
 mod status;
 
 mod quotas;
 pub mod specs;
 
+pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
+pub use self::initialize::{ExpandDraft, Initialize, NoExpansion};
+pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
 pub use self::status::{
     get_incompatible_collections, AffectedConsumer, IncompatibleCollection, JobStatus, LockFailure,
     ReCreateReason, RejectedField,
 };
+
+/// Represents a desire to publish the given `draft`, along with associated metadata and behavior
+/// for handling draft initialization, build finalizing, and retrying failures.
+pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy> {
+    /// The id of the user that is publishing the draft.
+    pub user_id: Uuid,
+    /// Write logs to `internal.log_lines` using this token.
+    pub logs_token: Uuid,
+    /// Whether to stop after building. If `dry_run` is `true`, then the build will not be
+    /// committed, even if it is successful. Validations will be run as normal.
+    pub dry_run: bool,
+    /// The draft catalog to publish. Note that only the `collections`, `captures`,
+    /// `materializations`, and `tests` will be used. Other fields on the draft will be ignored.
+    pub draft: tables::DraftCatalog,
+    /// Detail message to associate with this publication.
+    pub detail: Option<String>,
+    /// Whether to check user permissions when publishing specs. If this is false, then all
+    /// permission checks will be skipped, and the publication may modify any specs.
+    pub verify_user_authz: bool,
+    /// Default data plane to use for publishing new specs. This is optional only when the
+    /// publication _only_ updates and/or deletes existing live specs.
+    pub default_data_plane_name: Option<String>,
+    /// Initializes the associated `draft`. This will be passed a mutable copy of the `draft` prior
+    /// to build/validation of each attempt.
+    pub initialize: Init,
+    /// Finalizes the result of a build, potentially modifying the result. The `UncommittedBuild`
+    /// is passed to this function, regardless of whether it was successful. If the build contains
+    /// any errors after this function returns, then it will be considered failed.
+    pub finalize: Fin,
+    /// Determines whether a failed publication should be retried. The retry policy is consulted
+    /// regardless of whether errors originate from the build or commit phase, but it is _not_
+    /// consulted if any step returns an `Result::Err`, which is always considered terminal.
+    pub retry: Ret,
+}
 
 /// Represents a publication that has just completed.
 #[derive(Debug)]
@@ -39,6 +78,9 @@ pub struct PublicationResult {
     /// The final status of the publication. Note that this is not neccessarily `Success`,
     /// even if there are no `errors`.
     pub status: JobStatus,
+    /// The number of retries that have been attempted on this publiclication. This will be 0 for
+    /// the initial attempt, and increment by 1 on each subsequent retry.
+    pub retry_count: u32,
 }
 
 impl PublicationResult {
@@ -50,6 +92,7 @@ impl PublicationResult {
         built: build::Output,
         test_errors: tables::Errors,
         status: JobStatus,
+        retry_count: u32,
     ) -> Self {
         Self {
             pub_id,
@@ -62,6 +105,7 @@ impl PublicationResult {
             built: built.built,
             test_errors,
             status,
+            retry_count,
         }
     }
 
@@ -98,28 +142,8 @@ pub struct Publisher {
     builds_root: url::Url,
     connector_network: String,
     logs_tx: logs::Tx,
-    build_id_gen: std::sync::Arc<std::sync::Mutex<models::IdGenerator>>,
+    id_gen: std::sync::Arc<std::sync::Mutex<models::IdGenerator>>,
     db: sqlx::PgPool,
-}
-
-impl Publisher {
-    pub fn new(
-        bindir: &str,
-        builds_root: &url::Url,
-        connector_network: &str,
-        logs_tx: &logs::Tx,
-        pool: sqlx::PgPool,
-        build_id_gen: models::IdGenerator,
-    ) -> Self {
-        Self {
-            bindir: bindir.to_string(),
-            builds_root: builds_root.clone(),
-            connector_network: connector_network.to_string(),
-            logs_tx: logs_tx.clone(),
-            build_id_gen: std::sync::Mutex::new(build_id_gen.into()).into(),
-            db: pool,
-        }
-    }
 }
 
 pub struct UncommittedBuild {
@@ -131,6 +155,7 @@ pub struct UncommittedBuild {
     pub(crate) output: build::Output,
     pub(crate) test_errors: tables::Errors,
     pub(crate) incompatible_collections: Vec<IncompatibleCollection>,
+    pub(crate) retry_count: u32,
 }
 impl UncommittedBuild {
     pub fn start_time(&self) -> DateTime<Utc> {
@@ -169,6 +194,7 @@ impl UncommittedBuild {
             test_errors,
             incompatible_collections,
             build_id: _,
+            retry_count,
         } = self;
         debug_assert!(
             incompatible_collections.is_empty(),
@@ -186,6 +212,7 @@ impl UncommittedBuild {
             built,
             test_errors,
             status,
+            retry_count,
         }
     }
 }
@@ -197,10 +224,113 @@ impl Into<build::Output> for UncommittedBuild {
 }
 
 impl Publisher {
-    pub const MAX_OPTIMISTIC_LOCKING_RETRIES: u32 = 10;
+    pub fn new(
+        bindir: &str,
+        builds_root: &url::Url,
+        connector_network: &str,
+        logs_tx: &logs::Tx,
+        pool: sqlx::PgPool,
+        build_id_gen: models::IdGenerator,
+    ) -> Self {
+        Self {
+            bindir: bindir.to_string(),
+            builds_root: builds_root.clone(),
+            connector_network: connector_network.to_string(),
+            logs_tx: logs_tx.clone(),
+            id_gen: std::sync::Mutex::new(build_id_gen.into()).into(),
+            db: pool,
+        }
+    }
 
+    /// Publishs the given `DraftPublication`, using the provided `Initialize`, `FinalizeBuild`,
+    /// and `RetryPolicy`.
+    #[tracing::instrument(err, skip_all, fields(
+        user_id = %publication.user_id,
+        logs_token = %publication.logs_token,
+    ))]
+    pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy>(
+        &self,
+        publication: DraftPublication<Ini, Fin, Ret>,
+    ) -> anyhow::Result<PublicationResult> {
+        let mut retry_count = 0u32;
+        loop {
+            // Generate a new id on each attempt, so that we can retry `PublicationSuperseded`
+            // errors with a greater id.
+            let publication_id = self.next_id();
+            let result = self
+                .try_publish(publication_id, retry_count, &publication)
+                .await?;
+
+            if result.status.is_success() || result.status.is_empty_draft() {
+                return Ok(result);
+            }
+            if !publication.retry.retry(&result) {
+                return Ok(result);
+            }
+            retry_count += 1;
+        }
+    }
+
+    #[tracing::instrument(err, skip_all, fields(%publication_id, retry_count))]
+    async fn try_publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy>(
+        &self,
+        publication_id: models::Id,
+        retry_count: u32,
+        DraftPublication {
+            user_id,
+            logs_token,
+            dry_run,
+            draft: raw_draft,
+            verify_user_authz,
+            detail,
+            default_data_plane_name,
+            initialize,
+            finalize,
+            retry: _,
+        }: &DraftPublication<Ini, Fin, Ret>,
+    ) -> anyhow::Result<PublicationResult> {
+        let mut draft = raw_draft.clone_specs();
+        initialize
+            .initialize(&self.db, *user_id, &mut draft)
+            .await
+            .context("initializing draft")?;
+        // It's important that we generate the pub id inside the retry loop so that we can
+        // retry `PublicationSuperseded` errors.
+        let mut built = self
+            .build(
+                *user_id,
+                publication_id,
+                detail.clone(),
+                draft,
+                *logs_token,
+                default_data_plane_name.as_deref().unwrap_or(""),
+                *verify_user_authz,
+                retry_count,
+            )
+            .await?;
+        finalize.finalize(&mut built).context("finalizing build")?;
+
+        if built.errors().next().is_some() {
+            return Ok(built.build_failed());
+        } else if is_empty_draft(&built) {
+            return Ok(built.into_result(Utc::now(), JobStatus::EmptyDraft));
+        } else if *dry_run {
+            return Ok(built.into_result(Utc::now(), JobStatus::Success));
+        }
+
+        let commit_result = self.commit(built).await?;
+        Ok(commit_result)
+    }
+
+    fn next_id(&self) -> models::Id {
+        let mut gen = self.id_gen.lock().unwrap();
+        gen.next()
+    }
+
+    /// Build and verify the given draft. This is `pub` only because we have existing tests that
+    /// use it. If you want to publish something, use the `Publisher::publish` function instead.
     #[tracing::instrument(level = "info", skip(self, draft))]
-    pub async fn build(
+    pub(crate) async fn build(
         &self,
         user_id: Uuid,
         publication_id: models::Id,
@@ -208,9 +338,11 @@ impl Publisher {
         draft: tables::DraftCatalog,
         logs_token: sqlx::types::Uuid,
         default_data_plane_name: &str,
+        verify_user_authz: bool,
+        retry_count: u32,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = Utc::now();
-        let build_id = self.build_id_gen.lock().unwrap().next();
+        let build_id = self.id_gen.lock().unwrap().next();
 
         // Ensure that all the connector images are allowed. It's critical that we do this before
         // calling `build_catalog` in order to prevent the user from running arbitrary images
@@ -236,11 +368,18 @@ impl Publisher {
                 output,
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
+                retry_count,
             });
         }
 
-        let live_catalog =
-            specs::resolve_live_specs(user_id, &draft, &self.db, default_data_plane_name).await?;
+        let live_catalog = specs::resolve_live_specs(
+            user_id,
+            &draft,
+            &self.db,
+            default_data_plane_name,
+            verify_user_authz,
+        )
+        .await?;
         if !live_catalog.errors.is_empty() {
             return Ok(UncommittedBuild {
                 publication_id,
@@ -255,6 +394,7 @@ impl Publisher {
                 },
                 test_errors: tables::Errors::default(),
                 incompatible_collections: Vec::new(),
+                retry_count,
             });
         }
 
@@ -281,6 +421,7 @@ impl Publisher {
                 output,
                 test_errors: tables::Errors::default(),
                 incompatible_collections,
+                retry_count,
             });
         }
 
@@ -359,16 +500,16 @@ impl Publisher {
             output: built,
             test_errors,
             incompatible_collections: Vec::new(),
+            retry_count,
         })
     }
 
+    /// Commits a successful build. This function is only `pub` because some tests need it.
+    /// If you need to publish something, use `Publisher::publish` instead.
     #[tracing::instrument(err, skip_all, fields(
-        publication_id = %uncommitted.publication_id,
         build_id = %uncommitted.publication_id,
-        user_id = %uncommitted.user_id,
-        detail = ?uncommitted.detail
     ))]
-    pub async fn commit(
+    pub(crate) async fn commit(
         &self,
         mut uncommitted: UncommittedBuild,
     ) -> anyhow::Result<PublicationResult> {
@@ -376,20 +517,9 @@ impl Publisher {
             !uncommitted.has_errors(),
             "cannot commit uncommitted build that has errors"
         );
-        let mut txn = self.db.begin().await?;
-        let completed_at = Utc::now();
 
-        let pruned_collections = prune::prune_unbound_collections(&mut uncommitted.output.built);
-        if !pruned_collections.is_empty() {
-            tracing::info!(
-                ?pruned_collections,
-                remaining_specs = %uncommitted.output.built.spec_count(),
-                "pruned unbound collections from built catalog"
-            );
-        }
-        if is_empty_draft(&uncommitted) {
-            return Ok(uncommitted.into_result(completed_at, JobStatus::EmptyDraft));
-        }
+        let completed_at = Utc::now();
+        let mut txn = self.db.begin().await?;
 
         let quota_errors =
             self::quotas::check_resource_quotas(&uncommitted.output, &mut txn).await?;
@@ -510,6 +640,7 @@ mod test {
             })
             .collect(),
             incompatible_collections: Vec::new(),
+            retry_count: 0,
         };
         let result = build.build_failed();
         assert_eq!(JobStatus::TestFailed, result.status);
