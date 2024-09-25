@@ -24,6 +24,7 @@ impl RetryPolicy for DefaultRetryPolicy {
             );
             return false;
         }
+
         // Has there been an optimistic locking failure?
         match &result.status {
             JobStatus::BuildIdLockFailure { failures } => {
@@ -34,7 +35,30 @@ impl RetryPolicy for DefaultRetryPolicy {
                 );
                 true
             }
+            JobStatus::BuildFailed { .. } if has_only_build_errors(result) => {
+                let retry = result.built.errors.iter().all(|err| {
+                    match err.error.downcast_ref::<validation::Error>() {
+                        Some(validation::Error::BuildSuperseded { .. }) => return true,
+                        Some(validation::Error::PublicationSuperseded { .. }) => return true,
+                        _ => false,
+                    }
+                });
+                if retry {
+                    tracing::info!(
+                        retry_count = result.retry_count,
+                        "will retry due to publication/build superseded error"
+                    )
+                }
+                retry
+            }
             _ => false,
         }
     }
+}
+
+fn has_only_build_errors(result: &PublicationResult) -> bool {
+    !result.built.errors.is_empty()
+        && result.draft.errors.is_empty()
+        && result.live.errors.is_empty()
+        && result.test_errors.is_empty()
 }

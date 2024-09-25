@@ -1,8 +1,11 @@
 use std::collections::BTreeSet;
 
-use super::harness::{self, draft_catalog, TestHarness};
 use crate::{
-    controllers::ControllerState, integration_tests::harness::mock_inferred_schema, ControlPlane,
+    controllers::ControllerState,
+    integration_tests::harness::{
+        draft_catalog, mock_inferred_schema, InjectBuildError, TestHarness,
+    },
+    ControlPlane,
 };
 use models::CatalogType;
 use uuid::Uuid;
@@ -460,12 +463,12 @@ async fn test_dependencies_and_controllers() {
 
     harness.control_plane().fail_next_build(
         "owls/materialize",
-        BuildFailure {
-            catalog_name: "owls/materialize",
-            catalog_type: CatalogType::Materialization,
-        },
+        InjectBuildError::new(
+            tables::synthetic_scope("materialization", "owls/materialize"),
+            anyhow::anyhow!("simulated build failure"),
+        ),
     );
-
+    harness.control_plane().reset_activations();
     let runs = harness.run_pending_controllers(None).await;
     assert_controllers_ran(&["owls/capture", "owls/materialize"], runs);
 
@@ -546,20 +549,6 @@ async fn test_dependencies_and_controllers() {
     harness
         .assert_live_spec_hard_deleted("owls/test-test")
         .await;
-}
-
-#[derive(Debug)]
-struct BuildFailure {
-    catalog_name: &'static str,
-    catalog_type: CatalogType,
-}
-impl harness::FailBuild for BuildFailure {
-    fn modify(&mut self, result: &mut crate::publications::UncommittedBuild) {
-        result.output.built.errors.insert(tables::Error {
-            scope: tables::synthetic_scope(self.catalog_type, self.catalog_name),
-            error: anyhow::anyhow!("simulated build failure"),
-        });
-    }
 }
 
 fn assert_controllers_ran(expected: &[&str], actual: Vec<ControllerState>) {
