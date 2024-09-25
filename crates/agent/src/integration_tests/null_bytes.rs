@@ -88,7 +88,7 @@ async fn test_specs_with_null_bytes() {
     [
         (
             "",
-            "committing publication: a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
+            "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
         ),
     ]
     "###);

@@ -75,6 +75,7 @@ pub trait SqlTableObj {
 }
 
 /// Table is a collection of Rows.
+#[derive(Clone)]
 pub struct Table<R: Row>(Vec<R>);
 
 impl<R: Row> Table<R> {

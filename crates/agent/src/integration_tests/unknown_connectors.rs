@@ -52,6 +52,8 @@ async fn test_forbidden_connector() {
             draft,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("build failed");

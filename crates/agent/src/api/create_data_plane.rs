@@ -1,5 +1,8 @@
+use crate::publications::{DoNotRetry, DraftPublication, NoExpansion, PruneUnboundCollections};
+
 use super::App;
 use anyhow::Context;
+use regex::bytes::NoExpand;
 use std::sync::Arc;
 use validator::Validate;
 
@@ -184,30 +187,24 @@ async fn do_create_data_plane(
     let draft: tables::DraftCatalog = serde_json::from_str::<models::Catalog>(&draft_str)
         .unwrap()
         .into();
-
-    let pub_id = id_generator.lock().unwrap().next();
-    let built = publisher
-        .build(
-            user_id,
-            pub_id,
-            Some(format!("publication for data-plane {base_name}")),
-            draft,
-            insert.logs_token,
-            &data_plane_name,
-        )
-        .await?;
-
-    if built.has_errors() {
-        for err in built.output.errors() {
-            tracing::error!(scope=%err.scope, err=format!("{:#}", err.error), "data-plane-template build error")
-        }
-        anyhow::bail!("data-plane-template build failed");
-    }
-
-    _ = publisher
-        .commit(built)
+    let publication = DraftPublication {
+        user_id,
+        logs_token: insert.logs_token,
+        draft,
+        dry_run: false,
+        detail: Some(format!("publication for data-plane {base_name}")),
+        // We've already validated that the user can admin `ops/`, so further authZ checks are
+        // unnecessary.
+        verify_user_authz: false,
+        default_data_plane_name: Some(data_plane_name.clone()),
+        initialize: NoExpansion,
+        finalize: PruneUnboundCollections,
+        retry: DoNotRetry,
+    };
+    publisher
+        .publish(publication)
         .await
-        .context("committing publication")?
+        .context("publishing ops catalog")?
         .error_for_status()?;
 
     tracing::info!(

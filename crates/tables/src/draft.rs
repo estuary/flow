@@ -21,6 +21,18 @@ pub struct DraftCatalog {
 }
 
 impl DraftCatalog {
+    /// Returns a copy of the draft catalog that includes only the specs.
+    /// Any `errors`, `fetches`, `imports` or `resources` will be omitted.
+    pub fn clone_specs(&self) -> Self {
+        DraftCatalog {
+            captures: self.captures.clone(),
+            collections: self.collections.clone(),
+            materializations: self.materializations.clone(),
+            tests: self.tests.clone(),
+            ..Default::default()
+        }
+    }
+
     pub fn spec_count(&self) -> usize {
         self.all_spec_names().count()
     }
@@ -396,6 +408,8 @@ pub trait DraftRow: crate::Row {
     fn model(&self) -> Option<&Self::ModelDef>;
     /// Whether this represents a touch operation. If true, then `model` must be `None`.
     fn is_touch(&self) -> bool;
+
+    fn spec_type(&self) -> models::CatalogType;
 }
 
 impl DraftRow for crate::DraftCapture {
@@ -449,6 +463,9 @@ impl DraftRow for crate::DraftCapture {
     }
     fn is_touch(&self) -> bool {
         self.is_touch
+    }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Capture
     }
 }
 
@@ -504,6 +521,9 @@ impl DraftRow for crate::DraftCollection {
     fn is_touch(&self) -> bool {
         self.is_touch
     }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Collection
+    }
 }
 
 impl DraftRow for crate::DraftMaterialization {
@@ -558,6 +578,9 @@ impl DraftRow for crate::DraftMaterialization {
     fn is_touch(&self) -> bool {
         self.is_touch
     }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Materialization
+    }
 }
 
 impl DraftRow for crate::DraftTest {
@@ -611,5 +634,8 @@ impl DraftRow for crate::DraftTest {
     }
     fn is_touch(&self) -> bool {
         self.is_touch
+    }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Test
     }
 }
