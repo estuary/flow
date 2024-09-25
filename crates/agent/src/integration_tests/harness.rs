@@ -173,6 +173,27 @@ impl TestHarness {
                     '{"type": "success"}'
                 ) on conflict do nothing
             ),
+            materialize_tag_no_annotations as (
+                insert into connector_tags (
+                    connector_id,
+                    image_tag,
+                    protocol,
+                    documentation_url,
+                    endpoint_spec_schema,
+                    resource_spec_schema,
+                    resource_path_pointers,
+                    job_status
+                ) values (
+                    (select id from materialize_image),
+                    ':test-no-annotation',
+                    'materialization',
+                    'http://test.test/',
+                    '{"type": "object"}',
+                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string"}, "delta": {"type": "boolean"}}}',
+                    '{/id}',
+                    '{"type": "success"}'
+                ) on conflict do nothing
+            ),
             default_data_plane as (
                 insert into data_planes (
                     data_plane_name,

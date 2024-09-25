@@ -71,9 +71,9 @@ pub fn update_materialization_resource_spec(
 }
 
 pub struct ResourceSpecPointers {
-    x_collection_name: doc::Pointer,
-    x_schema_name: Option<doc::Pointer>,
-    x_delta_updates: Option<doc::Pointer>,
+    pub x_collection_name: doc::Pointer,
+    pub x_schema_name: Option<doc::Pointer>,
+    pub x_delta_updates: Option<doc::Pointer>,
 }
 
 /// Runs inference on the given schema and searches for a location within the resource spec

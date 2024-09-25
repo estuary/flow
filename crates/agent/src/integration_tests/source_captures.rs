@@ -1,4 +1,6 @@
 use super::harness::{draft_catalog, TestHarness};
+use models::Id;
+use uuid::Uuid;
 
 #[tokio::test]
 #[serial_test::serial]
@@ -252,4 +254,89 @@ async fn test_source_captures_collection_name() {
         no_source_status.publications.history[0].detail.as_deref()
     );
     assert!(no_source_status.source_capture.is_none());
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn test_source_capture_no_annotations() {
+    let mut harness = TestHarness::init("test_source_capture_no_annotations").await;
+    let user_id = harness.setup_tenant("sheep").await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "ducks/pond/quacks": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"]
+            }
+        },
+        "captures": {
+            "ducks/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": {
+                            "name": "greetings",
+                            "prefix": "Hello {}!"
+                        },
+                        "target": "ducks/pond/quacks"
+                    }
+                ]
+            }
+        },
+        "materializations": {
+            "ducks/materializeA": {
+                "sourceCapture": {
+                    "capture": "ducks/capture",
+                    "targetSchema": "fromSourceName",
+                    "deltaUpdates": true,
+                },
+                "endpoint": {
+                    "connector": {
+                        "image": "materialize/test:test-no-annotation",
+                        "config": {}
+                    }
+                },
+                "bindings": [ ]
+            }
+        }
+    }));
+    let pub_id = Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
+    let built = harness
+        .publisher
+        .build(
+            user_id,
+            pub_id,
+            None,
+            draft,
+            Uuid::new_v4(),
+            "ops/dp/public/test",
+        )
+        .await
+        .expect("build failed");
+    assert!(built.has_errors());
+
+    let errors = built.errors().collect::<Vec<_>>();
+
+    insta::assert_debug_snapshot!(errors, @r###"
+    [
+        Error {
+            scope: flow://materialization/ducks/materializeA,
+            error: sourceCapture.deltaUpdates set but the connector 'materialize/test' does not support delta updates,
+        },
+        Error {
+            scope: flow://materialization/ducks/materializeA,
+            error: sourceCapture.targetSchema set but the connector 'materialize/test' does not support resource schemas,
+        },
+    ]
+    "###);
 }
