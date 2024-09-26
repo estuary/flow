@@ -17,6 +17,7 @@ doc = { path = "../doc" }
 flowctl = { path = "../flowctl" }
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }
+models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }

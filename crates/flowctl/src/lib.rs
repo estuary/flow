@@ -18,7 +18,8 @@ mod poll;
 mod preview;
 mod raw;
 
-use client::Client;
+pub use client::{fetch_collection_authorization, fetch_task_authorization, Client};
+pub use config::Config;
 use output::{Output, OutputType};
 use poll::poll_while_queued;
 
@@ -149,52 +150,16 @@ impl Cli {
             }
         }
 
-        if config.user_access_token.is_some() && config.user_refresh_token.is_some() {
-            // Authorization is current: nothing to do.
-        } else if config.user_access_token.is_some() {
-            // We have an access token but no refresh token. Create one.
-            let refresh_token = api_exec::<config::RefreshToken>(
-                Client::new(&config).rpc(
-                    "create_refresh_token",
-                    serde_json::json!({"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"})
-                        .to_string(),
-                ),
-            )
-            .await?;
+        let mut client = Client::new(&config);
 
-            config.user_refresh_token = Some(refresh_token);
-
-            tracing::info!("created new refresh token");
-        } else if let Some(config::RefreshToken { id, secret }) = &config.user_refresh_token {
-            // We have a refresh token but no access token. Generate one.
-
-            #[derive(serde::Deserialize)]
-            struct Response {
-                access_token: String,
-                refresh_token: Option<config::RefreshToken>, // Set iff the token was single-use.
-            }
-            let Response {
-                access_token,
-                refresh_token: next_refresh_token,
-            } = api_exec::<Response>(Client::new(&config).rpc(
-                "generate_access_token",
-                serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
-            ))
-            .await
-            .context("failed to obtain access token")?;
-
-            if next_refresh_token.is_some() {
-                config.user_refresh_token = next_refresh_token;
-            }
-            config.user_access_token = Some(access_token);
-
-            tracing::info!("generated a new access token");
+        if config.user_access_token.is_some() || config.user_refresh_token.is_some() {
+            client.refresh().await?;
         } else {
             tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
         }
 
         let mut context = CliContext {
-            client: Client::new(&config),
+            client,
             config,
             output,
         };

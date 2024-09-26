@@ -31,7 +31,7 @@ struct PendingRead {
 
 pub struct Session {
     app: Arc<App>,
-    client: postgrest::Postgrest,
+    client: Option<flowctl::Client>,
     reads: HashMap<(TopicName, i32), PendingRead>,
     /// ID of the authenticated user
     user_id: Option<String>,
@@ -41,10 +41,9 @@ pub struct Session {
 
 impl Session {
     pub fn new(app: Arc<App>, secret: String) -> Self {
-        let client = app.anon_client.clone();
         Self {
             app,
-            client,
+            client: None,
             reads: HashMap::new(),
             user_id: None,
             config: None,
@@ -87,9 +86,9 @@ impl Session {
                 user_config,
                 claims,
             }) => {
-                self.client = client;
+                self.client.replace(client);
                 self.config.replace(user_config);
-                self.user_id.replace(claims.sub);
+                self.user_id.replace(claims.sub.to_string());
 
                 let mut response = messages::SaslAuthenticateResponse::default();
                 response.session_lifetime_ms = (1000
@@ -144,7 +143,14 @@ impl Session {
     async fn metadata_all_topics(
         &mut self,
     ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
-        let collections = fetch_all_collection_names(&self.client).await?;
+        let collections = fetch_all_collection_names(
+            &self
+                .client
+                .as_ref()
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?
+                .pg_client(),
+        )
+        .await?;
 
         tracing::debug!(collections=?ops::DebugJson(&collections), "fetched all collections");
 
@@ -170,7 +176,10 @@ impl Session {
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
     ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
-        let client = &self.client;
+        let client = &self
+            .client
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
@@ -247,7 +256,10 @@ impl Session {
         &mut self,
         request: messages::ListOffsetsRequest,
     ) -> anyhow::Result<messages::ListOffsetsResponse> {
-        let client = &self.client;
+        let client = &self
+            .client
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
@@ -342,7 +354,11 @@ impl Session {
             ..
         } = request;
 
-        let client = &self.client;
+        let client = &self
+            .client
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
         let timeout = tokio::time::sleep(std::time::Duration::from_millis(max_wait_ms as u64));
         let timeout = futures::future::maybe_done(timeout);
         tokio::pin!(timeout);
@@ -370,10 +386,11 @@ impl Session {
                     tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
-                let (key_schema_id, value_schema_id) =
-                    collection.registered_schema_ids(&client).await?;
+                let (key_schema_id, value_schema_id) = collection
+                    .registered_schema_ids(&client.pg_client())
+                    .await?;
 
-                let read = Read::new(
+                let read: Read = Read::new(
                     collection.journal_client.clone(),
                     &collection,
                     partition,

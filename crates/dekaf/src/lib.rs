@@ -15,17 +15,15 @@ use read::Read;
 mod session;
 pub use session::Session;
 
-pub mod registry;
 pub mod metrics;
+pub mod registry;
 
 mod api_client;
 pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
-use itertools::Itertools;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
-use serde_json::de;
 
 pub struct App {
     /// Anonymous API client for the Estuary control plane.
@@ -47,17 +45,9 @@ pub struct ConfigOptions {
 }
 
 pub struct Authenticated {
-    client: postgrest::Postgrest,
+    client: flowctl::Client,
     user_config: ConfigOptions,
-    claims: JwtClaims,
-}
-
-#[derive(Deserialize)]
-struct JwtClaims {
-    /// Unix timestamp in seconds when this token will expire
-    exp: u64,
-    /// ID of the user that owns this token
-    sub: String,
+    claims: models::authorizations::ControlClaims,
 }
 
 impl App {
@@ -71,51 +61,15 @@ impl App {
         let config: ConfigOptions = serde_json::from_str(&username_str)
             .context("failed to parse username as a JSON object")?;
 
-        #[derive(serde::Deserialize)]
-        struct RefreshToken {
-            id: String,
-            secret: String,
-        }
-        let RefreshToken {
-            id: refresh_token_id,
-            secret,
-        } = serde_json::from_slice(&base64::decode(password).context("password is not base64")?)
-            .context("failed to decode refresh token from password")?;
+        let mut client = flowctl::Client::new(&flowctl::Config::from_refresh_token(
+            String::from_utf8(base64::decode(password)?.to_vec())?.as_str(),
+        )?);
 
-        tracing::info!(refresh_token_id, "authenticating refresh token");
-
-        #[derive(serde::Deserialize)]
-        struct AccessToken {
-            access_token: String,
-        }
-        let AccessToken { access_token } = self
-            .anon_client
-            .rpc(
-                "generate_access_token",
-                serde_json::json!({"refresh_token_id": refresh_token_id, "secret": secret})
-                    .to_string(),
-            )
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("generating access token")?
-            .json()
-            .await?;
-
-        let authenticated_client = self
-            .anon_client
-            .clone()
-            .insert_header("Authorization", format!("Bearer {access_token}"));
-
-        let claims = base64::decode(access_token.split(".").collect_vec()[1])
-            .map_err(anyhow::Error::from)
-            .and_then(|decoded| {
-                de::from_slice::<JwtClaims>(&decoded[..]).map_err(anyhow::Error::from)
-            })
-            .context("Failed to parse access token claims")?;
+        client.refresh().await?;
+        let claims = client.claims()?;
 
         Ok(Authenticated {
-            client: authenticated_client,
+            client,
             user_config: config,
             claims,
         })

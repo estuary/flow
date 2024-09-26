@@ -40,7 +40,7 @@ pub struct Config {
     api: Option<DeprecatedAPISection>,
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct RefreshToken {
     pub id: models::Id,
     pub secret: String,
@@ -158,6 +158,22 @@ impl Config {
         config.is_local = profile == "local";
 
         Ok(config)
+    }
+
+    pub fn from_refresh_token(refresh_token: &str) -> anyhow::Result<Self> {
+        Ok(Self {
+            agent_url: None,
+            dashboard_url: None,
+            draft: None,
+            pg_public_token: None,
+            pg_url: None,
+            user_access_token: None,
+            user_refresh_token: Some(
+                serde_json::from_str(refresh_token).context("Invalid refresh token")?,
+            ),
+            is_local: false,
+            api: None,
+        })
     }
 
     /// Write the config to the file corresponding to the given named `profile`.

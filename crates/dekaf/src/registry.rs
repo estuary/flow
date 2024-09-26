@@ -40,6 +40,8 @@ async fn all_subjects(
             ..
         } = app.authenticate(auth.username(), auth.password()).await?;
 
+        let client = client.pg_client();
+
         super::fetch_all_collection_names(&client)
             .await
             .context("failed to list collections from the control plane")
@@ -95,7 +97,7 @@ async fn get_subject_latest(
         .with_context(|| format!("collection {collection} does not exist"))?;
 
         let (key_id, value_id) = collection
-            .registered_schema_ids(&client)
+            .registered_schema_ids(&client.pg_client())
             .await
             .context("failed to resolve registered Avro schemas")?;
 
