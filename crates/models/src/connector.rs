@@ -17,7 +17,7 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
     }
 }
 
-/// Connector image and configuration specification.
+/// Dekaf service configuration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct ConnectorConfig {
     /// # Image of the connector.
@@ -66,13 +66,26 @@ impl LocalConfig {
     }
 }
 
-/// Dekaf configuration. Currently empty, but present to enable easy addition
-/// of config options when they show up in the future.
+/// Configures the behavior of a whole dekaf task
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
-pub struct DekafConfig {}
+pub struct DekafConfig {
+    /// Whether or not to expose topic names in a strictly Kafka-compliant format
+    /// for systems that require it. Off by default.
+    pub strict_topic_names: bool,
+}
 
 impl DekafConfig {
     pub fn example() -> Self {
-        Self {}
+        Self {
+            strict_topic_names: false,
+        }
     }
+}
+
+/// Configures a particular binding in a Dekaf-type materialization
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
+pub struct DekafResourceConfig {
+    /// The exposed name of the topic that maps to this binding. This
+    /// will be exposed through the Kafka metadata/discovery APIs.
+    pub topic_name: String,
 }
