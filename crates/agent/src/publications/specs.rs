@@ -304,19 +304,18 @@ pub async fn check_source_capture_annotations(
     draft: &tables::DraftCatalog,
     pool: &sqlx::PgPool,
 ) -> anyhow::Result<tables::Errors> {
-    let mut by_image: BTreeMap<String, bool> = BTreeMap::new();
     let mut errors = tables::Errors::default();
 
     for materialization in draft.materializations.iter() {
         let Some(model) = materialization.model() else { return Ok(errors) };
-        let Some(image) = model.connector_image() else { return Ok(errors) };
-        let (image_name, image_tag) = split_image_tag(image);
-        let Some(connector_spec) = agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await? else { return Ok(errors) };
-        let resource_config_schema = connector_spec.resource_config_schema;
-
-        let resource_spec_pointers = crate::resource_configs::pointer_for_schema(resource_config_schema.0.get())?;
-
         if let Some(SourceCapture::Configured(source_capture_def)) = &model.source_capture {
+            let Some(image) = model.connector_image() else { return Ok(errors) };
+            let (image_name, image_tag) = split_image_tag(image);
+            let Some(connector_spec) = agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await? else { return Ok(errors) };
+            let resource_config_schema = connector_spec.resource_config_schema;
+
+            let resource_spec_pointers = crate::resource_configs::pointer_for_schema(resource_config_schema.0.get())?;
+
             if source_capture_def.delta_updates && resource_spec_pointers.x_delta_updates.is_none() {
                 errors.insert(tables::Error {
                     scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
