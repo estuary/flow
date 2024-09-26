@@ -163,6 +163,15 @@ impl TagHandler {
             tracing::warn!(image = %image_composed, "capture connector spec omits resource_path_pointers");
         }
 
+        // Validate that there is an x-collection-name annotation in the resource config schema
+        // of materialization connectors
+        if proto_type == RuntimeProtocol::Materialize {
+            if let Err(err) = crate::resource_configs::pointer_for_schema(resource_config_schema.get()) {
+                tracing::warn!(image = %image_composed, error = %err, "resource schema does not have x-collection-name annotation");
+                return Ok((row.tag_id, JobStatus::SpecFailed));
+            }
+        }
+
         // The tag fields may not be updated if the resource_path_pointers have
         // changed. If that happens, then we bail without making any changes
         // other than to job_status.
