@@ -4,6 +4,7 @@ use super::{
 };
 use itertools::Itertools;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
+use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use tables::EitherOrBoth as EOB;
 
@@ -144,6 +145,7 @@ async fn walk_materialization(
                 materialization,
                 binding,
                 built_collections,
+                endpoint,
                 errors,
             )
         })
@@ -380,6 +382,7 @@ fn walk_materialization_binding<'a>(
     catalog_name: &models::Materialization,
     binding: &'a models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
+    endpoint: &'a models::MaterializationEndpoint,
     errors: &mut tables::Errors,
 ) -> Option<materialize::request::validate::Binding> {
     let models::MaterializationBinding {
@@ -396,6 +399,17 @@ fn walk_materialization_binding<'a>(
         backfill,
         on_incompatible_schema_change: _,
     } = binding;
+
+    if matches!(endpoint, models::MaterializationEndpoint::Dekaf(_)) {
+        // Validate dekaf resource config
+        match models::DekafResourceConfig::deserialize(resource.to_value()) {
+            Ok(_) => {}
+            Err(err) => {
+                Error::from(err).push(scope.push_prop("resource"), errors);
+                return None;
+            }
+        }
+    }
 
     let (collection, source_partitions) = match source {
         models::Source::Collection(collection) => (collection, None),
