@@ -45,7 +45,7 @@ async fn test_user_publications() {
                 "sourceCapture": "cats/capture",
                 "endpoint": {
                     "connector": {
-                        "image": "ghcr.io/estuary/materialize-postgres:dev",
+                        "image": "materialize/test:test",
                         "config": {}
                     }
                 },
