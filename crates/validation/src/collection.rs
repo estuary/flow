@@ -10,7 +10,6 @@ pub fn walk_all_collections(
     default_plane_id: Option<models::Id>,
     draft_collections: &tables::DraftCollections,
     live_collections: &tables::LiveCollections,
-    inferred_schemas: &tables::InferredSchemas,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltCollections {
@@ -23,20 +22,13 @@ pub fn walk_all_collections(
             EOB::Both(live, (collection, draft)) => Some((collection, EOB::Both(live, draft))),
         },
     );
-    // Left join from a draft and/or live collection to a matched inferred schema, if present.
-    let it = inferred_schemas.outer_join(it, |eob| match eob {
-        EOB::Left(_inferred) => None,
-        EOB::Right((_collection, eob)) => Some((eob, None)),
-        EOB::Both(inferred, (_collection, eob)) => Some((eob, Some(&inferred.schema))),
-    });
 
-    it.filter_map(|(eob, inferred_bundle)| {
+    it.filter_map(|(_collection, eob)| {
         walk_collection(
             pub_id,
             build_id,
             default_plane_id,
             eob,
-            inferred_bundle,
             storage_mappings,
             errors,
         )
@@ -49,7 +41,6 @@ fn walk_collection(
     build_id: models::Id,
     default_plane_id: Option<models::Id>,
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
-    inferred_bundle: Option<&models::Schema>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltCollection> {
@@ -105,23 +96,23 @@ fn walk_collection(
             None,
         ),
         // Separate schemas used for writes and reads.
-        (None, Some(write_bundle), Some(read_bundle)) => {
+        (None, Some(model_write_schema), Some(model_read_schema)) => {
             let write_schema =
-                walk_collection_schema(scope.push_prop("writeSchema"), write_bundle, errors);
+                walk_collection_schema(scope.push_prop("writeSchema"), model_write_schema, errors);
 
             // Potentially extend the user's read schema with definitions
-            // for the collection's current write and inferred schemas.
-            let read_bundle = models::Schema::extend_read_bundle(
-                read_bundle,
-                Some(write_bundle),
-                inferred_bundle,
-            );
+            // for the collection's current write schema.
+            let read_bundle = if model_read_schema.references_write_schema() {
+                models::Schema::bundle_write_schema_def(model_read_schema, model_write_schema)
+            } else {
+                model_read_schema.clone()
+            };
 
             let read_schema =
                 walk_collection_schema(scope.push_prop("readSchema"), &read_bundle, errors);
             (
                 write_schema?,
-                write_bundle.clone(),
+                model_write_schema.clone(),
                 Some((read_schema?, read_bundle)),
             )
         }

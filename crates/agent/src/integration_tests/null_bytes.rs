@@ -1,7 +1,5 @@
 use super::harness::{draft_catalog, md5_hash, TestHarness};
-use crate::{controllers::ControllerState, publications::JobStatus, ControlPlane};
-use agent_sql::Capability;
-use models::{CatalogType, Id};
+use crate::publications::JobStatus;
 use tables::InferredSchema;
 
 #[tokio::test]

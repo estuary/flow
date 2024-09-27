@@ -97,7 +97,7 @@ expression: schema
           "type": "string"
         },
         "schema_md5": {
-          "description": "The md5 sum of the inferred schema that was last published",
+          "description": "The md5 sum of the inferred schema that was last published. Because the publications handler updates the model instead of the controller, it's technically possible for the published inferred schema to be more recent than the one corresponding to this hash. If that happens, we would expect a subsequent publication on the next controller run, which would update the hash but not actually modify the schema.",
           "type": [
             "string",
             "null"

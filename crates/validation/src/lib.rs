@@ -74,7 +74,6 @@ pub async fn validate(
         default_plane_id,
         &draft.collections,
         &live.collections,
-        &live.inferred_schemas,
         &live.storage_mappings,
         &mut errors,
     );

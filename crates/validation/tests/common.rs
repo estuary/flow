@@ -306,11 +306,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             None,
         );
     }
-    // Load into LiveCatalog::inferred_schemas.
-    for (collection, schema) in &mock_calls.inferred_schemas {
-        live.inferred_schemas
-            .insert_row(collection, schema, "feedbeef".to_string());
-    }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
         live.storage_mappings
@@ -448,8 +443,6 @@ struct MockDriverCalls {
     // Live catalog mocks:
     #[serde(default)]
     data_planes: BTreeMap<models::Id, MockDataPlane>,
-    #[serde(default)]
-    inferred_schemas: BTreeMap<models::Collection, models::Schema>,
     #[serde(default)]
     live_captures: BTreeMap<models::Capture, MockLiveCapture>,
     #[serde(default)]
