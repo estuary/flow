@@ -16,20 +16,12 @@ expression: errors
         error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred/key/0,
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/key/0,
         error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string#/collections/testing~1int-string-inferred/readSchema, but locations used as keys may only be null-able integers, strings, or booleans,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string#/collections/testing~1int-string-inferred-not-found/readSchema, but locations used as keys may only be null-able integers, strings, or booleans,
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/key/0,
+        error: location /int accepts "number", "object" in schema test://example/int-string#/collections/testing~1int-string-ref-write-schema/readSchema, but locations used as keys may only be null-able integers, strings, or booleans,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
