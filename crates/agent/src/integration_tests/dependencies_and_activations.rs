@@ -75,7 +75,7 @@ async fn test_dependencies_and_controllers() {
                 "sourceCapture": "owls/capture",
                 "endpoint": {
                     "connector": {
-                        "image": "ghcr.io/estuary/materialize-postgres:dev",
+                        "image": "materialize/test:test",
                         "config": {}
                     }
                 },
