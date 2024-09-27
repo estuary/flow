@@ -307,11 +307,11 @@ pub async fn check_source_capture_annotations(
     let mut errors = tables::Errors::default();
 
     for materialization in draft.materializations.iter() {
-        let Some(model) = materialization.model() else { return Ok(errors) };
-        let Some(image) = model.connector_image() else { return Ok(errors) };
+        let Some(model) = materialization.model() else { continue };
+        let Some(image) = model.connector_image() else { continue };
         let (image_name, image_tag) = split_image_tag(image);
 
-        let Some(source_capture) = &model.source_capture else { return Ok(errors) };
+        let Some(source_capture) = &model.source_capture else { continue };
 
         // SourceCaptures require a connector_tags row in any case. To avoid an error down the line
         // in the controller we validate that here. This should only happen for test connector
@@ -321,7 +321,7 @@ pub async fn check_source_capture_annotations(
                 scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
                 error: anyhow::anyhow!("materializations with a sourceCapture only work for known connector tags. {image} is not known to the control plane"),
             });
-            return Ok(errors);
+            continue
         };
         if let SourceCapture::Configured(source_capture_def) = source_capture {
             let resource_config_schema = connector_spec.resource_config_schema;
