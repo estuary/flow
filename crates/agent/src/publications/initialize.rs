@@ -25,6 +25,67 @@ impl Initialize for NoExpansion {
     }
 }
 
+pub struct UpdateInferredSchemas;
+impl Initialize for UpdateInferredSchemas {
+    async fn initialize(
+        &self,
+        db: &sqlx::PgPool,
+        _user_id: Uuid,
+        draft: &mut tables::DraftCatalog,
+    ) -> anyhow::Result<()> {
+        let collection_names = draft
+            .collections
+            .iter()
+            .filter(|c| {
+                !c.is_touch
+                    && c.model.as_ref().is_some_and(|s| {
+                        s.read_schema
+                            .as_ref()
+                            .is_some_and(models::Schema::references_inferred_schema)
+                    })
+            })
+            .map(|c| c.collection.as_str())
+            .collect::<Vec<_>>();
+        let rows = agent_sql::live_specs::fetch_inferred_schemas(&collection_names, db).await?;
+        for row in rows {
+            let agent_sql::live_specs::InferredSchemaRow {
+                collection_name,
+                schema,
+                md5: _,
+            } = row;
+            let name = models::Collection::new(collection_name);
+            // We already know that the collection must be drafted, and that it has a model with a read schema.
+            let drafted = draft.collections.get_mut_by_key(&name).unwrap();
+            let draft_model = drafted.model.as_mut().unwrap();
+            let draft_read_schema = draft_model.read_schema.take().unwrap();
+
+            let inferred_schema = models::Schema::new(schema.0.into());
+            let new_schema = models::Schema::extend_read_bundle(
+                &draft_read_schema,
+                None,
+                Some(&inferred_schema),
+            );
+            draft_model.read_schema = Some(new_schema);
+        }
+        Ok(())
+    }
+}
+
+impl<I1, I2> Initialize for (I1, I2)
+where
+    I1: Initialize,
+    I2: Initialize,
+{
+    fn initialize(
+        &self,
+        db: &sqlx::PgPool,
+        user_id: Uuid,
+        draft: &mut tables::DraftCatalog,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send {
+        todo!()
+    }
+}
+
 /// An `Initialize` that expands the draft to touch live specs that read from or write to
 /// any drafted collections. This may optionally filter the specs based on whether the user
 /// has `admin` capability to them.
