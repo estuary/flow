@@ -308,12 +308,23 @@ pub async fn check_source_capture_annotations(
 
     for materialization in draft.materializations.iter() {
         let Some(model) = materialization.model() else { return Ok(errors) };
-        if let Some(SourceCapture::Configured(source_capture_def)) = &model.source_capture {
-            let Some(image) = model.connector_image() else { return Ok(errors) };
-            let (image_name, image_tag) = split_image_tag(image);
-            let Some(connector_spec) = agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await? else { return Ok(errors) };
-            let resource_config_schema = connector_spec.resource_config_schema;
+        let Some(image) = model.connector_image() else { return Ok(errors) };
+        let (image_name, image_tag) = split_image_tag(image);
 
+        let Some(source_capture) = &model.source_capture else { return Ok(errors) };
+
+        // SourceCaptures require a connector_tags row in any case. To avoid an error down the line
+        // in the controller we validate that here. This should only happen for test connector
+        // tags, hence the technical error message
+        let Some(connector_spec) = agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await? else {
+            errors.insert(tables::Error {
+                scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                error: anyhow::anyhow!("materializations with a sourceCapture only work for known connector tags. {image} is not known to the control plane"),
+            });
+            return Ok(errors);
+        };
+        if let SourceCapture::Configured(source_capture_def) = source_capture {
+            let resource_config_schema = connector_spec.resource_config_schema;
             let resource_spec_pointers = crate::resource_configs::pointer_for_schema(resource_config_schema.0.get())?;
 
             if source_capture_def.delta_updates && resource_spec_pointers.x_delta_updates.is_none() {
