@@ -66,7 +66,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
         draft::publish(&ctx.client, &args.default_data_plane, draft.id, false).await;
     // The draft will have been deleted automatically if the publish was successful.
     if let Err(err) = publish_result.as_ref() {
-        tracing::error!(draft_id = %draft.id, error = %err, "publication error");
+        tracing::error!(draft_id = %draft.id, error = ?err, "publication error");
         try_delete_draft(&ctx.client, draft.id).await;
     }
     publish_result.context("Publish failed")?;
@@ -82,7 +82,7 @@ async fn prompt_to_continue() -> bool {
     match tokio::io::stdin().read_exact(&mut buf[..]).await {
         Ok(_) => &buf == b"y" || &buf == b"Y",
         Err(err) => {
-            tracing::error!(error = %err, "error reading from stdin, cancelling publish");
+            tracing::error!(error = ?err, "error reading from stdin, cancelling publish");
             false
         }
     }

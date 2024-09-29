@@ -152,7 +152,7 @@ pub async fn read_collection_journal(
                 break; // Graceful EOF of non-blocking read.
             }
             Err(err) if err.is_transient() => {
-                tracing::warn!(%err, "error reading collection (will retry)");
+                tracing::warn!(?err, "error reading collection (will retry)");
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
             Err(err) => anyhow::bail!(err),
