@@ -21,8 +21,8 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// Capture is a top-level Application which implements the capture workflow.
-type Capture struct {
+// captureApp is a top-level Application which implements the capture workflow.
+type captureApp struct {
 	*taskBase[*pf.CaptureSpec]
 	client       pc.Connector_CaptureClient
 	isRestart    bool                  // Marks the current consumer transaction is a restart.
@@ -33,10 +33,10 @@ type Capture struct {
 	watchCancel  context.CancelFunc    // Canceler of watches.
 }
 
-var _ Application = (*Capture)(nil)
+var _ application = (*captureApp)(nil)
 
-// NewCaptureApp returns a new Capture, which implements Application.
-func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Capture, error) {
+// newCaptureApp returns a new Capture, which implements Application.
+func newCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*captureApp, error) {
 	var base, err = newTaskBase[*pf.CaptureSpec](host, shard, recorder, extractCaptureSpec)
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 	var pollCh = make(chan pf.OpFuture, 1)
 	pollCh <- pf.FinishedOperation(nil)
 
-	return &Capture{
+	return &captureApp{
 		taskBase:     base,
 		client:       client,
 		isRestart:    false,
@@ -62,7 +62,7 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 
 // RestoreCheckpoint initializes a catalog task term and restores the last
 // persisted checkpoint, if any, by delegating to its JsonStore.
-func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+func (c *captureApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
 	defer func() {
 		if _err != nil {
 			c.term.cancel()
@@ -154,7 +154,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err
 
 // StartReadingMessages starts a concurrent read of the pull RPC,
 // which notifies into the consumer channel as data becomes available.
-func (c *Capture) StartReadingMessages(
+func (c *captureApp) StartReadingMessages(
 	shard consumer.Shard,
 	cp pf.Checkpoint,
 	_ *flow.Timepoint,
@@ -294,18 +294,18 @@ func pollLoop(
 }
 
 // ReplayRange is not valid for a Capture and must not be called.
-func (c *Capture) ReplayRange(_ consumer.Shard, _ pf.Journal, begin, end pf.Offset) message.Iterator {
+func (c *captureApp) ReplayRange(_ consumer.Shard, _ pf.Journal, begin, end pf.Offset) message.Iterator {
 	panic("ReplayRange is not valid for Capture runtime, and should never be called")
 }
 
 // ReadThrough returns its `offsets` unmodified.
-func (c *Capture) ReadThrough(offsets pf.Offsets) (pf.Offsets, error) {
+func (c *captureApp) ReadThrough(offsets pf.Offsets) (pf.Offsets, error) {
 	return offsets, nil
 }
 
 // ConsumeMessage drains the capture transaction,
 // and publishes each document to its captured collection.
-func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
+func (c *captureApp) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub *message.Publisher) error {
 	if env.Message.(*captureMessage).restart {
 		c.isRestart = true // This is not a transaction notification.
 		return nil
@@ -360,7 +360,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	return nil
 }
 
-func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+func (c *captureApp) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
 	if c.isRestart {
 		c.isRestart = false
 		return pf.FinishedOperation(nil)
@@ -396,11 +396,11 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 	return c.recorder.Barrier(nil)
 }
 
-func (c *Capture) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
+func (c *captureApp) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
 	c.pollCh <- op // Yield transaction's commit future as the next polling token.
 }
 
-func (c *Capture) Destroy() {
+func (c *captureApp) Destroy() {
 	if c.client != nil {
 		_ = c.client.CloseSend()
 	}
@@ -408,11 +408,11 @@ func (c *Capture) Destroy() {
 	c.taskBase.opsCancel()
 }
 
-func (c *Capture) BeginTxn(consumer.Shard) error                                  { return nil } // No-op.
-func (c *Capture) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error { return nil } // No-op.
+func (c *captureApp) BeginTxn(consumer.Shard) error                                  { return nil } // No-op.
+func (c *captureApp) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error { return nil } // No-op.
 
 // Coordinator panics if called.
-func (c *Capture) Coordinator() *shuffle.Coordinator {
+func (c *captureApp) Coordinator() *shuffle.Coordinator {
 	panic("Coordinator is not valid for Capture runtime, and should never be called")
 }
 
