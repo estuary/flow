@@ -1,10 +1,8 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -24,7 +22,6 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
-	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -36,17 +33,15 @@ import (
 )
 
 type taskBase[TaskSpec pf.Task] struct {
-	container        atomic.Pointer[pr.Container]            // Current Container of this shard, or nil.
-	extractFn        func(*sql.DB, string) (TaskSpec, error) // Extracts a TaskSpec from a build DB.
-	host             *FlowConsumer                           // Host Consumer application of the shard.
-	legacyCheckpoint pc.Checkpoint                           // Legacy state.json runtime checkpoint.
-	legacyState      json.RawMessage                         // Legacy state.json connector state.
-	opsCancel        context.CancelFunc                      // Cancels ops.Publisher context.
-	opsPublisher     *OpsPublisher                           // ops.Publisher of task ops.Logs and ops.Stats.
-	recorder         *recoverylog.Recorder                   // Recorder of the shard's recovery log.
-	svc              *bindings.TaskService                   // Associated Rust runtime service.
-	term             taskTerm[TaskSpec]                      // Current task term.
-	termCount        int                                     // Number of initialized task terms.
+	container    atomic.Pointer[pr.Container]            // Current Container of this shard, or nil.
+	extractFn    func(*sql.DB, string) (TaskSpec, error) // Extracts a TaskSpec from a build DB.
+	host         *FlowConsumer                           // Host Consumer application of the shard.
+	opsCancel    context.CancelFunc                      // Cancels ops.Publisher context.
+	opsPublisher *OpsPublisher                           // ops.Publisher of task ops.Logs and ops.Stats.
+	recorder     *recoverylog.Recorder                   // Recorder of the shard's recovery log.
+	svc          *bindings.TaskService                   // Associated Rust runtime service.
+	term         taskTerm[TaskSpec]                      // Current task term.
+	termCount    int                                     // Number of initialized task terms.
 }
 
 type taskTerm[TaskSpec pf.Task] struct {
@@ -78,11 +73,6 @@ func newTaskBase[TaskSpec pf.Task](
 	var opsPublisher = NewOpsPublisher(message.NewPublisher(
 		client.NewAppendService(opsCtx, host.service.Journals), nil))
 
-	var legacyCheckpoint, legacyState, err = parseLegacyState(recorder)
-	if err != nil {
-		return nil, err
-	}
-
 	term, err := newTaskTerm[TaskSpec](nil, extractFn, host, opsPublisher, shard)
 	if err != nil {
 		return nil, err
@@ -102,30 +92,15 @@ func newTaskBase[TaskSpec pf.Task](
 	}
 
 	return &taskBase[TaskSpec]{
-		container:        atomic.Pointer[pr.Container]{},
-		extractFn:        extractFn,
-		host:             host,
-		legacyCheckpoint: legacyCheckpoint,
-		legacyState:      legacyState,
-		opsCancel:        opsCancel,
-		opsPublisher:     opsPublisher,
-		recorder:         recorder,
-		svc:              svc,
-		term:             *term,
+		container:    atomic.Pointer[pr.Container]{},
+		extractFn:    extractFn,
+		host:         host,
+		opsCancel:    opsCancel,
+		opsPublisher: opsPublisher,
+		recorder:     recorder,
+		svc:          svc,
+		term:         *term,
 	}, nil
-}
-
-// StartTaskHeartbeatLoop begins a long-lived task which writes stats at regular intervals,
-// and then logs the final exit status of this shard. The `usageRate` is the number of
-// "credits" used per second by the connector.
-func (t *taskBase[TaskSpec]) StartTaskHeartbeatLoop(shard consumer.Shard, container *pr.Container) {
-	var usageRate float32 = 0.0
-	if container != nil {
-		usageRate = container.UsageRate
-	} else {
-		logrus.WithField("shard", shard.Spec().Id).Info("usageRate will be 0 because there is no container")
-	}
-	go taskHeartbeatLoop(shard, t.opsPublisher, usageRate)
 }
 
 func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
@@ -275,9 +250,9 @@ func (t *taskReader[TaskSpec]) ReadThrough(offsets pb.Offsets) (pb.Offsets, erro
 
 func (t *taskReader[TaskSpec]) Coordinator() *shuffle.Coordinator { return t.coordinator }
 
-// taskHeartbeatLoop publishes ops.Stats at regular intervals while the shard is running,
-// and then logs its final exit status.
-func taskHeartbeatLoop(shard consumer.Shard, pub *OpsPublisher, usageRate float32) {
+// heartbeatLoop is a long-lived routine which writes stats at regular intervals,
+// and then logs the final exit status of the shard.
+func (t *taskBase[TaskSpec]) heartbeatLoop(shard consumer.Shard) {
 	var (
 		// Period between regularly-published stat intervals.
 		// This period must cleanly divide into one hour!
@@ -290,13 +265,32 @@ func taskHeartbeatLoop(shard consumer.Shard, pub *OpsPublisher, usageRate float3
 	for {
 		select {
 		case now := <-time.After(jitter + durationToNextInterval(time.Now(), period)):
-			_ = pub.PublishStats(*intervalStats(now, period, pub.Labels(), usageRate), pub.logsPublisher.PublishCommitted)
+			var usageRate float32 = 0
+			if container := t.container.Load(); container != nil {
+				usageRate = container.UsageRate
+			}
+			_ = t.opsPublisher.PublishStats(
+				*intervalStats(now, period, t.opsPublisher.Labels(), usageRate),
+				t.opsPublisher.logsPublisher.PublishCommitted,
+			)
 
 		case <-op.Done():
-			if err := op.Err(); err != nil && !errors.Is(err, context.Canceled) {
-				ops.PublishLog(pub, ops.Log_error,
-					"shard failed", "error", err, "assignment", shard.Assignment().Decoded)
+			var err = op.Err()
+
+			if err == nil || errors.Is(err, context.Canceled) {
+				return
 			}
+
+			ops.PublishLog(
+				t.opsPublisher,
+				ops.Log_error,
+				"shard failed",
+				"error", err,
+				"assignment", shard.Assignment().Decoded,
+			)
+
+			// TODO(johnny): Notify control-plane of failure.
+
 			return
 		}
 	}
@@ -402,40 +396,4 @@ func doRecv[
 	} else {
 		return r, nil
 	}
-}
-
-// We used to use consumer.JSONFileStore for captures and materializations,
-// but have shifted to RocksDB in all cases. This adapter live-migrates
-// production tasks which need to be switched over to RocksDB.
-// It can be removed once all tasks have committed a transaction,
-// at which point the initial Checkpoint and connector state should simply
-// be pc.Checkpoint{} and "{}".
-func parseLegacyState(recorder *recoverylog.Recorder) (
-	pc.Checkpoint,
-	json.RawMessage,
-	error,
-) {
-	var state struct {
-		DriverCheckpoint json.RawMessage
-	}
-	var store, err = consumer.NewJSONFileStore(recorder, &state)
-	if err != nil {
-		return pc.Checkpoint{}, nil, fmt.Errorf("legacy consumer.NewJSONFileStore: %w", err)
-	}
-
-	// A `nil` driver checkpoint will round-trip through JSON encoding as []byte("null").
-	// Restore it's nil-ness after deserialization.
-	if bytes.Equal([]byte("null"), state.DriverCheckpoint) {
-		state.DriverCheckpoint = nil
-	}
-
-	// RestoreCheckpoint is a simple getter that cannot fail.
-	// It returns a zero-valued Checkpoint if there is no `state.json`.
-	var checkpoint, _ = store.RestoreCheckpoint(nil)
-
-	if state.DriverCheckpoint == nil {
-		state.DriverCheckpoint = json.RawMessage("{}")
-	}
-
-	return checkpoint, state.DriverCheckpoint, nil
 }

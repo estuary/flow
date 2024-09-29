@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -32,6 +33,8 @@ func newMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	if err != nil {
 		return nil, err
 	}
+	go base.heartbeatLoop(shard)
+
 	client, err := pm.NewConnectorClient(base.svc.Conn()).Materialize(shard.Context())
 	if err != nil {
 		base.drop()
@@ -81,7 +84,7 @@ func (m *materializeApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoin
 			Materialization: m.term.taskSpec,
 			Version:         m.term.labels.Build,
 			Range:           &m.term.labels.Range,
-			StateJson:       m.legacyState, // TODO(johnny): Just "{}".
+			StateJson:       json.RawMessage("{}"),
 		},
 		Internal: pr.ToInternal(&pr.MaterializeRequestExt{LogLevel: m.term.labels.LogLevel}),
 	})
@@ -92,16 +95,6 @@ func (m *materializeApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoin
 	}
 	var openedExt = pr.FromInternal[pr.MaterializeResponseExt](opened.Internal)
 	m.container.Store(openedExt.Container)
-	var checkpoint = *opened.Opened.RuntimeCheckpoint
-	if m.termCount == 1 {
-		// See comment in capture.go
-		m.taskBase.StartTaskHeartbeatLoop(shard, openedExt.Container)
-	}
-
-	// TODO(johnny): Remove after migration.
-	if len(checkpoint.Sources) == 0 && len(checkpoint.AckIntents) == 0 {
-		checkpoint = m.legacyCheckpoint
-	}
 
 	// Send initial Acknowledge of the session.
 	_ = doSend[pm.Response](m.client, &pm.Request{Acknowledge: &pm.Request_Acknowledge{}})
@@ -112,7 +105,7 @@ func (m *materializeApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoin
 	// We must block until the very first Acknowledged is read (or errors).
 	// If we didn't do this, then Request.Flush could potentially be sent before
 	// the first Acknowledged is read, which is a protocol violation.
-	return checkpoint, m.acknowledged.Err()
+	return *opened.Opened.RuntimeCheckpoint, m.acknowledged.Err()
 }
 
 // ConsumeMessage implements Application.ConsumeMessage.

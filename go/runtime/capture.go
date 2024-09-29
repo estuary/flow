@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 
@@ -41,6 +42,8 @@ func newCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 	if err != nil {
 		return nil, err
 	}
+	go base.heartbeatLoop(shard)
+
 	client, err := pc.NewConnectorClient(base.svc.Conn()).Capture(shard.Context())
 	if err != nil {
 		base.drop()
@@ -125,7 +128,7 @@ func (c *captureApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _
 			Capture:   c.term.taskSpec,
 			Version:   c.term.labels.Build,
 			Range:     &c.term.labels.Range,
-			StateJson: c.legacyState, // TODO(johnny): Just "{}".
+			StateJson: json.RawMessage("{}"),
 		},
 		Internal: pr.ToInternal(&pr.CaptureRequestExt{LogLevel: c.term.labels.LogLevel}),
 	})
@@ -136,20 +139,8 @@ func (c *captureApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _
 	}
 	var openedExt = pr.FromInternal[pr.CaptureResponseExt](opened.Internal)
 	c.container.Store(openedExt.Container)
-	var checkpoint = *openedExt.Opened.RuntimeCheckpoint
-	if c.termCount == 1 {
-		// Technically, it's possible for a subsequent term to pull a different image with a different
-		// usageRate. We're ignoring that case here because it doesn't seem worth the effort to handle it
-		// right now.
-		c.taskBase.StartTaskHeartbeatLoop(shard, openedExt.Container)
-	}
 
-	// TODO(johnny): Remove after migration.
-	if len(checkpoint.Sources) == 0 && len(checkpoint.AckIntents) == 0 {
-		checkpoint = c.legacyCheckpoint
-	}
-
-	return checkpoint, nil
+	return *openedExt.Opened.RuntimeCheckpoint, nil
 }
 
 // StartReadingMessages starts a concurrent read of the pull RPC,

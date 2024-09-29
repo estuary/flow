@@ -38,6 +38,7 @@ func newDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 	if err != nil {
 		return nil, err
 	}
+	go base.heartbeatLoop(shard)
 
 	var sqlite *store_sqlite.Store
 
@@ -134,10 +135,6 @@ func (d *deriveApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _e
 	}
 	var openedExt = pr.FromInternal[pr.DeriveResponseExt](opened.Internal)
 	d.container.Store(openedExt.Container)
-	if d.termCount == 1 {
-		// See comment in capture.go
-		d.taskBase.StartTaskHeartbeatLoop(shard, openedExt.Container)
-	}
 
 	return *openedExt.Opened.RuntimeCheckpoint, nil
 }
