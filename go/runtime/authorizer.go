@@ -2,11 +2,7 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"path"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -14,12 +10,11 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/golang-jwt/jwt/v5"
-	"go.gazette.dev/core/auth"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/metadata"
 )
 
-// ControlPlaneAuthorizer is a pb.Authorizer which obtains tokens and
+// controlPlaneAuthorizer is a pb.Authorizer which obtains tokens and
 // data-plane endpoints through the Estuary Authorization API.
 //
 // Specifically it:
@@ -30,10 +25,8 @@ import (
 //     and evaluation of authorization rules.
 //  4. Caches and re-uses the authorization result (success or failure)
 //     until its expiration.
-type ControlPlaneAuthorizer struct {
-	controlAPI    pb.Endpoint
-	dataplaneFQDN string
-	delegate      *auth.KeyedAuth
+type controlPlaneAuthorizer struct {
+	controlPlane *controlPlane
 
 	cache struct {
 		m  map[authCacheKey]authCacheValue
@@ -41,15 +34,11 @@ type ControlPlaneAuthorizer struct {
 	}
 }
 
-// NewControlPlaneAuthorizer returns a ControlPlaneAuthorizer which uses the
-// given `controlAPI` endpoint to obtain authorizations, in the context of
-// this `dataplaneFQDN` and the `delegate` KeyedAuth which is capable of
-// signing tokens for `dataplaneFQDN`.
-func NewControlPlaneAuthorizer(delegate *auth.KeyedAuth, dataplaneFQDN string, controlAPI pb.Endpoint) *ControlPlaneAuthorizer {
-	var a = &ControlPlaneAuthorizer{
-		controlAPI:    controlAPI,
-		dataplaneFQDN: dataplaneFQDN,
-		delegate:      delegate,
+// newControlPlaneAuthorizer returns a controlPlaneAuthorizer which uses the
+// given `controlAPI` endpoint to obtain authorizations.
+func newControlPlaneAuthorizer(cp *controlPlane) *controlPlaneAuthorizer {
+	var a = &controlPlaneAuthorizer{
+		controlPlane: cp,
 	}
 	a.cache.m = make(map[authCacheKey]authCacheValue)
 
@@ -87,12 +76,12 @@ func (v *authCacheValue) apply(ctx context.Context) (context.Context, error) {
 	return metadata.AppendToOutgoingContext(ctx, "authorization", v.token), nil
 }
 
-func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims, exp time.Duration) (context.Context, error) {
+func (a *controlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims, exp time.Duration) (context.Context, error) {
 	var name = claims.Selector.Include.ValueOf("name")
 
 	// Authorizations to shard recovery logs are self-signed.
 	if strings.HasPrefix(name, "recovery/") {
-		return a.delegate.Authorize(ctx, claims, exp)
+		return a.controlPlane.keyedAuth.Authorize(ctx, claims, exp)
 	}
 
 	var shardID, ok = pprof.Label(ctx, "shard")
@@ -127,7 +116,6 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 	// We must issue a new request to the authorization server.
 	// Begin by self-signing our request as a JWT.
 
-	claims.Issuer = a.dataplaneFQDN
 	claims.Subject = shardID
 	claims.Capability |= pf.Capability_AUTHORIZE // Required for delegated authorization.
 	claims.IssuedAt = &jwt.NumericDate{Time: now}
@@ -145,7 +133,7 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 
 	// Attempt to fetch an authorization token from the control plane.
 	// Cache errors for a period of time to prevent thundering herds on errors.
-	if token, address, expiresAt, err := doAuthFetch(a.controlAPI, claims, a.delegate.Keys[0]); err != nil {
+	if token, address, expiresAt, err := doAuthFetch(a.controlPlane, claims); err != nil {
 		value = authCacheValue{
 			address: "",
 			err:     err,
@@ -168,50 +156,30 @@ func (a *ControlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 	return value.apply(ctx)
 }
 
-func doAuthFetch(controlAPI pb.Endpoint, claims pb.Claims, key jwt.VerificationKey) (string, pb.Endpoint, time.Time, error) {
-	var token, err = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(key)
+func doAuthFetch(cp *controlPlane, claims pb.Claims) (string, pb.Endpoint, time.Time, error) {
+	reqToken, err := cp.signClaims(claims)
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("failed to self-sign authorization request: %w", err)
 	}
-	token = `{"token":"` + token + `"}`
 
-	var brokerAddress pb.Endpoint
-	var url = controlAPI.URL()
-	url.Path = path.Join(url.Path, "/authorize/task")
+	var request = struct {
+		Token string `json:"token"`
+	}{reqToken}
 
-	// Invoke the authorization API, perhaps multiple times if asked to retry.
-	for {
-		httpResp, err := http.Post(url.String(), "application/json", strings.NewReader(token))
-		if err != nil {
-			return "", "", time.Time{}, fmt.Errorf("failed to POST to authorization API: %w", err)
-		}
-		respBody, err := io.ReadAll(httpResp.Body)
-		if err != nil {
-			return "", "", time.Time{}, fmt.Errorf("failed to read authorization API response: %w", err)
-		}
-		if httpResp.StatusCode != 200 {
-			return "", "", time.Time{}, fmt.Errorf("authorization failed (%s): %s %s", httpResp.Status, string(respBody), token)
-		}
+	var response struct {
+		Token         string
+		BrokerAddress pb.Endpoint
+		RetryMillis   uint64
+	}
 
-		var response struct {
-			Token         string
-			BrokerAddress pb.Endpoint
-			RetryMillis   uint64
-		}
-		if err = json.Unmarshal(respBody, &response); err != nil {
-			return "", "", time.Time{}, fmt.Errorf("failed to decode authorization response: %w", err)
-		}
-
-		if response.RetryMillis != 0 {
-			time.Sleep(time.Millisecond * time.Duration(response.RetryMillis))
-		} else {
-			token, brokerAddress = response.Token, response.BrokerAddress
-			break
-		}
+	// We intentionally use context.Background and not the request context
+	// because we cache authorizations.
+	if err = callControlAPI(context.Background(), cp, "/authorize/task", &request, &response); err != nil {
+		return "", "", time.Time{}, err
 	}
 
 	claims = pb.Claims{}
-	if _, _, err = jwt.NewParser().ParseUnverified(token, &claims); err != nil {
+	if _, _, err = jwt.NewParser().ParseUnverified(response.Token, &claims); err != nil {
 		return "", "", time.Time{}, fmt.Errorf("authorization server returned invalid token: %w", err)
 	}
 
@@ -221,7 +189,7 @@ func doAuthFetch(controlAPI pb.Endpoint, claims pb.Claims, key jwt.VerificationK
 		return "", "", time.Time{}, fmt.Errorf("authorization server did not include an expires-at claim")
 	}
 
-	return token, brokerAddress, claims.ExpiresAt.Time, nil
+	return response.Token, response.BrokerAddress, claims.ExpiresAt.Time, nil
 }
 
-var _ pb.Authorizer = &ControlPlaneAuthorizer{}
+var _ pb.Authorizer = &controlPlaneAuthorizer{}
