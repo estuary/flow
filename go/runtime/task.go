@@ -71,12 +71,12 @@ func newTaskBase[TaskSpec pf.Task](
 	extractFn func(*sql.DB, string) (TaskSpec, error),
 ) (*taskBase[TaskSpec], error) {
 
-	var opsCtx, opsCancel = context.WithCancel(host.OpsContext)
+	var opsCtx, opsCancel = context.WithCancel(host.opsContext)
 	opsCtx = pprof.WithLabels(opsCtx, pprof.Labels(
 		"shard", shard.Spec().Id.String(), // Same label set by consumer framework.
 	))
 	var opsPublisher = NewOpsPublisher(message.NewPublisher(
-		client.NewAppendService(opsCtx, host.Service.Journals), nil))
+		client.NewAppendService(opsCtx, host.service.Journals), nil))
 
 	var legacyCheckpoint, legacyState, err = parseLegacyState(recorder)
 	if err != nil {
@@ -90,8 +90,8 @@ func newTaskBase[TaskSpec pf.Task](
 
 	svc, err := bindings.NewTaskService(
 		pr.TaskServiceConfig{
-			AllowLocal:       host.Config.Flow.AllowLocal,
-			ContainerNetwork: host.Config.Flow.Network,
+			AllowLocal:       host.config.Flow.AllowLocal,
+			ContainerNetwork: host.config.Flow.Network,
 			TaskName:         term.labels.TaskName,
 			UdsPath:          path.Join(recorder.Dir(), "socket"),
 		},
@@ -171,7 +171,7 @@ func newTaskTerm[TaskSpec pf.Task](
 	// A cancellation of the term's Context doesn't invalidate the shard,
 	// but does mean the current task term is done and a new one should be started.
 	var termCtx, termCancel = context.WithCancel(shard.Context())
-	go signalOnSpecUpdate(termCtx, termCancel, host.Service.State.KS, shard, shardSpec)
+	go signalOnSpecUpdate(termCtx, termCancel, host.service.State.KS, shard, shardSpec)
 
 	var labels, err = labels.ParseShardLabels(shardSpec.LabelSet)
 	if err != nil {
@@ -184,7 +184,7 @@ func newTaskTerm[TaskSpec pf.Task](
 		taskSpec = prev.taskSpec
 	} else {
 		// The ShardSpec has changed. Pull its build and extract its TaskSpec.
-		var build = host.Builds.Open(labels.Build)
+		var build = host.builds.Open(labels.Build)
 		defer build.Close() // TODO(johnny): Remove build caching.
 
 		if err = build.Extract(func(db *sql.DB) error {
@@ -235,7 +235,7 @@ func (t *taskReader[TaskSpec]) initTerm(shard consumer.Shard) error {
 		shard.JournalClient(),
 		t.term.labels.Build,
 		t.opsPublisher,
-		t.host.Service,
+		t.host.service,
 		t.term.shardSpec.Id,
 		t.term.taskSpec,
 	)

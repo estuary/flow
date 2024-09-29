@@ -17,17 +17,17 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// Materialize is a top-level Application which implements the materialization workflow.
-type Materialize struct {
+// materializeApp is a top-level Application which implements the materialization workflow.
+type materializeApp struct {
 	*taskReader[*pf.MaterializationSpec]
 	acknowledged *pf.AsyncOperation
 	client       pm.Connector_MaterializeClient
 }
 
-var _ Application = (*Materialize)(nil)
+var _ application = (*materializeApp)(nil)
 
-// NewMaterializeApp returns a *Materialize Application.
-func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Materialize, error) {
+// newMaterializeApp returns a *Materialize Application.
+func newMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*materializeApp, error) {
 	var base, err = newTaskBase[*pf.MaterializationSpec](host, shard, recorder, extractMaterializationSpec)
 	if err != nil {
 		return nil, err
@@ -38,14 +38,14 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 		return nil, fmt.Errorf("starting materialize stream: %w", err)
 	}
 
-	return &Materialize{
+	return &materializeApp{
 		taskReader:   newTaskReader[*pf.MaterializationSpec](base, shard),
 		acknowledged: nil,
 		client:       client,
 	}, nil
 }
 
-func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+func (m *materializeApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
 	defer func() {
 		if _err != nil {
 			m.term.cancel()
@@ -116,7 +116,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, 
 }
 
 // ConsumeMessage implements Application.ConsumeMessage.
-func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Envelope, pub *message.Publisher) error {
+func (m *materializeApp) ConsumeMessage(shard consumer.Shard, envelope message.Envelope, pub *message.Publisher) error {
 	var isr = envelope.Message.(pr.IndexedShuffleResponse)
 	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
 	var docJson = isr.Arena.Bytes(isr.Docs[isr.Index])
@@ -144,7 +144,7 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 	return nil
 }
 
-func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
+func (m *materializeApp) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
 	// Precondition: m.acknowledged has resolved successfully and m.client is not being read.
 
 	// Send Flush and await Flushed response.
@@ -167,7 +167,7 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 	return nil
 }
 
-func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+func (m *materializeApp) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
 	ops.PublishLog(m.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"capture", m.term.labels.TaskName,
@@ -216,7 +216,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 }
 
 // Destroy implements consumer.Store.Destroy
-func (m *Materialize) Destroy() {
+func (m *materializeApp) Destroy() {
 	if m.client != nil {
 		_ = m.client.CloseSend()
 	}
@@ -224,8 +224,8 @@ func (m *Materialize) Destroy() {
 	m.taskBase.opsCancel()
 }
 
-func (m *Materialize) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.
-func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}             // No-op.
+func (m *materializeApp) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.
+func (m *materializeApp) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}             // No-op.
 
 func readAcknowledged(
 	client pm.Connector_MaterializeClient,

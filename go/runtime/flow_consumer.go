@@ -48,38 +48,38 @@ type FlowConsumerConfig struct {
 // Execute delegates to runconsumer.Cmd.Execute.
 func (c *FlowConsumerConfig) Execute(args []string) error {
 	var app = &FlowConsumer{
-		Tap: network.NewTap(),
+		tap: network.NewTap(),
 	}
 	return runconsumer.Cmd{
 		Cfg:          c,
 		App:          app,
-		WrapListener: app.Tap.Wrap,
+		WrapListener: app.tap.Wrap,
 	}.Execute(args)
 }
 
 // FlowConsumer implements the Estuary Flow Consumer.
 type FlowConsumer struct {
 	// Configuration of this FlowConsumer.
-	Config *FlowConsumerConfig
-	// Running consumer.Service.
-	Service *consumer.Service
+	config *FlowConsumerConfig
+	// Running consumer.service.
+	service *consumer.Service
 	// Shared catalog builds.
-	Builds *flow.BuildService
-	// Timepoint that regulates shuffled reads of started shards.
-	Timepoint struct {
+	builds *flow.BuildService
+	// timepoint that regulates shuffled reads of started shards.
+	timepoint struct {
 		Now *flow.Timepoint
 		Mu  sync.Mutex
 	}
-	// OpsContext to use when appending messages to ops collections.
+	// opsContext to use when appending messages to ops collections.
 	// It's important that we use a Context that's scoped to the life of the process,
 	// rather than the lives of individual shards, so we don't lose logs.
-	OpsContext context.Context
+	opsContext context.Context
 	// Network listener tap.
-	Tap *network.Tap
+	tap *network.Tap
 }
 
-// Application is the interface implemented by Flow shard task stores.
-type Application interface {
+// application is the interface implemented by Flow shard task stores.
+type application interface {
 	consumer.Store
 	shuffle.Store
 
@@ -104,7 +104,7 @@ var _ runconsumer.Application = (*FlowConsumer)(nil)
 
 // NewStore selects an implementing Application for the shard, and returns a new instance.
 func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
-	var err = CompleteSplit(f.Service, shard, rec)
+	var err = CompleteSplit(f.service, shard, rec)
 	if err != nil {
 		return nil, fmt.Errorf("completing shard split: %w", err)
 	}
@@ -117,19 +117,19 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 	switch taskType {
 	case ops.TaskType_capture.String():
-		if c, err := NewCaptureApp(f, shard, rec); err != nil {
+		if c, err := newCaptureApp(f, shard, rec); err != nil {
 			return nil, err
 		} else {
 			return c, nil
 		}
 	case ops.TaskType_derivation.String():
-		if d, err := NewDeriveApp(f, shard, rec); err != nil {
+		if d, err := newDeriveApp(f, shard, rec); err != nil {
 			return nil, err
 		} else {
 			return d, nil
 		}
 	case ops.TaskType_materialization.String():
-		if m, err := NewMaterializeApp(f, shard, rec); err != nil {
+		if m, err := newMaterializeApp(f, shard, rec); err != nil {
 			return nil, err
 		} else {
 			return m, nil
@@ -146,41 +146,41 @@ func (f *FlowConsumer) NewMessage(*pb.JournalSpec) (message.Message, error) {
 
 // ConsumeMessage delegates to the Application.
 func (f *FlowConsumer) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, pub *message.Publisher) error {
-	return store.(Application).ConsumeMessage(shard, env, pub)
+	return store.(application).ConsumeMessage(shard, env, pub)
 }
 
 // FinalizeTxn delegates to the Application.
 func (f *FlowConsumer) FinalizeTxn(shard consumer.Shard, store consumer.Store, pub *message.Publisher) error {
-	return store.(Application).FinalizeTxn(shard, pub)
+	return store.(application).FinalizeTxn(shard, pub)
 }
 
 // BeginTxn delegates to the Application.
 func (f *FlowConsumer) BeginTxn(shard consumer.Shard, store consumer.Store) error {
-	return store.(Application).BeginTxn(shard)
+	return store.(application).BeginTxn(shard)
 }
 
 // FinishedTxn delegates to the Application.
 func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, future consumer.OpFuture) {
-	store.(Application).FinishedTxn(shard, future)
+	store.(application).FinishedTxn(shard, future)
 }
 
 // StartReadingMessages delegates to the Application.
 func (f *FlowConsumer) StartReadingMessages(shard consumer.Shard, store consumer.Store, checkpoint pc.Checkpoint, envOrErr chan<- consumer.EnvelopeOrError) {
-	f.Timepoint.Mu.Lock()
-	var tp = f.Timepoint.Now
-	f.Timepoint.Mu.Unlock()
+	f.timepoint.Mu.Lock()
+	var tp = f.timepoint.Now
+	f.timepoint.Mu.Unlock()
 
-	store.(Application).StartReadingMessages(shard, checkpoint, tp, envOrErr)
+	store.(application).StartReadingMessages(shard, checkpoint, tp, envOrErr)
 }
 
 // ReplayRange delegates to the Application.
 func (f *FlowConsumer) ReplayRange(shard consumer.Shard, store consumer.Store, journal pb.Journal, begin, end pb.Offset) message.Iterator {
-	return store.(Application).ReplayRange(shard, journal, begin, end)
+	return store.(application).ReplayRange(shard, journal, begin, end)
 }
 
 // ReadThrough delgates to the Application.
 func (f *FlowConsumer) ReadThrough(shard consumer.Shard, store consumer.Store, args consumer.ResolveArgs) (pb.Offsets, error) {
-	return store.(Application).ReadThrough(args.ReadThrough)
+	return store.(application).ReadThrough(args.ReadThrough)
 }
 
 // NewConfig returns a new config instance.
@@ -189,13 +189,13 @@ func (f *FlowConsumer) NewConfig() runconsumer.Config { return new(FlowConsumerC
 func (f *FlowConsumer) tickTimepoint(wallTime time.Time) {
 	// Advance the |wallTime| by a synthetic positive delta,
 	// which may be non-zero in testing contexts (only).
-	var delta = time.Duration(atomic.LoadInt64((*int64)(&f.Service.PublishClockDelta)))
+	var delta = time.Duration(atomic.LoadInt64((*int64)(&f.service.PublishClockDelta)))
 	var now = wallTime.Add(delta)
 
-	f.Timepoint.Mu.Lock()
-	f.Timepoint.Now.Next.Resolve(now)
-	f.Timepoint.Now = f.Timepoint.Now.Next
-	f.Timepoint.Mu.Unlock()
+	f.timepoint.Mu.Lock()
+	f.timepoint.Now.Next.Resolve(now)
+	f.timepoint.Now = f.timepoint.Now.Next
+	f.timepoint.Mu.Unlock()
 }
 
 // InitApplication starts shared services of the flow-consumer.
@@ -229,11 +229,11 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return shardGetHints(ctx, claims, svc, req)
 	}
 
-	f.Config = &config
-	f.Service = args.Service
-	f.Builds = builds
-	f.Timepoint.Now = flow.NewTimepoint(time.Now())
-	f.OpsContext = args.Context
+	f.config = &config
+	f.service = args.Service
+	f.builds = builds
+	f.timepoint.Now = flow.NewTimepoint(time.Now())
+	f.opsContext = args.Context
 
 	// Start a ticker of the shared *Timepoint.
 	go func() {
@@ -252,10 +252,10 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	}
 
 	pr.RegisterShufflerServer(args.Server.GRPCServer,
-		pr.NewVerifiedShufflerServer(shuffle.NewAPI(args.Service.Resolver), f.Service.Verifier))
+		pr.NewVerifiedShufflerServer(shuffle.NewAPI(args.Service.Resolver), f.service.Verifier))
 
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
-		pf.NewVerifiedNetworkProxyServer(&network.ProxyServer{Resolver: args.Service.Resolver}, f.Service.Verifier))
+		pf.NewVerifiedNetworkProxyServer(&network.ProxyServer{Resolver: args.Service.Resolver}, f.service.Verifier))
 
 	var connectorProxy = &connectorProxy{
 		address:   args.Server.Endpoint(),
@@ -269,7 +269,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	materialize.RegisterConnectorServer(args.Server.GRPCServer, connectorProxy)
 
 	networkProxy, err := network.NewFrontend(
-		f.Tap,
+		f.tap,
 		config.Consumer.Host,
 		config.Flow.ControlAPI.URL(),
 		config.Flow.Dashboard.URL(),
