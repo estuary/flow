@@ -281,7 +281,11 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return fmt.Errorf("failed to build network proxy: %w", err)
 	}
 	args.Tasks.Queue("network-proxy-frontend", func() error {
-		return networkProxy.Serve(args.Tasks.Context())
+		var err = networkProxy.Serve(args.Tasks.Context())
+		if args.Tasks.Context().Err() != nil {
+			err = nil // Squelch accept error if we're tearing down.
+		}
+		return err
 	})
 
 	return nil
