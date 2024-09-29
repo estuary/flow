@@ -76,7 +76,7 @@ func NewFlowTesting(ctx context.Context, inner *FlowConsumer, ajc *client.Append
 
 // ResetState is a testing API that clears registers of derivation shards.
 func (f *FlowTesting) ResetState(ctx context.Context, _ *pf.ResetStateRequest) (*pf.ResetStateResponse, error) {
-	var listing, err = consumer.ShardList(ctx, pb.Claims{}, f.Service, &pc.ListRequest{
+	var listing, err = consumer.ShardList(ctx, pb.Claims{}, f.service, &pc.ListRequest{
 		Selector: pb.LabelSelector{
 			Include: pb.MustLabelSet(labels.TaskType, ops.TaskType_derivation.String()),
 		},
@@ -86,7 +86,7 @@ func (f *FlowTesting) ResetState(ctx context.Context, _ *pf.ResetStateRequest) (
 	}
 
 	for _, shard := range listing.Shards {
-		var res, err = f.Service.Resolver.Resolve(consumer.ResolveArgs{
+		var res, err = f.service.Resolver.Resolve(consumer.ResolveArgs{
 			Context:  ctx,
 			ShardID:  shard.Spec.Id,
 			MayProxy: false,
@@ -98,7 +98,7 @@ func (f *FlowTesting) ResetState(ctx context.Context, _ *pf.ResetStateRequest) (
 		}
 		defer res.Done()
 
-		if err := res.Store.(*Derive).ClearRegistersForTest(); err != nil {
+		if err := res.Store.(*deriveApp).ClearRegistersForTest(); err != nil {
 			return nil, fmt.Errorf("clearing registers of shard %s: %w", shard.Spec.Id, err)
 		}
 	}
@@ -110,7 +110,7 @@ func (f *FlowTesting) ResetState(ctx context.Context, _ *pf.ResetStateRequest) (
 func (f *FlowTesting) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequest) (*pf.AdvanceTimeResponse, error) {
 	var advance = time.Duration(req.AdvanceSeconds) * time.Second
 	var delta = time.Duration(
-		atomic.AddInt64((*int64)(&f.Service.PublishClockDelta), int64(advance)))
+		atomic.AddInt64((*int64)(&f.service.PublishClockDelta), int64(advance)))
 
 	f.tickTimepoint(time.Now())
 
@@ -129,7 +129,7 @@ func (f *FlowTesting) AdvanceTime(_ context.Context, req *pf.AdvanceTimeRequest)
 // Unlike real tasks, however, this published ACK intent is not committed to a
 // transactional store, and this API is thus *only* appropriate for testing.
 func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.IngestResponse, error) {
-	var build = f.Builds.Open(req.BuildId)
+	var build = f.builds.Open(req.BuildId)
 	defer build.Close()
 
 	// Load the ingested collection.
@@ -181,11 +181,11 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	combiner.CloseSend()
 
 	// Update our publisher's clock to the current test time.
-	var delta = time.Duration(atomic.LoadInt64((*int64)(&f.Service.PublishClockDelta)))
+	var delta = time.Duration(atomic.LoadInt64((*int64)(&f.service.PublishClockDelta)))
 	f.pubClock.Update(time.Now().Add(delta))
 	// Drain the combiner, mapping documents to logical partitions and writing
 	// them as uncommitted messages.
-	var mapper = flow.NewMapper(ctx, f.Service.Journals)
+	var mapper = flow.NewMapper(ctx, f.service.Journals)
 
 	for {
 		var response, err = combiner.Recv()
