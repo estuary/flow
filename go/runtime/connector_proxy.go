@@ -31,7 +31,7 @@ type connectorProxy struct {
 }
 
 func (s *connectorProxy) ProxyConnectors(stream pr.ConnectorProxy_ProxyConnectorsServer) error {
-	var _, cancel, _, err = s.host.Service.Verifier.Verify(stream.Context(), pf.Capability_PROXY_CONNECTOR)
+	var _, cancel, _, err = s.host.service.Verifier.Verify(stream.Context(), pf.Capability_PROXY_CONNECTOR)
 
 	if err != nil {
 		return err
@@ -47,8 +47,8 @@ func (s *connectorProxy) ProxyConnectors(stream pr.ConnectorProxy_ProxyConnector
 
 	svc, err := bindings.NewTaskService(
 		pr.TaskServiceConfig{
-			AllowLocal:       s.host.Config.Flow.AllowLocal,
-			ContainerNetwork: s.host.Config.Flow.Network,
+			AllowLocal:       s.host.config.Flow.AllowLocal,
+			ContainerNetwork: s.host.config.Flow.Network,
 			TaskName:         id,
 			UdsPath:          path.Join(os.TempDir(), id),
 		},
@@ -136,7 +136,7 @@ func (s *connectorProxy) Materialize(stream pm.Connector_MaterializeServer) erro
 }
 
 func (s *connectorProxy) verify(ctx context.Context) (context.Context, context.CancelFunc, *grpc.ClientConn, error) {
-	ctx, cancel, _, err := s.host.Service.Verifier.Verify(ctx, pf.Capability_PROXY_CONNECTOR)
+	ctx, cancel, _, err := s.host.service.Verifier.Verify(ctx, pf.Capability_PROXY_CONNECTOR)
 	if err != nil {
 		return nil, nil, nil, err
 	}
