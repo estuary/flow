@@ -51,10 +51,11 @@ pub struct Partition {
 impl Collection {
     /// Build a Collection by fetching its spec, a authenticated data-plane access token, and its partitions.
     pub async fn new(
-        client: &postgrest::Postgrest,
+        client: &flow_client::Client,
         collection: &str,
     ) -> anyhow::Result<Option<Self>> {
         let not_before = uuid::Clock::default();
+        let pg_client = client.pg_client();
 
         // Build a journal client and use it to fetch partitions while concurrently
         // fetching the collection's metadata from the control plane.
@@ -64,7 +65,7 @@ impl Collection {
             Ok((journal_client, partitions))
         };
         let (spec, client_partitions): (anyhow::Result<_>, anyhow::Result<_>) =
-            futures::join!(Self::fetch_spec(&client, collection), client_partitions);
+            futures::join!(Self::fetch_spec(&pg_client, collection), client_partitions);
 
         let Some(spec) = spec? else { return Ok(None) };
         let (journal_client, partitions) = client_partitions?;
@@ -234,43 +235,13 @@ impl Collection {
 
     /// Build a journal client by resolving the collections data-plane gateway and an access token.
     async fn build_journal_client(
-        client: &postgrest::Postgrest,
+        client: &flow_client::Client,
         collection: &str,
     ) -> anyhow::Result<journal::Client> {
-        let body = serde_json::json!({
-            "prefixes": [collection],
-        })
-        .to_string();
+        let (_, journal_client) =
+            flow_client::fetch_collection_authorization(client, collection).await?;
 
-        #[derive(serde::Deserialize)]
-        struct Auth {
-            token: String,
-            gateway_url: String,
-        }
-
-        let [auth]: [Auth; 1] = client
-            .rpc("gateway_auth_token", body)
-            .build()
-            .send()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("requesting data plane gateway auth token")?
-            .json()
-            .await?;
-
-        tracing::debug!(
-            collection,
-            gateway = auth.gateway_url,
-            "fetched data-plane token"
-        );
-
-        let mut metadata = gazette::Metadata::default();
-        metadata.bearer_token(&auth.token)?;
-
-        let router = gazette::Router::new("dekaf");
-        let client = journal::Client::new(auth.gateway_url, metadata, router);
-
-        Ok(client)
+        Ok(journal_client)
     }
 
     async fn registered_schema_id(

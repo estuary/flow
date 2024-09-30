@@ -1,4 +1,5 @@
-use crate::{api_exec_paginated, catalog, local_specs};
+use crate::{catalog, local_specs};
+use flow_client::api_exec_paginated;
 use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
 
