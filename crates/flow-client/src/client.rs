@@ -197,14 +197,6 @@ pub struct RefreshToken {
     pub secret: String,
 }
 
-impl TryFrom<String> for RefreshToken {
-    type Error = anyhow::Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        parse_jwt_claims(value.as_str())
-    }
-}
-
 #[tracing::instrument(skip(client), err)]
 pub async fn fetch_task_authorization(
     client: &Client,

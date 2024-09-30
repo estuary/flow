@@ -24,7 +24,9 @@ pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::DekafConfig;
-use flow_client::{DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL};
+use flow_client::{
+    client::RefreshToken, DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
+};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::de;
@@ -64,12 +66,15 @@ impl App {
             username.to_string()
         };
 
+        let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
+        let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
+
         let mut client = flow_client::Client::new(
             DEFAULT_AGENT_URL.to_owned(),
             DEFAULT_PG_PUBLIC_TOKEN.to_string(),
             DEFAULT_PG_URL.to_owned(),
             None,
-            Some(String::from_utf8(base64::decode(password)?.to_vec())?.try_into()?),
+            Some(refresh),
         );
 
         client.refresh().await?;
