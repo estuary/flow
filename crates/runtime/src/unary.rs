@@ -1,6 +1,6 @@
 use super::{LogHandler, Runtime};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
-use proto_flow::{capture, derive, materialize};
+use proto_flow::{capture, derive, flow::materialization_spec, materialize};
 
 impl<L: LogHandler> Runtime<L> {
     pub async fn unary_capture(
@@ -20,8 +20,17 @@ impl<L: LogHandler> Runtime<L> {
         self,
         request: materialize::Request,
     ) -> anyhow::Result<materialize::Response> {
-        let response = self.serve_materialize(unary_in(request)).boxed();
-        unary_out(response).await
+        match materialization_spec::ConnectorType::try_from(
+            request.validate.as_ref().unwrap().connector_type,
+        ) {
+            Ok(materialization_spec::ConnectorType::Dekaf) => {
+                dekaf::connector::unary_materialize(request).await
+            }
+            _ => {
+                let response = self.serve_materialize(unary_in(request)).boxed();
+                unary_out(response).await
+            }
+        }
     }
 }
 
