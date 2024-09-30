@@ -11,8 +11,9 @@ license.workspace = true
 [dependencies]
 assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
-connector-init = { path = "../connector-init"  }
-coroutines = { path = "../coroutines"  }
+connector-init = { path = "../connector-init" }
+coroutines = { path = "../coroutines" }
+dekaf = { path = "../dekaf" }
 derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
@@ -32,7 +33,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "materialize_client",
     "materialize_server",
     "runtime_server",
-    ]}
+] }
 simd-doc = { path = "../simd-doc" }
 tuple = { path = "../tuple" }
 
