@@ -42,7 +42,7 @@ pub async fn read_task_ops_journal(
     bounds: &ReadBounds,
 ) -> anyhow::Result<()> {
     let (_shard_id_prefix, ops_logs_journal, ops_stats_journal, _shard_client, journal_client) =
-        crate::client::fetch_task_authorization(client, task_name).await?;
+        flow_client::fetch_task_authorization(client, task_name).await?;
 
     let journal_name = match collection {
         OpsCollection::Logs => ops_logs_journal,

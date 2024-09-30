@@ -4,7 +4,6 @@ use super::{
 };
 use itertools::Itertools;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
-use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use tables::EitherOrBoth as EOB;
 
