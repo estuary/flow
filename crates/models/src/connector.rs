@@ -1,6 +1,6 @@
 use super::RawValue;
 use schemars::JsonSchema;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Splits a full connector image name into separate image and tag components.
