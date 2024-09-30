@@ -185,7 +185,7 @@ async fn do_list_fragments(
     }: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
     let (journal_name_prefix, client) =
-        crate::client::fetch_collection_authorization(&ctx.client, &selector.collection).await?;
+        flow_client::fetch_collection_authorization(&ctx.client, &selector.collection).await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -225,7 +225,7 @@ async fn do_list_journals(
     selector: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
     let (journal_name_prefix, client) =
-        crate::client::fetch_collection_authorization(&ctx.client, &selector.collection).await?;
+        flow_client::fetch_collection_authorization(&ctx.client, &selector.collection).await?;
 
     let list_resp = client
         .list(broker::ListRequest {

@@ -1002,6 +1002,7 @@ dependencies = [
  "anyhow",
  "assemble",
  "bytes",
+ "dekaf",
  "futures",
  "models",
  "ops",
@@ -1826,6 +1827,7 @@ dependencies = [
  "crypto-common",
  "deadpool",
  "doc",
+ "flow-client",
  "futures",
  "gazette",
  "hex",
@@ -1837,6 +1839,7 @@ dependencies = [
  "md5",
  "metrics",
  "metrics-prometheus",
+ "models",
  "ops",
  "percent-encoding",
  "postgrest",
@@ -2229,6 +2232,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "flow-client"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "base64 0.13.1",
+ "futures",
+ "gazette",
+ "lazy_static",
+ "models",
+ "ops",
+ "page-turner",
+ "postgrest",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "time 0.3.36",
+ "tokio",
+ "tonic",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "flow-web"
 version = "0.4.0"
 dependencies = [
@@ -2279,6 +2305,7 @@ dependencies = [
  "dirs",
  "doc",
  "extractors",
+ "flow-client",
  "futures",
  "gazette",
  "humantime",
