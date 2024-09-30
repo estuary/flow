@@ -3,8 +3,6 @@ use anyhow::Context;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use proto_flow::{capture, derive, flow, materialize};
-use std::str::FromStr;
-use url::Url;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]

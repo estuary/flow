@@ -1,6 +1,11 @@
 use anyhow::Context;
 use std::path::PathBuf;
 
+use flow_client::{
+    client::RefreshToken, DEFAULT_AGENT_URL, DEFAULT_DASHBOARD_URL, DEFAULT_PG_PUBLIC_TOKEN,
+    DEFAULT_PG_URL, LOCAL_AGENT_URL, LOCAL_DASHBOARD_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+};
+
 /// Configuration of `flowctl`.
 ///
 /// We generally keep this minimal and prefer to use built-in default
@@ -38,12 +43,6 @@ pub struct Config {
     // Legacy API stanza, which is being phased out.
     #[serde(default, skip_serializing)]
     api: Option<DeprecatedAPISection>,
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct RefreshToken {
-    pub id: models::Id,
-    pub secret: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -182,6 +181,15 @@ impl Config {
 
         Ok(())
     }
+    pub fn client(&self) -> flow_client::Client {
+        flow_client::Client::new(
+            self.get_agent_url().clone(),
+            self.get_pg_public_token().to_string(),
+            self.get_pg_url().clone(),
+            self.user_access_token.clone(),
+            self.user_refresh_token.clone(),
+        )
+    }
 
     fn config_dir() -> anyhow::Result<PathBuf> {
         let path = dirs::config_dir()
@@ -195,20 +203,6 @@ impl Config {
         Ok(path)
     }
 }
-
-lazy_static::lazy_static! {
-    static ref DEFAULT_AGENT_URL:  url::Url = url::Url::parse("https://agent-api-1084703453822.us-central1.run.app").unwrap();
-    static ref DEFAULT_DASHBOARD_URL: url::Url = url::Url::parse("https://dashboard.estuary.dev/").unwrap();
-    static ref DEFAULT_PG_URL: url::Url = url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap();
-
-    // Used only when profile is "local".
-    static ref LOCAL_AGENT_URL: url::Url = url::Url::parse("http://localhost:8675/").unwrap();
-    static ref LOCAL_DASHBOARD_URL: url::Url = url::Url::parse("http://localhost:3000/").unwrap();
-    static ref LOCAL_PG_URL: url::Url = url::Url::parse("http://localhost:5431/rest/v1").unwrap();
-}
-
-const DEFAULT_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
-const LOCAL_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 
 // Environment variable which is inspected for a base64-encoded refresh token.
 const FLOW_AUTH_TOKEN: &str = "FLOW_AUTH_TOKEN";

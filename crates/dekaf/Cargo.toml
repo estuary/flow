@@ -14,9 +14,10 @@ aes-siv = { workspace = true }
 allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
-# flowctl = { path = "../flowctl" }
+flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }
+models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }

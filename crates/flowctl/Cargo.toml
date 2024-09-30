@@ -18,6 +18,7 @@ connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
+flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
