@@ -1852,6 +1852,7 @@ dependencies = [
  "rustls 0.23.10",
  "rustls-native-certs",
  "rustls-pemfile 2.1.3",
+ "schemars",
  "serde",
  "serde_json",
  "simd-doc",
