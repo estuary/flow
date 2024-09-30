@@ -335,5 +335,24 @@ where
     })
 }
 
+fn truncate_chars(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        None => s,
+        Some((idx, _)) => &s[..idx],
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_truncate_chars() {
+        use super::truncate_chars;
+        let s = "ボAルBテックス";
+        assert_eq!(truncate_chars(s, 0), "");
+        assert_eq!(truncate_chars(s, 6), "ボAルBテッ");
+        assert_eq!(truncate_chars(s, 100), s);
+    }
+}
+
 // Maximum accepted message size.
 pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.

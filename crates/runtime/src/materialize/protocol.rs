@@ -63,9 +63,12 @@ pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Res
     } else if request.validate.is_some() {
         verify("connector", "Validated").fail(response)
     } else if let (Some(apply), Some(applied)) = (&request.apply, &response.applied) {
-        if !applied.action_description.is_empty() {
+        // Action descriptions can sometimes be _very_ long and overflow the maximum ops log line.
+        let action = crate::truncate_chars(&applied.action_description, 1 << 18);
+
+        if !action.is_empty() {
             tracing::info!(
-                action = applied.action_description,
+                action,
                 last_version = apply.last_version,
                 version = apply.version,
                 "materialization was applied"
