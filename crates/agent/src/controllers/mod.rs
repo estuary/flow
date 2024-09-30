@@ -457,6 +457,7 @@ mod test {
     use std::collections::{BTreeSet, VecDeque};
 
     use chrono::TimeZone;
+    use models::Capture;
 
     use super::*;
     use crate::controllers::materialization::SourceCaptureStatus;

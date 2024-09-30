@@ -15,8 +15,8 @@ use read::Read;
 mod session;
 pub use session::Session;
 
+pub mod metrics_server;
 pub mod registry;
-pub mod metrics;
 
 mod api_client;
 pub use api_client::KafkaApiClient;
@@ -26,6 +26,7 @@ use itertools::Itertools;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::de;
+use std::time::SystemTime;
 
 pub struct App {
     /// Anonymous API client for the Estuary control plane.
@@ -178,7 +179,7 @@ async fn handle_api(
     frame: bytes::BytesMut,
     out: &mut bytes::BytesMut,
 ) -> anyhow::Result<()> {
-    tracing::trace!("Handling request");
+    let start_time = SystemTime::now();
     use messages::*;
     let ret = match api_key {
         ApiKey::ApiVersionsKey => {
@@ -321,7 +322,10 @@ async fn handle_api(
         */
         _ => anyhow::bail!("unsupported request type {api_key:?}"),
     };
-    tracing::trace!("Response sent");
+    let handle_duration = SystemTime::now().duration_since(start_time)?;
+
+    metrics::histogram!("api_call_time", "api_key" => format!("{:?}",api_key))
+        .record(handle_duration.as_millis() as f64);
 
     ret
 }

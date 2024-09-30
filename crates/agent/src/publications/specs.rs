@@ -2,7 +2,7 @@ use super::{LockFailure, UncommittedBuild};
 use agent_sql::publications::{LiveRevision, LiveSpecUpdate};
 use agent_sql::Capability;
 use anyhow::Context;
-use models::{split_image_tag, Id, ModelDef};
+use models::{split_image_tag, Id, ModelDef, SourceCapture, SourceCaptureSchemaMode};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -63,7 +63,7 @@ async fn update_live_spec_flows<B: tables::BuiltRow>(
 
     let reads_from = model.reads_from();
     let writes_to = model.writes_to();
-    let source_capture = model.materialization_source_capture();
+    let source_capture = model.materialization_source_capture_name();
 
     agent_sql::publications::insert_live_spec_flows(
         built.control_id().into(),
@@ -298,6 +298,51 @@ async fn update_live_specs(
     }
 
     Ok(lock_failures)
+}
+
+pub async fn check_source_capture_annotations(
+    draft: &tables::DraftCatalog,
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<tables::Errors> {
+    let mut errors = tables::Errors::default();
+
+    for materialization in draft.materializations.iter() {
+        let Some(model) = materialization.model() else { continue };
+        let Some(image) = model.connector_image() else { continue };
+        let (image_name, image_tag) = split_image_tag(image);
+
+        let Some(source_capture) = &model.source_capture else { continue };
+
+        // SourceCaptures require a connector_tags row in any case. To avoid an error down the line
+        // in the controller we validate that here. This should only happen for test connector
+        // tags, hence the technical error message
+        let Some(connector_spec) = agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await? else {
+            errors.insert(tables::Error {
+                scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                error: anyhow::anyhow!("materializations with a sourceCapture only work for known connector tags. {image} is not known to the control plane"),
+            });
+            continue
+        };
+        if let SourceCapture::Configured(source_capture_def) = source_capture {
+            let resource_config_schema = connector_spec.resource_config_schema;
+            let resource_spec_pointers = crate::resource_configs::pointer_for_schema(resource_config_schema.0.get())?;
+
+            if source_capture_def.delta_updates && resource_spec_pointers.x_delta_updates.is_none() {
+                errors.insert(tables::Error {
+                    scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                    error: anyhow::anyhow!("sourceCapture.deltaUpdates set but the connector '{image_name}' does not support delta updates"),
+                });
+            }
+
+            if source_capture_def.target_schema == SourceCaptureSchemaMode::FromSourceName && resource_spec_pointers.x_schema_name.is_none() {
+                errors.insert(tables::Error {
+                    scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                    error: anyhow::anyhow!("sourceCapture.targetSchema set but the connector '{image_name}' does not support resource schemas"),
+                });
+            }
+        }
+    }
+    Ok(errors)
 }
 
 pub async fn check_connector_images(

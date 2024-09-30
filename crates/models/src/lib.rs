@@ -12,6 +12,7 @@ mod derive_typescript;
 mod id;
 mod journals;
 mod labels;
+mod source_capture;
 mod materializations;
 mod raw_value;
 mod references;
@@ -25,6 +26,7 @@ pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{split_image_tag, ConnectorConfig, LocalConfig};
+pub use source_capture::{SourceCaptureDef, SourceCapture, SourceCaptureSchemaMode};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
@@ -80,7 +82,7 @@ pub trait ModelDef:
     /// If this spec is a materialization, returns the value of `source_capture`.
     /// This function is admittedly a little smelly, but it's included in the trait
     /// so that we can generically get all the dependencies of each spec.
-    fn materialization_source_capture(&self) -> Option<&Capture> {
+    fn materialization_source_capture_name(&self) -> Option<&Capture> {
         None
     }
 
@@ -89,7 +91,7 @@ pub trait ModelDef:
         let mut deps: BTreeSet<String> = self.reads_from().into_iter().map(|c| c.into()).collect();
         deps.extend(self.writes_to().into_iter().map(|c| c.into()));
         deps.extend(
-            self.materialization_source_capture()
+            self.materialization_source_capture_name()
                 .into_iter()
                 .map(|c| c.to_string()),
         );
@@ -226,9 +228,9 @@ impl ModelDef for AnySpec {
         }
     }
 
-    fn materialization_source_capture(&self) -> Option<&Capture> {
+    fn materialization_source_capture_name(&self) -> Option<&Capture> {
         match self {
-            AnySpec::Materialization(m) => m.materialization_source_capture(),
+            AnySpec::Materialization(m) => m.materialization_source_capture_name(),
             _ => None,
         }
     }
@@ -287,6 +289,10 @@ fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::s
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+fn is_default<D: Default + PartialEq>(b: &D) -> bool {
+    D::default() == *b
 }
 
 fn is_u32_zero(u: &u32) -> bool {

@@ -5,10 +5,11 @@ use super::{
 use crate::{
     controllers::publication_status::PublicationStatus,
     publications::{PublicationResult, RejectedField},
+    resource_configs::ResourceSpecPointers,
 };
 use anyhow::Context;
 use itertools::Itertools;
-use models::{ModelDef, OnIncompatibleSchemaChange};
+use models::{ModelDef, OnIncompatibleSchemaChange, SourceCapture};
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -58,11 +59,11 @@ impl MaterializationStatus {
             }
         }
 
-        if let Some(source_capture_name) = &model.source_capture {
+        if let Some(source_capture) = &model.source_capture {
             // If the source capture has been deleted, we will have already handled that as a
             // part of `handle_deleted_dependencies`.
             if let Some(source_capture_model) =
-                dependencies.live.captures.get_by_key(source_capture_name)
+                dependencies.live.captures.get_by_key(&source_capture.capture_name())
             {
                 if self.source_capture.is_none() {
                     self.source_capture = Some(SourceCaptureStatus::default());
@@ -264,10 +265,10 @@ fn handle_deleted_dependencies(
     if drafted
         .source_capture
         .as_ref()
-        .map(|sc| deleted.contains(sc.as_str()))
+        .map(|sc| deleted.contains(sc.capture_name().as_str()))
         .unwrap_or(false)
     {
-        let capture_name = drafted.source_capture.take().unwrap();
+        let capture_name = drafted.source_capture.take().unwrap().capture_name();
         source_capture.take();
         descriptions.push(format!(
             r#"removed sourceCapture: "{capture_name}" because the capture was deleted"#
@@ -335,7 +336,7 @@ impl SourceCaptureStatus {
             .get_connector_spec(config.image.clone())
             .await
             .context("failed to fetch connector spec")?;
-        let collection_name_pointer = crate::resource_configs::pointer_for_schema(
+        let resource_spec_pointers = crate::resource_configs::pointer_for_schema(
             connector_spec.resource_config_schema.get(),
         )?;
 
@@ -370,7 +371,8 @@ impl SourceCaptureStatus {
         draft_row.is_touch = false;
 
         update_linked_materialization(
-            collection_name_pointer,
+            model.source_capture.as_ref().unwrap(),
+            resource_spec_pointers,
             &self.add_bindings,
             draft_row.model.as_mut().unwrap(),
         )?;
@@ -398,15 +400,17 @@ fn get_bindings_to_add(
 }
 
 fn update_linked_materialization(
-    resource_collection_name_ptr: doc::Pointer,
+    source_capture: &SourceCapture,
+    resource_spec_pointers: ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
     materialization: &mut models::MaterializationDef,
 ) -> anyhow::Result<()> {
     for collection_name in bindings_to_add {
         let mut resource_spec = serde_json::json!({});
         crate::resource_configs::update_materialization_resource_spec(
+            source_capture,
             &mut resource_spec,
-            &resource_collection_name_ptr,
+            &resource_spec_pointers,
             &collection_name,
         )?;
 

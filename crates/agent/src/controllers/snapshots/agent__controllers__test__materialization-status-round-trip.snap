@@ -1,6 +1,6 @@
 ---
 source: crates/agent/src/controllers/mod.rs
-expression: "StatusSnapshot { starting: status, json: as_json, parsed: round_tripped }"
+expression: "StatusSnapshot { starting: status, json: as_json, parsed: round_tripped, }"
 ---
 StatusSnapshot {
     starting: Materialization(
