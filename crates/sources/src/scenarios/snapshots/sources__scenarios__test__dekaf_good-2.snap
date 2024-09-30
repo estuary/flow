@@ -1,0 +1,55 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+assertion_line: 63
+expression: tables
+---
+DraftCatalog {
+    materializations: [
+        DraftMaterialization {
+            materialization: materialization/dekaf/indirect,
+            scope: test://example/catalog.yaml#/materializations/materialization~1dekaf~1indirect,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "dekaf": {
+                  "variant": "foo",
+                  "config": {"strict_topic_names":false,"token":"foo_token"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"topic":"pizza"},
+                  "source": "some/source/materialization",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftMaterialization {
+            materialization: materialization/dekaf/inline,
+            scope: test://example/catalog.yaml#/materializations/materialization~1dekaf~1inline,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "dekaf": {
+                  "variant": "foo",
+                  "config": {"strict_topic_names":false}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"topic_name":"foo"},
+                  "source": "some/source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+}

@@ -1,461 +1,39 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 69
+assertion_line: 68
 expression: outcome
 ---
 Outcome {
     built_captures: [],
-    built_collections: [
-        BuiltCollection {
-            collection: testing/schema_with_properties,
-            scope: test://example/catalog.yaml#/collections/testing~1schema_with_properties,
-            control_id: "0000000000000000",
-            data_plane_id: "1d1d1d1d1d1d1d1d",
-            expect_pub_id: "0000000000000000",
-            expect_build_id: "0000000000000000",
-            model: {
-              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_properties/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
-              "key": [
-                "/id"
-              ]
-            },
-            validated: NULL,
-            spec: CollectionSpec {
-                name: "testing/schema_with_properties",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_properties/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
-                read_schema_json: "",
-                key: [
-                    "/id",
-                ],
-                uuid_ptr: "/_meta/uuid",
-                partition_fields: [],
-                projections: [
-                    Projection {
-                        ptr: "/_meta/flow_truncated",
-                        field: "_meta/flow_truncated",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "boolean",
-                                ],
-                                string: None,
-                                title: "Flow truncation indicator",
-                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "",
-                        field: "flow_document",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "object",
-                                ],
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/_meta/uuid",
-                        field: "flow_published_at",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "string",
-                                ],
-                                string: Some(
-                                    String {
-                                        content_type: "",
-                                        format: "date-time",
-                                        content_encoding: "uuid",
-                                        max_length: 0,
-                                    },
-                                ),
-                                title: "Flow Publication Time",
-                                description: "Flow publication date-time of this document",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/id",
-                        field: "id",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: true,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "string",
-                                ],
-                                string: Some(
-                                    String {
-                                        content_type: "",
-                                        format: "",
-                                        content_encoding: "",
-                                        max_length: 0,
-                                    },
-                                ),
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
-                partition_template: Some(
-                    JournalSpec {
-                        name: "testing/schema_with_properties/2020202020202020",
-                        replication: 3,
-                        labels: Some(
-                            LabelSet {
-                                labels: [
-                                    Label {
-                                        name: "app.gazette.dev/managed-by",
-                                        value: "estuary.dev/flow",
-                                        prefix: false,
-                                    },
-                                    Label {
-                                        name: "content-type",
-                                        value: "application/x-ndjson",
-                                        prefix: false,
-                                    },
-                                    Label {
-                                        name: "estuary.dev/build",
-                                        value: "2121212121212121",
-                                        prefix: false,
-                                    },
-                                    Label {
-                                        name: "estuary.dev/collection",
-                                        value: "testing/schema_with_properties",
-                                        prefix: false,
-                                    },
-                                ],
-                            },
-                        ),
-                        fragment: Some(
-                            Fragment {
-                                length: 536870912,
-                                compression_codec: Gzip,
-                                stores: [
-                                    "s3://a-bucket/",
-                                ],
-                                refresh_interval: Some(
-                                    Duration {
-                                        seconds: 300,
-                                        nanos: 0,
-                                    },
-                                ),
-                                retention: None,
-                                flush_interval: None,
-                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
-                            },
-                        ),
-                        flags: 4,
-                        max_append_rate: 4194304,
-                    },
-                ),
-                derivation: None,
-            },
-            previous_spec: NULL,
-            is_touch: 0,
-            dependency_hash: NULL,
-        },
-    ],
+    built_collections: [],
     built_materializations: [
         BuiltMaterialization {
-            materialization: testing/test_dekaf,
-            scope: test://example/catalog.yaml#/materializations/testing~1test_dekaf,
+            materialization: good,
+            scope: test://example/catalog.yaml#/materializations/good,
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             expect_build_id: "0000000000000000",
             model: {
               "endpoint": {
-                "dekaf": "example/dekaf.yaml"
-              },
-              "bindings": [
-                {
-                  "resource": {},
-                  "source": "testing/schema_with_properties",
-                  "fields": {
-                    "recommended": true
-                  }
+                "dekaf": {
+                  "variant": "foo",
+                  "config": {"strict_topic_names":false}
                 }
-              ]
+              },
+              "bindings": []
             },
             validated: Validated {
-                bindings: [
-                    Binding {
-                        constraints: {
-                            "_meta/flow_truncated": Constraint {
-                                r#type: FieldOptional,
-                                reason: "no-op validator allows everything",
-                            },
-                            "flow_document": Constraint {
-                                r#type: FieldOptional,
-                                reason: "no-op validator allows everything",
-                            },
-                            "flow_published_at": Constraint {
-                                r#type: FieldOptional,
-                                reason: "no-op validator allows everything",
-                            },
-                            "id": Constraint {
-                                r#type: FieldOptional,
-                                reason: "no-op validator allows everything",
-                            },
-                        },
-                        resource_path: [
-                            "binding-0",
-                        ],
-                        delta_updates: true,
-                    },
-                ],
+                bindings: [],
             },
             spec: MaterializationSpec {
-                name: "testing/test_dekaf",
+                name: "good",
                 connector_type: Dekaf,
-                config_json: "\"example/dekaf.yaml\"",
-                bindings: [
-                    Binding {
-                        resource_config_json: "{}",
-                        resource_path: [
-                            "binding-0",
-                        ],
-                        collection: Some(
-                            CollectionSpec {
-                                name: "testing/schema_with_properties",
-                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_properties/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
-                                read_schema_json: "",
-                                key: [
-                                    "/id",
-                                ],
-                                uuid_ptr: "/_meta/uuid",
-                                partition_fields: [],
-                                projections: [
-                                    Projection {
-                                        ptr: "/_meta/flow_truncated",
-                                        field: "_meta/flow_truncated",
-                                        explicit: false,
-                                        is_partition_key: false,
-                                        is_primary_key: false,
-                                        inference: Some(
-                                            Inference {
-                                                types: [
-                                                    "boolean",
-                                                ],
-                                                string: None,
-                                                title: "Flow truncation indicator",
-                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                                default_json: "",
-                                                secret: false,
-                                                exists: Must,
-                                                numeric: None,
-                                            },
-                                        ),
-                                    },
-                                    Projection {
-                                        ptr: "",
-                                        field: "flow_document",
-                                        explicit: false,
-                                        is_partition_key: false,
-                                        is_primary_key: false,
-                                        inference: Some(
-                                            Inference {
-                                                types: [
-                                                    "object",
-                                                ],
-                                                string: None,
-                                                title: "",
-                                                description: "",
-                                                default_json: "",
-                                                secret: false,
-                                                exists: Must,
-                                                numeric: None,
-                                            },
-                                        ),
-                                    },
-                                    Projection {
-                                        ptr: "/_meta/uuid",
-                                        field: "flow_published_at",
-                                        explicit: false,
-                                        is_partition_key: false,
-                                        is_primary_key: false,
-                                        inference: Some(
-                                            Inference {
-                                                types: [
-                                                    "string",
-                                                ],
-                                                string: Some(
-                                                    String {
-                                                        content_type: "",
-                                                        format: "date-time",
-                                                        content_encoding: "uuid",
-                                                        max_length: 0,
-                                                    },
-                                                ),
-                                                title: "Flow Publication Time",
-                                                description: "Flow publication date-time of this document",
-                                                default_json: "",
-                                                secret: false,
-                                                exists: Must,
-                                                numeric: None,
-                                            },
-                                        ),
-                                    },
-                                    Projection {
-                                        ptr: "/id",
-                                        field: "id",
-                                        explicit: false,
-                                        is_partition_key: false,
-                                        is_primary_key: true,
-                                        inference: Some(
-                                            Inference {
-                                                types: [
-                                                    "string",
-                                                ],
-                                                string: Some(
-                                                    String {
-                                                        content_type: "",
-                                                        format: "",
-                                                        content_encoding: "",
-                                                        max_length: 0,
-                                                    },
-                                                ),
-                                                title: "",
-                                                description: "",
-                                                default_json: "",
-                                                secret: false,
-                                                exists: Must,
-                                                numeric: None,
-                                            },
-                                        ),
-                                    },
-                                ],
-                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
-                                partition_template: Some(
-                                    JournalSpec {
-                                        name: "testing/schema_with_properties/2020202020202020",
-                                        replication: 3,
-                                        labels: Some(
-                                            LabelSet {
-                                                labels: [
-                                                    Label {
-                                                        name: "app.gazette.dev/managed-by",
-                                                        value: "estuary.dev/flow",
-                                                        prefix: false,
-                                                    },
-                                                    Label {
-                                                        name: "content-type",
-                                                        value: "application/x-ndjson",
-                                                        prefix: false,
-                                                    },
-                                                    Label {
-                                                        name: "estuary.dev/build",
-                                                        value: "2121212121212121",
-                                                        prefix: false,
-                                                    },
-                                                    Label {
-                                                        name: "estuary.dev/collection",
-                                                        value: "testing/schema_with_properties",
-                                                        prefix: false,
-                                                    },
-                                                ],
-                                            },
-                                        ),
-                                        fragment: Some(
-                                            Fragment {
-                                                length: 536870912,
-                                                compression_codec: Gzip,
-                                                stores: [
-                                                    "s3://a-bucket/",
-                                                ],
-                                                refresh_interval: Some(
-                                                    Duration {
-                                                        seconds: 300,
-                                                        nanos: 0,
-                                                    },
-                                                ),
-                                                retention: None,
-                                                flush_interval: None,
-                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
-                                            },
-                                        ),
-                                        flags: 4,
-                                        max_append_rate: 4194304,
-                                    },
-                                ),
-                                derivation: None,
-                            },
-                        ),
-                        partition_selector: Some(
-                            LabelSelector {
-                                include: Some(
-                                    LabelSet {
-                                        labels: [
-                                            Label {
-                                                name: "estuary.dev/collection",
-                                                value: "testing/schema_with_properties",
-                                                prefix: false,
-                                            },
-                                        ],
-                                    },
-                                ),
-                                exclude: Some(
-                                    LabelSet {
-                                        labels: [],
-                                    },
-                                ),
-                            },
-                        ),
-                        priority: 0,
-                        field_selection: Some(
-                            FieldSelection {
-                                keys: [],
-                                values: [],
-                                document: "",
-                                field_config_json_map: {},
-                            },
-                        ),
-                        delta_updates: true,
-                        deprecated_shuffle: None,
-                        journal_read_suffix: "materialize/testing/test_dekaf/binding-0",
-                        not_before: None,
-                        not_after: None,
-                        backfill: 0,
-                        state_key: "binding-0",
-                    },
-                ],
+                config_json: "{\"variant\":\"foo\",\"config\":{\"strict_topic_names\":false}}",
+                bindings: [],
                 shard_template: Some(
                     ShardSpec {
-                        id: "materialize/testing/test_dekaf/2020202020202020",
+                        id: "materialize/good/2020202020202020",
                         sources: [],
                         recovery_log_prefix: "recovery",
                         hint_prefix: "/estuary/flow/hints",
@@ -494,7 +72,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
-                                        value: "testing/test_dekaf",
+                                        value: "good",
                                         prefix: false,
                                     },
                                     Label {
@@ -512,7 +90,7 @@ Outcome {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "recovery/materialize/testing/test_dekaf/2020202020202020",
+                        name: "recovery/materialize/good/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -534,7 +112,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
-                                        value: "testing/test_dekaf",
+                                        value: "good",
                                         prefix: false,
                                     },
                                     Label {
@@ -571,32 +149,14 @@ Outcome {
             },
             previous_spec: NULL,
             is_touch: 0,
-            dependency_hash: 32182596aeb1e4a0,
+            dependency_hash: NULL,
         },
     ],
     built_tests: [],
     captures: [],
-    collections: [
-        DraftCollection {
-            collection: testing/schema_with_properties,
-            scope: test://example/catalog.yaml#/collections/testing~1schema_with_properties,
-            expect_pub_id: NULL,
-            model: {
-              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1schema_with_properties/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
-              "key": [
-                "/id"
-              ]
-            },
-            is_touch: 0,
-        },
-    ],
+    collections: [],
     errors: [],
-    errors_draft: [
-        Error {
-            scope: test://example/catalog.yaml#/materializations/testing~1test_dekaf/endpoint/dekaf/config,
-            error: failed to fetch resource test://example/example/dekaf.yaml: fixture not found,
-        },
-    ],
+    errors_draft: [],
     fetches: [
         Fetch {
             depth: 1,
@@ -604,33 +164,23 @@ Outcome {
         },
         Fetch {
             depth: 2,
-            resource: test://example/example/dekaf.yaml,
+            resource: test://example/dekaf.yaml,
         },
     ],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/materializations/testing~1test_dekaf/endpoint/dekaf/config,
-            to_resource: test://example/example/dekaf.yaml,
-        },
-    ],
+    imports: [],
     materializations: [
         DraftMaterialization {
-            materialization: testing/test_dekaf,
-            scope: test://example/catalog.yaml#/materializations/testing~1test_dekaf,
+            materialization: good,
+            scope: test://example/catalog.yaml#/materializations/good,
             expect_pub_id: NULL,
             model: {
               "endpoint": {
-                "dekaf": "example/dekaf.yaml"
-              },
-              "bindings": [
-                {
-                  "resource": {},
-                  "source": "testing/schema_with_properties",
-                  "fields": {
-                    "recommended": true
-                  }
+                "dekaf": {
+                  "variant": "foo",
+                  "config": {"strict_topic_names":false}
                 }
-              ]
+              },
+              "bindings": []
             },
             is_touch: 0,
         },
@@ -640,7 +190,13 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/schema_with_properties":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/test_dekaf":{"bindings":[{"resource":{},"source":"testing/schema_with_properties"}],"endpoint":{"dekaf":"example/dekaf.yaml"}}}},
+            content_dom: {"materializations":{"good":{"bindings":[],"endpoint":{"dekaf":{"config":"test://example/dekaf.yaml","variant":"foo"}}}}},
+        },
+        Resource {
+            resource: test://example/dekaf.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"strict_topic_names":false},
         },
     ],
     storage_mappings: [
