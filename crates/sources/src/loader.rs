@@ -687,9 +687,7 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
-            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Indirect(
-                location,
-            )) => {
+            models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => {
                 tasks.push(
                     async move {
                         self.load_config(
@@ -697,14 +695,13 @@ impl<F: Fetcher> Loader<F> {
                                 .push_prop("endpoint")
                                 .push_prop("dekaf")
                                 .push_prop("config"),
-                            location.as_str(),
+                            config,
                         )
                         .await
                     }
                     .boxed(),
                 );
             }
-            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Direct(_)) => {}
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {

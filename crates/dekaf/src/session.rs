@@ -1,4 +1,4 @@
-use super::{fetch_all_collection_names, App, Collection, Read};
+use super::{App, Collection, Read};
 use crate::{
     from_downstream_topic_name, from_upstream_topic_name, to_downstream_topic_name,
     to_upstream_topic_name, Authenticated, ConfigOptions,
@@ -144,7 +144,7 @@ impl Session {
     async fn metadata_all_topics(
         &mut self,
     ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
-        let collections = fetch_all_collection_names(&self.client).await?;
+        let collections = vec![]; //fetch_all_collection_names(&self.client).await?;
 
         tracing::debug!(collections=?ops::DebugJson(&collections), "fetched all collections");
 

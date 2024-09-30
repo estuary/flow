@@ -294,10 +294,7 @@ async fn generate_missing_materialization_configs(
                 connector_type: flow::materialization_spec::ConnectorType::Dekaf as i32,
                 config_json: serde_json::to_string(config).unwrap(),
             },
-            match &config {
-                models::DekafConfigContainer::Indirect(s) => Url::from_str(s.as_str()).ok(),
-                _ => None,
-            },
+            serde_json::from_str::<url::Url>(config.config.get()).ok(),
         ),
     };
     let missing_resource_urls: Vec<(url::Url, models::Collection)> = bindings

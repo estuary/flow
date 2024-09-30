@@ -25,9 +25,7 @@ pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
-pub use connector::{
-    split_image_tag, ConnectorConfig, DekafConfig, DekafResourceConfig, LocalConfig,
-};
+pub use connector::{split_image_tag, ConnectorConfig, DekafConfig, LocalConfig};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
@@ -38,8 +36,8 @@ pub use journals::{
     AZURE_STORAGE_ACCOUNT_RE, GCS_BUCKET_RE, S3_BUCKET_RE,
 };
 pub use materializations::{
-    DekafConfigContainer, MaterializationBinding, MaterializationDef, MaterializationEndpoint,
-    MaterializationFields, SqliteConfig,
+    MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
+    SqliteConfig,
 };
 pub use raw_value::RawValue;
 pub use references::{
