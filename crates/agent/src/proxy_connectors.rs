@@ -1,6 +1,6 @@
 use anyhow::Context;
 use futures::{FutureExt, TryFutureExt, TryStreamExt};
-use proto_flow::{capture, derive, materialize};
+use proto_flow::{capture, derive, flow::materialization_spec, materialize};
 use std::future::Future;
 
 pub struct ProxyConnectors<L: runtime::LogHandler> {
@@ -40,12 +40,21 @@ impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
         request: materialize::Request,
         data_plane: &'a tables::DataPlane,
     ) -> futures::future::BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        let task = ops::ShardRef {
-            name: request.validate.as_ref().unwrap().name.clone(),
-            kind: ops::TaskType::Materialization as i32,
-            ..Default::default()
-        };
-        self.unary_materialize(data_plane, task, request).boxed()
+        match materialization_spec::ConnectorType::try_from(
+            request.validate.as_ref().unwrap().connector_type,
+        ) {
+            Ok(materialization_spec::ConnectorType::Dekaf) => {
+                dekaf::connector::unary_materialize(request).boxed()
+            }
+            _ => {
+                let task = ops::ShardRef {
+                    name: request.validate.as_ref().unwrap().name.clone(),
+                    kind: ops::TaskType::Materialization as i32,
+                    ..Default::default()
+                };
+                self.unary_materialize(data_plane, task, request).boxed()
+            }
+        }
     }
 }
 

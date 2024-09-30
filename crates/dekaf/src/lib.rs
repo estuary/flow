@@ -7,7 +7,7 @@ use kafka_protocol::{
 use tracing::instrument;
 
 mod topology;
-use topology::{fetch_all_collection_names, Collection, Partition};
+use topology::{Collection, Partition};
 
 mod read;
 use read::Read;
@@ -15,6 +15,7 @@ use read::Read;
 mod session;
 pub use session::Session;
 
+pub mod connector;
 pub mod metrics_server;
 pub mod registry;
 

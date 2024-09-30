@@ -17,7 +17,7 @@ pub async fn fetch_all_collection_names(
         .eq("spec_type", "collection")
         .select("catalog_name");
 
-    let items = flowctl::pagination::into_items::<Row>(rows_builder)
+    let items = flow_client::pagination::into_items::<Row>(rows_builder)
         .map(|res| res.map(|Row { catalog_name }| catalog_name))
         .try_collect()
         .await
