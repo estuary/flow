@@ -23,6 +23,7 @@ mod api_client;
 pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
+use connector::DekafConfig;
 use flow_client::{DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
@@ -43,27 +44,25 @@ pub struct App {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigOptions {
+pub struct DeprecatedConfigOptions {
     #[serde(default = "bool::<false>")]
     pub strict_topic_names: bool,
 }
 
 pub struct Authenticated {
     client: flow_client::Client,
-    user_config: ConfigOptions,
+    task_config: DekafConfig,
     claims: models::authorizations::ControlClaims,
 }
 
 impl App {
     #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
     async fn authenticate(&self, username: &str, password: &str) -> anyhow::Result<Authenticated> {
-        let username_str = if username.contains("{") {
-            username.to_string()
+        let username = if let Ok(decoded) = decode_safe_name(username.to_string()) {
+            decoded
         } else {
-            decode_safe_name(username.to_string()).context("failed to decode username")?
+            username.to_string()
         };
-        let config: ConfigOptions = serde_json::from_str(&username_str)
-            .context("failed to parse username as a JSON object")?;
 
         let mut client = flow_client::Client::new(
             DEFAULT_AGENT_URL.to_owned(),
@@ -76,11 +75,27 @@ impl App {
         client.refresh().await?;
         let claims = client.claims()?;
 
-        Ok(Authenticated {
-            client,
-            user_config: config,
-            claims,
-        })
+        if models::Materialization::regex().is_match(username.as_ref()) {
+            Ok(Authenticated {
+                client,
+                task_config: todo!("Fetch and unseal task config"),
+                claims,
+            })
+        } else if username.contains("{") {
+            let config: DeprecatedConfigOptions = serde_json::from_str(&username)
+                .context("failed to parse username as a JSON object")?;
+
+            Ok(Authenticated {
+                client,
+                task_config: DekafConfig {
+                    strict_topic_names: config.strict_topic_names,
+                    token: "".to_string(),
+                },
+                claims,
+            })
+        } else {
+            anyhow::bail!("Invalid username or password")
+        }
     }
 }
 

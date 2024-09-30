@@ -1,5 +1,5 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name, Authenticated};
+use crate::{from_downstream_topic_name, to_downstream_topic_name, topology, Authenticated};
 use anyhow::Context;
 use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
@@ -36,7 +36,7 @@ async fn all_subjects(
     wrap(async move {
         let Authenticated {
             client,
-            user_config,
+            task_config,
             ..
         } = app.authenticate(auth.username(), auth.password()).await?;
 
@@ -47,7 +47,7 @@ async fn all_subjects(
                 collections
                     .into_iter()
                     .map(|name| {
-                        if user_config.strict_topic_names {
+                        if task_config.strict_topic_names {
                             to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
                                 .to_string()
                         } else {
