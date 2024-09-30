@@ -1,18 +1,23 @@
 use anyhow::{bail, Context};
 use proto_flow::materialize;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Configures the behavior of a whole dekaf task
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct DekafConfig {
     /// Whether or not to expose topic names in a strictly Kafka-compliant format
     /// for systems that require it. Off by default.
     pub strict_topic_names: bool,
+    /// The password that will authenticate Kafka consumers to this task.
+    // TODO(jshearer): Uncomment when schemars 1.0 is out and we upgrade
+    // #[schemars(extend("secret" = true))]
+    pub token: String,
 }
 
 /// Configures a particular binding in a Dekaf-type materialization
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct DekafResourceConfig {
     /// The exposed name of the topic that maps to this binding. This
     /// will be exposed through the Kafka metadata/discovery APIs.

@@ -1,7 +1,8 @@
 use super::{App, Collection, Read};
 use crate::{
-    from_downstream_topic_name, from_upstream_topic_name, registry::fetch_all_collection_names,
-    to_downstream_topic_name, to_upstream_topic_name, Authenticated, ConfigOptions,
+    connector::DekafConfig, from_downstream_topic_name, from_upstream_topic_name,
+    to_downstream_topic_name, to_upstream_topic_name, topology::fetch_all_collection_names,
+    Authenticated,
 };
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
@@ -35,7 +36,7 @@ pub struct Session {
     reads: HashMap<(TopicName, i32), PendingRead>,
     /// ID of the authenticated user
     user_id: Option<String>,
-    config: Option<ConfigOptions>,
+    task_config: Option<DekafConfig>,
     secret: String,
 }
 
@@ -46,7 +47,7 @@ impl Session {
             client: None,
             reads: HashMap::new(),
             user_id: None,
-            config: None,
+            task_config: None,
             secret,
         }
     }
@@ -83,11 +84,11 @@ impl Session {
         let response = match self.app.authenticate(authcid, password).await {
             Ok(Authenticated {
                 client,
-                user_config,
+                task_config,
                 claims,
             }) => {
                 self.client.replace(client);
-                self.config.replace(user_config);
+                self.task_config.replace(task_config);
                 self.user_id.replace(claims.sub.to_string());
 
                 let mut response = messages::SaslAuthenticateResponse::default();
@@ -1043,7 +1044,7 @@ impl Session {
 
     fn encode_topic_name(&self, name: String) -> TopicName {
         if self
-            .config
+            .task_config
             .as_ref()
             .expect("should have config already")
             .strict_topic_names
