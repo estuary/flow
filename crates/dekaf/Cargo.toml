@@ -29,8 +29,6 @@ axum-extra = { workspace = true }
 axum-server = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
-# TODO(jshearer): Upgrade every other usage of clap to v4 and change this to:
-# clap = { workspace = true }
 clap = { workspace = true }
 crypto-common = { workspace = true }
 deadpool = { workspace = true }
@@ -52,6 +50,7 @@ rsasl = { workspace = true }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }
+schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 socket2 = { workspace = true }
