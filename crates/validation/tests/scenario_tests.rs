@@ -12,22 +12,20 @@ fn test_golden_all_visits() {
 fn test_dekaf_materialization_inline_config() {
     let fixture = r##"
 test://example/catalog.yaml:
-  collections:
-    testing/schema_with_properties:
-      schema:
-        type: object
-        properties:
-          id: { type: string }
-        required: [id]
-      key: [/id]
   materializations:
-    testing/test_dekaf:
+    good:
       endpoint:
-        dekaf: {}
-      bindings:
-        - source: testing/schema_with_properties
-          resource: {}
+        dekaf: &config
+          variant: foo
+          config:
+            strict_topic_names: false
+      bindings: []
 driver:
+  materializations:
+    good: &connector
+      connectorType: DEKAF
+      config: *config
+      bindings: []
   dataPlanes:
     "1d:1d:1d:1d:1d:1d:1d:1d":
       default: true
@@ -41,24 +39,25 @@ driver:
 #[test]
 fn test_dekaf_materialization_indirect_config() {
     let fixture = r##"
-test://example/dekaf.yaml: {}
 test://example/catalog.yaml:
-  collections:
-    testing/schema_with_properties:
-      schema:
-        type: object
-        properties:
-          id: { type: string }
-        required: [id]
-      key: [/id]
   materializations:
-    testing/test_dekaf:
+    good:
       endpoint:
-        dekaf: example/dekaf.yaml
-      bindings:
-        - source: testing/schema_with_properties
-          resource: {}
+        dekaf: &config
+          variant: foo
+          config: test://example/dekaf.yaml
+      bindings: []
+test://example/dekaf.yaml:
+  strict_topic_names: false
 driver:
+  materializations:
+    good: &connector
+      connectorType: DEKAF
+      config:
+        variant: foo
+        config:
+          strict_topic_names: false
+      bindings: []
   dataPlanes:
     "1d:1d:1d:1d:1d:1d:1d:1d":
       default: true
@@ -72,7 +71,6 @@ driver:
 #[test]
 fn test_dekaf_materialization_invalid() {
     let fixture = r##"
-test://example/dekaf.yaml: {}
 test://example/catalog.yaml:
   collections:
     testing/schema_with_properties:
@@ -83,13 +81,16 @@ test://example/catalog.yaml:
         required: [id]
       key: [/id]
   materializations:
-    testing/test_dekaf:
-      endpoint:
+    bad:
+      endpoint: &config
         dekaf: false
-      bindings:
-        - source: testing/schema_with_properties
-          resource: {}
+      bindings: []
 driver:
+  materializations:
+    bad: &connector
+      connectorType: DEKAF
+      config: *config
+      bindings: []
   dataPlanes:
     "1d:1d:1d:1d:1d:1d:1d:1d":
       default: true
@@ -103,24 +104,20 @@ driver:
 #[test]
 fn test_dekaf_materialization_nonexistent() {
     let fixture = r##"
-test://example/dekaf.yaml: {}
 test://example/catalog.yaml:
-  collections:
-    testing/schema_with_properties:
-      schema:
-        type: object
-        properties:
-          id: { type: string }
-        required: [id]
-      key: [/id]
   materializations:
-    testing/test_dekaf:
+    bad:
       endpoint:
-        dekaf: foo/bar
-      bindings:
-        - source: testing/schema_with_properties
-          resource: {}
+        dekaf: &config
+          variant: bar
+          config: foo/bar
+      bindings: []
 driver:
+  materializations:
+    good: &connector
+      connectorType: DEKAF
+      config: *config
+      bindings: []
   dataPlanes:
     "1d:1d:1d:1d:1d:1d:1d:1d":
       default: true

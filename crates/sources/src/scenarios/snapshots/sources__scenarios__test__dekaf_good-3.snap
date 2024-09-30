@@ -1,0 +1,75 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+assertion_line: 63
+expression: tables
+---
+DraftCatalog {
+    materializations: [
+        DraftMaterialization {
+            materialization: materialization/dekaf/indirect,
+            scope: test://example/catalog.yaml#/materializations/materialization~1dekaf~1indirect,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "dekaf": {
+                  "variant": "foo",
+                  "config": "indirect.config.yaml"
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"topic":"pizza"},
+                  "source": "some/source/materialization",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftMaterialization {
+            materialization: materialization/dekaf/inline,
+            scope: test://example/catalog.yaml#/materializations/materialization~1dekaf~1inline,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "dekaf": {
+                  "variant": "foo",
+                  "config": {"strict_topic_names":false}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"topic_name":"foo"},
+                  "source": "some/source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1dekaf~1indirect/endpoint/dekaf/config,
+            to_resource: test://example/indirect.config.yaml,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"materializations":{"materialization/dekaf/indirect":{"endpoint":{"dekaf":{"variant":"foo","config":"indirect.config.yaml"}},"bindings":[{"resource":{"topic":"pizza"},"source":"some/source/materialization","fields":{"recommended":true}}]},"materialization/dekaf/inline":{"endpoint":{"dekaf":{"variant":"foo","config":{"strict_topic_names":false}}},"bindings":[{"resource":{"topic_name":"foo"},"source":"some/source/collection","fields":{"recommended":true}}]}}},
+        },
+        Resource {
+            resource: test://example/indirect.config.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"strict_topic_names":false,"token":"foo_token"},
+        },
+    ],
+}

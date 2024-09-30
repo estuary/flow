@@ -1,0 +1,6 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+assertion_line: 63
+expression: tables
+---
+DraftCatalog
