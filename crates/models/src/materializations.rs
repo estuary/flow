@@ -41,13 +41,6 @@ pub struct MaterializationDef {
     pub delete: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
-#[serde(untagged)]
-pub enum DekafConfigContainer {
-    Direct(DekafConfig),
-    Indirect(String),
-}
-
 /// An Endpoint connector used for Flow materializations.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -58,7 +51,7 @@ pub enum MaterializationEndpoint {
     /// # A local command (development only).
     Local(LocalConfig),
     /// # A Dekaf connection
-    Dekaf(DekafConfigContainer),
+    Dekaf(DekafConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]

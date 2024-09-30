@@ -3,7 +3,7 @@ use doc::Schema as CompiledSchema;
 use futures::future::{BoxFuture, FutureExt};
 use json::schema::{self, build::build_schema};
 use models::RawValue;
-use proto_flow::flow;
+use proto_flow::flow::{self, build_api::Config};
 use std::sync::{Mutex, MutexGuard};
 use url::Url;
 
@@ -687,24 +687,21 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
-            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Indirect(
-                location,
-            )) => {
+            models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => {
                 tasks.push(
                     async move {
-                        self.load_config(
+                        self.maybe_load_config(
                             scope
                                 .push_prop("endpoint")
                                 .push_prop("dekaf")
                                 .push_prop("config"),
-                            location.as_str(),
+                            config,
                         )
                         .await
                     }
                     .boxed(),
                 );
             }
-            models::MaterializationEndpoint::Dekaf(models::DekafConfigContainer::Direct(_)) => {}
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
