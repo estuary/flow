@@ -34,31 +34,33 @@ async fn all_subjects(
     >,
 ) -> Response {
     wrap(async move {
-        let Authenticated {
-            client,
-            user_config,
-            ..
-        } = app.authenticate(auth.username(), auth.password()).await?;
+        // let Authenticated {
+        //     client,
+        //     user_config,
+        //     ..
+        // } = app.authenticate(auth.username(), auth.password()).await?;
 
-        super::fetch_all_collection_names(&client)
-            .await
-            .context("failed to list collections from the control plane")
-            .map(|collections| {
-                collections
-                    .into_iter()
-                    .map(|name| {
-                        if user_config.strict_topic_names {
-                            to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
-                                .to_string()
-                        } else {
-                            name
-                        }
-                    })
-                    .flat_map(|collection| {
-                        vec![format!("{collection}-key"), format!("{collection}-value")]
-                    })
-                    .collect_vec()
-            })
+        let r: Vec<bool> = vec![];
+        Ok(r)
+        // fetch_all_collection_names(&client)
+        //     .await
+        //     .context("failed to list collections from the control plane")
+        //     .map(|collections| {
+        //         collections
+        //             .into_iter()
+        //             .map(|name| {
+        //                 if user_config.strict_topic_names {
+        //                     to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
+        //                         .to_string()
+        //                 } else {
+        //                     name
+        //                 }
+        //             })
+        //             .flat_map(|collection| {
+        //                 vec![format!("{collection}-key"), format!("{collection}-value")]
+        //             })
+        //             .collect_vec()
+        //     })
     })
     .await
 }
