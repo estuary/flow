@@ -170,12 +170,10 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize, depth_lim
 }
 
 pub const DEFAULT_SCHEMA_COMPLEXITY_LIMIT: usize = 1_000;
-/// The default depth limit is chosen to result in JSON schemas that can be parsed
-/// using a maximum recursion limit of 128, because that's what serde-json uses.
-/// Each level of nesting in a source document produces two levels of nesting in the
-/// schema due to the `properties` keyword. Then there's room for one last level of
-/// nesting for the leave node schema, which will be an object.
-pub const DEFAULT_SCHEMA_DEPTH_LIMIT: usize = 63;
+/// The default depth limit is chosen to produce JSON schemas which are highly
+/// descriptive for non-degenerate, non-recursive data structures, without endlessly
+/// producing deeply nested properties for recurisve structures.
+pub const DEFAULT_SCHEMA_DEPTH_LIMIT: usize = 12;
 
 #[cfg(test)]
 mod test {
