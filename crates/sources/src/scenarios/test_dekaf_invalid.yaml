@@ -1,0 +1,7 @@
+test://example/catalog.yaml:
+  materializations:
+    materialization/dekaf/invalid:
+      endpoint:
+        dekaf:
+          test: "fail"
+      bindings: []

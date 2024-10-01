@@ -13,7 +13,6 @@ assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
-dekaf = { path = "../dekaf" }
 derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }

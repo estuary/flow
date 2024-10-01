@@ -20,17 +20,8 @@ impl<L: LogHandler> Runtime<L> {
         self,
         request: materialize::Request,
     ) -> anyhow::Result<materialize::Response> {
-        match materialization_spec::ConnectorType::try_from(
-            request.validate.as_ref().unwrap().connector_type,
-        ) {
-            Ok(materialization_spec::ConnectorType::Dekaf) => {
-                dekaf::connector::unary_materialize(request).await
-            }
-            _ => {
-                let response = self.serve_materialize(unary_in(request)).boxed();
-                unary_out(response).await
-            }
-        }
+        let response = self.serve_materialize(unary_in(request)).boxed();
+        unary_out(response).await
     }
 }
 
