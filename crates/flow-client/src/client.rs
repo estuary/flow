@@ -14,7 +14,7 @@ pub struct Client {
     // PostgREST URL.
     pg_url: url::Url,
     // PostgREST access token.
-    pg_token: String,
+    pg_api_token: String,
     // User's access token, if authenticated.
     user_access_token: Option<String>,
     // User's refresh token, if authenticated.
@@ -29,10 +29,10 @@ impl Client {
     /// Build a new Client from the Config.
     pub fn new(
         agent_endpoint: Url,
-        pg_token: String,
+        pg_api_token: String,
         pg_url: Url,
-        access_token: Option<String>,
-        refresh_token: Option<RefreshToken>,
+        user_access_token: Option<String>,
+        userrefresh_token: Option<RefreshToken>,
     ) -> Self {
         // Build journal and shard clients with an empty default service address.
         // We'll use their with_endpoint_and_metadata() routines to cheaply clone
@@ -54,12 +54,12 @@ impl Client {
         Self {
             agent_endpoint,
             http_client: reqwest::Client::new(),
-            pg_token,
+            pg_api_token,
             pg_url,
             journal_client,
             shard_client,
-            user_access_token: access_token,
-            user_refresh_token: refresh_token,
+            user_access_token,
+            user_refresh_token: userrefresh_token,
         }
     }
 
@@ -131,7 +131,7 @@ impl Client {
 
     pub fn pg_client(&self) -> postgrest::Postgrest {
         let pg_client = postgrest::Postgrest::new(self.pg_url.as_str())
-            .insert_header("apikey", self.pg_token.as_str());
+            .insert_header("apikey", self.pg_api_token.as_str());
 
         if let Some(token) = &self.user_access_token {
             return pg_client.insert_header("Authorization", &format!("Bearer {token}"));

@@ -501,7 +501,7 @@ fn indirect_materialization(
         models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => indirect_dom(
             Scope::new(scope)
                 .push_prop("endpoint")
-                .push_prop("local")
+                .push_prop("dekaf")
                 .push_prop("config"),
             config,
             ContentType::Config,
