@@ -126,14 +126,14 @@ impl TestHarness {
     async fn setup_test_connectors(&mut self) {
         sqlx::query!(r##"
             with source_image as (
-                insert into connectors (external_url, image_name, title, short_description, logo_url)
-                values ('http://test.test/', 'source/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}')
+                insert into connectors (external_url, image_name, title, short_description, logo_url, recommended)
+                values ('http://test.test/', 'source/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}', false)
                 on conflict(image_name) do update set title = excluded.title
                 returning id
             ),
             materialize_image as (
-                insert into connectors (external_url, image_name, title, short_description, logo_url)
-                values ('http://test.test/', 'materialize/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}')
+                insert into connectors (external_url, image_name, title, short_description, logo_url, recommended)
+                values ('http://test.test/', 'materialize/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}', false)
                 on conflict(image_name) do update set title = excluded.title
                 returning id
             ),

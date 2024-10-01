@@ -14,8 +14,8 @@ begin
   -- insert into user_grants (user_id, object_role, capability) values
   --   ('11111111-1111-1111-1111-111111111111', 'estuary_support/', 'admin');
   insert into tenants (tenant) values ('aliceCo/');
-  insert into connectors (id, image_name, title, short_description, logo_url, external_url) values
-	('12:34:56:78:87:65:43:21', 'captureImage', '{"en-US":"a title"}', '{"en-US":"a desc"}', '{"en-US":"a logo"}', 'http://foo.test');
+  insert into connectors (id, image_name, title, short_description, logo_url, external_url, recommended) values
+	('12:34:56:78:87:65:43:21', 'captureImage', '{"en-US":"a title"}', '{"en-US":"a desc"}', '{"en-US":"a logo"}', 'http://foo.test', true);
   insert into connector_tags (connector_id, image_tag) values
 	('12:34:56:78:87:65:43:21', ':v0');
   insert into live_specs (catalog_name, spec_type, spec, connector_image_name, connector_image_tag, updated_at) values
