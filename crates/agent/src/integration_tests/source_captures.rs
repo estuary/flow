@@ -283,7 +283,7 @@ async fn test_source_captures_collection_name() {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_source_capture_no_annotations() {
-    let mut harness = TestHarness::init("test_source_capture_no_annotations").await;
+    let harness = TestHarness::init("test_source_capture_no_annotations").await;
     let user_id = harness.setup_tenant("sheep").await;
 
     let draft = draft_catalog(serde_json::json!({
