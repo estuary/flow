@@ -1,0 +1,27 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+assertion_line: 63
+expression: tables
+---
+DraftCatalog {
+    errors: [
+        Error {
+            scope: test://example/catalog.yaml,
+            error: failed to parse document (missing field `variant` at line 1 column 103): missing field `variant` at line 1 column 103,
+        },
+    ],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"materializations":{"materialization/dekaf/invalid":{"bindings":[],"endpoint":{"dekaf":{"test":"fail"}}}}},
+        },
+    ],
+}

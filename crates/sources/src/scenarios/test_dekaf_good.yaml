@@ -1,0 +1,27 @@
+test://example/catalog.yaml:
+  materializations:
+    materialization/dekaf/inline:
+      endpoint:
+        dekaf:
+          variant: foo
+          config:
+            strict_topic_names: false
+      bindings:
+        - source: some/source/collection
+          resource:
+            topic_name: foo
+    materialization/dekaf/indirect:
+      endpoint:
+        dekaf:
+          variant: foo
+          config: test://example/referenced/dekaf_endpoint.yaml
+      bindings:
+        - source: some/source/materialization
+          resource: test://example/referenced/dekaf_resource.yaml
+
+test://example/referenced/dekaf_endpoint.yaml:
+  strict_topic_names: false
+  token: "foo_token"
+
+test://example/referenced/dekaf_resource.yaml:
+  topic: "pizza"
