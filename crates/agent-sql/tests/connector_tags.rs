@@ -15,8 +15,8 @@ async fn resource_path_pointers_cannot_be_changed() {
     let row = sqlx::query!(
       r#"
       with setup_connectors as (
-        insert into connectors (image_name, external_url, title, short_description, logo_url)
-          values ('foo/image', 'http://test.test', '{"en-US": "foo"}', '{"en-US": "foo"}', '{"en-US": "foo"}')
+        insert into connectors (image_name, external_url, title, short_description, logo_url, recommended)
+          values ('foo/image', 'http://test.test', '{"en-US": "foo"}', '{"en-US": "foo"}', '{"en-US": "foo"}', false)
           returning id
       )
       insert into connector_tags (connector_id, image_tag) select id, ':test' as image_tag from setup_connectors

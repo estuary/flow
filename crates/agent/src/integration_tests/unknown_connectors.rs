@@ -6,7 +6,7 @@ use crate::integration_tests::harness::{draft_catalog, TestHarness};
 #[tokio::test]
 #[serial_test::serial]
 async fn test_forbidden_connector() {
-    let mut harness = TestHarness::init("test_forbidden_connector").await;
+    let harness = TestHarness::init("test_forbidden_connector").await;
     let user_id = harness.setup_tenant("sheep").await;
 
     let draft = draft_catalog(serde_json::json!({
