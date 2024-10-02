@@ -24,7 +24,10 @@ pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::DekafConfig;
-use flow_client::{client::RefreshToken, DEFAULT_AGENT_URL};
+use flow_client::{
+    client::{refresh_client, RefreshToken},
+    DEFAULT_AGENT_URL,
+};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
@@ -77,7 +80,7 @@ impl App {
             Some(refresh),
         );
 
-        client.refresh().await?;
+        refresh_client(&mut client).await?;
         let claims = client.claims()?;
 
         if models::Materialization::regex().is_match(username.as_ref()) {
