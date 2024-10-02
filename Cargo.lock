@@ -636,6 +636,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 
 [[package]]
+name = "automations"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "coroutines",
+ "futures",
+ "models",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "avro"
 version = "0.0.0"
 dependencies = [
