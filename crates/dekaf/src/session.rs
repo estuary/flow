@@ -26,7 +26,7 @@ use tracing::instrument;
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
-    handle: tokio::task::JoinHandle<anyhow::Result<(Read, bytes::Bytes)>>,
+    handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, bytes::Bytes)>>,
 }
 
 pub struct Session {
@@ -384,9 +384,9 @@ impl Session {
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
-                    handle: tokio::spawn(
+                    handle: tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
                         read.next_batch(partition_request.partition_max_bytes as usize),
-                    ),
+                    )),
                 };
 
                 tracing::info!(
@@ -435,9 +435,9 @@ impl Session {
                 } {
                     pending.offset = read.offset;
                     pending.last_write_head = read.last_write_head;
-                    pending.handle = tokio::spawn(
+                    pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
                         read.next_batch(partition_request.partition_max_bytes as usize),
-                    );
+                    ));
                     batch
                 } else {
                     bytes::Bytes::new()
