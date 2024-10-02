@@ -7,8 +7,10 @@ use kafka_protocol::{
     protocol::{self, Decodable, Encodable, Request},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
+use rustls::RootCertStore;
 use std::{boxed::Box, cell::Cell, collections::HashMap, fmt::Debug, io, time::Duration};
 use std::{io::BufWriter, pin::Pin, sync::Arc};
+use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio_rustls::rustls;
 use tokio_util::{codec, task::AbortOnDropHandle};
@@ -24,22 +26,31 @@ type BoxedKafkaConnection = Pin<
     >,
 >;
 
+static ROOT_CERT_STORE: OnceCell<Arc<RootCertStore>> = OnceCell::const_new();
+
 #[tracing::instrument(skip_all)]
 async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection> {
     // Establish a TCP connection to the Kafka broker
 
     let parsed_url = Url::parse(broker_url)?;
 
-    // This returns an Err indicating that the default provider is already set
-    // but without this call rustls crashes with the following error:
-    // `no process-level CryptoProvider available -- call CryptoProvider::install_default() before this point`
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let root_certs = ROOT_CERT_STORE
+        .get_or_try_init(|| async {
+            // This returns an Err indicating that the default provider is already set
+            // but without this call rustls crashes with the following error:
+            // `no process-level CryptoProvider available -- call CryptoProvider::install_default() before this point`
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-    let mut root_cert_store = rustls::RootCertStore::empty();
-    root_cert_store.add_parsable_certificates(rustls_native_certs::load_native_certs()?);
+            let mut certs = rustls::RootCertStore::empty();
+            certs.add_parsable_certificates(
+                rustls_native_certs::load_native_certs().expect("failed to load native certs"),
+            );
+            Ok::<Arc<RootCertStore>, anyhow::Error>(Arc::new(certs))
+        })
+        .await?;
 
     let tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_cert_store)
+        .with_root_certificates(root_certs.to_owned())
         .with_no_client_auth();
 
     let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));

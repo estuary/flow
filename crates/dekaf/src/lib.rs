@@ -24,17 +24,13 @@ pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::DekafConfig;
-use flow_client::{
-    client::RefreshToken, DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
-};
+use flow_client::{client::RefreshToken, DEFAULT_AGENT_URL};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
-use serde_json::de;
 use std::time::SystemTime;
+use url::Url;
 
 pub struct App {
-    /// Anonymous API client for the Estuary control plane.
-    pub anon_client: postgrest::Postgrest,
     /// Hostname which is advertised for Kafka access.
     pub advertise_host: String,
     /// Port which is advertised for Kafka access.
@@ -43,6 +39,10 @@ pub struct App {
     pub kafka_client: KafkaApiClient,
     /// Secret used to secure Prometheus endpoint
     pub secret: String,
+    /// Supabase endpoint
+    pub api_endpoint: Url,
+    /// Supabase api key
+    pub api_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,8 +71,8 @@ impl App {
 
         let mut client = flow_client::Client::new(
             DEFAULT_AGENT_URL.to_owned(),
-            DEFAULT_PG_PUBLIC_TOKEN.to_string(),
-            DEFAULT_PG_URL.to_owned(),
+            self.api_key.to_owned(),
+            self.api_endpoint.to_owned(),
             None,
             Some(refresh),
         );
