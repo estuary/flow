@@ -16,6 +16,7 @@ mod poll;
 mod preview;
 mod raw;
 
+use flow_client::client::refresh_client;
 pub(crate) use flow_client::client::Client;
 pub(crate) use flow_client::{api_exec, api_exec_paginated, parse_jwt_claims};
 use output::{Output, OutputType};
@@ -151,7 +152,7 @@ impl Cli {
         let mut client: flow_client::Client = config.build_client();
 
         if config.user_access_token.is_some() || config.user_refresh_token.is_some() {
-            client.refresh().await?;
+            refresh_client(&mut client).await?;
         } else {
             tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
         }
