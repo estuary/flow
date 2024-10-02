@@ -13,6 +13,7 @@ pub struct DekafConfig {
     /// The password that will authenticate Kafka consumers to this task.
     // TODO(jshearer): Uncomment when schemars 1.0 is out and we upgrade
     // #[schemars(extend("secret" = true))]
+    #[schemars(schema_with = "token_secret")]
     pub token: String,
 }
 
@@ -21,7 +22,23 @@ pub struct DekafConfig {
 pub struct DekafResourceConfig {
     /// The exposed name of the topic that maps to this binding. This
     /// will be exposed through the Kafka metadata/discovery APIs.
+    #[schemars(schema_with = "collection_name")]
     pub topic_name: String,
+}
+
+fn collection_name(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "x-collection-name": true,
+    }))
+    .unwrap()
+}
+
+fn token_secret(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "title": "Dekaf Auth Token",
+        "secret": true,
+    }))
+    .unwrap()
 }
 
 pub async fn unary_materialize(
