@@ -5,6 +5,7 @@ use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{KafkaApiClient, Session};
+use flow_client::{DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL};
 use futures::{FutureExt, TryStreamExt};
 use rsasl::config::SASLConfig;
 use rustls::pki_types::CertificateDer;
@@ -16,6 +17,7 @@ use std::{
 };
 use tokio::io::{split, AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
 #[derive(Debug, Parser, serde::Serialize)]
@@ -24,14 +26,14 @@ pub struct Cli {
     /// Endpoint of the Estuary API to use.
     #[arg(
         long,
-        default_value = MANAGED_API_ENDPOINT,
+        default_value = DEFAULT_PG_URL.as_str(),
         env = "API_ENDPOINT"
     )]
-    api_endpoint: String,
+    api_endpoint: Url,
     /// Public (anon) API key to use during authentication to the Estuary API.
     #[arg(
         long,
-        default_value = MANAGED_API_KEY,
+        default_value = DEFAULT_PG_PUBLIC_TOKEN,
         env = "API_KEY"
     )]
     api_key: String,
@@ -106,10 +108,10 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     tracing::info!("Starting dekaf");
 
-    let (api_endpoint, api_token) = if cli.local {
-        (LOCAL_API_ENDPOINT, LOCAL_API_KEY)
+    let (api_endpoint, api_key) = if cli.local {
+        (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
-        (cli.api_endpoint.as_str(), cli.api_key.as_str())
+        (cli.api_endpoint, cli.api_key)
     };
 
     let upstream_kafka_host = format!(
@@ -118,7 +120,6 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let app = Arc::new(dekaf::App {
-        anon_client: postgrest::Postgrest::new(api_endpoint).insert_header("apikey", api_token),
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
         kafka_client: KafkaApiClient::connect(
@@ -131,7 +132,9 @@ async fn main() -> anyhow::Result<()> {
         ).await.context(
             "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
         )?,
-        secret: cli.encryption_secret.to_owned()
+        secret: cli.encryption_secret.to_owned(),
+        api_endpoint,
+        api_key
     });
 
     tracing::info!(
@@ -320,9 +323,3 @@ fn validate_certificate_name(
     }
     return Ok(false);
 }
-
-const MANAGED_API_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
-const MANAGED_API_ENDPOINT: &str = "https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1";
-
-const LOCAL_API_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
-const LOCAL_API_ENDPOINT: &str = "http://127.0.0.1:5431/rest/v1";
