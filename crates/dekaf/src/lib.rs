@@ -24,14 +24,10 @@ pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::DekafConfig;
-use flow_client::{
-    client::{refresh_client, RefreshToken},
-    DEFAULT_AGENT_URL,
-};
+use flow_client::client::{refresh_authorizations, RefreshToken};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
-use url::Url;
 
 pub struct App {
     /// Hostname which is advertised for Kafka access.
@@ -42,10 +38,8 @@ pub struct App {
     pub kafka_client: KafkaApiClient,
     /// Secret used to secure Prometheus endpoint
     pub secret: String,
-    /// Supabase endpoint
-    pub api_endpoint: Url,
-    /// Supabase api key
-    pub api_key: String,
+    /// Share a single base client in order to re-use connection pools
+    pub client_base: flow_client::Client,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,16 +66,15 @@ impl App {
         let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
         let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
 
-        let mut client = flow_client::Client::new(
-            DEFAULT_AGENT_URL.to_owned(),
-            self.api_key.to_owned(),
-            self.api_endpoint.to_owned(),
-            None,
-            Some(refresh),
-        );
+        let (access, refresh) =
+            refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
 
-        refresh_client(&mut client).await?;
-        let claims = client.claims()?;
+        let client = self
+            .client_base
+            .clone()
+            .with_creds(Some(access), Some(refresh));
+
+        let claims = flow_client::client::client_claims(&client)?;
 
         if models::Materialization::regex().is_match(username.as_ref()) {
             Ok(Authenticated {

@@ -32,7 +32,7 @@ impl Client {
         pg_api_token: String,
         pg_url: Url,
         user_access_token: Option<String>,
-        userrefresh_token: Option<RefreshToken>,
+        user_refresh_token: Option<RefreshToken>,
     ) -> Self {
         // Build journal and shard clients with an empty default service address.
         // We'll use their with_endpoint_and_metadata() routines to cheaply clone
@@ -59,7 +59,19 @@ impl Client {
             journal_client,
             shard_client,
             user_access_token,
-            user_refresh_token: userrefresh_token,
+            user_refresh_token,
+        }
+    }
+
+    pub fn with_creds(
+        self,
+        user_access_token: Option<String>,
+        user_refresh_token: Option<RefreshToken>,
+    ) -> Self {
+        Self {
+            user_access_token: user_access_token.or(self.user_access_token),
+            user_refresh_token: user_refresh_token.or(self.user_refresh_token),
+            ..self
         }
     }
 
@@ -72,15 +84,6 @@ impl Client {
         }
 
         self.pg_parent.clone()
-    }
-
-    pub fn claims(&self) -> anyhow::Result<ControlClaims> {
-        parse_jwt_claims(
-            self.user_access_token
-                .as_ref()
-                .ok_or(anyhow::anyhow!("Client is not authenticated"))?
-                .as_str(),
-        )
     }
 
     pub fn from(&self, table: &str) -> postgrest::Builder {
@@ -266,29 +269,34 @@ pub async fn fetch_collection_authorization(
     Ok((journal_name_prefix, journal_client))
 }
 
-pub async fn refresh_client(client: &mut Client) -> anyhow::Result<()> {
+pub async fn refresh_authorizations(
+    client: &Client,
+    access_token: Option<String>,
+    refresh_token: Option<RefreshToken>,
+) -> anyhow::Result<(String, RefreshToken)> {
     // Clear expired or soon-to-expire access token
-    if let Some(_) = &client.user_access_token {
-        let claims = client.claims()?;
-
-        let now = time::OffsetDateTime::now_utc();
-        let exp = time::OffsetDateTime::from_unix_timestamp(claims.exp as i64).unwrap();
+    let access_token = if let Some(token) = &access_token {
+        let claims: ControlClaims = parse_jwt_claims(token.as_str())?;
 
         // Refresh access tokens with plenty of time to spare if we have a
         // refresh token. If not, allow refreshing right until the token expires
-        match ((now - exp).whole_seconds(), &client.user_refresh_token) {
-            (exp_seconds, Some(_)) if exp_seconds < 60 => client.user_access_token = None,
-            (exp_seconds, None) if exp_seconds <= 0 => client.user_access_token = None,
-            _ => {}
+        match (claims.time_remaining().whole_seconds(), &refresh_token) {
+            (exp_seconds, Some(_)) if exp_seconds < 60 => None,
+            (exp_seconds, None) if exp_seconds <= 0 => None,
+            _ => Some(token.to_owned()),
         }
-    }
+    } else {
+        None
+    };
 
-    if client.user_access_token.is_some() && client.user_refresh_token.is_some() {
-        // Authorization is current: nothing to do.
-        Ok(())
-    } else if client.user_access_token.is_some() {
-        // We have an access token but no refresh token. Create one.
-        let refresh_token = api_exec::<RefreshToken>(
+    match (access_token, refresh_token) {
+        (Some(access), Some(refresh)) => {
+            // Authorization is current: nothing to do.
+            Ok((access, refresh))
+        }
+        (Some(access), None) => {
+            // We have an access token but no refresh token. Create one.
+            let refresh_token = api_exec::<RefreshToken>(
                 client.rpc(
                     "create_refresh_token",
                     serde_json::json!({"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"})
@@ -297,37 +305,43 @@ pub async fn refresh_client(client: &mut Client) -> anyhow::Result<()> {
             )
             .await?;
 
-        client.user_refresh_token = Some(refresh_token);
-
-        tracing::info!("created new refresh token");
-        Ok(())
-    } else if let Some(RefreshToken { id, secret }) = &client.user_refresh_token {
-        // We have a refresh token but no access token. Generate one.
-
-        #[derive(serde::Deserialize)]
-        struct Response {
-            access_token: String,
-            refresh_token: Option<RefreshToken>, // Set iff the token was single-use.
+            tracing::info!("created new refresh token");
+            Ok((access, refresh_token))
         }
-        let Response {
-            access_token,
-            refresh_token: next_refresh_token,
-        } = api_exec::<Response>(client.rpc(
-            "generate_access_token",
-            serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
-        ))
-        .await
-        .context("failed to obtain access token")?;
+        (None, Some(RefreshToken { id, secret })) => {
+            // We have a refresh token but no access token. Generate one.
 
-        if next_refresh_token.is_some() {
-            client.user_refresh_token = next_refresh_token;
+            #[derive(serde::Deserialize)]
+            struct Response {
+                access_token: String,
+                refresh_token: Option<RefreshToken>, // Set iff the token was single-use.
+            }
+            let Response {
+                access_token,
+                refresh_token: next_refresh_token,
+            } = api_exec::<Response>(client.rpc(
+                "generate_access_token",
+                serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
+            ))
+            .await
+            .context("failed to obtain access token")?;
+
+            tracing::info!("generated a new access token");
+            Ok((
+                access_token,
+                next_refresh_token.unwrap_or(RefreshToken { id, secret }),
+            ))
         }
-
-        client.user_access_token = Some(access_token);
-
-        tracing::info!("generated a new access token");
-        Ok(())
-    } else {
-        anyhow::bail!("Client not authenticated");
+        _ => anyhow::bail!("Client not authenticated"),
     }
+}
+
+pub fn client_claims(client: &Client) -> anyhow::Result<ControlClaims> {
+    parse_jwt_claims(
+        client
+            .user_access_token
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Client is not authenticated"))?
+            .as_str(),
+    )
 }

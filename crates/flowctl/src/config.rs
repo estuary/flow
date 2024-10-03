@@ -181,13 +181,13 @@ impl Config {
 
         Ok(())
     }
-    pub fn build_client(&self) -> flow_client::Client {
+    pub fn build_anon_client(&self) -> flow_client::Client {
         flow_client::Client::new(
             self.get_agent_url().clone(),
             self.get_pg_public_token().to_string(),
             self.get_pg_url().clone(),
-            self.user_access_token.clone(),
-            self.user_refresh_token.clone(),
+            None,
+            None,
         )
     }
 
