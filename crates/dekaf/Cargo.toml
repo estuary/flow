@@ -40,7 +40,7 @@ kafka-protocol = { workspace = true }
 lz4_flex = { workspace = true }
 md5 = { workspace = true }
 metrics = { workspace = true }
-metrics-prometheus = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 percent-encoding = { workspace = true }
 postgrest = { workspace = true }
 prometheus = { workspace = true }
