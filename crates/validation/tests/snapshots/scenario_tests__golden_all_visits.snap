@@ -4593,24 +4593,24 @@ Outcome {
             dependency_hash: NULL,
         },
         BuiltCollection {
-            collection: testing/int-string-inferred,
-            scope: test://example/int-string#/collections/testing~1int-string-inferred,
+            collection: testing/int-string-ref-write-schema,
+            scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
             control_id: "0000000000000000",
             data_plane_id: "1d1d1d1d1d1d1d1d",
             expect_pub_id: "0000000000000000",
             expect_build_id: "0000000000000000",
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
-              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-ref-write-schema/readSchema","$ref":"flow://write-schema","properties":{"addedProp":{"type":"string"}}},
               "key": [
                 "/int"
               ]
             },
             validated: NULL,
             spec: CollectionSpec {
-                name: "testing/int-string-inferred",
+                name: "testing/int-string-ref-write-schema",
                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
-                read_schema_json: "{\"$defs\":{\"flow://inferred-schema\":{\"$id\":\"flow://inferred-schema\",\"properties\":{\"inferred-field\":{\"const\":42},\"str\":{\"maxLength\":8675309}},\"type\":\"object\"},\"flow://write-schema\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"flow://write-schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema\",\"allOf\":[{\"$ref\":\"flow://write-schema\"},{\"$ref\":\"flow://inferred-schema\"}]}",
+                read_schema_json: "{\"$defs\":{\"flow://write-schema\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"flow://write-schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string?ptr=/collections/testing~1int-string-ref-write-schema/readSchema\",\"$ref\":\"flow://write-schema\",\"properties\":{\"addedProp\":{\"type\":\"string\"}}}",
                 key: [
                     "/int",
                 ],
@@ -4639,134 +4639,8 @@ Outcome {
                         ),
                     },
                     Projection {
-                        ptr: "/bit",
-                        field: "bit",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "boolean",
-                                ],
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "",
-                        field: "flow_document",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "object",
-                                ],
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/_meta/uuid",
-                        field: "flow_published_at",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "string",
-                                ],
-                                string: Some(
-                                    String {
-                                        content_type: "",
-                                        format: "date-time",
-                                        content_encoding: "uuid",
-                                        max_length: 0,
-                                    },
-                                ),
-                                title: "Flow Publication Time",
-                                description: "Flow publication date-time of this document",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/inferred-field",
-                        field: "inferred-field",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "integer",
-                                ],
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: May,
-                                numeric: Some(
-                                    Numeric {
-                                        has_minimum: false,
-                                        minimum: 0.0,
-                                        has_maximum: false,
-                                        maximum: 0.0,
-                                    },
-                                ),
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/int",
-                        field: "int",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: true,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "integer",
-                                ],
-                                string: None,
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: Some(
-                                    Numeric {
-                                        has_minimum: false,
-                                        minimum: 0.0,
-                                        has_maximum: false,
-                                        maximum: 0.0,
-                                    },
-                                ),
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/str",
-                        field: "str",
+                        ptr: "/addedProp",
+                        field: "addedProp",
                         explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
@@ -4780,178 +4654,11 @@ Outcome {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        max_length: 8675309,
-                                    },
-                                ),
-                                title: "",
-                                description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                ],
-                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
-                partition_template: Some(
-                    JournalSpec {
-                        name: "testing/int-string-inferred/2020202020202020",
-                        replication: 3,
-                        labels: Some(
-                            LabelSet {
-                                labels: [
-                                    Label {
-                                        name: "app.gazette.dev/managed-by",
-                                        value: "estuary.dev/flow",
-                                        prefix: false,
-                                    },
-                                    Label {
-                                        name: "content-type",
-                                        value: "application/x-ndjson",
-                                        prefix: false,
-                                    },
-                                    Label {
-                                        name: "estuary.dev/build",
-                                        value: "2121212121212121",
-                                        prefix: false,
-                                    },
-                                    Label {
-                                        name: "estuary.dev/collection",
-                                        value: "testing/int-string-inferred",
-                                        prefix: false,
-                                    },
-                                ],
-                            },
-                        ),
-                        fragment: Some(
-                            Fragment {
-                                length: 536870912,
-                                compression_codec: Gzip,
-                                stores: [
-                                    "s3://data-bucket/",
-                                ],
-                                refresh_interval: Some(
-                                    Duration {
-                                        seconds: 300,
-                                        nanos: 0,
-                                    },
-                                ),
-                                retention: None,
-                                flush_interval: None,
-                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
-                            },
-                        ),
-                        flags: 4,
-                        max_append_rate: 4194304,
-                    },
-                ),
-                derivation: None,
-            },
-            previous_spec: NULL,
-            is_touch: 0,
-            dependency_hash: NULL,
-        },
-        BuiltCollection {
-            collection: testing/int-string-inferred-not-found,
-            scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
-            control_id: "0000000000000000",
-            data_plane_id: "1d1d1d1d1d1d1d1d",
-            expect_pub_id: "0000000000000000",
-            expect_build_id: "0000000000000000",
-            model: {
-              "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
-              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
-              "key": [
-                "/int"
-              ]
-            },
-            validated: NULL,
-            spec: CollectionSpec {
-                name: "testing/int-string-inferred-not-found",
-                write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
-                read_schema_json: "{\"$defs\":{\"flow://inferred-schema\":{\"$id\":\"flow://inferred-schema\",\"properties\":{\"_meta\":{\"properties\":{\"inferredSchemaIsNotAvailable\":{\"const\":true,\"description\":\"An inferred schema is not yet available because no documents have been written to this collection.\\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready.\"}},\"required\":[\"inferredSchemaIsNotAvailable\"]}},\"required\":[\"_meta\"]},\"flow://write-schema\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"flow://write-schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema\",\"allOf\":[{\"$ref\":\"flow://write-schema\"},{\"$ref\":\"flow://inferred-schema\"}]}",
-                key: [
-                    "/int",
-                ],
-                uuid_ptr: "/_meta/uuid",
-                partition_fields: [],
-                projections: [
-                    Projection {
-                        ptr: "/_meta",
-                        field: "_meta",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "array",
-                                    "boolean",
-                                    "null",
-                                    "number",
-                                    "object",
-                                    "string",
-                                ],
-                                string: Some(
-                                    String {
-                                        content_type: "",
-                                        format: "",
-                                        content_encoding: "",
                                         max_length: 0,
                                     },
                                 ),
                                 title: "",
                                 description: "",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: Some(
-                                    Numeric {
-                                        has_minimum: false,
-                                        minimum: 0.0,
-                                        has_maximum: false,
-                                        maximum: 0.0,
-                                    },
-                                ),
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/_meta/flow_truncated",
-                        field: "_meta/flow_truncated",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "boolean",
-                                ],
-                                string: None,
-                                title: "Flow truncation indicator",
-                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
-                                default_json: "",
-                                secret: false,
-                                exists: Must,
-                                numeric: None,
-                            },
-                        ),
-                    },
-                    Projection {
-                        ptr: "/_meta/inferredSchemaIsNotAvailable",
-                        field: "_meta/inferredSchemaIsNotAvailable",
-                        explicit: false,
-                        is_partition_key: false,
-                        is_primary_key: false,
-                        inference: Some(
-                            Inference {
-                                types: [
-                                    "boolean",
-                                ],
-                                string: None,
-                                title: "",
-                                description: "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready.",
                                 default_json: "",
                                 secret: false,
                                 exists: May,
@@ -5089,7 +4796,7 @@ Outcome {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "testing/int-string-inferred-not-found/2020202020202020",
+                        name: "testing/int-string-ref-write-schema/2020202020202020",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -5111,7 +4818,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/collection",
-                                        value: "testing/int-string-inferred-not-found",
+                                        value: "testing/int-string-ref-write-schema",
                                         prefix: false,
                                     },
                                 ],
@@ -7604,25 +7311,12 @@ Outcome {
             is_touch: 0,
         },
         DraftCollection {
-            collection: testing/int-string-inferred,
-            scope: test://example/int-string#/collections/testing~1int-string-inferred,
+            collection: testing/int-string-ref-write-schema,
+            scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
             expect_pub_id: NULL,
             model: {
               "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
-              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
-              "key": [
-                "/int"
-              ]
-            },
-            is_touch: 0,
-        },
-        DraftCollection {
-            collection: testing/int-string-inferred-not-found,
-            scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
-            expect_pub_id: NULL,
-            model: {
-              "writeSchema": {"$defs":{"anAnchor":{"$anchor":"AnAnchor","properties":{"one":{"type":"string"},"two":{"type":"integer"}},"required":["one"],"type":"object"}},"$id":"test://example/int-string.schema","properties":{"bit":{"type":"boolean"},"int":{"type":"integer"},"str":{"type":"string"}},"required":["int","str","bit"],"type":"object"},
-              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-inferred-not-found/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+              "readSchema": {"$id":"test://example/int-string?ptr=/collections/testing~1int-string-ref-write-schema/readSchema","$ref":"flow://write-schema","properties":{"addedProp":{"type":"string"}}},
               "key": [
                 "/int"
               ]
@@ -7982,7 +7676,7 @@ Outcome {
             resource: test://example/int-string,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-string":{"key":["/int"],"projections":{"Int":"/int","bit":{"location":"/bit","partition":true}},"schema":"test://example/int-string.schema"},"testing/int-string-inferred":{"key":["/int"],"readSchema":{"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},"writeSchema":"test://example/int-string.schema"},"testing/int-string-inferred-not-found":{"key":["/int"],"readSchema":{"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},"writeSchema":"test://example/int-string.schema"},"testing/int-string-rw":{"key":["/int"],"projections":{"Int":"/int","Len":"/len","Str":"/str","bit":{"location":"/bit","partition":true}},"readSchema":"test://example/int-string-len.schema","writeSchema":"test://example/int-string.schema"},"testing/int-string.v2":{"journals":{"fragments":{"compressionCodec":"ZSTANDARD"}},"key":["/int"],"schema":{"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"}}},"import":["test://example/int-halve"]},
+            content_dom: {"collections":{"testing/int-string":{"key":["/int"],"projections":{"Int":"/int","bit":{"location":"/bit","partition":true}},"schema":"test://example/int-string.schema"},"testing/int-string-ref-write-schema":{"key":["/int"],"readSchema":{"$ref":"flow://write-schema","properties":{"addedProp":{"type":"string"}}},"writeSchema":"test://example/int-string.schema"},"testing/int-string-rw":{"key":["/int"],"projections":{"Int":"/int","Len":"/len","Str":"/str","bit":{"location":"/bit","partition":true}},"readSchema":"test://example/int-string-len.schema","writeSchema":"test://example/int-string.schema"},"testing/int-string.v2":{"journals":{"fragments":{"compressionCodec":"ZSTANDARD"}},"key":["/int"],"schema":{"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"}}},"import":["test://example/int-halve"]},
         },
         Resource {
             resource: test://example/int-string-captures,

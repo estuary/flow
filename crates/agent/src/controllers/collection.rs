@@ -133,7 +133,11 @@ pub struct InferredSchemaStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "super::datetime_schema")]
     pub schema_last_updated: Option<DateTime<Utc>>,
-    /// The md5 sum of the inferred schema that was last published
+    /// The md5 sum of the inferred schema that was last published.
+    /// Because the publications handler updates the model instead of the controller, it's
+    /// technically possible for the published inferred schema to be more recent than the one
+    /// corresponding to this hash. If that happens, we would expect a subsequent publication
+    /// on the next controller run, which would update the hash but not actually modify the schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_md5: Option<String>,
 }
@@ -191,7 +195,7 @@ impl InferredSchemaStatus {
         if let Some(inferred_schema) = maybe_inferred_schema {
             let tables::InferredSchema {
                 collection_name,
-                schema,
+                schema: _, // we let the publications handler set the inferred schema
                 md5,
             } = inferred_schema;
 
@@ -216,7 +220,9 @@ impl InferredSchemaStatus {
                         is_touch: false, // We intend to update the model
                     }
                 });
-                update_inferred_schema(draft_row, &schema)?;
+                // The inferred schema is always updated as part of any non-touch publication,
+                // so we don't need to actually update the model here.
+                draft_row.is_touch = false;
 
                 let pub_result = pending_pub
                     .finish(state, publication_status, control_plane)
@@ -249,24 +255,6 @@ fn read_schema_bundles_write_schema(model: &models::CollectionDef) -> bool {
         .matches(models::Schema::REF_WRITE_SCHEMA_URL)
         .count()
         >= 3
-}
-
-fn update_inferred_schema(
-    collection: &mut tables::DraftCollection,
-    inferred_schema: &models::Schema,
-) -> anyhow::Result<()> {
-    let Some(model) = collection.model.as_mut() else {
-        anyhow::bail!("missing model to update inferred schema");
-    };
-    let new_read_schema = {
-        let Some(read_schema) = model.read_schema.as_ref() else {
-            anyhow::bail!("model is missing read schema");
-        };
-        models::Schema::extend_read_bundle(read_schema, None, Some(inferred_schema))
-    };
-
-    model.read_schema = Some(new_read_schema);
-    Ok(())
 }
 
 pub fn uses_inferred_schema(collection: &models::CollectionDef) -> bool {

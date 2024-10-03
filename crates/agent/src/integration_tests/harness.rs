@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::publications::{DefaultRetryPolicy, NoExpansion};
+use crate::publications::{DefaultRetryPolicy, UpdateInferredSchemas};
 use crate::{
     controllers::{ControllerHandler, ControllerState},
     controlplane::ConnectorSpec,
@@ -1036,10 +1036,6 @@ impl ControlPlane for TestControlPlane {
         self.inner.current_time()
     }
 
-    /// Tests use a custom publish loop, so that failures can be injected into
-    /// the build. This is admittedly a little gross, but at least it's pretty
-    /// simple. And I'm hopeful that a better factoring of the `Publisher` will
-    /// one day allow this to be replaced with something less bespoke.
     async fn publish(
         &mut self,
         detail: Option<String>,
@@ -1055,7 +1051,7 @@ impl ControlPlane for TestControlPlane {
             dry_run: false,
             default_data_plane_name: Some("ops/dp/public/test".to_string()),
             verify_user_authz: false,
-            initialize: NoExpansion,
+            initialize: UpdateInferredSchemas,
             finalize,
             retry: DefaultRetryPolicy,
         };

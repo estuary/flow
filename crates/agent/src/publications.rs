@@ -17,7 +17,7 @@ mod quotas;
 pub mod specs;
 
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
-pub use self::initialize::{ExpandDraft, Initialize, NoExpansion};
+pub use self::initialize::{ExpandDraft, Initialize, NoExpansion, UpdateInferredSchemas};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
 pub use self::status::{
     get_incompatible_collections, AffectedConsumer, IncompatibleCollection, JobStatus, LockFailure,
@@ -425,15 +425,9 @@ impl Publisher {
             });
         }
 
-        let inferred_schemas = live_catalog
-            .inferred_schemas
-            .iter()
-            .map(|s| s.collection_name.as_str())
-            .collect::<Vec<_>>();
         let live_spec_names = live_catalog.all_spec_names().collect::<Vec<_>>();
         let draft_spec_names = draft.all_spec_names().collect::<Vec<_>>();
         tracing::debug!(
-            ?inferred_schemas,
             ?live_spec_names,
             ?draft_spec_names,
             "resolved publication specs"

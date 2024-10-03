@@ -9,7 +9,7 @@ use std::{collections::BTreeSet, ops::Deref};
 
 use crate::publications::{
     DefaultRetryPolicy, DraftPublication, JobStatus, NoExpansion, NoopFinalize, PublicationResult,
-    Publisher,
+    Publisher, UpdateInferredSchemas,
 };
 
 macro_rules! unwrap_single {
@@ -363,7 +363,7 @@ impl ControlPlane for PGControlPlane {
             default_data_plane_name: None,
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
-            initialize: NoExpansion,
+            initialize: UpdateInferredSchemas,
             finalize: NoopFinalize,
             retry: DefaultRetryPolicy,
         };

@@ -102,12 +102,6 @@ impl Schema {
     ) -> Self {
         use serde_json::{value::to_raw_value, Value};
 
-        let mut read_schema: Skim = serde_json::from_str(read_bundle.get()).unwrap();
-        let mut read_defs: Skim = read_schema
-            .get(KEYWORD_DEF)
-            .map(|d| serde_json::from_str(d.get()).unwrap())
-            .unwrap_or_default();
-
         // Add a definition for the write schema if it's referenced.
         // We cannot add it in all cases because the existing `read_bundle` and
         // `write_bundle` may have a common sub-schema defined, and naively adding
@@ -115,25 +109,14 @@ impl Schema {
         // So, we treat $ref: flow://write-schema as a user assertion that there is
         // no such conflicting definition (and we may produce an indexing error
         // later if they're wrong).
-        if let Some(write_schema_json) =
-            write_bundle.filter(|_| read_bundle.references_write_schema())
-        {
-            let mut write_schema: Skim = serde_json::from_str(write_schema_json.get()).unwrap();
-
-            // Set $id to "flow://write-schema".
-            _ = write_schema.insert(
-                KEYWORD_ID.to_string(),
-                RawValue::from_value(&Value::String(Self::REF_WRITE_SCHEMA_URL.to_string())),
-            );
-            // Add as a definition within the read schema.
-            read_defs.insert(
-                Self::REF_WRITE_SCHEMA_URL.to_string(),
-                to_raw_value(&write_schema).unwrap().into(),
-            );
-        }
+        let prepared_write_schema = write_bundle
+            .filter(|_| read_bundle.references_write_schema())
+            .map(|write_schema_json| {
+                Schema::add_id(Schema::REF_WRITE_SCHEMA_URL, write_schema_json)
+            });
 
         // Add a definition for the inferred schema if it's referenced.
-        if read_bundle.references_inferred_schema() {
+        let prepared_inferred_schema = if read_bundle.references_inferred_schema() {
             // Prefer the actual inferred schema, or fall back to a sentinel schema
             // which allows for validations but fails on the first document.
             let inferred_bundle = inferred_bundle.map(|s| s.get()).unwrap_or(
@@ -166,10 +149,58 @@ impl Schema {
                 KEYWORD_ID.to_string(),
                 Value::String(Self::REF_INFERRED_SCHEMA_URL.to_string()),
             );
+            Some(to_raw_value(&inferred_schema).unwrap().into())
+        } else {
+            None
+        };
+
+        Schema::add_defs(read_bundle, prepared_write_schema, prepared_inferred_schema)
+    }
+
+    pub fn bundle_write_schema_def(read_schema: &Schema, write_schema: &Schema) -> Schema {
+        let prepared_write_schema = Schema::add_id(Schema::REF_WRITE_SCHEMA_URL, write_schema);
+        Schema::add_defs(read_schema, Some(prepared_write_schema), None)
+    }
+
+    fn add_id(id: &str, schema: &Schema) -> RawValue {
+        let mut skim: Skim = serde_json::from_str(schema.get()).unwrap();
+
+        _ = skim.insert(
+            KEYWORD_ID.to_string(),
+            RawValue::from_value(&serde_json::Value::String(id.to_string())),
+        );
+        serde_json::value::to_raw_value(&skim).unwrap().into()
+    }
+
+    fn add_defs(
+        target: &Schema,
+        write_schema: Option<RawValue>,
+        inferred_schema: Option<RawValue>,
+    ) -> Schema {
+        use serde_json::value::to_raw_value;
+
+        let mut read_schema: Skim = serde_json::from_str(target.get()).unwrap();
+        let mut read_defs: Skim = read_schema
+            .get(KEYWORD_DEF)
+            .map(|d| serde_json::from_str(d.get()).unwrap())
+            .unwrap_or_default();
+
+        // Add a definition for the write schema if it's referenced.
+        // We cannot add it in all cases because the existing `read_bundle` and
+        // `write_bundle` may have a common sub-schema defined, and naively adding
+        // it would result in an indexing error due to the duplicate definition.
+        // So, we treat $ref: flow://write-schema as a user assertion that there is
+        // no such conflicting definition (and we may produce an indexing error
+        // later if they're wrong).
+        if let Some(write_schema_json) = write_schema {
             // Add as a definition within the read schema.
+            read_defs.insert(Self::REF_WRITE_SCHEMA_URL.to_string(), write_schema_json);
+        }
+
+        if let Some(inferred_schema_json) = inferred_schema {
             read_defs.insert(
                 Self::REF_INFERRED_SCHEMA_URL.to_string(),
-                to_raw_value(&inferred_schema).unwrap().into(),
+                inferred_schema_json,
             );
         }
 

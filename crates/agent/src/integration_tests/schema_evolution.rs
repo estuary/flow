@@ -147,8 +147,21 @@ async fn test_schema_evolution() {
     assert!(initial_result.status.is_success());
     harness.run_pending_controllers(None).await;
 
-    // Assert that the pasture collection has had the inferred schema placeholder added
+    // Assert that the pasture collection has had the inferred schema placeholder added in both
+    // the model and the built spec.
     let pasture_state = harness.get_controller_state("goats/pasture").await;
+    let pasture_model = pasture_state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_collection()
+        .unwrap();
+    assert!(pasture_model
+        .read_schema
+        .as_ref()
+        .unwrap()
+        .get()
+        .contains("inferredSchemaIsNotAvailable"));
     let pasture_spec = unwrap_built_collection(&pasture_state);
     assert!(pasture_spec
         .read_schema_json

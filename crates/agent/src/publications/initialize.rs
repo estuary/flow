@@ -1,9 +1,10 @@
+use itertools::Itertools;
 use models::Capability;
-use std::future::Future;
+use std::{collections::BTreeMap, future::Future};
 use uuid::Uuid;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
-pub trait Initialize {
+pub trait Initialize: Send + Sync {
     fn initialize(
         &self,
         db: &sqlx::PgPool,
@@ -36,34 +37,35 @@ impl Initialize for UpdateInferredSchemas {
         let collection_names = draft
             .collections
             .iter()
-            .filter(|c| {
-                !c.is_touch
-                    && c.model.as_ref().is_some_and(|s| {
-                        s.read_schema
-                            .as_ref()
-                            .is_some_and(models::Schema::references_inferred_schema)
-                    })
-            })
+            .filter(|r| uses_inferred_schema(*r))
             .map(|c| c.collection.as_str())
             .collect::<Vec<_>>();
         let rows = agent_sql::live_specs::fetch_inferred_schemas(&collection_names, db).await?;
-        for row in rows {
-            let agent_sql::live_specs::InferredSchemaRow {
-                collection_name,
-                schema,
-                md5: _,
-            } = row;
-            let name = models::Collection::new(collection_name);
-            // We already know that the collection must be drafted, and that it has a model with a read schema.
-            let drafted = draft.collections.get_mut_by_key(&name).unwrap();
+        tracing::debug!(
+            inferred_schemas = %rows.iter().map(|r| r.collection_name.as_str()).format(", "),
+            "fetched inferred schemas"
+        );
+        let mut by_name = rows
+            .into_iter()
+            .map(|r| (r.collection_name, r.schema.0))
+            .collect::<BTreeMap<_, _>>();
+
+        for drafted in draft
+            .collections
+            .iter_mut()
+            .filter(|r| uses_inferred_schema(*r))
+        {
+            let maybe_inferred = by_name
+                .remove(drafted.collection.as_str())
+                .map(|json| models::Schema::new(json.into()));
+
             let draft_model = drafted.model.as_mut().unwrap();
             let draft_read_schema = draft_model.read_schema.take().unwrap();
 
-            let inferred_schema = models::Schema::new(schema.0.into());
             let new_schema = models::Schema::extend_read_bundle(
                 &draft_read_schema,
                 None,
-                Some(&inferred_schema),
+                maybe_inferred.as_ref(),
             );
             draft_model.read_schema = Some(new_schema);
         }
@@ -71,18 +73,29 @@ impl Initialize for UpdateInferredSchemas {
     }
 }
 
+fn uses_inferred_schema(c: &tables::DraftCollection) -> bool {
+    !c.is_touch
+        && c.model.as_ref().is_some_and(|s| {
+            s.read_schema
+                .as_ref()
+                .is_some_and(models::Schema::references_inferred_schema)
+        })
+}
+
 impl<I1, I2> Initialize for (I1, I2)
 where
     I1: Initialize,
     I2: Initialize,
 {
-    fn initialize(
+    async fn initialize(
         &self,
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
-    ) -> impl Future<Output = anyhow::Result<()>> + Send {
-        todo!()
+    ) -> anyhow::Result<()> {
+        self.0.initialize(db, user_id, draft).await?;
+        self.1.initialize(db, user_id, draft).await?;
+        Ok(())
     }
 }
 
