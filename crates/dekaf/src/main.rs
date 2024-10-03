@@ -266,6 +266,7 @@ where
 
         let mut out = bytes::BytesMut::new();
         let mut raw_sasl_auth = false;
+        let mut res = Ok(());
         while let Some(frame) = r.try_next().await? {
             if let err @ Err(_) =
                 dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
@@ -273,13 +274,13 @@ where
             {
                 // Close the connection on error
                 w.shutdown().await?;
-                return err;
+                res = err;
             }
             () = w.write_all(&mut out).await?;
             out.clear();
         }
 
-        Ok(())
+        res
     }
     .await;
 
