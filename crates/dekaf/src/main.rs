@@ -5,7 +5,9 @@ use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{KafkaApiClient, Session};
-use flow_client::{DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL};
+use flow_client::{
+    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+};
 use futures::{FutureExt, TryStreamExt};
 use rsasl::config::SASLConfig;
 use rustls::pki_types::CertificateDer;
@@ -133,8 +135,13 @@ async fn main() -> anyhow::Result<()> {
             "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
         )?,
         secret: cli.encryption_secret.to_owned(),
-        api_endpoint,
-        api_key
+        client_base: flow_client::Client::new(
+            DEFAULT_AGENT_URL.to_owned(),
+            api_key,
+            api_endpoint,
+            None,
+            None
+        )
     });
 
     tracing::info!(

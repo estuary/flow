@@ -1,3 +1,4 @@
+use std::cmp::max;
 use validator::Validate;
 
 /// ControlClaims are claims encoded within control-plane access tokens.
@@ -9,6 +10,15 @@ pub struct ControlClaims {
     pub email: Option<String>,
     pub iat: u64,
     pub exp: u64,
+}
+
+impl ControlClaims {
+    pub fn time_remaining(&self) -> time::Duration {
+        let now = time::OffsetDateTime::now_utc();
+        let exp = time::OffsetDateTime::from_unix_timestamp(self.exp as i64).unwrap();
+
+        max(exp - now, time::Duration::ZERO)
+    }
 }
 
 // Data-plane claims are represented by proto_gazette::Claims,

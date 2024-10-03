@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use anyhow::Context;
 use clap::Parser;
 
 mod auth;
@@ -16,9 +15,9 @@ mod poll;
 mod preview;
 mod raw;
 
-use flow_client::client::refresh_client;
+use flow_client::client::refresh_authorizations;
 pub(crate) use flow_client::client::Client;
-pub(crate) use flow_client::{api_exec, api_exec_paginated, parse_jwt_claims};
+pub(crate) use flow_client::{api_exec, api_exec_paginated};
 use output::{Output, OutputType};
 use poll::poll_while_queued;
 
@@ -135,27 +134,17 @@ impl Cli {
         let mut config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
 
-        // If the configured access token has expired then remove it before continuing.
-        if let Some(token) = &config.user_access_token {
-            let claims: models::authorizations::ControlClaims =
-                parse_jwt_claims(token).context("failed to parse control-plane access token")?;
+        let client: flow_client::Client = config.build_anon_client();
 
-            let now = time::OffsetDateTime::now_utc();
-            let exp = time::OffsetDateTime::from_unix_timestamp(claims.exp as i64).unwrap();
+        let (access, refresh) =
+            refresh_authorizations(&client, config.user_access_token, config.user_refresh_token)
+                .await?;
 
-            if now + std::time::Duration::from_secs(60) > exp {
-                tracing::info!(expired=%exp, "removing expired user access token from configuration");
-                config.user_access_token = None;
-            }
-        }
+        // Make sure to store refreshed tokens back in Config so they get written back to disk
+        config.user_access_token = Some(access.to_owned());
+        config.user_refresh_token = Some(refresh.to_owned());
 
-        let mut client: flow_client::Client = config.build_client();
-
-        if config.user_access_token.is_some() || config.user_refresh_token.is_some() {
-            refresh_client(&mut client).await?;
-        } else {
-            tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
-        }
+        let client = client.with_creds(Some(access), Some(refresh));
 
         let mut context = CliContext {
             client,
