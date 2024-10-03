@@ -16,7 +16,7 @@ To use this connector, you'll need:
     * A unity catalog
     * A SQL Warehouse
     * A [schema](https://docs.databricks.com/api/workspace/schemas) — a logical grouping of tables in a catalog
-    * A user with a role assigned that grants the appropriate access levels to these resources.
+    * A user or service principal with a role assigned that grants the appropriate access levels to these resources.
 * At least one Flow collection
 
 :::tip
@@ -29,7 +29,18 @@ You need to first create a SQL Warehouse if you don't already have one in your a
 
 In order to save on costs, we recommend that you set the Auto Stop parameter for your SQL warehouse to the minimum available. Estuary's Databricks connector automatically delays updates to the destination according to the configured **Sync Schedule** (see configuration details below), with a default delay value of 30 minutes.
 
-You also need an access token for your user to be used by our connector, see the respective [documentation](https://docs.databricks.com/en/administration-guide/access-control/tokens.html) from Databricks on how to create an access token.
+You also need an access token for your user or service principal to be used by our connector, see the respective documentation for [user personal access tokens](https://docs.databricks.com/en/administration-guide/access-control/tokens.html) and [service principal access tokens](https://docs.databricks.com/en/admin/users-groups/service-principals.html#manage-personal-access-tokens-for-a-service-principal) from Databricks on how to create an access token. Note that as of this writing, only service principals in the "admins" group can use a token.
+
+To create an access token for your service principal:
+1. Make sure that they are part of the admins group by going to Settings -> Identity and access -> Groups -> admins -> Members and adding the service principal
+2. Find their "Application ID" by going to Settings -> Identity and access -> Service Principals
+3. Create an access token on behalf of the service principal using the [databricks CLI](https://docs.databricks.com/en/dev-tools/cli/install.html)
+
+```
+databricks token-management create-obo-token <application id of service principal>
+```
+
+4. Copy the `token_value` value of the resulting JSON from the command above
 
 ## Configuration
 
@@ -48,7 +59,7 @@ Use the below properties to configure a Databricks materialization, which will d
 | **`/schema_name`**                       | Schema Name  | Default schema to materialize to                                                                                                  | string                                                                                                             | `default` schema is used |
 | **`/credentials`**                       | Credentials  | Authentication credentials                                                                                                        | object                                                                                                             |                          |
 | **`/credentials/auth_type`**             | Role         | Authentication type, set to `PAT` for personal access token                                                                       | string                                                                                                             | Required                 |
-| **`/credentials/personal_access_token`** | Role         | Personal Access Token                                                                                                             | string                                                                                                             | Required                 |
+| **`/credentials/personal_access_token`** | Role         | Access Token                                                                                                                      | string                                                                                                             | Required                 |
 
 #### Bindings
 
