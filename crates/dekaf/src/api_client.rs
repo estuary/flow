@@ -3,7 +3,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
 use kafka_protocol::{
     error::ParseResponseErrorCode,
-    messages,
+    messages::{self, ApiKey},
     protocol::{self, Decodable, Encodable, Request},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
@@ -447,9 +447,11 @@ impl KafkaApiClient {
         metrics::histogram!("dekaf_pool_wait_time", "upstream_broker" => self.url.to_owned())
             .record(SystemTime::now().duration_since(start_time)?);
 
+        let api_key = ApiKey::try_from(Req::KEY).expect("should be valid api key");
+
         let start_time = SystemTime::now();
         let resp = send_request(conn.as_mut(), req, header).await;
-        metrics::histogram!("dekaf_request_time", "upstream_broker" => self.url.to_owned())
+        metrics::histogram!("dekaf_request_time", "api_key" => format!("{:?}",api_key), "upstream_broker" => self.url.to_owned())
             .record(SystemTime::now().duration_since(start_time)?);
 
         resp
