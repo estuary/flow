@@ -345,6 +345,10 @@ impl KafkaApiClient {
             return Ok(client.clone());
         }
 
+        tracing::debug!(
+            broker_url,
+            "Creating new connection pool for as-yet unseen broker"
+        );
         let new_client = Self::connect(
             broker_url,
             self.sasl_config.clone(),
@@ -376,7 +380,7 @@ impl KafkaApiClient {
         // the healthcheck when recycling a connection solves that problem.
         let reap_interval = Duration::from_secs(30);
         let max_age = Duration::from_secs(60 * 30);
-        let max_idle = Duration::from_secs(60);
+        let max_idle = Duration::from_secs(60 * 5);
         let reaper = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({
             let pool = pool.clone();
             let broker_url = broker_url.to_string();
