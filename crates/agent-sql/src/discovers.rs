@@ -122,10 +122,21 @@ pub async fn resolve_merge_target_specs<'a>(
         ),
         -- Draft specs which did not exist and are inserted from filtered_live_specs.
         -- Preserve the `last_pub_id` of the live spec so that we can detect if it
-        -- changed between now and a future publication of this draft.
+        -- changed between now and a future publication of this draft. But skip this
+        -- for collections since we want to avoid conflicts due to inferred schema updates
+        -- and the risk is relatively low. See: https://github.com/estuary/flow/issues/1520
         inserted_draft_specs as (
             insert into draft_specs (draft_id, catalog_name, spec, spec_type, expect_pub_id)
-            select $3, f.catalog_name, f.spec, $2, f.last_pub_id
+            select
+                $3,
+                f.catalog_name,
+                f.spec,
+                $2,
+                case when $2 = 'collection' then
+                    null
+                else
+                    f.last_pub_id
+                end
             from filtered_live_specs as f
             on conflict do nothing
             returning *
