@@ -22,12 +22,12 @@ pub fn build_router() -> axum::Router<()> {
 
 fn record_jemalloc_stats() {
     let stats = allocator::current_mem_stats();
-    metrics::gauge!("mem_allocated").set(stats.allocated as f64);
-    metrics::gauge!("mem_mapped").set(stats.mapped as f64);
-    metrics::gauge!("mem_metadata").set(stats.metadata as f64);
-    metrics::gauge!("mem_resident").set(stats.resident as f64);
-    metrics::gauge!("mem_retained").set(stats.retained as f64);
-    metrics::gauge!("mem_active").set(stats.active as f64);
+    metrics::gauge!("dekaf_mem_allocated").set(stats.allocated as f64);
+    metrics::gauge!("dekaf_mem_mapped").set(stats.mapped as f64);
+    metrics::gauge!("dekaf_mem_metadata").set(stats.metadata as f64);
+    metrics::gauge!("dekaf_mem_resident").set(stats.resident as f64);
+    metrics::gauge!("dekaf_mem_retained").set(stats.retained as f64);
+    metrics::gauge!("dekaf_mem_active").set(stats.active as f64);
 }
 
 #[tracing::instrument(skip_all)]
