@@ -1,7 +1,8 @@
 use anyhow::Context;
-use futures::{StreamExt, TryStreamExt};
+use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
 use proto_flow::flow;
+use std::time::Duration;
 
 /// Fetch the names of all collections which the current user may read.
 /// Each is mapped into a kafka topic.
@@ -154,7 +155,11 @@ impl Collection {
             }),
             ..Default::default()
         };
-        let response = journal_client.list(request).await?;
+        let response = tokio::time::timeout(Duration::from_secs(5), journal_client.list(request))
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!("timed out fetching partitions for {collection}: {e}")
+            })??;
         let mut partitions = Vec::with_capacity(response.journals.len());
 
         for journal in response.journals {
@@ -238,8 +243,12 @@ impl Collection {
         client: &flow_client::Client,
         collection: &str,
     ) -> anyhow::Result<journal::Client> {
-        let (_, journal_client) =
-            flow_client::fetch_collection_authorization(client, collection).await?;
+        let (_, journal_client) = tokio::time::timeout(
+            Duration::from_secs(5),
+            flow_client::fetch_collection_authorization(client, collection),
+        )
+        .map_err(|e| anyhow::anyhow!("timed out building journal client for {collection}: {e}"))
+        .await??;
 
         Ok(journal_client)
     }
