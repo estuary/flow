@@ -17,11 +17,11 @@ use kafka_protocol::{
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
-use std::sync::Arc;
 use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+use std::{sync::Arc, time::Duration};
 use tracing::instrument;
 
 struct PendingRead {
@@ -184,15 +184,20 @@ impl Session {
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
-            futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                let maybe_collection = Collection::new(
-                    client,
-                    from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
-                )
-                .await?;
-                Ok((topic.name.unwrap_or_default(), maybe_collection))
-            }))
-            .await;
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                futures::future::try_join_all(requests.into_iter().map(|topic| async move {
+                    let maybe_collection = Collection::new(
+                        client,
+                        from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
+                            .as_str(),
+                    )
+                    .await?;
+                    Ok((topic.name.unwrap_or_default(), maybe_collection))
+                })),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Timed out loading metadata {e}"))?;
 
         let mut topics = IndexMap::new();
 
