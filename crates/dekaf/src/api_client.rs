@@ -297,16 +297,10 @@ impl deadpool::managed::Manager for KafkaConnectionParams {
 
     async fn recycle(
         &self,
-        conn: &mut BoxedKafkaConnection,
+        _conn: &mut BoxedKafkaConnection,
         _: &deadpool::managed::Metrics,
     ) -> deadpool::managed::RecycleResult<anyhow::Error> {
-        // Other than auth, Kafka connections themselves are stateless
-        // so the only thing we need to do when recycling a connection
-        // is to confirm that it's still connected.
-        get_versions(conn).await.map(|_| ()).map_err(|e| {
-            tracing::warn!(err=?e, broker=self.broker_url, "Connection failed healthcheck");
-            deadpool::managed::RecycleError::Backend(e)
-        })
+        Ok(())
     }
 }
 
@@ -385,9 +379,9 @@ impl KafkaApiClient {
         // It seems that after running for a while, connections can get into
         // a broken state where every response returns an error. This, plus
         // the healthcheck when recycling a connection solves that problem.
-        let reap_interval = Duration::from_secs(5);
+        let reap_interval = Duration::from_secs(30);
         let max_age = Duration::from_secs(60 * 30);
-        let max_idle = Duration::from_secs(0);
+        let max_idle = Duration::from_secs(60 * 5);
         let reaper = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({
             let pool = pool.clone();
             let broker_url = broker_url.to_string();
