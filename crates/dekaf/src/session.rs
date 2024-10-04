@@ -819,16 +819,6 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
-        client
-            .ensure_topics(
-                mutated_req
-                    .topics
-                    .iter()
-                    .map(|t| t.name.to_owned())
-                    .collect(),
-            )
-            .await?;
-
         let mut resp = client.send_request(mutated_req, Some(header)).await?;
 
         for topic in resp.topics.iter_mut() {
@@ -857,11 +847,6 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
-        if let Some(ref topics) = mutated_req.topics {
-            client
-                .ensure_topics(topics.iter().map(|t| t.name.to_owned()).collect())
-                .await?;
-        }
         let mut resp = client.send_request(mutated_req, Some(header)).await?;
 
         for topic in resp.topics.iter_mut() {

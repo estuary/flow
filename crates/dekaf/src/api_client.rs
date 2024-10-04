@@ -334,6 +334,10 @@ impl KafkaApiClient {
             return Ok(client.clone());
         }
 
+        tracing::debug!(
+            broker_url,
+            "Creating new connection pool for as-yet unseen broker"
+        );
         let new_client = Self::connect(
             broker_url,
             self.sasl_config.clone(),
@@ -365,7 +369,7 @@ impl KafkaApiClient {
         // the healthcheck when recycling a connection solves that problem.
         let reap_interval = Duration::from_secs(30);
         let max_age = Duration::from_secs(60 * 30);
-        let max_idle = Duration::from_secs(60);
+        let max_idle = Duration::from_secs(60 * 5);
         let reaper = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({
             let pool = pool.clone();
             let broker_url = broker_url.to_string();
@@ -510,60 +514,5 @@ impl KafkaApiClient {
             .context(format!("Unknown API key {api_key}"))?;
 
         Ok(version.to_owned())
-    }
-
-    #[instrument(skip_all)]
-    pub async fn ensure_topics(&self, topic_names: Vec<messages::TopicName>) -> anyhow::Result<()> {
-        let req = messages::MetadataRequest::default()
-            .with_topics(Some(
-                topic_names
-                    .iter()
-                    .map(|name| {
-                        messages::metadata_request::MetadataRequestTopic::default()
-                            .with_name(Some(name.clone()))
-                    })
-                    .collect(),
-            ))
-            .with_allow_auto_topic_creation(true);
-
-        let coord = self.connect_to_controller().await?;
-        let resp = coord.send_request(req, None).await?;
-        tracing::debug!(metadata=?resp, "Got metadata response");
-
-        if resp
-            .topics
-            .iter()
-            .all(|(name, topic)| topic_names.contains(&name) && topic.error_code == 0)
-        {
-            return Ok(());
-        } else {
-            let mut topics_map = kafka_protocol::indexmap::IndexMap::new();
-            for topic_name in topic_names.into_iter() {
-                topics_map.insert(
-                    topic_name,
-                    messages::create_topics_request::CreatableTopic::default()
-                        .with_replication_factor(2)
-                        .with_num_partitions(-1),
-                );
-            }
-            let create_req = messages::CreateTopicsRequest::default().with_topics(topics_map);
-            let create_resp = coord.send_request(create_req, None).await?;
-            tracing::debug!(create_response=?create_resp, "Got create response");
-
-            for (name, topic) in create_resp.topics {
-                if topic.error_code > 0 {
-                    let err = kafka_protocol::ResponseError::try_from_code(topic.error_code);
-                    tracing::warn!(
-                        topic = name.to_string(),
-                        error = ?err,
-                        message = topic.error_message.map(|m|m.to_string()),
-                        "Failed to create topic"
-                    );
-                    bail!("Failed to create topic");
-                }
-            }
-
-            Ok(())
-        }
     }
 }
