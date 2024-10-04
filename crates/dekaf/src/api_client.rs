@@ -381,7 +381,7 @@ impl KafkaApiClient {
         // It seems that after running for a while, connections can get into
         // a broken state where every response returns an error. This, plus
         // the healthcheck when recycling a connection solves that problem.
-        let reap_interval = Duration::from_secs(30);
+        let reap_interval = Duration::from_secs(5);
         let max_age = Duration::from_secs(60 * 30);
         let max_idle = Duration::from_secs(60);
         let reaper = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({
