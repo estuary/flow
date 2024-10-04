@@ -3,12 +3,19 @@ use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
 use kafka_protocol::{
     error::ParseResponseErrorCode,
-    messages,
+    messages::{self, ApiKey},
     protocol::{self, Decodable, Encodable, Request},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
 use rustls::RootCertStore;
-use std::{boxed::Box, cell::Cell, collections::HashMap, fmt::Debug, io, time::Duration};
+use std::{
+    boxed::Box,
+    cell::Cell,
+    collections::HashMap,
+    fmt::Debug,
+    io,
+    time::{Duration, SystemTime},
+};
 use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
@@ -388,11 +395,11 @@ impl KafkaApiClient {
                 loop {
                     let pool_state = pool.status();
 
-                    metrics::gauge!("pool_size", "upstream_broker" => broker_url.to_owned())
+                    metrics::gauge!("dekaf_pool_size", "upstream_broker" => broker_url.to_owned())
                         .set(pool_state.size as f64);
-                    metrics::gauge!("pool_available", "upstream_broker" => broker_url.to_owned())
+                    metrics::gauge!("dekaf_pool_available", "upstream_broker" => broker_url.to_owned())
                         .set(pool_state.available as f64);
-                    metrics::gauge!("pool_waiting", "upstream_broker" => broker_url.to_owned())
+                    metrics::gauge!("dekaf_pool_waiting", "upstream_broker" => broker_url.to_owned())
                         .set(pool_state.waiting as f64);
 
                     let age_sum = Cell::new(Duration::ZERO);
@@ -406,8 +413,8 @@ impl KafkaApiClient {
                         metrics.age() < max_age && metrics.last_used() < max_idle
                     });
 
-                    metrics::gauge!("pool_connection_avg_age", "upstream_broker" => broker_url.to_owned()).set(if connections.get() > 0 { age_sum.get()/connections.get() } else { Duration::ZERO });
-                    metrics::gauge!("pool_connection_avg_idle", "upstream_broker" => broker_url.to_owned()).set(if connections.get() > 0 { idle_sum.get()/connections.get() } else { Duration::ZERO });
+                    metrics::gauge!("dekaf_pool_connection_avg_age", "upstream_broker" => broker_url.to_owned()).set(if connections.get() > 0 { age_sum.get()/connections.get() } else { Duration::ZERO });
+                    metrics::gauge!("dekaf_pool_connection_avg_idle", "upstream_broker" => broker_url.to_owned()).set(if connections.get() > 0 { idle_sum.get()/connections.get() } else { Duration::ZERO });
                 }
             }
         }));
@@ -443,6 +450,7 @@ impl KafkaApiClient {
         req: Req,
         header: Option<messages::RequestHeader>,
     ) -> anyhow::Result<Req::Response> {
+        let start_time = SystemTime::now();
         // TODO: This could be optimized by pipelining.
         let mut conn = match self.pool.get().await {
             Ok(c) => c,
@@ -452,7 +460,17 @@ impl KafkaApiClient {
             }
         };
 
-        send_request(conn.as_mut(), req, header).await
+        metrics::histogram!("dekaf_pool_wait_time", "upstream_broker" => self.url.to_owned())
+            .record(SystemTime::now().duration_since(start_time)?);
+
+        let api_key = ApiKey::try_from(Req::KEY).expect("should be valid api key");
+
+        let start_time = SystemTime::now();
+        let resp = send_request(conn.as_mut(), req, header).await;
+        metrics::histogram!("dekaf_request_time", "api_key" => format!("{:?}",api_key), "upstream_broker" => self.url.to_owned())
+            .record(SystemTime::now().duration_since(start_time)?);
+
+        resp
     }
 
     #[instrument(skip(self))]
