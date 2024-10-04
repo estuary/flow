@@ -147,6 +147,7 @@ sqlx = { version = "0.6", features = [
     "uuid",
 ] }
 
+console-subscriber = "0.4.0"
 typestate = "0.8.0"
 tokio-rustls = "0.26.0"
 rustls = { version = "0.23.10", features = ["aws_lc_rs"] }
@@ -174,6 +175,7 @@ tokio = { version = "1", features = [
     "signal",
     "sync",
     "time",
+    "tracing",
 ] }
 tokio-util = { version = "0.7", features = ["io", "compat", "rt"] }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }

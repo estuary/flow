@@ -18,7 +18,9 @@ use std::{
     sync::Arc,
 };
 use tokio::io::{split, AsyncRead, AsyncWrite, AsyncWriteExt};
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+use tracing_subscriber::{
+    filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+};
 use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
@@ -100,9 +102,17 @@ async fn main() -> anyhow::Result<()> {
         .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
         .from_env_lossy();
 
-    tracing_subscriber::fmt::fmt()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
+    tracing_subscriber::registry()
+        .with(
+            console_subscriber::ConsoleLayer::builder()
+                .server_addr(([127, 0, 0, 1], 5555))
+                .spawn(),
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(env_filter),
+        )
         .init();
 
     let cli = Cli::parse();

@@ -5,3 +5,9 @@ FLOW_VERSION = "dev"
 # Provide a default DATABASE_URL which is used if none others are set.
 # This is the database presented by a local `supabase start`.
 DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
+
+
+[build]
+# Required to use tokio console:
+# https://github.com/tokio-rs/console/blob/main/console-subscriber/README.md#enabling-tokio-instrumentation
+rustflags = ["--cfg", "tokio_unstable"]
