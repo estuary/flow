@@ -254,7 +254,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     tracing::info!("accepted client connection");
-    metrics::gauge!("total_connections").increment(1);
+    metrics::gauge!("dekaf_total_connections").increment(1);
     let result = async {
         let (r, mut w) = split(socket);
 
@@ -286,7 +286,7 @@ where
     }
     .await;
 
-    metrics::gauge!("total_connections").decrement(1);
+    metrics::gauge!("dekaf_total_connections").decrement(1);
 
     result
 }

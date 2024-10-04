@@ -324,8 +324,8 @@ async fn handle_api(
     };
     let handle_duration = SystemTime::now().duration_since(start_time)?;
 
-    metrics::histogram!("api_call_time", "api_key" => format!("{:?}",api_key))
-        .record(handle_duration.as_millis() as f64);
+    metrics::histogram!("dekaf_api_call_time", "api_key" => format!("{:?}",api_key))
+        .record(handle_duration.as_secs_f32() as f64);
 
     ret
 }
