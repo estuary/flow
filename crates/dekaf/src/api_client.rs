@@ -334,7 +334,12 @@ impl KafkaApiClient {
             return Ok(client.clone());
         }
 
-        let new_client = Self::connect(broker_url, self.sasl_config.clone()).await?;
+        let new_client = Self::connect(
+            broker_url,
+            self.sasl_config.clone(),
+            self.pool.status().max_size,
+        )
+        .await?;
 
         clients.insert(broker_url.to_owned(), new_client.clone());
 
@@ -342,11 +347,16 @@ impl KafkaApiClient {
     }
 
     #[instrument(name = "api_client_connect", skip(sasl_config))]
-    pub async fn connect(broker_url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
+    pub async fn connect(
+        broker_url: &str,
+        sasl_config: Arc<SASLConfig>,
+        pool_size: usize,
+    ) -> anyhow::Result<Self> {
         let pool = Pool::builder(KafkaConnectionParams {
             broker_url: broker_url.to_owned(),
             sasl_config: sasl_config.clone(),
         })
+        .max_size(pool_size)
         .build()?;
 
         // Close idle connections, and any free connection older than 30m.

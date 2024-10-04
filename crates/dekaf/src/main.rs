@@ -73,6 +73,11 @@ pub struct Cli {
     #[arg(long, env = "ENCRYPTION_SECRET")]
     encryption_secret: String,
 
+    /// The maximum number of connections to a particular upstream kafka broker that can be
+    /// open at any one time. These connections will be pooled and shared between all requests.
+    #[arg(long, env = "BROKER_CONNECTION_POOL_SIZE", default_value = "20")]
+    broker_connection_pool_size: usize,
+
     #[command(flatten)]
     tls: Option<TlsArgs>,
 }
@@ -128,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
                 cli.default_broker_username,
                 cli.default_broker_password,
             )?,
+            cli.broker_connection_pool_size
         ).await.context(
             "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
         )?,
