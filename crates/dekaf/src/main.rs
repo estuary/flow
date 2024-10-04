@@ -99,7 +99,7 @@ struct TlsArgs {
     certificate_key_file: Option<PathBuf>,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> anyhow::Result<()> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
