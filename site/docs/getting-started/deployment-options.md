@@ -22,7 +22,7 @@ setup.
 
 - **Fully managed by Estuary**: Estuary handles all operational aspects, including updates and maintenance.
 - **Quick setup**: Minimal configuration is needed to get started.
-- **Shared infrastructure**: Resources are shared across multiple customers.
+- **Multiple data processing regions**: You can choose between various regions for data planes, like EU or US.
 - **Automatic updates**: New features and security patches are automatically applied.
 - **Suitable for less stringent security requirements**: Best for organizations without strict data compliance needs.
 
