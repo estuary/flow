@@ -20,8 +20,6 @@ setup.
 
 ![Public Deployment](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//public_deployment_39e1de1537/public_deployment_39e1de1537.png)
 
-### Key Features
-
 - **Fully managed by Estuary**: Estuary handles all operational aspects, including updates and maintenance.
 - **Quick setup**: Minimal configuration is needed to get started.
 - **Shared infrastructure**: Resources are shared across multiple customers.
@@ -40,10 +38,7 @@ those in regulated industries (e.g., healthcare, finance) or those handling high
 
 ![Private Deployment](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//private_deployment_18e21ce056/private_deployment_18e21ce056.png)
 
-### Key Features
-
-- **Enhanced security**: Data remains within your private network, offering improved protection.
-- **Control over data pathways**: Full control over how data moves within your environment.
+- **Enhanced security**: Data and all processing remains within your private network, offering improved protection.
 - **Immutable infrastructure**: Security updates are seamlessly integrated without disruption.
 - **Compliant with strict data security standards**: Supports industries with rigorous compliance needs.
 - **Cross-region data movement**: Allows for seamless data migration between regions.
@@ -61,8 +56,6 @@ flexibility in terms of customization and compliance.
 
 ![BYOC Deployment](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//byoc_deployment_f88f0a3e94/byoc_deployment_f88f0a3e94.png)
 
-### Key Features
-
 - **Complete control over cloud infrastructure**: Manage the cloud environment according to your organization's
   policies.
 - **Utilize existing cloud resources**: Leverage your current cloud setup, including any existing cloud credits or
@@ -71,18 +64,3 @@ flexibility in terms of customization and compliance.
 - **Cost savings**: Potential to reduce costs by using existing cloud infrastructure and negotiated pricing.
 - **Flexible data residency**: You choose where data is stored and processed, ensuring compliance with regional
   regulations.
-
----
-
-## Comparison Table
-
-| Feature                        | Public Deployment | Private Deployment | BYOC             |
-|--------------------------------|-------------------|--------------------|------------------|
-| **Infrastructure Control**     | Limited           | High               | High             |
-| **Security**                   | Standard          | Enhanced           | Customizable     |
-| **Setup Complexity**           | Low               | Low                | Medium           |
-| **Customization**              | Limited           | Moderate           | Extensive        |
-| **Data Residency Control**     | Limited           | Full               | Full             |
-| **Compliance Flexibility**     | Standard          | High               | Highest          |
-| **Cost**                       | Predictable       | Variable           | Depends on setup |
-| **Maintenance Responsibility** | Estuary           | Shared             | Shared           |
