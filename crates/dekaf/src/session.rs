@@ -18,6 +18,7 @@ use kafka_protocol::{
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
 use std::{
+    cmp::max,
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -367,7 +368,8 @@ impl Session {
             .as_ref()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let timeout = tokio::time::sleep(std::time::Duration::from_millis(max_wait_ms as u64));
+        let timeout_duration = std::time::Duration::from_millis(max_wait_ms as u64);
+        let timeout = tokio::time::sleep(timeout_duration);
         let timeout = futures::future::maybe_done(timeout);
         tokio::pin!(timeout);
 
@@ -465,6 +467,12 @@ impl Session {
                     ));
                     batch
                 } else {
+                    tracing::debug!(
+                        topic = ?key.0,
+                        partition = key.1,
+                        timeout = ?timeout_duration,
+                        "Timed out serving Fetch"
+                    );
                     bytes::Bytes::new()
                 };
 
