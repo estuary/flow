@@ -1,8 +1,8 @@
 use super::{App, Collection, Read};
 use crate::{
     connector::DekafConfig, from_downstream_topic_name, from_upstream_topic_name,
-    to_downstream_topic_name, to_upstream_topic_name, topology::fetch_all_collection_names,
-    Authenticated,
+    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name,
+    topology::fetch_all_collection_names, Authenticated,
 };
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
@@ -27,7 +27,7 @@ use tracing::instrument;
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
-    handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, bytes::Bytes)>>,
+    handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
 }
 
 pub struct Session {
@@ -365,9 +365,10 @@ impl Session {
             .as_ref()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let timeout = tokio::time::sleep(std::time::Duration::from_millis(max_wait_ms as u64));
-        let timeout = futures::future::maybe_done(timeout);
-        tokio::pin!(timeout);
+        let timeout_at =
+            std::time::Instant::now() + std::time::Duration::from_millis(max_wait_ms as u64);
+
+        let mut hit_timeout = false;
 
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
@@ -408,7 +409,7 @@ impl Session {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
                     handle: tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
+                        read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
                     )),
                 };
 
@@ -451,25 +452,27 @@ impl Session {
                     continue;
                 };
 
-                let batch = if let Some((read, batch)) = tokio::select! {
-                    biased; // Prefer to complete a pending read.
-                    read  = &mut pending.handle => Some(read??),
-                    _ = &mut timeout => None,
-                } {
-                    pending.offset = read.offset;
-                    pending.last_write_head = read.last_write_head;
-                    pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
-                    ));
-                    batch
-                } else {
-                    bytes::Bytes::new()
+                let (read, batch) = (&mut pending.handle).await??;
+                pending.offset = read.offset;
+                pending.last_write_head = read.last_write_head;
+                pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
+                    read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
+                ));
+
+                let (timeout, batch) = match batch {
+                    BatchResult::TargetExceededBeforeTimeout(b) => (false, Some(b)),
+                    BatchResult::TimeoutExceededBeforeTarget(b) => (true, Some(b)),
+                    BatchResult::TimeoutNoData => (true, None),
                 };
+
+                if timeout {
+                    hit_timeout = true
+                }
 
                 partition_responses.push(
                     PartitionData::default()
                         .with_partition_index(partition_request.partition)
-                        .with_records(Some(batch))
+                        .with_records(batch.to_owned())
                         .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
                         .with_last_stable_offset(pending.last_write_head),
                 );
@@ -484,6 +487,7 @@ impl Session {
 
         Ok(messages::FetchResponse::default()
             .with_session_id(session_id)
+            .with_throttle_time_ms(if hit_timeout { 10000 } else { 0 })
             .with_responses(topic_responses))
     }
 
