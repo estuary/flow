@@ -110,6 +110,10 @@ pub struct IncompatibleCollection {
 pub struct AffectedConsumer {
     pub name: String,
     pub fields: Vec<RejectedField>,
+    /// Identifies the specific binding that is affected. This can be used to differentiate
+    /// in cases there are multiple bindings with the same source.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resource_path: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
@@ -141,13 +145,25 @@ pub fn get_incompatible_collections(output: &tables::Validations) -> Vec<Incompa
                 })
                 .collect();
             if !naughty_fields.is_empty() {
-                let collection_name = model.bindings[i].source.collection().to_string();
+                // We must skip over disabled bindings in order to translate the index of the
+                // validated binding to the index of the model binding.
+                let collection_name = model
+                    .bindings
+                    .iter()
+                    .filter(|b| !b.disable)
+                    .skip(i)
+                    .next()
+                    .unwrap() //
+                    .source
+                    .collection()
+                    .to_string();
                 let affected_consumers = naughty_collections
                     .entry(collection_name)
                     .or_insert_with(|| Vec::new());
                 affected_consumers.push(AffectedConsumer {
                     name: mat.catalog_name().to_string(),
                     fields: naughty_fields,
+                    resource_path: binding.resource_path.clone(),
                 });
             }
         }
@@ -167,7 +183,105 @@ pub fn get_incompatible_collections(output: &tables::Validations) -> Vec<Incompa
 
 #[cfg(test)]
 mod test {
+    use proto_flow::materialize::response::validated;
+    use proto_flow::materialize::response::validated::constraint;
+
     use super::*;
+
+    #[test]
+    fn test_get_incompatible_collections() {
+        let live_mat: models::MaterializationDef = serde_json::from_value(serde_json::json!({
+            "endpoint": {
+                "connector": {
+                    "image": "test/materialize:foo",
+                    "config": {}
+                }
+            },
+            "bindings": [
+                {
+                    "resource": {"table": "disabledTable"},
+                    "source": "acmeCo/disabledCollection",
+                    "disable": true
+                },
+                {
+                    "resource": {"table": "nice"},
+                    "source": "acmeCo/niceCollection"
+                },
+                {
+                    "resource": {"table": "naughty"},
+                    "source": "acmeCo/naughtyCollection"
+                }
+            ]
+        }))
+        .unwrap();
+
+        fn test_constraints(ty: constraint::Type) -> BTreeMap<String, validated::Constraint> {
+            let mut m = BTreeMap::new();
+            m.insert(
+                "test_field".to_string(),
+                validated::Constraint {
+                    r#type: ty as i32,
+                    reason: "cuz this is a test".to_string(),
+                },
+            );
+            m
+        }
+        let resp = proto_flow::materialize::response::Validated {
+            bindings: vec![
+                validated::Binding {
+                    constraints: test_constraints(constraint::Type::LocationRecommended),
+                    resource_path: vec!["nice".to_string()],
+                    delta_updates: false,
+                },
+                validated::Binding {
+                    constraints: test_constraints(constraint::Type::Unsatisfiable),
+                    resource_path: vec!["naughty".to_string()],
+                    delta_updates: false,
+                },
+            ],
+        };
+
+        let mut validations = tables::Validations::default();
+        validations.built_materializations.insert_row(
+            models::Materialization::new("acmeCo/materialize"),
+            tables::synthetic_scope(models::CatalogType::Materialization, "acmeCo/materialize"),
+            models::Id::zero(),
+            models::Id::zero(),
+            models::Id::zero(),
+            models::Id::zero(),
+            Some(live_mat),
+            Some(resp),
+            None,
+            None,
+            false,
+            None,
+        );
+
+        let result = get_incompatible_collections(&validations);
+        assert_eq!(1, result.len());
+        let ic = result.into_iter().next().unwrap();
+
+        insta::assert_debug_snapshot!(ic, @r###"
+        IncompatibleCollection {
+            collection: "acmeCo/naughtyCollection",
+            requires_recreation: [],
+            affected_materializations: [
+                AffectedConsumer {
+                    name: "acmeCo/materialize",
+                    fields: [
+                        RejectedField {
+                            field: "test_field",
+                            reason: "cuz this is a test",
+                        },
+                    ],
+                    resource_path: [
+                        "naughty",
+                    ],
+                },
+            ],
+        }
+        "###);
+    }
 
     #[test]
     fn test_publication_job_status_serde() {
@@ -180,6 +294,7 @@ mod test {
                     field: "a_field".to_string(),
                     reason: "do not like".to_string(),
                 }],
+                resource_path: vec!["water".to_string()],
             }],
         }]);
 
@@ -231,6 +346,7 @@ mod test {
                                     reason: "Field 'some_date' is already being materialized as endpoint type 'TIMESTAMP WITH TIME ZONE' but endpoint type 'DATE' is required by its schema '{ type: [null, string], format: date }'",
                                 },
                             ],
+                            resource_path: [],
                         },
                     ],
                 },

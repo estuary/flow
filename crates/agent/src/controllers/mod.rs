@@ -457,7 +457,6 @@ mod test {
     use std::collections::{BTreeSet, VecDeque};
 
     use chrono::TimeZone;
-    use models::Capture;
 
     use super::*;
     use crate::controllers::materialization::SourceCaptureStatus;
@@ -486,6 +485,7 @@ mod test {
                         field: "a_field".to_string(),
                         reason: "do not like".to_string(),
                     }],
+                    resource_path: vec!["water".to_string()],
                 }],
             }])),
             errors: vec![Error {

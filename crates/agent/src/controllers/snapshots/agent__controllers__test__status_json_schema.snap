@@ -25,6 +25,13 @@ expression: schema
         },
         "name": {
           "type": "string"
+        },
+        "resource_path": {
+          "description": "Identifies the specific binding that is affected. This can be used to differentiate in cases there are multiple bindings with the same source.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
