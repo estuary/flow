@@ -68,24 +68,24 @@ impl Client {
         user_access_token: Option<String>,
         user_refresh_token: Option<RefreshToken>,
     ) -> Self {
-        // Test whether a fresh set of Gazette clients solves the timeout issue
-        let router = gazette::Router::new("local");
+        // // Test whether a fresh set of Gazette clients solves the timeout issue
+        // let router = gazette::Router::new("local");
 
-        let journal_client = gazette::journal::Client::new(
-            String::new(),
-            gazette::Metadata::default(),
-            router.clone(),
-        );
-        let shard_client = gazette::shard::Client::new(
-            String::new(),
-            gazette::Metadata::default(),
-            router.clone(),
-        );
+        // let journal_client = gazette::journal::Client::new(
+        //     String::new(),
+        //     gazette::Metadata::default(),
+        //     router.clone(),
+        // );
+        // let shard_client = gazette::shard::Client::new(
+        //     String::new(),
+        //     gazette::Metadata::default(),
+        //     router.clone(),
+        // );
         Self {
             user_access_token: user_access_token.or(self.user_access_token),
             user_refresh_token: user_refresh_token.or(self.user_refresh_token),
-            journal_client,
-            shard_client,
+            // journal_client,
+            // shard_client,
             ..self
         }
     }

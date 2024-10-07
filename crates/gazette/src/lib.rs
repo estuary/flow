@@ -87,6 +87,7 @@ pub async fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
         .connect_timeout(Duration::from_secs(5))
         .keep_alive_timeout(Duration::from_secs(120))
         .keep_alive_while_idle(true)
+        .initial_connection_window_size(i32::MAX as u32)
         .tls_config(
             tonic::transport::ClientTlsConfig::new()
                 .with_native_roots()
