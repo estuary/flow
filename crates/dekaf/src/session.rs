@@ -373,6 +373,8 @@ impl Session {
         let timeout = futures::future::maybe_done(timeout);
         tokio::pin!(timeout);
 
+        let mut hit_timeout = false;
+
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
@@ -455,7 +457,7 @@ impl Session {
                     continue;
                 };
 
-                let batch = if let Some((read, batch)) = tokio::select! {
+                let (had_timeout, batch) = if let Some((read, batch)) = tokio::select! {
                     biased; // Prefer to complete a pending read.
                     read  = &mut pending.handle => Some(read??),
                     _ = &mut timeout => None,
@@ -465,16 +467,14 @@ impl Session {
                     pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
                         read.next_batch(partition_request.partition_max_bytes as usize),
                     ));
-                    batch
+                    (false, batch)
                 } else {
-                    tracing::debug!(
-                        topic = ?key.0,
-                        partition = key.1,
-                        timeout = ?timeout_duration,
-                        "Timed out serving Fetch"
-                    );
-                    bytes::Bytes::new()
+                    (true, bytes::Bytes::new())
                 };
+
+                if had_timeout {
+                    hit_timeout = true
+                }
 
                 partition_responses.push(
                     PartitionData::default()
@@ -494,6 +494,7 @@ impl Session {
 
         Ok(messages::FetchResponse::default()
             .with_session_id(session_id)
+            .with_throttle_time_ms(if hit_timeout { 5000 } else { 0 })
             .with_responses(topic_responses))
     }
 
