@@ -457,6 +457,8 @@ impl Session {
                     continue;
                 };
 
+                let start_time = SystemTime::now();
+
                 let (had_timeout, batch) = if let Some((read, batch)) = tokio::select! {
                     biased; // Prefer to complete a pending read.
                     read  = &mut pending.handle => Some(read??),
@@ -469,6 +471,14 @@ impl Session {
                     ));
                     (false, batch)
                 } else {
+                    let hang_time = SystemTime::now().duration_since(start_time)?;
+                    tracing::debug!(
+                        topic = ?key.0,
+                        partition = key.1,
+                        timeout = ?timeout_duration,
+                        ?hang_time,
+                        "Timed out serving Fetch"
+                    );
                     (true, bytes::Bytes::new())
                 };
 
