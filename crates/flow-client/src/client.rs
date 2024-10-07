@@ -75,6 +75,30 @@ impl Client {
         }
     }
 
+    /// Build a fresh `gazette::journal::Client` and `gazette::shard::Client`
+    /// There is a bug that causes these clients to hang under heavy/varied load,
+    /// so until that bug is found+fixed, this is the work-around.
+    #[deprecated]
+    pub fn with_fresh_gazette_client(self) -> Self {
+        let router = gazette::Router::new("local");
+
+        let journal_client = gazette::journal::Client::new(
+            String::new(),
+            gazette::Metadata::default(),
+            router.clone(),
+        );
+        let shard_client = gazette::shard::Client::new(
+            String::new(),
+            gazette::Metadata::default(),
+            router.clone(),
+        );
+        Self {
+            journal_client,
+            shard_client,
+            ..self
+        }
+    }
+
     pub fn pg_client(&self) -> postgrest::Postgrest {
         if let Some(token) = &self.user_access_token {
             return self

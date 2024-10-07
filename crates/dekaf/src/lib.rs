@@ -72,7 +72,8 @@ impl App {
         let client = self
             .client_base
             .clone()
-            .with_creds(Some(access), Some(refresh));
+            .with_creds(Some(access), Some(refresh))
+            .with_fresh_gazette_client();
 
         let claims = flow_client::client::client_claims(&client)?;
 
