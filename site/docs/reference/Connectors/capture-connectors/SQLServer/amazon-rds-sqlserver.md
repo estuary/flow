@@ -126,7 +126,7 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](/concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../../concepts/captures.md)
 
 ## Specifying Flow collection keys
 

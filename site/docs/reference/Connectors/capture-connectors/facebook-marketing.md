@@ -191,4 +191,4 @@ captures:
         target: ${PREFIX}/ad_creatives
 ```
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../concepts/captures.md)

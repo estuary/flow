@@ -19,7 +19,7 @@ a materialized view that updates continuously based on a real-time data feed.
 * A GitLab, GitHub, or BitBucket account. You'll use this to log into [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
 
    * Alternatively, you can complete this tutorial using a local development environment.
-   In that case, you'll need to [install flowctl locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli).
+   In that case, you'll need to [install flowctl locally](../../guides/get-started-with-flowctl.md).
    Note that the steps you'll need to take will be different. Refer to this [guide](../../guides/flowctl/create-derivation.md#create-a-derivation-locally) for help.
 
 * A Postgres database set up to [allow connections from Flow](/reference/Connectors/materialization-connectors/PostgreSQL/#setup).

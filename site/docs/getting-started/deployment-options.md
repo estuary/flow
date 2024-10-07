@@ -1,6 +1,6 @@
 ---
 id: deployment-options
-title: Deployment Options
+title: Deployment options
 sidebar_position: 2
 ---
 

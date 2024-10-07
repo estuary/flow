@@ -9,7 +9,7 @@ Your **storage mapping** tells Flow which bucket to use.
 When you first register for Flow, your storage mapping is Estuary's secure Google Cloud Storage bucket.
 Data in Flow's cloud storage bucket is deleted 30 days after collection.
 
-For production workflows, you should [set up your own cloud storage bucket as a storage mapping](../getting-started/installation.mdx#configuring-your-cloud-storage-bucket-for-use-with-flow).
+For production workflows, you should [set up your own cloud storage bucket as a storage mapping](../guides/configure-cloud-storage.md).
 
 You may also use apply different storage mappings to different [catalog prefixes](./catalogs.md#namespace) within your organization's prefix.
 

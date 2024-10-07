@@ -123,7 +123,7 @@ const config = {
         items: [
           {
             type: 'doc',
-            docId: 'overview/README',
+            docId: 'getting-started/getting-started',
             position: 'left',
             label: 'Documentation',
           },
