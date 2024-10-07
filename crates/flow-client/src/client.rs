@@ -68,7 +68,18 @@ impl Client {
         user_access_token: Option<String>,
         user_refresh_token: Option<RefreshToken>,
     ) -> Self {
-        // Test whether a fresh set of Gazette clients solves the timeout issue
+        Self {
+            user_access_token: user_access_token.or(self.user_access_token),
+            user_refresh_token: user_refresh_token.or(self.user_refresh_token),
+            ..self
+        }
+    }
+
+    /// Build a fresh `gazette::journal::Client` and `gazette::shard::Client`
+    /// There is a bug that causes these clients to hang under heavy/varied load,
+    /// so until that bug is found+fixed, this is the work-around.
+    #[deprecated]
+    pub fn with_fresh_gazette_client(self) -> Self {
         let router = gazette::Router::new("local");
 
         let journal_client = gazette::journal::Client::new(
@@ -82,8 +93,6 @@ impl Client {
             router.clone(),
         );
         Self {
-            user_access_token: user_access_token.or(self.user_access_token),
-            user_refresh_token: user_refresh_token.or(self.user_refresh_token),
             journal_client,
             shard_client,
             ..self
