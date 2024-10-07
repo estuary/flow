@@ -1,8 +1,8 @@
 use super::{App, Collection, Read};
 use crate::{
     connector::DekafConfig, from_downstream_topic_name, from_upstream_topic_name,
-    to_downstream_topic_name, to_upstream_topic_name, topology::fetch_all_collection_names,
-    Authenticated,
+    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name,
+    topology::fetch_all_collection_names, Authenticated,
 };
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
@@ -18,7 +18,6 @@ use kafka_protocol::{
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
 use std::{
-    cmp::max,
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -28,7 +27,7 @@ use tracing::instrument;
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
-    handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, bytes::Bytes)>>,
+    handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
 }
 
 pub struct Session {
@@ -368,10 +367,8 @@ impl Session {
             .as_ref()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let timeout_duration = std::time::Duration::from_millis(max_wait_ms as u64);
-        let timeout = tokio::time::sleep(timeout_duration);
-        let timeout = futures::future::maybe_done(timeout);
-        tokio::pin!(timeout);
+        let timeout_at =
+            std::time::Instant::now() + std::time::Duration::from_millis(max_wait_ms as u64);
 
         let mut hit_timeout = false;
 
@@ -414,7 +411,7 @@ impl Session {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
                     handle: tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
+                        read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
                     )),
                 };
 
@@ -457,29 +454,32 @@ impl Session {
                     continue;
                 };
 
-                let start_time = SystemTime::now();
+                let (read, batch) = (&mut pending.handle).await??;
+                pending.offset = read.offset;
+                pending.last_write_head = read.last_write_head;
+                pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
+                    read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
+                ));
 
-                let (had_timeout, batch) = if let Some((read, batch)) = tokio::select! {
-                    biased; // Prefer to complete a pending read.
-                    read  = &mut pending.handle => Some(read??),
-                    _ = &mut timeout => None,
-                } {
-                    pending.offset = read.offset;
-                    pending.last_write_head = read.last_write_head;
-                    pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
-                    ));
-                    (false, batch)
-                } else {
-                    let hang_time = SystemTime::now().duration_since(start_time)?;
-                    tracing::debug!(
-                        topic = ?key.0,
-                        partition = key.1,
-                        timeout = ?timeout_duration,
-                        ?hang_time,
-                        "Timed out serving Fetch"
-                    );
-                    (true, bytes::Bytes::new())
+                let (had_timeout, batch) = match batch {
+                    BatchResult::TargetExceededBeforeTimeout(b) => (false, Some(b)),
+                    BatchResult::TimeoutExceededBeforeTarget(b) => {
+                        // tracing::debug!(
+                        //     read_bytes=b.len(),
+                        //     requested_bytes=partition_request.partition_max_bytes,
+                        //     timeout=?std::time::Duration::from_millis(max_wait_ms as u64),
+                        //     topic=?key.0,
+                        //     partition=key.1, "Read some data, but timed out before reaching requested chunk size");
+                        (true, Some(b))
+                    }
+                    BatchResult::TimeoutNoData => {
+                        // tracing::debug!(
+                        //     requested_bytes=partition_request.partition_max_bytes,
+                        //     timeout=?std::time::Duration::from_millis(max_wait_ms as u64),
+                        //     topic=?key.0,
+                        //     partition=key.1, "Timed out before reading any data at all");
+                        (true, None)
+                    }
                 };
 
                 if had_timeout {
@@ -489,7 +489,7 @@ impl Session {
                 partition_responses.push(
                     PartitionData::default()
                         .with_partition_index(partition_request.partition)
-                        .with_records(Some(batch))
+                        .with_records(batch.to_owned())
                         .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
                         .with_last_stable_offset(pending.last_write_head),
                 );
@@ -504,7 +504,7 @@ impl Session {
 
         Ok(messages::FetchResponse::default()
             .with_session_id(session_id)
-            .with_throttle_time_ms(if hit_timeout { 5000 } else { 0 })
+            .with_throttle_time_ms(if hit_timeout { 10000 } else { 0 })
             .with_responses(topic_responses))
     }
 
