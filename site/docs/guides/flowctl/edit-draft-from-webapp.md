@@ -25,9 +25,9 @@ you can pull the draft into a local environment, finish making changes, and publ
 
 To complete this workflow, you need:
 
-* An [Estuary account](../../getting-started/installation.mdx)
+* An [Estuary account](../../getting-started/getting-started)
 
-* [flowctl installed locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli)
+* [flowctl installed locally](../../getting-started/getting-started#get-started-with-the-flow-cli)
 
 ## Identify the draft and pull it locally
 

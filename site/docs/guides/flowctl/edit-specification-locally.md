@@ -37,9 +37,9 @@ editing their specifications, and re-publishing them.
 
 To complete this workflow, you need:
 
-* An [Estuary account](../../getting-started/installation.mdx#registration-and-setup)
+* An [Estuary account](../../getting-started/getting-started#registration-and-setup)
 
-* [flowctl installed locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli)
+* [flowctl installed locally](../../getting-started/getting-started#get-started-with-the-flow-cli)
 
 * One or more published Flow entities. (To edit unpublished drafts, [use this guide](./edit-draft-from-webapp.md).)
 

@@ -14,9 +14,9 @@ If a task has errors or is failing in the web app, you'll be able to troubleshoo
 
 To complete this workflow, you need:
 
-* An [Estuary account](../../getting-started/installation.mdx)
+* An [Estuary account](../../getting-started/getting-started)
 
-* [flowctl installed locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli)
+* [flowctl installed locally](../../getting-started/getting-started#get-started-with-the-flow-cli)
 
 ## Print task logs
 
