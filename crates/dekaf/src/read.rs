@@ -7,7 +7,7 @@ use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
 use kafka_protocol::records::Compression;
 use lz4_flex::frame::BlockMode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct Read {
     /// Journal offset to be served by this Read.
@@ -28,6 +28,15 @@ pub struct Read {
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
+}
+
+pub enum BatchResult {
+    /// Read some docs, stopped reading because reached target bytes
+    TargetExceededBeforeTimeout(bytes::Bytes),
+    /// Read some docs, stopped reading because reached timeout
+    TimeoutExceededBeforeTarget(bytes::Bytes),
+    /// Read no docs, stopped reading because reached timeout
+    TimeoutNoData,
 }
 
 impl Read {
@@ -74,7 +83,11 @@ impl Read {
     }
 
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
-    pub async fn next_batch(mut self, target_bytes: usize) -> anyhow::Result<(Self, bytes::Bytes)> {
+    pub async fn next_batch(
+        mut self,
+        target_bytes: usize,
+        timeout: Instant,
+    ) -> anyhow::Result<(Self, BatchResult)> {
         use kafka_protocol::records::{
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
         };
@@ -90,15 +103,22 @@ impl Read {
         let mut has_had_parsing_error = false;
         let mut transient_errors = 0;
 
+        let timeout = tokio::time::sleep_until(timeout.into());
+        let timeout = futures::future::maybe_done(timeout);
+        tokio::pin!(timeout);
+
+        let mut did_timeout = false;
+
         while records_bytes < target_bytes {
             let read = match tokio::select! {
                 biased; // Attempt to read before yielding.
 
                 read = self.stream.next() => read,
 
-                () = std::future::ready(()), if records_bytes != 0 => {
-                    break; // Yield if we have records and the stream isn't ready.
-                }
+                _ = &mut timeout => {
+                    did_timeout = true;
+                    break; // Yield if we reach a timeout
+                },
             } {
                 None => bail!("blocking gazette client read never returns EOF"),
                 Some(resp) => match resp {
@@ -277,7 +297,17 @@ impl Read {
         metrics::counter!("dekaf_bytes_read", "journal_name" => self.journal_name.to_owned())
             .increment(records_bytes as u64);
 
-        Ok((self, buf.freeze()))
+        Ok((
+            self,
+            match (records.len() > 0, did_timeout) {
+                (false, true) => BatchResult::TimeoutNoData,
+                (true, true) => BatchResult::TimeoutExceededBeforeTarget(buf.freeze()),
+                (true, false) => BatchResult::TargetExceededBeforeTimeout(buf.freeze()),
+                (false, false) => {
+                    unreachable!("shouldn't be able see no documents, and also not timeout")
+                }
+            },
+        ))
     }
 }
 
