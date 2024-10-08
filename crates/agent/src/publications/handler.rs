@@ -42,6 +42,11 @@ impl Handler for Publisher {
 
             let (status, draft_errors, final_pub_id) = match self.process(row).await {
                 Ok(result) => {
+                    if dry_run {
+                        specs::add_built_specs_to_draft_specs(draft_id, &result.built, &self.db)
+                            .await
+                            .context("adding built specs to draft")?;
+                    }
                     let errors = result.draft_errors();
                     let final_id = if result.status.is_success() {
                         Some(result.pub_id)
