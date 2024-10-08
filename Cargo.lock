@@ -134,6 +134,7 @@ dependencies = [
  "regex",
  "reqwest",
  "runtime",
+ "rustls 0.23.10",
  "schemars",
  "serde",
  "serde_json",
