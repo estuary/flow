@@ -147,7 +147,7 @@ impl Cli {
             config.user_access_token = Some(access.to_owned());
             config.user_refresh_token = Some(refresh.to_owned());
 
-            anon_client.with_creds(Some(access), Some(refresh))
+            anon_client.with_creds(Some(access))
         } else {
             tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
             anon_client

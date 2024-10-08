@@ -1,8 +1,8 @@
 use super::{App, Collection, Read};
 use crate::{
-    connector::DekafConfig, from_downstream_topic_name, from_upstream_topic_name,
-    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name,
-    topology::fetch_all_collection_names, Authenticated,
+    from_downstream_topic_name, from_upstream_topic_name, read::BatchResult,
+    to_downstream_topic_name, to_upstream_topic_name, topology::fetch_all_collection_names,
+    Authenticated,
 };
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
@@ -32,22 +32,17 @@ struct PendingRead {
 
 pub struct Session {
     app: Arc<App>,
-    client: Option<flow_client::Client>,
     reads: HashMap<(TopicName, i32), PendingRead>,
-    /// ID of the authenticated user
-    user_id: Option<String>,
-    task_config: Option<DekafConfig>,
     secret: String,
+    auth: Option<Authenticated>,
 }
 
 impl Session {
     pub fn new(app: Arc<App>, secret: String) -> Self {
         Self {
             app,
-            client: None,
             reads: HashMap::new(),
-            user_id: None,
-            task_config: None,
+            auth: None,
             secret,
         }
     }
@@ -82,14 +77,9 @@ impl Session {
         let password = it.next().context("expected SASL passwd")??;
 
         let response = match self.app.authenticate(authcid, password).await {
-            Ok(Authenticated {
-                client,
-                task_config,
-                claims,
-            }) => {
-                self.client.replace(client);
-                self.task_config.replace(task_config);
-                self.user_id.replace(claims.sub.to_string());
+            Ok(auth) => {
+                let claims = auth.claims.clone();
+                self.auth.replace(auth);
 
                 let mut response = messages::SaslAuthenticateResponse::default();
                 response.session_lifetime_ms = (1000
@@ -146,9 +136,11 @@ impl Session {
     ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
         let collections = fetch_all_collection_names(
             &self
-                .client
-                .as_ref()
+                .auth
+                .as_mut()
                 .ok_or(anyhow::anyhow!("Session not authenticated"))?
+                .get_client()
+                .await?
                 .pg_client(),
         )
         .await?;
@@ -177,10 +169,12 @@ impl Session {
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
     ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
-        let client = &self
-            .client
-            .as_ref()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+        let client = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?
+            .get_client()
+            .await?;
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
@@ -262,10 +256,12 @@ impl Session {
         &mut self,
         request: messages::ListOffsetsRequest,
     ) -> anyhow::Result<messages::ListOffsetsResponse> {
-        let client = &self
-            .client
-            .as_ref()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+        let client = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?
+            .get_client()
+            .await?;
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
@@ -360,10 +356,12 @@ impl Session {
             ..
         } = request;
 
-        let client = &self
-            .client
-            .as_ref()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+        let client = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?
+            .get_client()
+            .await?;
 
         let timeout_at =
             std::time::Instant::now() + std::time::Duration::from_millis(max_wait_ms as u64);
@@ -1040,22 +1038,33 @@ impl Session {
         to_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.user_id.clone().expect("User ID should exist"),
+            self.auth
+                .as_ref()
+                .expect("Must be authenticated")
+                .claims
+                .sub
+                .to_string(),
         )
     }
     fn decrypt_topic_name(&self, name: TopicName) -> TopicName {
         from_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.user_id.clone().expect("User ID should exist"),
+            self.auth
+                .as_ref()
+                .expect("Must be authenticated")
+                .claims
+                .sub
+                .to_string(),
         )
     }
 
     fn encode_topic_name(&self, name: String) -> TopicName {
         if self
-            .task_config
+            .auth
             .as_ref()
-            .expect("should have config already")
+            .expect("Must be authenticated")
+            .task_config
             .strict_topic_names
         {
             to_downstream_topic_name(TopicName(StrBytes::from_string(name)))

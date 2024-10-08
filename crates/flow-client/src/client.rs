@@ -13,8 +13,6 @@ pub struct Client {
     http_client: reqwest::Client,
     // User's access token, if authenticated.
     user_access_token: Option<String>,
-    // User's refresh token, if authenticated.
-    user_refresh_token: Option<RefreshToken>,
     // Base shard client which is cloned to build token-specific clients.
     shard_client: gazette::shard::Client,
     // Base journal client which is cloned to build token-specific clients.
@@ -32,7 +30,6 @@ impl Client {
         pg_api_token: String,
         pg_url: Url,
         user_access_token: Option<String>,
-        user_refresh_token: Option<RefreshToken>,
     ) -> Self {
         // Build journal and shard clients with an empty default service address.
         // We'll use their with_endpoint_and_metadata() routines to cheaply clone
@@ -59,18 +56,12 @@ impl Client {
             journal_client,
             shard_client,
             user_access_token,
-            user_refresh_token,
         }
     }
 
-    pub fn with_creds(
-        self,
-        user_access_token: Option<String>,
-        user_refresh_token: Option<RefreshToken>,
-    ) -> Self {
+    pub fn with_creds(self, user_access_token: Option<String>) -> Self {
         Self {
             user_access_token: user_access_token.or(self.user_access_token),
-            user_refresh_token: user_refresh_token.or(self.user_refresh_token),
             ..self
         }
     }
