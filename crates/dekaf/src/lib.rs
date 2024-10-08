@@ -50,8 +50,34 @@ pub struct DeprecatedConfigOptions {
 
 pub struct Authenticated {
     client: flow_client::Client,
+    refresh_token: RefreshToken,
+    access_token: String,
     task_config: DekafConfig,
     claims: models::authorizations::ControlClaims,
+}
+
+impl Authenticated {
+    pub async fn get_client(&mut self) -> anyhow::Result<&flow_client::Client> {
+        let (access, refresh) = refresh_authorizations(
+            &self.client,
+            Some(self.access_token.to_owned()),
+            Some(self.refresh_token.to_owned()),
+        )
+        .await?;
+
+        if access.ne(&self.access_token) {
+            self.access_token = access.clone();
+            self.refresh_token = refresh;
+
+            self.client = self
+                .client
+                .clone()
+                .with_creds(Some(access))
+                .with_fresh_gazette_client();
+        }
+
+        Ok(&self.client)
+    }
 }
 
 impl App {
@@ -72,7 +98,7 @@ impl App {
         let client = self
             .client_base
             .clone()
-            .with_creds(Some(access), Some(refresh))
+            .with_creds(Some(access.clone()))
             .with_fresh_gazette_client();
 
         let claims = flow_client::client::client_claims(&client)?;
@@ -80,6 +106,8 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref()) {
             Ok(Authenticated {
                 client,
+                access_token: access,
+                refresh_token: refresh,
                 task_config: todo!("Fetch and unseal task config"),
                 claims,
             })
@@ -93,6 +121,8 @@ impl App {
                     strict_topic_names: config.strict_topic_names,
                     token: "".to_string(),
                 },
+                access_token: access,
+                refresh_token: refresh,
                 claims,
             })
         } else {

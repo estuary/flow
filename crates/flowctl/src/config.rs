@@ -187,7 +187,6 @@ impl Config {
             self.get_pg_public_token().to_string(),
             self.get_pg_url().clone(),
             None,
-            None,
         )
     }
 

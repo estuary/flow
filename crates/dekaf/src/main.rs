@@ -144,7 +144,6 @@ async fn main() -> anyhow::Result<()> {
             api_key,
             api_endpoint,
             None,
-            None
         )
     });
 
