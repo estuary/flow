@@ -139,7 +139,7 @@ impl Session {
                 .auth
                 .as_mut()
                 .ok_or(anyhow::anyhow!("Session not authenticated"))?
-                .get_client()
+                .authenticated_client()
                 .await?
                 .pg_client(),
         )
@@ -173,7 +173,7 @@ impl Session {
             .auth
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .get_client()
+            .authenticated_client()
             .await?;
 
         // Concurrently fetch Collection instances for all requested topics.
@@ -260,7 +260,7 @@ impl Session {
             .auth
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .get_client()
+            .authenticated_client()
             .await?;
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
@@ -360,7 +360,7 @@ impl Session {
             .auth
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .get_client()
+            .authenticated_client()
             .await?;
 
         let timeout_at =
