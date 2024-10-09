@@ -57,7 +57,7 @@ pub struct Authenticated {
 }
 
 impl Authenticated {
-    pub async fn get_client(&mut self) -> anyhow::Result<&flow_client::Client> {
+    pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         let (access, refresh) = refresh_authorizations(
             &self.client,
             Some(self.access_token.to_owned()),
@@ -65,7 +65,7 @@ impl Authenticated {
         )
         .await?;
 
-        if access.ne(&self.access_token) {
+        if access != self.access_token {
             self.access_token = access.clone();
             self.refresh_token = refresh;
 
