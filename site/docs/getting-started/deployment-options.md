@@ -36,6 +36,11 @@ managed service.
 Private Deployment is suited for large enterprises and organizations with strict data governance requirements, such as
 those in regulated industries (e.g., healthcare, finance) or those handling highly sensitive data.
 
+:::note
+If you are interested in setting up Private Deployments, reach out to us via [email](mailto:support@estuary.dev) or
+join our [Slack channel](https://go.estuary.dev/slack) and send us a message!
+:::
+
 ![Private Deployment](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//private_deployment_18e21ce056/private_deployment_18e21ce056.png)
 
 - **Enhanced security**: Data and all processing remains within your private network, offering improved protection.
