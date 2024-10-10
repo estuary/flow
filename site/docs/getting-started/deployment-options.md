@@ -59,6 +59,11 @@ BYOC is the ideal solution for organizations that have heavily invested in their
 maintain full control while integrating Estuary Flow’s capabilities into their stack. This option offers the highest
 flexibility in terms of customization and compliance.
 
+:::note
+If you are interested in BYOC, reach out to us via [email](mailto:support@estuary.dev) or join
+our [Slack channel](https://go.estuary.dev/slack) and send us a message!
+:::
+
 ![BYOC Deployment](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//byoc_deployment_f88f0a3e94/byoc_deployment_f88f0a3e94.png)
 
 - **Complete control over cloud infrastructure**: Manage the cloud environment according to your organization's
