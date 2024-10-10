@@ -69,11 +69,8 @@ impl Authenticated {
             self.access_token = access.clone();
             self.refresh_token = refresh;
 
-            self.client = self
-                .client
-                .clone()
-                .with_creds(Some(access))
-                .with_fresh_gazette_client();
+            self.client = self.client.clone().with_creds(Some(access));
+            // .with_fresh_gazette_client();
         }
 
         Ok(&self.client)
@@ -95,11 +92,8 @@ impl App {
         let (access, refresh) =
             refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
 
-        let client = self
-            .client_base
-            .clone()
-            .with_creds(Some(access.clone()))
-            .with_fresh_gazette_client();
+        let client = self.client_base.clone().with_creds(Some(access.clone()));
+        // .with_fresh_gazette_client();
 
         let claims = flow_client::client::client_claims(&client)?;
 

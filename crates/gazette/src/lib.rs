@@ -79,6 +79,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Dial a gRPC endpoint with opinionated defaults and
 /// support for TLS and Unix Domain Sockets.
+#[tracing::instrument(level = "trace")]
 pub async fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
     use std::time::Duration;
 
@@ -95,12 +96,16 @@ pub async fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
 
     let channel = match ep.uri().scheme_str() {
         Some("unix") => {
+            tracing::trace!("Dialing unix socket");
             ep.connect_with_connector(tower::util::service_fn(|uri: tonic::transport::Uri| {
                 connect_unix(uri)
             }))
             .await?
         }
-        Some("https" | "http") => ep.connect().await?,
+        Some(scheme @ ("https" | "http")) => {
+            tracing::trace!("Dialing {scheme} socket");
+            ep.connect().await?
+        }
 
         _ => return Err(Error::InvalidEndpoint(endpoint.to_string())),
     };
