@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 WORKDIR /app
 COPY dekaf-bin /dekaf
 RUN --mount=type=cache,target=/var/cache/apt \
