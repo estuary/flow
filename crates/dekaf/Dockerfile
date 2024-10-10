@@ -3,5 +3,5 @@ WORKDIR /app
 COPY dekaf-bin /dekaf
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
-    apt-get update && apt-get install -y libssl3 ca-certificates
+    apt-get update && apt-get install -y libssl3 ca-certificates libc6
 CMD ["/dekaf"]
