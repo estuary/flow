@@ -168,7 +168,7 @@ func New(
 
 func BuildTLSConfig(certPath, keyPath, trustedCAPath string) (*tls.Config, error) {
 	var tlsConfig = &tls.Config{
-		ClientAuth: tls.VerifyClientCertIfGiven,
+		ClientAuth: tls.NoClientCert,
 	}
 
 	// Load a presented certificate and key.
