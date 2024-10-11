@@ -5,7 +5,7 @@ use crate::{
     Authenticated,
 };
 use anyhow::Context;
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     indexmap::IndexMap,
@@ -470,7 +470,10 @@ impl Session {
                 partition_responses.push(
                     PartitionData::default()
                         .with_partition_index(partition_request.partition)
-                        .with_records(batch.to_owned())
+                        // `kafka-protocol` encodes None here using a length of -1, but librdkafka client library
+                        // complains with: `Protocol parse failure for Fetch v11 ... invalid MessageSetSize -1`
+                        // An empty Bytes will get encoded with a length of 0, which works fine.
+                        .with_records(batch.or(Some(Bytes::new())).to_owned())
                         .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
                         .with_last_stable_offset(pending.last_write_head),
                 );
