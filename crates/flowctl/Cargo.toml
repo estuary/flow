@@ -53,6 +53,7 @@ postgrest = { workspace = true }
 prost = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
+rustls = { workspace = true }
 rustyline = { workspace = true }
 serde = { workspace = true }
 serde-transcode = { workspace = true }
