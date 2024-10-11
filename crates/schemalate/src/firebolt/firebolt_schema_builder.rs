@@ -112,9 +112,9 @@ pub fn build_firebolt_queries_bundle(
             schema: schema.clone(),
         };
 
-        // Add source_file_name column to main table
+        // Add $source_file_name column to main table
         schema.columns.push(Column {
-            key: "source_file_name".to_string(),
+            key: "$source_file_name".to_string(),
             r#type: FireboltType::Text,
             is_key: false,
             nullable: false,
@@ -241,14 +241,14 @@ mod tests {
             FireboltQueriesBundle {
                 bindings: vec![BindingBundle {
                     create_table:
-                        "CREATE FACT TABLE IF NOT EXISTS test_table (test TEXT,source_file_name TEXT) PRIMARY INDEX test ;"
+                        "CREATE FACT TABLE IF NOT EXISTS test_table (test TEXT,\"$source_file_name\" TEXT) PRIMARY INDEX test ;"
                             .to_string(),
                     create_external_table:
                         "CREATE EXTERNAL TABLE IF NOT EXISTS test_table_external (test TEXT)  CREDENTIALS = ( AWS_KEY_ID = 'aws_key' AWS_SECRET_KEY = 'aws_secret' ) URL = 's3://my-bucket/test' OBJECT_PATTERN = '*.json' TYPE = (JSON);".to_string(),
                     drop_table: "DROP TABLE test_table;".to_string(),
                     drop_external_table: "DROP TABLE test_table_external;".to_string(),
                     insert_from_table:
-                        "INSERT INTO test_table (test,source_file_name) SELECT test,source_file_name FROM test_table_external WHERE source_file_name IN (?) AND ((SELECT count(*) FROM test_table WHERE source_file_name IN (?)) < 1);".to_string()
+                        "INSERT INTO test_table (test,\"$source_file_name\") SELECT test,\"$source_file_name\" FROM test_table_external WHERE $source_file_name IN (?) AND ((SELECT count(*) FROM test_table WHERE $source_file_name IN (?)) < 1);".to_string()
                 }]
             },
         );
