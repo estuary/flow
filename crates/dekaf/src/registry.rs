@@ -1,5 +1,7 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name, topology, Authenticated};
+use crate::{
+    from_downstream_topic_name, to_downstream_topic_name, topology, SessionAuthentication,
+};
 use anyhow::Context;
 use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
@@ -34,7 +36,7 @@ async fn all_subjects(
     >,
 ) -> Response {
     wrap(async move {
-        let Authenticated {
+        let SessionAuthentication {
             client,
             task_config,
             ..
@@ -73,7 +75,7 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let Authenticated { client, .. } =
+        let SessionAuthentication { client, .. } =
             app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
@@ -127,7 +129,7 @@ async fn get_schema_by_id(
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let Authenticated { client, .. } =
+        let SessionAuthentication { client, .. } =
             app.authenticate(auth.username(), auth.password()).await?;
 
         #[derive(serde::Deserialize)]

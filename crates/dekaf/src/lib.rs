@@ -25,9 +25,11 @@ pub use api_client::KafkaApiClient;
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::DekafConfig;
 use flow_client::client::{refresh_authorizations, RefreshToken};
+use models::Materialization;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
+use proto_flow::flow::MaterializationSpec;
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 pub struct App {
     /// Hostname which is advertised for Kafka access.
@@ -48,15 +50,40 @@ pub struct DeprecatedConfigOptions {
     pub strict_topic_names: bool,
 }
 
-pub struct Authenticated {
+pub struct UserAuth {
     client: flow_client::Client,
     refresh_token: RefreshToken,
     access_token: String,
-    task_config: DekafConfig,
     claims: models::authorizations::ControlClaims,
+    config: DeprecatedConfigOptions,
 }
 
-impl Authenticated {
+pub struct TaskAuth {
+    name: String,
+    config: DekafConfig,
+    bindings: Vec<proto_flow::flow::materialization_spec::Binding>,
+}
+
+pub enum SessionAuthentication {
+    User(UserAuth),
+    Task(TaskAuth),
+}
+
+impl SessionAuthentication {
+    pub fn valid_until(&self) -> SystemTime {
+        match self {
+            SessionAuthentication::User(user) => {
+                std::time::UNIX_EPOCH + std::time::Duration::new(user.claims.exp, 0)
+            }
+            // Task authorizations do not expire, so let's set a reasonable session lifetime of 1h instead.
+            SessionAuthentication::Task(_) => {
+                SystemTime::now() + std::time::Duration::from_secs(60 * 60)
+            }
+        }
+    }
+}
+
+impl UserAuth {
     pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         let (access, refresh) = refresh_authorizations(
             &self.client,
@@ -82,7 +109,11 @@ impl Authenticated {
 
 impl App {
     #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
-    async fn authenticate(&self, username: &str, password: &str) -> anyhow::Result<Authenticated> {
+    async fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> anyhow::Result<SessionAuthentication> {
         let username = if let Ok(decoded) = decode_safe_name(username.to_string()) {
             decoded
         } else {
@@ -104,27 +135,18 @@ impl App {
         let claims = flow_client::client::client_claims(&client)?;
 
         if models::Materialization::regex().is_match(username.as_ref()) {
-            Ok(Authenticated {
-                client,
-                access_token: access,
-                refresh_token: refresh,
-                task_config: todo!("Fetch and unseal task config"),
-                claims,
-            })
+            anyhow::bail!("fetch and unseal task config");
         } else if username.contains("{") {
             let config: DeprecatedConfigOptions = serde_json::from_str(&username)
                 .context("failed to parse username as a JSON object")?;
 
-            Ok(Authenticated {
+            Ok(SessionAuthentication::User(UserAuth {
                 client,
-                task_config: DekafConfig {
-                    strict_topic_names: config.strict_topic_names,
-                    token: "".to_string(),
-                },
                 access_token: access,
                 refresh_token: refresh,
                 claims,
-            })
+                config,
+            }))
         } else {
             anyhow::bail!("Invalid username or password")
         }

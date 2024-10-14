@@ -82,6 +82,10 @@ pub struct Cli {
     #[arg(long, env = "BROKER_CONNECTION_POOL_SIZE", default_value = "20")]
     broker_connection_pool_size: usize,
 
+    /// Control-plane DB connection string
+    #[clap(long)]
+    connection_string: String,
+
     #[command(flatten)]
     tls: Option<TlsArgs>,
 }
@@ -123,6 +127,11 @@ async fn main() -> anyhow::Result<()> {
         "tcp://{}:{}",
         cli.default_broker_hostname, cli.default_broker_port
     );
+
+    let db_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cli.connection_string)
+        .await?;
 
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),

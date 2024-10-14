@@ -2,7 +2,7 @@ use super::{App, Collection, Read};
 use crate::{
     from_downstream_topic_name, from_upstream_topic_name, read::BatchResult,
     to_downstream_topic_name, to_upstream_topic_name, topology::fetch_all_collection_names,
-    Authenticated,
+    SessionAuthentication,
 };
 use anyhow::Context;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -34,7 +34,7 @@ pub struct Session {
     app: Arc<App>,
     reads: HashMap<(TopicName, i32), PendingRead>,
     secret: String,
-    auth: Option<Authenticated>,
+    auth: Option<SessionAuthentication>,
 }
 
 impl Session {
@@ -78,17 +78,16 @@ impl Session {
 
         let response = match self.app.authenticate(authcid, password).await {
             Ok(auth) => {
-                let claims = auth.claims.clone();
-                self.auth.replace(auth);
-
                 let mut response = messages::SaslAuthenticateResponse::default();
-                response.session_lifetime_ms = (1000
-                    * (claims.exp
-                        - SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .context("")?
-                            .as_secs()))
-                .try_into()?;
+
+                response.session_lifetime_ms = (auth
+                    .valid_until()
+                    .duration_since(SystemTime::now())?
+                    .as_secs()
+                    * 1000)
+                    .try_into()?;
+
+                self.auth.replace(auth);
                 response
             }
             Err(err) => messages::SaslAuthenticateResponse::default()
@@ -138,10 +137,7 @@ impl Session {
             &self
                 .auth
                 .as_mut()
-                .ok_or(anyhow::anyhow!("Session not authenticated"))?
-                .authenticated_client()
-                .await?
-                .pg_client(),
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?,
         )
         .await?;
 
@@ -172,9 +168,7 @@ impl Session {
         let client = self
             .auth
             .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?;
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
@@ -259,9 +253,7 @@ impl Session {
         let client = self
             .auth
             .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?;
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
@@ -359,9 +351,7 @@ impl Session {
         let client = self
             .auth
             .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?;
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         let timeout_at =
             std::time::Instant::now() + std::time::Duration::from_millis(max_wait_ms as u64);
