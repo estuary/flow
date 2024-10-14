@@ -102,11 +102,8 @@ fn walk_collection(
 
             // Potentially extend the user's read schema with definitions
             // for the collection's current write schema.
-            let read_bundle = if model_read_schema.references_write_schema() {
-                models::Schema::bundle_write_schema_def(model_read_schema, model_write_schema)
-            } else {
-                model_read_schema.clone()
-            };
+            let read_bundle =
+                models::Schema::build_read_schema_bundle(model_read_schema, model_write_schema);
 
             let read_schema =
                 walk_collection_schema(scope.push_prop("readSchema"), &read_bundle, errors);
