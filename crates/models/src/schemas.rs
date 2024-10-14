@@ -100,7 +100,7 @@ impl Schema {
         write_bundle: Option<&Self>,
         inferred_bundle: Option<&Self>,
     ) -> Self {
-        use serde_json::{value::to_raw_value, Value};
+        let mut defs = Vec::new();
 
         // Add a definition for the write schema if it's referenced.
         // We cannot add it in all cases because the existing `read_bundle` and
@@ -109,57 +109,36 @@ impl Schema {
         // So, we treat $ref: flow://write-schema as a user assertion that there is
         // no such conflicting definition (and we may produce an indexing error
         // later if they're wrong).
-        let prepared_write_schema = write_bundle
-            .filter(|_| read_bundle.references_write_schema())
-            .map(|write_schema_json| {
-                Schema::add_id(Schema::REF_WRITE_SCHEMA_URL, write_schema_json)
-            });
+        if let Some(write) = write_bundle.filter(|_| read_bundle.references_write_schema()) {
+            defs.push((Schema::REF_WRITE_SCHEMA_URL, write));
+        }
 
-        // Add a definition for the inferred schema if it's referenced.
-        let prepared_inferred_schema = if read_bundle.references_inferred_schema() {
-            // Prefer the actual inferred schema, or fall back to a sentinel schema
-            // which allows for validations but fails on the first document.
-            let inferred_bundle = inferred_bundle.map(|s| s.get()).unwrap_or(
-                r###"
-            {
-                "properties": {
-                    "_meta": {
-                        "properties": {
-                            "inferredSchemaIsNotAvailable": {
-                                "const": true,
-                                "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
-                            }
-                        },
-                        "required": ["inferredSchemaIsNotAvailable"]
-                    }
-                },
-                "required": ["_meta"]
+        if read_bundle.references_inferred_schema() {
+            if let Some(inferred) = inferred_bundle {
+                defs.push((Schema::REF_INFERRED_SCHEMA_URL, inferred));
+            } else {
+                defs.push((
+                    Schema::REF_INFERRED_SCHEMA_URL,
+                    &INFERRED_SCHEMA_PLACEHOLDER,
+                ));
             }
-            "###,
-            );
-            // We don't use `Skim` here because we want the serde round trip to
-            // transform the sentinel schema from pretty-printed to dense. This
-            // is important because newlines in the schema could otherwise break
-            // connectors using the airbyte protocol.
-            let mut inferred_schema: BTreeMap<String, serde_json::Value> =
-                serde_json::from_str(inferred_bundle).unwrap();
+        }
 
-            // Set $id to "flow://inferred-schema".
-            _ = inferred_schema.insert(
-                KEYWORD_ID.to_string(),
-                Value::String(Self::REF_INFERRED_SCHEMA_URL.to_string()),
-            );
-            Some(to_raw_value(&inferred_schema).unwrap().into())
-        } else {
-            None
-        };
-
-        Schema::add_defs(read_bundle, prepared_write_schema, prepared_inferred_schema)
+        Schema::add_defs(read_bundle, true /* overwrite existing defs */, &defs)
     }
 
-    pub fn bundle_write_schema_def(read_schema: &Schema, write_schema: &Schema) -> Schema {
-        let prepared_write_schema = Schema::add_id(Schema::REF_WRITE_SCHEMA_URL, write_schema);
-        Schema::add_defs(read_schema, Some(prepared_write_schema), None)
+    pub fn build_read_schema_bundle(read_schema: &Schema, write_schema: &Schema) -> Schema {
+        let mut defs = Vec::new();
+        if read_schema.references_write_schema() {
+            defs.push((Schema::REF_WRITE_SCHEMA_URL, write_schema));
+        }
+        if read_schema.references_inferred_schema() {
+            defs.push((
+                Schema::REF_INFERRED_SCHEMA_URL,
+                &INFERRED_SCHEMA_PLACEHOLDER,
+            ));
+        }
+        Schema::add_defs(read_schema, false /* do not overwrite */, &defs)
     }
 
     fn add_id(id: &str, schema: &Schema) -> RawValue {
@@ -172,43 +151,32 @@ impl Schema {
         serde_json::value::to_raw_value(&skim).unwrap().into()
     }
 
-    fn add_defs(
-        target: &Schema,
-        write_schema: Option<RawValue>,
-        inferred_schema: Option<RawValue>,
-    ) -> Schema {
+    fn add_defs(target: &Schema, overwrite: bool, defs: &[(&str, &Schema)]) -> Schema {
         use serde_json::value::to_raw_value;
 
         let mut read_schema: Skim = serde_json::from_str(target.get()).unwrap();
         let mut read_defs: Skim = read_schema
-            .get(KEYWORD_DEF)
+            .remove(KEYWORD_DEF)
             .map(|d| serde_json::from_str(d.get()).unwrap())
             .unwrap_or_default();
 
-        // Add a definition for the write schema if it's referenced.
-        // We cannot add it in all cases because the existing `read_bundle` and
-        // `write_bundle` may have a common sub-schema defined, and naively adding
-        // it would result in an indexing error due to the duplicate definition.
-        // So, we treat $ref: flow://write-schema as a user assertion that there is
-        // no such conflicting definition (and we may produce an indexing error
-        // later if they're wrong).
-        if let Some(write_schema_json) = write_schema {
-            // Add as a definition within the read schema.
-            read_defs.insert(Self::REF_WRITE_SCHEMA_URL.to_string(), write_schema_json);
+        for (id, schema) in defs {
+            if !overwrite && read_defs.contains_key(*id) {
+                continue;
+            }
+            let with_id = Schema::add_id(id, schema);
+            read_defs.insert(id.to_string(), with_id);
         }
 
-        if let Some(inferred_schema_json) = inferred_schema {
-            read_defs.insert(
-                Self::REF_INFERRED_SCHEMA_URL.to_string(),
-                inferred_schema_json,
+        // Skip adding defs if they are empty (which means `defs` was empty and there were no
+        // pre-existing `$defs` in the schema).
+        if !read_defs.is_empty() {
+            // Re-serialize the updated definitions of the read schema.
+            _ = read_schema.insert(
+                KEYWORD_DEF.to_string(),
+                serde_json::value::to_raw_value(&read_defs).unwrap().into(),
             );
         }
-
-        // Re-serialize the updated definitions of the read schema.
-        _ = read_schema.insert(
-            KEYWORD_DEF.to_string(),
-            serde_json::value::to_raw_value(&read_defs).unwrap().into(),
-        );
         Self(to_raw_value(&read_schema).unwrap().into())
     }
 
@@ -254,12 +222,35 @@ lazy_static::lazy_static! {
     static ref REF_WRITE_SCHEMA_RE: regex::Regex = regex::Regex::new(
         &[r#""\$ref"\p{Z}*:\p{Z}*""#, &regex::escape(Schema::REF_WRITE_SCHEMA_URL), "\""].concat()
     ).unwrap();
+
+    /// Placeholder used to resolve the `flow://inferred-schema` reference when the actual schema
+    /// is not yet known.
+    static ref INFERRED_SCHEMA_PLACEHOLDER: Schema =  Schema(RawValue::from_value(&serde_json::json!({
+        "properties": {
+            "_meta": {
+                "properties": {
+                    "inferredSchemaIsNotAvailable": {
+                        "const": true,
+                        "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
+                    }
+                },
+                "required": ["inferredSchemaIsNotAvailable"]
+            }
+        },
+        "required": ["_meta"]
+    } )));
 }
 
 #[cfg(test)]
 mod test {
     use super::{RawValue, Schema};
     use serde_json::json;
+
+    macro_rules! schema {
+        ($json:tt) => {
+            Schema::new(RawValue::from_value(&serde_json::json!($json)))
+        };
+    }
 
     #[test]
     fn test_ref_patterns() {
@@ -287,6 +278,169 @@ mod test {
 
         assert!(!fixture.references_inferred_schema());
         assert!(!fixture.references_write_schema());
+    }
+
+    #[test]
+    fn test_build_read_schema_bundle() {
+        let write_schema = schema!({
+            "type": "object",
+            "properties": {
+                "a": { "type": "integer" },
+                "b": { "type": "string" }
+            }
+        });
+
+        // Assert that inferred schema placeholder gets added if needed
+        let read_schema = schema!({
+            "$defs": {
+                "existing": { "properties": { "f": { "type": "string" }}}
+            },
+            "allOf": [
+                {"$ref": "flow://inferred-schema"},
+                {"$ref": "flow://write-schema"},
+            ]
+        });
+        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
+        insta::assert_json_snapshot!(result.to_value(), @r###"
+        {
+          "$defs": {
+            "existing": {
+              "properties": {
+                "f": {
+                  "type": "string"
+                }
+              }
+            },
+            "flow://inferred-schema": {
+              "$id": "flow://inferred-schema",
+              "properties": {
+                "_meta": {
+                  "properties": {
+                    "inferredSchemaIsNotAvailable": {
+                      "const": true,
+                      "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
+                    }
+                  },
+                  "required": [
+                    "inferredSchemaIsNotAvailable"
+                  ]
+                }
+              },
+              "required": [
+                "_meta"
+              ]
+            },
+            "flow://write-schema": {
+              "$id": "flow://write-schema",
+              "properties": {
+                "a": {
+                  "type": "integer"
+                },
+                "b": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "flow://inferred-schema"
+            },
+            {
+              "$ref": "flow://write-schema"
+            }
+          ]
+        }
+        "###);
+
+        // Assert that existing defs are unchanged when read schema does not ref anything
+        let read_schema = schema!({
+            "$defs": {
+                "existing": { "properties": { "f": { "type": "string" }}}
+            },
+            "type": "object",
+            "properties": {
+                "c": { "type": "integer" },
+                "d": { "type": "string" }
+            }
+        });
+        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
+        insta::assert_json_snapshot!(result.to_value(), @r###"
+        {
+          "$defs": {
+            "existing": {
+              "properties": {
+                "f": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "properties": {
+            "c": {
+              "type": "integer"
+            },
+            "d": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+        "###);
+
+        // Assert that no defs are added when read schema does not ref anything
+        let read_schema = schema!({
+            "type": "object",
+            "properties": {
+                "c": { "type": "integer" },
+                "d": { "type": "string" }
+            }
+        });
+        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
+        insta::assert_json_snapshot!(result.to_value(), @r###"
+        {
+          "properties": {
+            "c": {
+              "type": "integer"
+            },
+            "d": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+        "###);
+
+        // Assert that existing defs are not overwritten.
+        // Note that in practice any `flow://write-schema` defs are removed by the publisher
+        // prior to validation, so it should never exist when this function is called. But this
+        // just documents the behavior, which is necessary in order to avoid replacing an existing
+        // `flow://inferred-schema` def with the placeholder.
+        let read_schema = schema!({
+            "$defs": {
+                "flow://inferred-schema": {
+                    "$id": "flow://inferred-schema",
+                    "type": "object",
+                    "properties": {
+                        "c": { "type": "integer" }
+                    }
+                },
+                "flow://write-schema": {
+                    "$id": "flow://write-schema",
+                    "type": "object",
+                    "properties": {
+                        "a": { "type": "integer" }
+                    }
+                },
+            },
+            "allOf": [
+                {"$ref": "flow://inferred-schema"},
+                {"$ref": "flow://write-schema"},
+            ]
+        });
+        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
+        assert_eq!(read_schema, result); // assert that the schema is unchanged
     }
 
     #[test]
@@ -387,7 +541,6 @@ mod test {
         // Case: pass `write_schema` which has no references.
         insta::assert_json_snapshot!(Schema::extend_read_bundle(&write_schema, Some(&write_schema), None).to_value(), @r###"
         {
-          "$defs": {},
           "$id": "old://value",
           "required": [
             "a_key"
