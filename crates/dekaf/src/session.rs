@@ -22,6 +22,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use std::{sync::Arc, time::Duration};
+use tokio::sync::RwLock;
 use tracing::instrument;
 
 struct PendingRead {
@@ -35,15 +36,23 @@ pub struct Session {
     reads: HashMap<(TopicName, i32), PendingRead>,
     secret: String,
     auth: Option<Authenticated>,
+    latest_partition_offsets: Arc<RwLock<HashMap<(TopicName, i32), (i64, i64)>>>,
+    pub client_id: Option<String>,
 }
 
 impl Session {
-    pub fn new(app: Arc<App>, secret: String) -> Self {
+    pub fn new(
+        app: Arc<App>,
+        secret: String,
+        offsets: Arc<RwLock<HashMap<(TopicName, i32), (i64, i64)>>>,
+    ) -> Self {
         Self {
             app,
             reads: HashMap::new(),
             auth: None,
             secret,
+            latest_partition_offsets: offsets,
+            client_id: None,
         }
     }
 
@@ -265,45 +274,47 @@ impl Session {
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
         // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
-        let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<(i64, i64)>)>)>> =
-            futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
-                let maybe_collection = Collection::new(
-                    client,
-                    from_downstream_topic_name(topic.name.clone()).as_str(),
-                )
-                .await?;
+        let collections: anyhow::Result<
+            Vec<(TopicName, Vec<(i32, i64, Option<(i64, i64, i64)>)>)>,
+        > = futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
+            let maybe_collection = Collection::new(
+                client,
+                from_downstream_topic_name(topic.name.clone()).as_str(),
+            )
+            .await?;
 
-                let Some(collection) = maybe_collection else {
-                    return Ok((
-                        topic.name,
-                        topic
-                            .partitions
-                            .iter()
-                            .map(|p| (p.partition_index, None))
-                            .collect(),
-                    ));
-                };
-                let collection = &collection;
+            let Some(collection) = maybe_collection else {
+                return Ok((
+                    topic.name,
+                    topic
+                        .partitions
+                        .iter()
+                        .map(|p| (p.partition_index, p.timestamp, None))
+                        .collect(),
+                ));
+            };
+            let collection = &collection;
 
-                // Concurrently fetch requested offset for each named partition.
-                let offsets: anyhow::Result<_> = futures::future::try_join_all(
-                    topic.partitions.into_iter().map(|partition| async move {
-                        Ok((
-                            partition.partition_index,
-                            collection
-                                .fetch_partition_offset(
-                                    partition.partition_index as usize,
-                                    partition.timestamp, // In millis.
-                                )
-                                .await?,
-                        ))
-                    }),
-                )
-                .await;
-
-                Ok((topic.name, offsets?))
-            }))
+            // Concurrently fetch requested offset for each named partition.
+            let offsets: anyhow::Result<_> = futures::future::try_join_all(
+                topic.partitions.into_iter().map(|partition| async move {
+                    Ok((
+                        partition.partition_index,
+                        partition.timestamp,
+                        collection
+                            .fetch_partition_offset(
+                                partition.partition_index as usize,
+                                partition.timestamp, // In millis.
+                            )
+                            .await?,
+                    ))
+                }),
+            )
             .await;
+
+            Ok((topic.name, offsets?))
+        }))
+        .await;
 
         let collections = collections?;
 
@@ -311,18 +322,27 @@ impl Session {
             ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
         };
 
+        let mut new_latest_offsets = HashMap::new();
+
         // Map topics, partition indices, and fetched offsets into a comprehensive response.
         let response = collections
             .into_iter()
             .map(|(topic_name, offsets)| {
                 let partitions = offsets
                     .into_iter()
-                    .map(|(partition_index, maybe_offset)| {
-                        let Some((offset, timestamp)) = maybe_offset else {
+                    .map(|(partition_index, request_timestamp, maybe_offset)| {
+                        let Some((offset, fragment_start, timestamp)) = maybe_offset else {
                             return ListOffsetsPartitionResponse::default()
                                 .with_partition_index(partition_index)
                                 .with_error_code(ResponseError::UnknownTopicOrPartition.code());
                         };
+
+                        if request_timestamp == -1 {
+                            new_latest_offsets.insert(
+                                (topic_name.to_owned(), partition_index),
+                                (offset, fragment_start),
+                            );
+                        }
 
                         ListOffsetsPartitionResponse::default()
                             .with_partition_index(partition_index)
@@ -336,6 +356,11 @@ impl Session {
                     .with_partitions(partitions)
             })
             .collect();
+
+        self.latest_partition_offsets
+            .write()
+            .await
+            .extend(new_latest_offsets);
 
         Ok(messages::ListOffsetsResponse::default().with_topics(response))
     }
@@ -363,14 +388,26 @@ impl Session {
             .authenticated_client()
             .await?;
 
-        let timeout_at =
-            std::time::Instant::now() + std::time::Duration::from_millis(max_wait_ms as u64);
+        let timeout = std::time::Duration::from_millis(max_wait_ms as u64);
 
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
 
             for partition_request in &topic_request.partitions {
+                let read_guard = self.latest_partition_offsets.read().await;
+                let fetched_offset = read_guard
+                    .get(&(key.0.to_owned(), partition_request.partition))
+                    .copied();
+
+                drop(read_guard);
+
+                let diff = if let Some((offset, fragment_start)) = fetched_offset {
+                    Some((offset - partition_request.fetch_offset, fragment_start))
+                } else {
+                    None
+                };
+
                 key.1 = partition_request.partition;
 
                 let fetch_offset = partition_request.fetch_offset;
@@ -392,21 +429,44 @@ impl Session {
                 let (key_schema_id, value_schema_id) = collection
                     .registered_schema_ids(&client.pg_client())
                     .await?;
-
-                let read: Read = Read::new(
-                    collection.journal_client.clone(),
-                    &collection,
-                    partition,
-                    fetch_offset,
-                    key_schema_id,
-                    value_schema_id,
-                );
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
-                    handle: tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
-                    )),
+                    handle: tokio_util::task::AbortOnDropHandle::new(match diff {
+                        // Startree: 0, Tinybird: 12
+                        Some((diff, fragment_start)) if diff <= 12 => tokio::spawn(
+                            Read::new(
+                                collection.journal_client.clone(),
+                                &collection,
+                                partition,
+                                fragment_start,
+                                key_schema_id,
+                                value_schema_id,
+                                Some(partition_request.fetch_offset - 1),
+                            )
+                            .next_batch(
+                                crate::read::ReadTarget::Docs(diff as usize + 1),
+                                std::time::Instant::now() + timeout,
+                            ),
+                        ),
+                        _ => tokio::spawn(
+                            Read::new(
+                                collection.journal_client.clone(),
+                                &collection,
+                                partition,
+                                fetch_offset,
+                                key_schema_id,
+                                value_schema_id,
+                                None,
+                            )
+                            .next_batch(
+                                crate::read::ReadTarget::Bytes(
+                                    partition_request.partition_max_bytes as usize,
+                                ),
+                                std::time::Instant::now() + timeout,
+                            ),
+                        ),
+                    }),
                 };
 
                 tracing::info!(
@@ -449,11 +509,6 @@ impl Session {
                 };
 
                 let (read, batch) = (&mut pending.handle).await??;
-                pending.offset = read.offset;
-                pending.last_write_head = read.last_write_head;
-                pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                    read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
-                ));
 
                 let batch = match batch {
                     BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
@@ -471,6 +526,20 @@ impl Session {
                         .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
                         .with_last_stable_offset(pending.last_write_head),
                 );
+
+                if read.rewrite_offsets_from.is_none() {
+                    pending.offset = read.offset;
+                    pending.last_write_head = read.last_write_head;
+                    pending.handle =
+                        tokio_util::task::AbortOnDropHandle::new(tokio::spawn(read.next_batch(
+                            crate::read::ReadTarget::Bytes(
+                                partition_request.partition_max_bytes as usize,
+                            ),
+                            std::time::Instant::now() + timeout,
+                        )));
+                } else {
+                    self.reads.remove(&key);
+                }
             }
 
             topic_responses.push(
