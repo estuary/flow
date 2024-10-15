@@ -4,6 +4,8 @@ name: Flowctl release
 on:
   release:
     types: [published]
+  pull_request:
+    branches: [master]
 
 jobs:
   release_binaries:
@@ -21,10 +23,6 @@ jobs:
           # an old glibc can link to a newer version, but not the other way around.
           - os: ubuntu-20.04
             assetName: flowctl-x86_64-linux
-          # On mac, it's the opposite. Programs built on the latest macos can run on older versions,
-          # but not the other way around.
-          - os: macos-14
-            assetName: flowctl-multiarch-macos
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -87,14 +85,3 @@ jobs:
           cargo build -p flowctl --release --target aarch64-apple-darwin
           lipo -create -output ${ASSET_NAME} target/x86_64-apple-darwin/release/flowctl target/aarch64-apple-darwin/release/flowctl
           /usr/bin/codesign --force -s "$MAC_CERTIFICATE_IDENTITY" "$ASSET_NAME" -v
-
-      # This step applies to all platforms
-      - name: Upload release asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_name: ${{ matrix.config.assetName }}
-          asset_path: ./${{ matrix.config.assetName }}
-          asset_content_type: application/octet-stream
