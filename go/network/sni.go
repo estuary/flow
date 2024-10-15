@@ -64,8 +64,16 @@ func parseSNI(target string) (parsedSNI, error) {
 
 func newResolvedSNI(parsed parsedSNI, shard *pc.ShardSpec) resolvedSNI {
 	var shardIDPrefix = shard.Id.String()
+
+	// Strip final Shard ID suffix, like `00000000-00000000`.
 	if ind := strings.LastIndexByte(shardIDPrefix, '/'); ind != -1 {
-		shardIDPrefix = shardIDPrefix[:ind+1] // Including trailing '/'.
+		shardIDPrefix = shardIDPrefix[:ind]
+	}
+	// Strip embedded creation publication ID, like `0123457890abcdef`.
+	// If we didn't do this, a deletion and creation of a task with the
+	// same name would break our resolution index cache.
+	if ind := strings.LastIndexByte(shardIDPrefix, '/'); ind != -1 {
+		shardIDPrefix = shardIDPrefix[:ind+1] // Retain trailing '/'.
 	}
 
 	var portProtocol = shard.LabelSet.ValueOf(labels.PortProtoPrefix + parsed.port)
