@@ -185,7 +185,7 @@ impl Collection {
         &self,
         partition_index: usize,
         timestamp_millis: i64,
-    ) -> anyhow::Result<Option<(i64, i64)>> {
+    ) -> anyhow::Result<Option<(i64, i64, i64)>> {
         let Some(partition) = self.partitions.get(partition_index) else {
             return Ok(None);
         };
@@ -212,18 +212,18 @@ impl Collection {
         };
         let response = self.journal_client.list_fragments(request).await?;
 
-        let (offset, mod_time) = match response.fragments.get(0) {
+        let (offset, fragment_start, mod_time) = match response.fragments.get(0) {
             Some(broker::fragments_response::Fragment {
                 spec: Some(spec), ..
             }) => {
                 if timestamp_millis == -1 {
                     // Subtract one to reflect the largest fetch-able offset of the fragment.
-                    (spec.end - 1, spec.mod_time)
+                    (spec.end - 1, spec.begin, spec.mod_time)
                 } else {
-                    (spec.begin, spec.mod_time)
+                    (spec.begin, spec.begin, spec.mod_time)
                 }
             }
-            _ => (0, 0),
+            _ => (0, 0, 0),
         };
 
         tracing::debug!(
@@ -235,7 +235,7 @@ impl Collection {
             "fetched offset"
         );
 
-        Ok(Some((offset, mod_time)))
+        Ok(Some((offset, fragment_start, mod_time)))
     }
 
     /// Build a journal client by resolving the collections data-plane gateway and an access token.
