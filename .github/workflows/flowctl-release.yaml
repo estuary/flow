@@ -33,6 +33,9 @@ jobs:
       # Linux build steps:
       - name: Build Linux
         if: matrix.config.os == 'ubuntu-20.04'
+        env:
+          CC: clang
+          CXX: clang++
         run: |-
           cargo build -p flowctl --release && mv target/release/flowctl ${ASSET_NAME}
 
