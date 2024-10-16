@@ -1,4 +1,4 @@
-use automations::PollOutcome;
+use automations::Action;
 use std::collections::VecDeque;
 
 /// Fibonacci is one of the least-efficient calculators of the Fibonacci
@@ -40,8 +40,8 @@ impl automations::Executor for Fibonacci {
     const TASK_TYPE: automations::TaskType = automations::TaskType(32767);
 
     type Receive = Message;
-    type Yield = Message;
     type State = State;
+    type Outcome = Action;
 
     #[tracing::instrument(
         ret,
@@ -51,11 +51,12 @@ impl automations::Executor for Fibonacci {
     )]
     async fn poll<'s>(
         &'s self,
+        _pool: &'s sqlx::PgPool,
         task_id: models::Id,
         parent_id: Option<models::Id>,
         state: &'s mut Self::State,
         inbox: &'s mut VecDeque<(models::Id, Option<Message>)>,
-    ) -> anyhow::Result<automations::PollOutcome<Message>> {
+    ) -> anyhow::Result<Self::Outcome> {
         if rand::random::<f32>() < self.failure_rate {
             return Err(
                 anyhow::anyhow!("A no good, very bad error!").context("something bad happened")
@@ -63,7 +64,7 @@ impl automations::Executor for Fibonacci {
         }
 
         if let State::SpawnOne(value) = state {
-            let spawn = PollOutcome::spawn(
+            let spawn = Action::spawn(
                 automations::next_task_id(),
                 Self::TASK_TYPE,
                 Message { value: *value - 2 },
@@ -80,14 +81,14 @@ impl automations::Executor for Fibonacci {
             // Base case:
             (State::Init, Some((_parent_id, Some(Message { value })))) if value <= 2 => {
                 *state = State::Finished;
-                Ok(PollOutcome::Yield(Message { value: 1 }))
+                Action::yield_(Message { value: 1 })
             }
 
             // Recursive case:
             (State::Init, Some((_parent_id, Some(Message { value })))) => {
                 *state = State::SpawnOne(value);
 
-                PollOutcome::spawn(
+                Action::spawn(
                     automations::next_task_id(),
                     Self::TASK_TYPE,
                     Message { value: value - 1 },
@@ -99,7 +100,7 @@ impl automations::Executor for Fibonacci {
                 // Sleeping at this point in the lifecycle exercises handling of
                 // messages sent to a task that's currently being polled.
                 () = tokio::time::sleep(self.sleep_for).await;
-                Ok(PollOutcome::Suspend)
+                Ok(Action::Suspend)
             }
 
             (State::Waiting { partial, pending }, Some((_child_id, Some(Message { value })))) => {
@@ -107,7 +108,7 @@ impl automations::Executor for Fibonacci {
                     partial: partial + value,
                     pending,
                 };
-                Ok(PollOutcome::Suspend)
+                Ok(Action::Suspend)
             }
 
             (State::Waiting { partial, pending }, Some((_child_id, None))) => {
@@ -116,14 +117,14 @@ impl automations::Executor for Fibonacci {
                         partial,
                         pending: pending - 1,
                     };
-                    Ok(PollOutcome::Suspend)
+                    Ok(Action::Suspend)
                 } else {
                     *state = State::Finished;
-                    Ok(PollOutcome::Yield(Message { value: partial }))
+                    Action::yield_(Message { value: partial })
                 }
             }
 
-            (State::Finished, None) => Ok(PollOutcome::Done),
+            (State::Finished, None) => Ok(Action::Done),
 
             state => anyhow::bail!("unexpected poll with state {state:?} and inbox {inbox:?}"),
         }
