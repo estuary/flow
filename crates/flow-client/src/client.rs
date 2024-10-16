@@ -312,7 +312,7 @@ pub async fn refresh_authorizations(
         (Some(access), None) => {
             // We have an access token but no refresh token. Create one.
             let refresh_token = api_exec::<RefreshToken>(
-                client.rpc(
+                client.clone().with_creds(Some(access.to_owned())).rpc(
                     "create_refresh_token",
                     serde_json::json!({"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"})
                         .to_string(),
