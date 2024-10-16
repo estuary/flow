@@ -18,11 +18,13 @@ use kafka_protocol::{
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
 use std::{
-    collections::HashMap,
+    collections::{
+        hash_map::{Entry, OccupiedEntry},
+        HashMap,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 use std::{sync::Arc, time::Duration};
-use tokio::sync::RwLock;
 use tracing::instrument;
 
 struct PendingRead {
@@ -36,23 +38,19 @@ pub struct Session {
     reads: HashMap<(TopicName, i32), PendingRead>,
     secret: String,
     auth: Option<Authenticated>,
-    latest_partition_offsets: Arc<RwLock<HashMap<(TopicName, i32), (i64, i64)>>>,
+    data_preview_offsets: HashMap<(TopicName, i32), Option<(i64, i64)>>,
     pub client_id: Option<String>,
 }
 
 impl Session {
-    pub fn new(
-        app: Arc<App>,
-        secret: String,
-        offsets: Arc<RwLock<HashMap<(TopicName, i32), (i64, i64)>>>,
-    ) -> Self {
+    pub fn new(app: Arc<App>, secret: String) -> Self {
         Self {
             app,
             reads: HashMap::new(),
             auth: None,
             secret,
-            latest_partition_offsets: offsets,
             client_id: None,
+            data_preview_offsets: HashMap::new(),
         }
     }
 
@@ -322,8 +320,6 @@ impl Session {
             ListOffsetsPartitionResponse, ListOffsetsTopicResponse,
         };
 
-        let mut new_latest_offsets = HashMap::new();
-
         // Map topics, partition indices, and fetched offsets into a comprehensive response.
         let response = collections
             .into_iter()
@@ -336,13 +332,6 @@ impl Session {
                                 .with_partition_index(partition_index)
                                 .with_error_code(ResponseError::UnknownTopicOrPartition.code());
                         };
-
-                        if request_timestamp == -1 {
-                            new_latest_offsets.insert(
-                                (topic_name.to_owned(), partition_index),
-                                (offset, fragment_start),
-                            );
-                        }
 
                         ListOffsetsPartitionResponse::default()
                             .with_partition_index(partition_index)
@@ -357,15 +346,16 @@ impl Session {
             })
             .collect();
 
-        self.latest_partition_offsets
-            .write()
-            .await
-            .extend(new_latest_offsets);
-
         Ok(messages::ListOffsetsResponse::default().with_topics(response))
     }
 
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            max_wait_ms=request.max_wait_ms
+        )
+    )]
     pub async fn fetch(
         &mut self,
         request: messages::FetchRequest,
@@ -395,22 +385,48 @@ impl Session {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
 
             for partition_request in &topic_request.partitions {
-                let read_guard = self.latest_partition_offsets.read().await;
-                let fetched_offset = read_guard
-                    .get(&(key.0.to_owned(), partition_request.partition))
-                    .copied();
-
-                drop(read_guard);
-
-                let diff = if let Some((offset, fragment_start)) = fetched_offset {
-                    Some((offset - partition_request.fetch_offset, fragment_start))
-                } else {
-                    None
-                };
-
                 key.1 = partition_request.partition;
-
                 let fetch_offset = partition_request.fetch_offset;
+
+                let data_preview_params: Option<(i64, i64)> = match self
+                    .data_preview_offsets
+                    .entry(key.to_owned())
+                {
+                    Entry::Occupied(entry) => match entry.get() {
+                        Some((offset, fragment_start)) => {
+                            tracing::debug!(collection=?key.0,partition=key.1, offset, fragment_start, fetch_offset, "Session already marked as data-preview for this partition");
+                            Some((*offset, *fragment_start))
+                        }
+                        None => {
+                            tracing::debug!(collection=?key.0,partition=key.1, "Session already marked as not data-preview for this partition");
+                            None
+                        }
+                    },
+                    Entry::Vacant(entry) => {
+                        tracing::debug!(collection=?key.0,partition=key.1, fetch_offset,"Loading latest offset for this partition to check if session is data-preview");
+                        let collection = Collection::new(&client, key.0.as_str())
+                            .await?
+                            .ok_or(anyhow::anyhow!("Collection {} not found", key.0.as_str()))?;
+
+                        if let Some((latest_offset, fragment_start, _)) = collection
+                            .fetch_partition_offset(key.1 as usize, -1)
+                            .await?
+                        {
+                            if latest_offset - fetch_offset < 13 {
+                                tracing::debug!(collection=?key.0,partition=key.1, fetch_offset, latest_offset, diff=latest_offset - fetch_offset, "Marking session as data-preview for this partition");
+                                let diff = Some((latest_offset, fragment_start));
+                                entry.insert(diff);
+                                diff
+                            } else {
+                                tracing::debug!(collection=?key.0,partition=key.1, fetch_offset, latest_offset, diff=latest_offset - fetch_offset, "Marking session as not data-preview for this partition");
+                                entry.insert(None);
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                };
 
                 if matches!(self.reads.get(&key), Some(pending) if pending.offset == fetch_offset) {
                     continue; // Common case: fetch is at the pending offset.
@@ -432,23 +448,28 @@ impl Session {
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
-                    handle: tokio_util::task::AbortOnDropHandle::new(match diff {
+                    handle: tokio_util::task::AbortOnDropHandle::new(match data_preview_params {
                         // Startree: 0, Tinybird: 12
-                        Some((diff, fragment_start)) if diff <= 12 => tokio::spawn(
-                            Read::new(
-                                collection.journal_client.clone(),
-                                &collection,
-                                partition,
-                                fragment_start,
-                                key_schema_id,
-                                value_schema_id,
-                                Some(partition_request.fetch_offset - 1),
+                        Some((latest_offset, fragment_start))
+                            if latest_offset - fetch_offset <= 12 =>
+                        {
+                            let diff = latest_offset - fetch_offset;
+                            tokio::spawn(
+                                Read::new(
+                                    collection.journal_client.clone(),
+                                    &collection,
+                                    partition,
+                                    fragment_start,
+                                    key_schema_id,
+                                    value_schema_id,
+                                    Some(partition_request.fetch_offset - 1),
+                                )
+                                .next_batch(
+                                    crate::read::ReadTarget::Docs(diff as usize + 1),
+                                    std::time::Instant::now() + timeout,
+                                ),
                             )
-                            .next_batch(
-                                crate::read::ReadTarget::Docs(diff as usize + 1),
-                                std::time::Instant::now() + timeout,
-                            ),
-                        ),
+                        }
                         _ => tokio::spawn(
                             Read::new(
                                 collection.journal_client.clone(),
