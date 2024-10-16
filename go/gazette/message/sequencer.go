@@ -408,15 +408,32 @@ func (w *Sequencer) Step() error {
 				// with one exception: messages with zero-valued Clocks are not
 				// expected to be consistently ordered on clock.
 				// In QueueUncommitted we synthetically assigned a clock value.
-				panic(fmt.Sprintf("ring clock <= emit.minClock\n%+v", map[string]interface{}{
+				// Log a bunch of diagnostics using separate
+				log.WithFields(log.Fields{
 					"uuid":          uuid,
-					"message":       w.Dequeued,
 					"dequeuedClock": w.dequeuedClock,
-					"offsets":       w.offsets,
-					"partials":      w.partials,
-					"pending":       w.pending,
-					"emit":          w.emit,
-				}))
+					"emit":          fmt.Sprintf("%+v", w.emit),
+					"partialsCount": len(w.partials),
+					"pendingCount":  len(w.pending),
+				}).Error("ring clock <= emit.minClock (will log diagnostics then panic)")
+				log.WithField("offsets", w.offsets).Error("sequencer offsets")
+				log.WithField("dequeued", w.Dequeued).Error("dequeued message")
+
+				for producer, partial := range w.partials {
+					log.WithFields(log.Fields{
+						"producer": producer,
+						"partial":  partial,
+					}).Error("partials")
+				}
+				var i = 0
+				for pending, _ := range w.pending {
+					log.WithFields(log.Fields{
+						"i":       i,
+						"pending": pending,
+					}).Error("pending")
+					i++
+				}
+				panic("ring clock <= emit.minClock")
 			}
 		} else if w.dequeuedClock > w.emit.maxClock {
 			continue // ACK'd clock tells us not to commit.
