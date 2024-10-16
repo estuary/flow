@@ -49,6 +49,13 @@ pub struct Partition {
     pub route: broker::Route,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
+pub struct PartitionOffset {
+    pub fragment_start: i64,
+    pub offset: i64,
+    pub mod_time: i64,
+}
+
 impl Collection {
     /// Build a Collection by fetching its spec, a authenticated data-plane access token, and its partitions.
     pub async fn new(
@@ -185,7 +192,7 @@ impl Collection {
         &self,
         partition_index: usize,
         timestamp_millis: i64,
-    ) -> anyhow::Result<Option<(i64, i64, i64)>> {
+    ) -> anyhow::Result<Option<PartitionOffset>> {
         let Some(partition) = self.partitions.get(partition_index) else {
             return Ok(None);
         };
@@ -212,30 +219,37 @@ impl Collection {
         };
         let response = self.journal_client.list_fragments(request).await?;
 
-        let (offset, fragment_start, mod_time) = match response.fragments.get(0) {
+        let offset_data = match response.fragments.get(0) {
             Some(broker::fragments_response::Fragment {
                 spec: Some(spec), ..
             }) => {
                 if timestamp_millis == -1 {
-                    // Subtract one to reflect the largest fetch-able offset of the fragment.
-                    (spec.end - 1, spec.begin, spec.mod_time)
+                    PartitionOffset {
+                        fragment_start: spec.begin,
+                        // Subtract one to reflect the largest fetch-able offset of the fragment.
+                        offset: spec.end - 1,
+                        mod_time: spec.mod_time,
+                    }
                 } else {
-                    (spec.begin, spec.begin, spec.mod_time)
+                    PartitionOffset {
+                        fragment_start: spec.begin,
+                        offset: spec.begin,
+                        mod_time: spec.mod_time,
+                    }
                 }
             }
-            _ => (0, 0, 0),
+            _ => PartitionOffset::default(),
         };
 
         tracing::debug!(
             collection = self.spec.name,
-            mod_time,
-            offset,
+            ?offset_data,
             partition_index,
             timestamp_millis,
             "fetched offset"
         );
 
-        Ok(Some((offset, fragment_start, mod_time)))
+        Ok(Some(offset_data))
     }
 
     /// Build a journal client by resolving the collections data-plane gateway and an access token.
