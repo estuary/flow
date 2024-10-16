@@ -1,4 +1,4 @@
-use super::{server, BoxedRaw, Executor, PollOutcome, TaskType};
+use super::{server, Action, BoxedRaw, Executor, Outcome, TaskType};
 use anyhow::Context;
 use futures::future::{BoxFuture, FutureExt};
 use sqlx::types::Json as SqlJson;
@@ -9,11 +9,12 @@ pub trait ObjSafe: Send + Sync + 'static {
 
     fn poll<'s>(
         &'s self,
+        pool: &'s sqlx::PgPool,
         task_id: models::Id,
         parent_id: Option<models::Id>,
-        state: &'s mut Option<SqlJson<BoxedRaw>>,
-        inbox: &'s mut Option<Vec<SqlJson<(models::Id, Option<BoxedRaw>)>>>,
-    ) -> BoxFuture<'s, anyhow::Result<PollOutcome<BoxedRaw>>>;
+        state: Option<SqlJson<BoxedRaw>>,
+        inbox: Option<Vec<SqlJson<(models::Id, Option<BoxedRaw>)>>>,
+    ) -> BoxFuture<'s, anyhow::Result<()>>;
 }
 
 impl<E: Executor> ObjSafe for E {
@@ -23,11 +24,12 @@ impl<E: Executor> ObjSafe for E {
 
     fn poll<'s>(
         &'s self,
+        pool: &'s sqlx::PgPool,
         task_id: models::Id,
         parent_id: Option<models::Id>,
-        state: &'s mut Option<SqlJson<BoxedRaw>>,
-        inbox: &'s mut Option<Vec<SqlJson<(models::Id, Option<BoxedRaw>)>>>,
-    ) -> BoxFuture<'s, anyhow::Result<PollOutcome<BoxedRaw>>> {
+        mut state: Option<SqlJson<BoxedRaw>>,
+        mut inbox: Option<Vec<SqlJson<(models::Id, Option<BoxedRaw>)>>>,
+    ) -> BoxFuture<'s, anyhow::Result<()>> {
         async move {
             let mut state_parsed: E::State = if let Some(state) = state {
                 serde_json::from_str(state.get()).context("failed to decode task state")?
@@ -52,6 +54,7 @@ impl<E: Executor> ObjSafe for E {
 
             let outcome = E::poll(
                 self,
+                pool,
                 task_id,
                 parent_id,
                 &mut state_parsed,
@@ -60,21 +63,16 @@ impl<E: Executor> ObjSafe for E {
             .await?;
 
             // Re-encode state for persistence.
-            // If we're Done, then the output state is NULL which is implicitly Default.
-            if matches!(outcome, PollOutcome::Done) {
-                *state = None
-            } else {
-                *state = Some(SqlJson(
-                    serde_json::value::to_raw_value(&state_parsed)
-                        .context("failed to encode inner state")?,
-                ));
-            }
+            state = Some(SqlJson(
+                serde_json::value::to_raw_value(&state_parsed)
+                    .context("failed to encode inner state")?,
+            ));
 
             // Re-encode the unconsumed portion of the inbox.
             if inbox_parsed.is_empty() {
-                *inbox = None
+                inbox = None
             } else {
-                *inbox = Some(
+                inbox = Some(
                     inbox_parsed
                         .into_iter()
                         .map(|(task_id, msg)| {
@@ -91,19 +89,16 @@ impl<E: Executor> ObjSafe for E {
                 );
             }
 
-            Ok(match outcome {
-                PollOutcome::Done => PollOutcome::Done,
-                PollOutcome::Send(task_id, msg) => PollOutcome::Send(task_id, msg),
-                PollOutcome::Sleep(interval) => PollOutcome::Sleep(interval),
-                PollOutcome::Spawn(task_id, task_type, msg) => {
-                    PollOutcome::Spawn(task_id, task_type, msg)
-                }
-                PollOutcome::Suspend => PollOutcome::Suspend,
-                PollOutcome::Yield(msg) => PollOutcome::Yield(
-                    serde_json::value::to_raw_value(&msg)
-                        .context("failed to encode yielded message")?,
-                ),
-            })
+            let mut txn = pool.begin().await?;
+
+            let action = outcome
+                .apply(&mut *txn)
+                .await
+                .context("failed to apply task Outcome")?;
+
+            () = persist_action(action, &mut *txn, task_id, parent_id, state, inbox).await?;
+
+            Ok(txn.commit().await?)
         }
         .boxed()
     }
@@ -119,8 +114,8 @@ pub async fn poll_task(
                 id: task_id,
                 type_: _,
                 parent_id,
-                mut inbox,
-                mut state,
+                inbox,
+                state,
                 mut last_heartbeat,
             },
     }: server::ReadyTask,
@@ -145,24 +140,9 @@ pub async fn poll_task(
 
     // Poll `executor` and `update_heartbeats` in tandem, so that a failure
     // to update our heartbeat also cancels the executor.
-    let outcome = tokio::select! {
-        outcome = executor.poll(task_id, parent_id, &mut state, &mut inbox) => { outcome? },
-        err = &mut update_heartbeats => return Err(err),
-    };
-
-    // The possibly long-lived polling operation is now complete.
-    // Build a Future that commits a (hopefully) brief transaction of `outcome`.
-    let persist_outcome = async {
-        let mut txn = pool.begin().await?;
-        () = persist_outcome(outcome, &mut *txn, task_id, parent_id, state, inbox).await?;
-        Ok(txn.commit().await?)
-    };
-
-    // Poll `persist_outcome` while continuing to poll `update_heartbeats`,
-    // to guarantee we cannot commit an outcome after our lease is lost.
     tokio::select! {
-        result = persist_outcome => result,
-        err = update_heartbeats => Err(err),
+        result = executor.poll(&pool, task_id, parent_id, state, inbox) => result,
+        err = &mut update_heartbeats => return Err(err),
     }
 }
 
@@ -203,17 +183,17 @@ async fn update_heartbeat(
     Ok(updated.heartbeat)
 }
 
-async fn persist_outcome(
-    outcome: PollOutcome<BoxedRaw>,
+async fn persist_action(
+    action: Action,
     txn: &mut sqlx::PgConnection,
     task_id: models::Id,
     parent_id: Option<models::Id>,
-    state: Option<SqlJson<BoxedRaw>>,
+    mut state: Option<SqlJson<BoxedRaw>>,
     inbox: Option<Vec<SqlJson<(models::Id, Option<BoxedRaw>)>>>,
 ) -> anyhow::Result<()> {
     use std::time::Duration;
 
-    if let PollOutcome::Spawn(spawn_id, spawn_type, _msg) = &outcome {
+    if let Action::Spawn(spawn_id, spawn_type, _msg) = &action {
         sqlx::query!(
             "SELECT internal.create_task($1, $2, $3)",
             *spawn_id as models::Id,
@@ -225,15 +205,15 @@ async fn persist_outcome(
         .context("failed to spawn new task")?;
     }
 
-    if let Some((send_id, msg)) = match &outcome {
+    if let Some((send_id, msg)) = match &action {
         // When a task is spawned, send its first message.
-        PollOutcome::Spawn(spawn_id, _spawn_type, msg) => Some((*spawn_id, Some(msg))),
+        Action::Spawn(spawn_id, _spawn_type, msg) => Some((*spawn_id, Some(msg))),
         // If we're Done but have a parent, send it an EOF.
-        PollOutcome::Done => parent_id.map(|parent_id| (parent_id, None)),
+        Action::Done => parent_id.map(|parent_id| (parent_id, None)),
         // Send an arbitrary message to an identified task.
-        PollOutcome::Send(task_id, msg) => Some((*task_id, msg.as_ref())),
+        Action::Send(task_id, msg) => Some((*task_id, msg.as_ref())),
         // Yield is sugar for sending to our parent.
-        PollOutcome::Yield(msg) => {
+        Action::Yield(msg) => {
             let Some(parent_id) = parent_id else {
                 anyhow::bail!("task yielded illegally, because it does not have a parent");
             };
@@ -255,16 +235,18 @@ async fn persist_outcome(
     let wake_at_interval = if inbox.is_some() {
         Some(Duration::ZERO) // Always poll immediately if inbox items remain.
     } else {
-        match &outcome {
-            PollOutcome::Sleep(interval) => Some(*interval),
+        match &action {
+            Action::Sleep(interval) => Some(*interval),
             // These outcomes do not suspend the task, and it should wake as soon as possible.
-            PollOutcome::Spawn(..) | PollOutcome::Send(..) | PollOutcome::Yield(..) => {
-                Some(Duration::ZERO)
-            }
+            Action::Spawn(..) | Action::Send(..) | Action::Yield(..) => Some(Duration::ZERO),
             // Suspend indefinitely (note that NOW() + NULL::INTERVAL is NULL).
-            PollOutcome::Done | PollOutcome::Suspend => None,
+            Action::Done | Action::Suspend => None,
         }
     };
+
+    if let Action::Done = &action {
+        state = None; // Set to NULL, which is implicit Default.
+    }
 
     let updated = sqlx::query!(
         r#"
@@ -292,7 +274,7 @@ async fn persist_outcome(
 
     // If we're Done and also successfully suspended, then delete ourselves.
     // (Otherwise, the task has been left in a like-new state).
-    if matches!(&outcome, PollOutcome::Done if updated.suspended) {
+    if matches!(&action, Action::Done if updated.suspended) {
         sqlx::query!(
             "DELETE FROM internal.tasks WHERE task_id = $1;",
             task_id as models::Id,

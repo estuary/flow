@@ -23,16 +23,40 @@ type BoxedRaw = Box<serde_json::value::RawValue>;
 #[sqlx(transparent)]
 pub struct TaskType(pub i16);
 
-/// PollOutcome is the outcome of an `Executor::poll()` for a given task.
+/// Outcome of an `Executor::poll()` for a given task, which encloses
+/// an Action with which it's applied as a single transaction.
+///
+/// As an example of how Executor, Outcome, and Action are used together,
+/// suppose an implementation of `Executor::poll()` is called:
+///
+/// - It reads DB state associated with the task using sqlx::PgPool.
+/// - It performs long-running work, running outside of a DB transaction.
+/// - It returns an Outcome implementation which encapsulates the
+///   preconditions it observed, as well as its domain-specific outcome.
+/// - `Outcome::apply()` is called and re-verifies preconditions using `txn`,
+///   returning an error if preconditions have changed.
+/// - It applies the effects of its outcome and returns a polling Action.
+/// - `txn` is further by this crate as required by the Action, and then commits.
+///
+pub trait Outcome: Send {
+    /// Apply the effects of an Executor poll. While this is an async routine,
+    /// apply() runs in the context of a held transaction and should be fast.
+    fn apply<'s>(
+        self,
+        txn: &'s mut sqlx::PgConnection,
+    ) -> impl std::future::Future<Output = anyhow::Result<Action>> + Send + 's;
+}
+
+/// Action undertaken by an Executor task poll.
 #[derive(Debug)]
-pub enum PollOutcome<Yield> {
+pub enum Action {
     /// Spawn a new TaskId with the given TaskType and send a first message.
     /// The TaskId must not exist.
     Spawn(models::Id, TaskType, BoxedRaw),
     /// Send a message (Some) or EOF (None) to another TaskId, which must exist.
     Send(models::Id, Option<BoxedRaw>),
     /// Yield to send a message to this task's parent.
-    Yield(Yield),
+    Yield(BoxedRaw),
     /// Sleep for at-most the indicated Duration, then poll again.
     /// The task may be woken earlier if it receives a message.
     Sleep(std::time::Duration),
@@ -43,28 +67,35 @@ pub enum PollOutcome<Yield> {
     Done,
 }
 
+// Action implements an Outcome with no side-effects.
+impl Outcome for Action {
+    async fn apply<'s>(self, _txn: &'s mut sqlx::PgConnection) -> anyhow::Result<Action> {
+        Ok(self)
+    }
+}
+
 /// Executor is the core trait implemented by executors of various task types.
 pub trait Executor: Send + Sync + 'static {
     const TASK_TYPE: TaskType;
 
     type Receive: serde::de::DeserializeOwned + serde::Serialize + Send;
     type State: Default + serde::de::DeserializeOwned + serde::Serialize + Send;
-    type Yield: serde::Serialize;
+    type Outcome: Outcome;
 
     fn poll<'s>(
         &'s self,
+        pool: &'s sqlx::PgPool,
         task_id: models::Id,
         parent_id: Option<models::Id>,
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
-    ) -> impl std::future::Future<Output = anyhow::Result<PollOutcome<Self::Yield>>> + Send + 's;
+    ) -> impl std::future::Future<Output = anyhow::Result<Self::Outcome>> + Send + 's;
 }
 
-/// Server holds registered implementations of Executor,
-/// and serves them.
+/// Server holds registered implementations of Executors and serves them.
 pub struct Server(Vec<Arc<dyn executors::ObjSafe>>);
 
-impl<Yield> PollOutcome<Yield> {
+impl Action {
     pub fn spawn<M: serde::Serialize>(
         spawn_id: models::Id,
         task_type: TaskType,
@@ -87,6 +118,12 @@ impl<Yield> PollOutcome<Yield> {
                 ),
                 None => None,
             },
+        ))
+    }
+
+    pub fn yield_<M: serde::Serialize>(msg: M) -> anyhow::Result<Self> {
+        Ok(Self::Yield(
+            serde_json::value::to_raw_value(&msg).context("failed to encode yielded message")?,
         ))
     }
 }
