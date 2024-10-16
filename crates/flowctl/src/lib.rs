@@ -136,21 +136,25 @@ impl Cli {
 
         let anon_client: flow_client::Client = config.build_anon_client();
 
-        let client = if let Ok((access, refresh)) = refresh_authorizations(
+        let client = match refresh_authorizations(
             &anon_client,
             config.user_access_token.to_owned(),
             config.user_refresh_token.to_owned(),
         )
         .await
         {
-            // Make sure to store refreshed tokens back in Config so they get written back to disk
-            config.user_access_token = Some(access.to_owned());
-            config.user_refresh_token = Some(refresh.to_owned());
+            Ok((access, refresh)) => {
+                // Make sure to store refreshed tokens back in Config so they get written back to disk
+                config.user_access_token = Some(access.to_owned());
+                config.user_refresh_token = Some(refresh.to_owned());
 
-            anon_client.with_creds(Some(access))
-        } else {
-            tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
-            anon_client
+                anon_client.with_creds(Some(access))
+            }
+            Err(err) => {
+                tracing::debug!(?err, "Error refreshing credentials");
+                tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
+                anon_client
+            }
         };
 
         let mut context = CliContext {
