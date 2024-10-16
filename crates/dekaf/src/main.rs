@@ -117,8 +117,6 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     tracing::info!("Starting dekaf");
 
-    let offset_map = Arc::new(RwLock::new(HashMap::new()));
-
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
@@ -225,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
                         continue
                     };
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned(), offset_map.clone()), socket, addr, stop.clone()));
+                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
                 }
                 _ = &mut stop => break,
             }
@@ -246,7 +244,7 @@ async fn main() -> anyhow::Result<()> {
                     };
                     socket.set_nodelay(true)?;
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned(), offset_map.clone()), socket, addr, stop.clone()));
+                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
                 }
                 _ = &mut stop => break,
             }
