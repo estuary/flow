@@ -408,7 +408,15 @@ func (w *Sequencer) Step() error {
 				// with one exception: messages with zero-valued Clocks are not
 				// expected to be consistently ordered on clock.
 				// In QueueUncommitted we synthetically assigned a clock value.
-				panic("ring clock <= emit.minClock")
+				panic(fmt.Sprintf("ring clock <= emit.minClock\n%+v", map[string]interface{}{
+					"uuid":          uuid,
+					"message":       w.Dequeued,
+					"dequeuedClock": w.dequeuedClock,
+					"offsets":       w.offsets,
+					"partials":      w.partials,
+					"pending":       w.pending,
+					"emit":          w.emit,
+				}))
 			}
 		} else if w.dequeuedClock > w.emit.maxClock {
 			continue // ACK'd clock tells us not to commit.
