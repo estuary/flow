@@ -1261,7 +1261,9 @@ impl Session {
             .fetch_partition_offset(partition as usize, -1)
             .await?
         {
-            if latest_offset - fetch_offset < 13 {
+            // If fetch_offset is > latest_offset, this is a caught-up consumer
+            // polling for new documents, not a data preview request.
+            if fetch_offset <= latest_offset && latest_offset - fetch_offset < 13 {
                 tracing::debug!(
                     latest_offset,
                     diff = latest_offset - fetch_offset,
