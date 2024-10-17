@@ -614,6 +614,51 @@ func TestSequencerProducerStatesRoundTripDuringDequeue(t *testing.T) {
 	expectDeque(t, seq2, a5, a6ACK)
 }
 
+func TestSequencerProducerStatesStraddleDuplicate(t *testing.T) {
+	var (
+		generate = newTestMsgGenerator()
+		seq1     = NewSequencer(nil, nil, 12)
+		A        = NewProducerID()
+		a1       = generate(A, 1, Flag_CONTINUE_TXN)
+		a2       = generate(A, 2, Flag_CONTINUE_TXN)
+		a3       = generate(A, 3, Flag_CONTINUE_TXN)
+		a1Dup    = generate(A, 1, Flag_CONTINUE_TXN)
+		a2Dup    = generate(A, 2, Flag_CONTINUE_TXN)
+		a3Dup    = generate(A, 3, Flag_CONTINUE_TXN)
+		a4ACK    = generate(A, 4, Flag_ACK_TXN)
+	)
+
+	require.Equal(t, []QueueOutcome{
+		QueueContinueBeginSpan,
+		QueueContinueExtendSpan,
+		QueueContinueExtendSpan,
+	}, queue(seq1, a1, a2, a3))
+	require.Nil(t, seq1.emit) // No messages to dequeue.
+
+	// Take a checkpoint and then restore it.
+	var offsets, states = seq1.Checkpoint(0)
+	var seq2 = NewSequencer(offsets, states, 12)
+
+	require.Equal(t, []QueueOutcome{
+		QueueContinueTxnClockLarger,
+		QueueContinueTxnClockLarger,
+		QueueContinueTxnClockLarger,
+		QueueAckCommitRing,
+	}, queue(seq1, a1Dup, a2Dup, a3Dup, a4ACK))
+
+	require.Equal(t, []QueueOutcome{
+		QueueContinueExtendSpan,
+		QueueContinueExtendSpan,
+		QueueContinueExtendSpan,
+		QueueAckCommitReplay,
+	}, queue(seq2, a1Dup, a2Dup, a3Dup, a4ACK))
+
+	expectReplay(t, seq2, a1.Begin, a1Dup.Begin, a1, a2, a3)
+
+	expectDeque(t, seq1, a1, a2, a3, a4ACK)
+	expectDeque(t, seq2, a1, a2, a3, a4ACK)
+}
+
 func TestSequencerProducerPruning(t *testing.T) {
 	var (
 		generate = newTestMsgGenerator()

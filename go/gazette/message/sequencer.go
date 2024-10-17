@@ -401,40 +401,21 @@ func (w *Sequencer) Step() error {
 		w.dequeuedClock = GetClock(uuid)
 
 		if w.dequeuedClock != 0 && w.dequeuedClock <= w.emit.minClock {
-			if w.replayIt != nil {
-				continue // These can happen during replays.
-			} else {
-				// We don't allow duplicates within the ring in the first place,
-				// with one exception: messages with zero-valued Clocks are not
-				// expected to be consistently ordered on clock.
-				// In QueueUncommitted we synthetically assigned a clock value.
-				// Log a bunch of diagnostics using separate
-				log.WithFields(log.Fields{
-					"uuid":          uuid,
-					"dequeuedClock": w.dequeuedClock,
-					"emit":          fmt.Sprintf("%+v", w.emit),
-					"partialsCount": len(w.partials),
-					"pendingCount":  len(w.pending),
-				}).Error("ring clock <= emit.minClock (will log diagnostics then panic)")
-				log.WithField("offsets", w.offsets).Error("sequencer offsets")
-				log.WithField("dequeued", w.Dequeued).Error("dequeued message")
-
-				for producer, partial := range w.partials {
-					log.WithFields(log.Fields{
-						"producer": producer,
-						"partial":  partial,
-					}).Error("partials")
-				}
-				var i = 0
-				for pending, _ := range w.pending {
-					log.WithFields(log.Fields{
-						"i":       i,
-						"pending": pending,
-					}).Error("pending")
-					i++
-				}
-				panic("ring clock <= emit.minClock")
-			}
+			// We don't allow duplicates within the ring with one exception:
+			// messages with zero-valued Clocks are not expected to be
+			// consistently ordered on clock (in QueueUncommitted we
+			// synthetically assigned a clock value).
+			//
+			// However:
+			// - Duplicated sequences CAN happen during replays.
+			// - They can ALSO happen if we dequeued during replay,
+			//   and then observe the sequence duplicated again in the ring.
+			//
+			// While ordinarily we would discard such duplicates during ring
+			// maintenance operations, if the duplication straddles a recovered
+			// checkpoint boundary then all bets are off because checkpoints
+			// track only the last ACK and not the partial minClock.
+			continue
 		} else if w.dequeuedClock > w.emit.maxClock {
 			continue // ACK'd clock tells us not to commit.
 		}
