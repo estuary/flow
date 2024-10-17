@@ -194,6 +194,7 @@ async fn handle_api(
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(frame, version)?;
             tracing::debug!(client_id=?header.client_id, "Got client ID!");
+            session.client_id = header.client_id.clone().map(|id| id.to_string());
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
         ApiKey::SaslHandshakeKey => {

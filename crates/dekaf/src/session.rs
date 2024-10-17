@@ -1,10 +1,12 @@
 use super::{App, Collection, Read};
 use crate::{
-    from_downstream_topic_name, from_upstream_topic_name, read::BatchResult,
-    to_downstream_topic_name, to_upstream_topic_name, topology::fetch_all_collection_names,
+    from_downstream_topic_name, from_upstream_topic_name,
+    read::BatchResult,
+    to_downstream_topic_name, to_upstream_topic_name,
+    topology::{fetch_all_collection_names, PartitionOffset},
     Authenticated,
 };
-use anyhow::Context;
+use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
@@ -18,7 +20,7 @@ use kafka_protocol::{
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     time::{SystemTime, UNIX_EPOCH},
 };
 use std::{sync::Arc, time::Duration};
@@ -30,11 +32,20 @@ struct PendingRead {
     handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
 }
 
+#[derive(Clone, Debug)]
+enum SessionDataPreviewState {
+    Unknown,
+    NotDataPreview,
+    DataPreview(HashMap<(TopicName, i32), PartitionOffset>),
+}
+
 pub struct Session {
     app: Arc<App>,
     reads: HashMap<(TopicName, i32), PendingRead>,
     secret: String,
     auth: Option<Authenticated>,
+    data_preview_state: SessionDataPreviewState,
+    pub client_id: Option<String>,
 }
 
 impl Session {
@@ -44,6 +55,8 @@ impl Session {
             reads: HashMap::new(),
             auth: None,
             secret,
+            client_id: None,
+            data_preview_state: SessionDataPreviewState::Unknown,
         }
     }
 
@@ -264,8 +277,8 @@ impl Session {
             .await?;
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
-        // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
-        let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<(i64, i64)>)>)>> =
+        // Map each "topic" into Vec<(Partition Index, Option<PartitionOffset>.
+        let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<PartitionOffset>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
                     client,
@@ -318,7 +331,12 @@ impl Session {
                 let partitions = offsets
                     .into_iter()
                     .map(|(partition_index, maybe_offset)| {
-                        let Some((offset, timestamp)) = maybe_offset else {
+                        let Some(PartitionOffset {
+                            offset,
+                            mod_time: timestamp,
+                            ..
+                        }) = maybe_offset
+                        else {
                             return ListOffsetsPartitionResponse::default()
                                 .with_partition_index(partition_index)
                                 .with_error_code(ResponseError::UnknownTopicOrPartition.code());
@@ -341,6 +359,12 @@ impl Session {
     }
 
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            max_wait_ms=request.max_wait_ms
+        )
+    )]
     pub async fn fetch(
         &mut self,
         request: messages::FetchRequest,
@@ -361,10 +385,10 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?
             .authenticated_client()
-            .await?;
+            .await?
+            .clone();
 
-        let timeout_at =
-            std::time::Instant::now() + std::time::Duration::from_millis(max_wait_ms as u64);
+        let timeout = std::time::Duration::from_millis(max_wait_ms as u64);
 
         let mut hit_timeout = false;
 
@@ -374,13 +398,66 @@ impl Session {
 
             for partition_request in &topic_request.partitions {
                 key.1 = partition_request.partition;
-
                 let fetch_offset = partition_request.fetch_offset;
+
+                let data_preview_params: Option<PartitionOffset> = match self
+                    .data_preview_state
+                    .to_owned()
+                {
+                    // On the first Fetch call, check to see whether it is considered a data-preview
+                    // fetch or not. If so, flag the whole session as being tainted, and also keep track
+                    // of the neccesary offset data in order to serve the rewritten data preview responses.
+                    SessionDataPreviewState::Unknown => {
+                        if let Some(state) = self
+                            .is_fetch_data_preview(key.0.to_string(), key.1, fetch_offset)
+                            .await?
+                        {
+                            let mut data_preview_state = HashMap::new();
+                            data_preview_state.insert(key.to_owned(), state);
+                            self.data_preview_state =
+                                SessionDataPreviewState::DataPreview(data_preview_state);
+                            Some(state)
+                        } else {
+                            self.data_preview_state = SessionDataPreviewState::NotDataPreview;
+                            None
+                        }
+                    }
+                    // If the first Fetch request in a session was not considered for data preview,
+                    // then skip all further checks in order to avoid slowing down fetches.
+                    SessionDataPreviewState::NotDataPreview => None,
+                    SessionDataPreviewState::DataPreview(mut state) => {
+                        match state.entry(key.to_owned()) {
+                            // If a session is marked as being used for data preview, and this Fetch request
+                            // is for a topic/partition that we've already loaded the offsets for, re-use them
+                            // so long as the request is still a data preview request. If not, bail out
+                            Entry::Occupied(entry) => {
+                                let data_preview_state = entry.get();
+                                if data_preview_state.offset - fetch_offset > 12 {
+                                    bail!("Session was used for fetching preview data, cannot be used for fetching non-preview data.")
+                                }
+                                Some(data_preview_state.to_owned())
+                            }
+                            // Otherwise, load the offsets for this new topic/partition, and also ensure that this is
+                            // still a data-preview request. If not, bail out.
+                            Entry::Vacant(entry) => {
+                                if let Some(state) = self
+                                    .is_fetch_data_preview(key.0.to_string(), key.1, fetch_offset)
+                                    .await?
+                                {
+                                    entry.insert(state);
+                                    Some(state)
+                                } else {
+                                    bail!("Session was used for fetching preview data, cannot be used for fetching non-preview data.")
+                                }
+                            }
+                        }
+                    }
+                };
 
                 if matches!(self.reads.get(&key), Some(pending) if pending.offset == fetch_offset) {
                     continue; // Common case: fetch is at the pending offset.
                 }
-                let Some(collection) = Collection::new(client, &key.0).await? else {
+                let Some(collection) = Collection::new(&client, &key.0).await? else {
                     tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
                     continue; // Collection doesn't exist.
                 };
@@ -394,21 +471,51 @@ impl Session {
                 let (key_schema_id, value_schema_id) = collection
                     .registered_schema_ids(&client.pg_client())
                     .await?;
-
-                let read: Read = Read::new(
-                    collection.journal_client.clone(),
-                    &collection,
-                    partition,
-                    fetch_offset,
-                    key_schema_id,
-                    value_schema_id,
-                );
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
-                    handle: tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
-                    )),
+                    handle: tokio_util::task::AbortOnDropHandle::new(match data_preview_params {
+                        // Startree: 0, Tinybird: 12
+                        Some(PartitionOffset {
+                            fragment_start,
+                            offset: latest_offset,
+                            ..
+                        }) if latest_offset - fetch_offset <= 12 => {
+                            let diff = latest_offset - fetch_offset;
+                            tokio::spawn(
+                                Read::new(
+                                    collection.journal_client.clone(),
+                                    &collection,
+                                    partition,
+                                    fragment_start,
+                                    key_schema_id,
+                                    value_schema_id,
+                                    Some(partition_request.fetch_offset - 1),
+                                )
+                                .next_batch(
+                                    crate::read::ReadTarget::Docs(diff as usize + 1),
+                                    std::time::Instant::now() + timeout,
+                                ),
+                            )
+                        }
+                        _ => tokio::spawn(
+                            Read::new(
+                                collection.journal_client.clone(),
+                                &collection,
+                                partition,
+                                fetch_offset,
+                                key_schema_id,
+                                value_schema_id,
+                                None,
+                            )
+                            .next_batch(
+                                crate::read::ReadTarget::Bytes(
+                                    partition_request.partition_max_bytes as usize,
+                                ),
+                                std::time::Instant::now() + timeout,
+                            ),
+                        ),
+                    }),
                 };
 
                 tracing::info!(
@@ -451,32 +558,56 @@ impl Session {
                 };
 
                 let (read, batch) = (&mut pending.handle).await??;
-                pending.offset = read.offset;
-                pending.last_write_head = read.last_write_head;
-                pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                    read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
-                ));
 
-                let (timeout, batch) = match batch {
+                let (did_timeout, batch) = match batch {
                     BatchResult::TargetExceededBeforeTimeout(b) => (false, Some(b)),
                     BatchResult::TimeoutExceededBeforeTarget(b) => (true, Some(b)),
                     BatchResult::TimeoutNoData => (true, None),
                 };
 
-                if timeout {
+                if did_timeout {
                     hit_timeout = true
                 }
 
-                partition_responses.push(
-                    PartitionData::default()
-                        .with_partition_index(partition_request.partition)
-                        // `kafka-protocol` encodes None here using a length of -1, but librdkafka client library
-                        // complains with: `Protocol parse failure for Fetch v11 ... invalid MessageSetSize -1`
-                        // An empty Bytes will get encoded with a length of 0, which works fine.
-                        .with_records(batch.or(Some(Bytes::new())).to_owned())
-                        .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
-                        .with_last_stable_offset(pending.last_write_head),
-                );
+                let mut partition_data = PartitionData::default()
+                    .with_partition_index(partition_request.partition)
+                    // `kafka-protocol` encodes None here using a length of -1, but librdkafka client library
+                    // complains with: `Protocol parse failure for Fetch v11 ... invalid MessageSetSize -1`
+                    // An empty Bytes will get encoded with a length of 0, which works fine.
+                    .with_records(batch.or(Some(Bytes::new())).to_owned());
+
+                match &self.data_preview_state {
+                    SessionDataPreviewState::Unknown => {
+                        unreachable!("Must have already determined data-preview status of session")
+                    }
+                    SessionDataPreviewState::NotDataPreview => {
+                        partition_data = partition_data
+                            .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
+                            .with_last_stable_offset(pending.last_write_head);
+
+                        pending.offset = read.offset;
+                        pending.last_write_head = read.last_write_head;
+                        pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
+                            read.next_batch(
+                                crate::read::ReadTarget::Bytes(
+                                    partition_request.partition_max_bytes as usize,
+                                ),
+                                std::time::Instant::now() + timeout,
+                            ),
+                        ));
+                    }
+                    SessionDataPreviewState::DataPreview(data_preview_states) => {
+                        let data_preview_state = data_preview_states
+                            .get(&key)
+                            .expect("should be able to find data preview state by this point");
+                        partition_data = partition_data
+                            .with_high_watermark(data_preview_state.offset) // Map to kafka cursor.
+                            .with_last_stable_offset(data_preview_state.offset);
+                        self.reads.remove(&key);
+                    }
+                }
+
+                partition_responses.push(partition_data);
             }
 
             topic_responses.push(
@@ -1117,6 +1248,61 @@ impl Session {
             to_downstream_topic_name(TopicName(StrBytes::from_string(name)))
         } else {
             TopicName(StrBytes::from_string(name))
+        }
+    }
+
+    /// If the fetched offset is within a fixed number of offsets from the end of the journal,
+    /// return Some with a PartitionOffset containing the beginning and end of the latest fragment.
+    #[tracing::instrument(skip(self))]
+    async fn is_fetch_data_preview(
+        &mut self,
+        collection_name: String,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> anyhow::Result<Option<PartitionOffset>> {
+        let client = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?
+            .authenticated_client()
+            .await?;
+
+        tracing::debug!(
+            "Loading latest offset for this partition to check if session is data-preview"
+        );
+        let collection = Collection::new(&client, collection_name.as_str())
+            .await?
+            .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
+
+        if let Some(
+            partition_offset @ PartitionOffset {
+                offset: latest_offset,
+                ..
+            },
+        ) = collection
+            .fetch_partition_offset(partition as usize, -1)
+            .await?
+        {
+            // If fetch_offset is > latest_offset, this is a caught-up consumer
+            // polling for new documents, not a data preview request.
+            if fetch_offset <= latest_offset && latest_offset - fetch_offset < 13 {
+                tracing::debug!(
+                    latest_offset,
+                    diff = latest_offset - fetch_offset,
+                    "Marking session as data-preview"
+                );
+                Ok(Some(partition_offset))
+            } else {
+                tracing::debug!(
+                    fetch_offset,
+                    latest_offset,
+                    diff = latest_offset - fetch_offset,
+                    "Marking session as non-data-preview"
+                );
+                Ok(None)
+            }
+        } else {
+            Ok(None)
         }
     }
 }
