@@ -12,16 +12,12 @@ use futures::{FutureExt, TryStreamExt};
 use rsasl::config::SASLConfig;
 use rustls::pki_types::CertificateDer;
 use std::{
-    collections::HashMap,
     fs::File,
     io,
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
-    sync::RwLock,
-};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 use url::Url;
 
