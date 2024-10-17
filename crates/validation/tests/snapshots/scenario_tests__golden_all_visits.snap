@@ -2255,7 +2255,7 @@ Outcome {
               },
               "journals": {
                 "fragments": {
-                  "length": 11223344,
+                  "length": 100,
                   "flushInterval": "15m"
                 }
               },
@@ -2666,7 +2666,7 @@ Outcome {
                         ),
                         fragment: Some(
                             Fragment {
-                                length: 11223344,
+                                length: 104857600,
                                 compression_codec: Gzip,
                                 stores: [
                                     "s3://data-bucket/",
@@ -3477,7 +3477,7 @@ Outcome {
                                                 ),
                                                 fragment: Some(
                                                     Fragment {
-                                                        length: 11223344,
+                                                        length: 104857600,
                                                         compression_codec: Gzip,
                                                         stores: [
                                                             "s3://data-bucket/",
@@ -6726,7 +6726,7 @@ Outcome {
                                         ),
                                         fragment: Some(
                                             Fragment {
-                                                length: 11223344,
+                                                length: 104857600,
                                                 compression_codec: Gzip,
                                                 stores: [
                                                     "s3://data-bucket/",
@@ -7206,7 +7206,7 @@ Outcome {
               },
               "journals": {
                 "fragments": {
-                  "length": 11223344,
+                  "length": 100,
                   "flushInterval": "15m"
                 }
               },
@@ -7652,7 +7652,7 @@ Outcome {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-halve":{"derive":{"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"backfill":4,"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
+            content_dom: {"collections":{"testing/int-halve":{"derive":{"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"backfill":4,"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":100}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,

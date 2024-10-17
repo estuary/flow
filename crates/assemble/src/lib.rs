@@ -122,8 +122,8 @@ pub fn partition_template(
     // If an explicit flush interval isn't provided, then don't set one.
     let flush_interval = flush_interval.map(Into::into);
 
-    // If a fragment length isn't set, default to 512MB.
-    let length = length.unwrap_or(1 << 29) as i64;
+    // If a fragment length isn't set, default and then map MB to bytes.
+    let length = (length.unwrap_or(512) as i64) << 20;
 
     // Until there's a good reason otherwise, we hard-code that fragments include the UTC date
     // and hour they were created as components of their path. This makes it easy to filter
