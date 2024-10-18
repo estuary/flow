@@ -93,6 +93,11 @@ pub async fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
                 .assume_http2(true),
         )?;
 
+    // Note that this await can block for *longer* than connect_timeout,
+    // because that timeout only accounts for TCP connection time and does
+    // not apply to time required to start the HTTP/2 transport.
+    // This manifests if the server has bound its port but is not serving it.
+
     let channel = match ep.uri().scheme_str() {
         Some("unix") => {
             ep.connect_with_connector(tower::util::service_fn(|uri: tonic::transport::Uri| {
