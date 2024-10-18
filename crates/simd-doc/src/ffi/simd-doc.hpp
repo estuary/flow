@@ -2,6 +2,7 @@
 
 #include "simdjson.h"
 #include "rust/cxx.h"
+#include <bit>
 
 using namespace simdjson;
 
