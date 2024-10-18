@@ -81,6 +81,7 @@ librocksdb-sys = { version = "0.16.0", default-features = false, features = [
     "snappy",
     "rtti",
 ] }
+log = "0.4" # only used to configure logging of dependencies
 lz4 = "1.24.0"
 lz4_flex = "0.11.0"
 mime = "0.3"
