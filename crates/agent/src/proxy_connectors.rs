@@ -145,6 +145,30 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             impl Future<Output = anyhow::Result<()>> + 'a,
         ),
     )> {
+        Ok(
+            tokio::time::timeout(DIAL_PROXY_TIMEOUT, self.dial_proxy_inner(data_plane, task))
+                .await
+                .with_context(|| {
+                    format!(
+                        "timed out starting proxy connector in data-plane {}",
+                        data_plane.reactor_address
+                    )
+                })??,
+        )
+    }
+
+    async fn dial_proxy_inner<'a>(
+        &'a self,
+        data_plane: &tables::DataPlane,
+        task: ops::ShardRef,
+    ) -> anyhow::Result<(
+        tonic::transport::Channel,
+        gazette::Metadata,
+        (
+            futures::channel::oneshot::Sender<()>,
+            impl Future<Output = anyhow::Result<()>> + 'a,
+        ),
+    )> {
         let tables::DataPlane {
             reactor_address,
             hmac_keys,
@@ -247,6 +271,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
     }
 }
 
+const DIAL_PROXY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60); // One minute.
 const CONNECTOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300); // Five minutes.
 
 /*
