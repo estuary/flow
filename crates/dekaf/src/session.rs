@@ -23,7 +23,7 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     time::{SystemTime, UNIX_EPOCH},
 };
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration, cmp::max};
 use tracing::instrument;
 
 struct PendingRead {
@@ -491,7 +491,10 @@ impl Session {
                                     Some(partition_request.fetch_offset - 1),
                                 )
                                 .next_batch(
-                                    crate::read::ReadTarget::Docs(diff as usize + 1),
+                                    // Have to read at least 2 docs, as the very last doc
+                                    // will probably be a control document and will be
+                                    // ignored by the consumer, looking like 0 docs were read
+                                    crate::read::ReadTarget::Docs(max(diff as usize, 2)),
                                     std::time::Instant::now() + timeout,
                                 ),
                             )
