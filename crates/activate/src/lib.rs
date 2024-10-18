@@ -174,6 +174,17 @@ async fn apply_changes(
     shard_client: &gazette::shard::Client,
     changes: impl IntoIterator<Item = Change>,
 ) -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        try_apply_changes(journal_client, shard_client, changes).await
+    })
+    .await?
+}
+
+async fn try_apply_changes(
+    journal_client: &gazette::journal::Client,
+    shard_client: &gazette::shard::Client,
+    changes: impl IntoIterator<Item = Change>,
+) -> anyhow::Result<()> {
     let mut journal_deletes = Vec::new();
     let mut journal_upserts = Vec::new();
     let mut shard_deletes = Vec::new();
@@ -287,6 +298,32 @@ enum TaskTemplate<'a> {
 /// JournalSpecs, and then applying updates to bring them into alignment
 /// with the templated task configuration.
 async fn converge_task_changes<'a>(
+    journal_client: &gazette::journal::Client,
+    shard_client: &gazette::shard::Client,
+    task_type: ops::TaskType,
+    task_name: &str,
+    template: TaskTemplate<'a>,
+    ops_logs_template: Option<&broker::JournalSpec>,
+    ops_stats_template: Option<&broker::JournalSpec>,
+    initial_splits: usize,
+) -> anyhow::Result<Vec<Change>> {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        try_converge_task_changes(
+            journal_client,
+            shard_client,
+            task_type,
+            task_name,
+            template,
+            ops_logs_template,
+            ops_stats_template,
+            initial_splits,
+        )
+        .await
+    })
+    .await?
+}
+
+async fn try_converge_task_changes<'a>(
     journal_client: &gazette::journal::Client,
     shard_client: &gazette::shard::Client,
     task_type: ops::TaskType,
