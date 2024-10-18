@@ -366,8 +366,6 @@ impl Session {
         let timeout_at =
             std::time::Instant::now() + std::time::Duration::from_millis(max_wait_ms as u64);
 
-        let mut hit_timeout = false;
-
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
             let mut key = (from_downstream_topic_name(topic_request.topic.clone()), 0);
@@ -457,15 +455,11 @@ impl Session {
                     read.next_batch(partition_request.partition_max_bytes as usize, timeout_at),
                 ));
 
-                let (timeout, batch) = match batch {
-                    BatchResult::TargetExceededBeforeTimeout(b) => (false, Some(b)),
-                    BatchResult::TimeoutExceededBeforeTarget(b) => (true, Some(b)),
-                    BatchResult::TimeoutNoData => (true, None),
+                let batch = match batch {
+                    BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
+                    BatchResult::TimeoutExceededBeforeTarget(b) => Some(b),
+                    BatchResult::TimeoutNoData => None,
                 };
-
-                if timeout {
-                    hit_timeout = true
-                }
 
                 partition_responses.push(
                     PartitionData::default()
@@ -488,7 +482,6 @@ impl Session {
 
         Ok(messages::FetchResponse::default()
             .with_session_id(session_id)
-            .with_throttle_time_ms(if hit_timeout { 10000 } else { 0 })
             .with_responses(topic_responses))
     }
 
