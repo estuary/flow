@@ -104,9 +104,6 @@ within the limitations set by the connector itself.
 
 Typically, we enable SaaS connectors from third parties to allow more diverse data flows.
 
-All the third-party connectors available currently were created by [Airbyte](https://airbyte.com/connectors).
-The versions made available in Flow have been adapted for compatibility.
-
 - Airtable
   - [Configuration](./airtable.md)
   - Package - ghrc.io/estuary/source-airtable.dev
