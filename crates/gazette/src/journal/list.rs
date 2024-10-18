@@ -5,8 +5,10 @@ use proto_gazette::broker;
 
 impl Client {
     /// List journals that match the ListRequest.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn list(&self, mut req: broker::ListRequest) -> crate::Result<broker::ListResponse> {
         assert!(!req.watch, "list() requires ListRequest.watch is not set");
+        tracing::trace!("Starting list request");
         let mut stream = self.start_list(&self.router, &req).await?;
         recv_snapshot(&mut req, &mut stream).await
     }
@@ -56,6 +58,7 @@ impl Client {
     }
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn recv_snapshot(
     req: &mut broker::ListRequest,
     stream: &mut tonic::Streaming<broker::ListResponse>,
@@ -63,7 +66,9 @@ async fn recv_snapshot(
     let mut maybe_resp: Option<broker::ListResponse> = None;
 
     loop {
+        tracing::trace!("Polling for next ListResponse");
         let next = stream.try_next().await?;
+        tracing::trace!(?next, "Got next ListResponse");
 
         match (maybe_resp.take(), next) {
             // Completion of listing snapshot in a unary !watch request.
