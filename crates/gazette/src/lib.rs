@@ -41,6 +41,8 @@ pub enum Error {
     UnexpectedEof,
     #[error("JWT error")]
     JWT(#[from] jsonwebtoken::errors::Error),
+    #[error("timed out connecting to endpoint")]
+    ConnectTimeout,
 }
 
 impl Error {
@@ -51,6 +53,7 @@ impl Error {
             Error::FetchFragment(_) => true,
             Error::ReadFragment(_) => true,
             Error::UnexpectedEof => true,
+            Error::ConnectTimeout => true,
 
             // Some gRPC codes are transient failures.
             Error::Grpc(status) => match status.code() {
@@ -97,20 +100,23 @@ pub async fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
     // because that timeout only accounts for TCP connection time and does
     // not apply to time required to start the HTTP/2 transport.
     // This manifests if the server has bound its port but is not serving it.
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        match ep.uri().scheme_str() {
+            Some("unix") => ep
+                .connect_with_connector(tower::util::service_fn(|uri: tonic::transport::Uri| {
+                    connect_unix(uri)
+                }))
+                .await
+                .map_err(Into::into),
+            Some("https" | "http") => ep.connect().await.map_err(Into::into),
 
-    let channel = match ep.uri().scheme_str() {
-        Some("unix") => {
-            ep.connect_with_connector(tower::util::service_fn(|uri: tonic::transport::Uri| {
-                connect_unix(uri)
-            }))
-            .await?
+            _ => return Err(Error::InvalidEndpoint(endpoint.to_string())),
         }
-        Some("https" | "http") => ep.connect().await?,
+    })
+    .await
+    .map_err(|_| Error::ConnectTimeout)?;
 
-        _ => return Err(Error::InvalidEndpoint(endpoint.to_string())),
-    };
-
-    Ok(channel)
+    result
 }
 
 async fn connect_unix(
