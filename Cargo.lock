@@ -124,6 +124,7 @@ dependencies = [
  "jsonwebtoken",
  "labels",
  "lazy_static",
+ "log",
  "md5",
  "models",
  "ops",
