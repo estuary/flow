@@ -1,4 +1,5 @@
 use crate::TextJson;
+use chrono::Utc;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 
@@ -25,12 +26,13 @@ pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
-        insert into storage_mappings (detail, catalog_prefix, spec)
-        values ($1, $2, $3)
+        insert into storage_mappings (detail, catalog_prefix, spec, updated_at)
+        values ($1, $2, $3, $4)
         on conflict (catalog_prefix) do update set detail = $1, spec = $3"#,
         detail as &str,
         catalog_prefix as &str,
         TextJson(spec) as TextJson<T>,
+        Utc::now()
     )
     .execute(txn)
     .await?;
