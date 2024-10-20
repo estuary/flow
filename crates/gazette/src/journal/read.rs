@@ -36,6 +36,8 @@ impl Client {
                         // Surface error to the caller, which can either drop us
                         // or poll us again to retry.
                         () = co.yield_(Err(err)).await;
+                        // Restart route discovery.
+                        req.header = None;
                     }
                 }
             }
@@ -49,7 +51,7 @@ impl Client {
         write_head: &mut i64,
     ) -> crate::Result<()> {
         let route = req.header.as_ref().and_then(|hdr| hdr.route.as_ref());
-        let mut client = self.into_sub(self.router.route(route, false, &self.default).await?);
+        let mut client = self.into_sub(self.router.route(route, false, &self.default)?);
 
         // Fetch metadata first before we start the actual read.
         req.metadata_only = true;
@@ -89,7 +91,9 @@ impl Client {
             }
             match (resp.status(), &resp.fragment, resp.content.is_empty()) {
                 // Metadata response telling us of a new fragment being read.
-                (broker::Status::Ok, Some(_fragment), true) => {
+                (broker::Status::Ok, Some(fragment), true) => {
+                    tracing::trace!(fragment=?ops::DebugJson(fragment), "read fragment metadata");
+
                     // Offset jumps happen if content is removed from the middle of a journal,
                     // or when reading from the journal head (offset -1).
                     if req.offset != resp.offset {
@@ -137,6 +141,8 @@ async fn read_fragment_url(
         .await
         .and_then(reqwest::Response::error_for_status)
         .map_err(Error::FetchFragment)?;
+
+    tracing::trace!(fragment=?ops::DebugJson(&fragment), "started direct fragment read");
 
     let raw_reader = response
         // Map into a Stream<Item = Result<Bytes, _>>.
