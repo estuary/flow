@@ -322,16 +322,19 @@ impl Status {
                 // resources, and then notify dependent controllers, to make
                 // sure that they can respond. The controller job row will be
                 // deleted automatically after we return.
-                control_plane
-                    .data_plane_delete(
+                crate::timeout(
+                    std::time::Duration::from_secs(60),
+                    control_plane.data_plane_delete(
                         state.catalog_name.clone(),
                         catalog_type,
                         state.data_plane_id,
-                    )
-                    .await
-                    .context("deleting from data-plane")
-                    .with_retry(backoff_data_plane_activate(state.failures))?;
-                tracing::info!("deleted from data-plane");
+                    ),
+                    || "Timeout while deleting from data-plane",
+                )
+                .await
+                .context("failed to delete from data-plane")
+                .with_retry(backoff_data_plane_activate(state.failures))?;
+
                 control_plane
                     .notify_dependents(state.catalog_name.clone())
                     .await

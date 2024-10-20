@@ -73,15 +73,25 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         task: ops::ShardRef,
         request: capture::Request,
     ) -> anyhow::Result<capture::Response> {
-        let (channel, metadata, logs) = self.dial_proxy(data_plane, task).await?;
+        let (channel, metadata, logs) = crate::timeout(
+            DIAL_PROXY_TIMEOUT,
+            self.dial_proxy(data_plane, task),
+            || dial_proxy_timeout_msg(data_plane),
+        )
+        .await?;
+
         let mut client = proto_grpc::capture::connector_client::ConnectorClient::with_interceptor(
             channel, metadata,
         )
         .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
-        Self::drive_unary_response(
-            client.capture(futures::stream::once(async move { request })),
-            logs,
+        crate::timeout(
+            CONNECTOR_TIMEOUT,
+            Self::drive_unary_response(
+                client.capture(futures::stream::once(async move { request })),
+                logs,
+            ),
+            || CONNECTOR_TIMEOUT_MSG,
         )
         .await
     }
@@ -96,15 +106,25 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         task: ops::ShardRef,
         request: derive::Request,
     ) -> anyhow::Result<derive::Response> {
-        let (channel, metadata, logs) = self.dial_proxy(data_plane, task).await?;
+        let (channel, metadata, logs) = crate::timeout(
+            DIAL_PROXY_TIMEOUT,
+            self.dial_proxy(data_plane, task),
+            || dial_proxy_timeout_msg(data_plane),
+        )
+        .await?;
+
         let mut client = proto_grpc::derive::connector_client::ConnectorClient::with_interceptor(
             channel, metadata,
         )
         .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
-        Self::drive_unary_response(
-            client.derive(futures::stream::once(async move { request })),
-            logs,
+        crate::timeout(
+            CONNECTOR_TIMEOUT,
+            Self::drive_unary_response(
+                client.derive(futures::stream::once(async move { request })),
+                logs,
+            ),
+            || CONNECTOR_TIMEOUT_MSG,
         )
         .await
     }
@@ -119,16 +139,26 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         task: ops::ShardRef,
         request: materialize::Request,
     ) -> anyhow::Result<materialize::Response> {
-        let (channel, metadata, logs) = self.dial_proxy(data_plane, task).await?;
+        let (channel, metadata, logs) = crate::timeout(
+            DIAL_PROXY_TIMEOUT,
+            self.dial_proxy(data_plane, task),
+            || dial_proxy_timeout_msg(data_plane),
+        )
+        .await?;
+
         let mut client =
             proto_grpc::materialize::connector_client::ConnectorClient::with_interceptor(
                 channel, metadata,
             )
             .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
-        Self::drive_unary_response(
-            client.materialize(futures::stream::once(async move { request })),
-            logs,
+        crate::timeout(
+            CONNECTOR_TIMEOUT,
+            Self::drive_unary_response(
+                client.materialize(futures::stream::once(async move { request })),
+                logs,
+            ),
+            || CONNECTOR_TIMEOUT_MSG,
         )
         .await
     }
@@ -236,18 +266,21 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         }
         .map_err(runtime::status_to_anyhow);
 
-        let response = tokio::time::timeout(CONNECTOR_TIMEOUT, response);
-
-        match futures::join!(response, log_loop) {
-            (Err(_timeout), _) => Err(anyhow::anyhow!("Timeout while waiting for the connector's response. Please verify any network configuration and retry.")),
-            (Ok(Err(response_err)), _) => Err(response_err),
-            (Ok(Ok(_)), Err(log_err)) => Err(log_err),
-            (Ok(Ok(response)), Ok(())) => Ok(response),
-        }
+        futures::try_join!(response, log_loop).map(|(response, ())| response)
     }
 }
 
+const DIAL_PROXY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn dial_proxy_timeout_msg(data_plane: &tables::DataPlane) -> String {
+    format!(
+        "Timeout starting remote proxy for connector in data-plane {}",
+        data_plane.data_plane_name
+    )
+}
+
 const CONNECTOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300); // Five minutes.
+const CONNECTOR_TIMEOUT_MSG: &'static str = "Timeout while waiting for the connector's response. Please verify any network configuration and retry.";
 
 /*
 
