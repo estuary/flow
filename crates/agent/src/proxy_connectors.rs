@@ -201,7 +201,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
 
         let mut proxy_client =
             proto_grpc::runtime::connector_proxy_client::ConnectorProxyClient::with_interceptor(
-                gazette::dial_channel(reactor_address).await?,
+                gazette::dial_channel(reactor_address)?,
                 metadata.clone(),
             );
         let mut proxy_responses = proxy_client
@@ -238,7 +238,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         };
 
         Ok((
-            gazette::dial_channel(&address).await?,
+            gazette::dial_channel(&address)?,
             metadata,
             (cancel_tx, log_loop),
         ))

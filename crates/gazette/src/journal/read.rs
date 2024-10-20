@@ -49,7 +49,7 @@ impl Client {
         write_head: &mut i64,
     ) -> crate::Result<()> {
         let route = req.header.as_ref().and_then(|hdr| hdr.route.as_ref());
-        let mut client = self.into_sub(self.router.route(route, false, &self.default).await?);
+        let mut client = self.into_sub(self.router.route(route, false, &self.default)?);
 
         // Fetch metadata first before we start the actual read.
         req.metadata_only = true;

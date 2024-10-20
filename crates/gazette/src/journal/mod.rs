@@ -50,7 +50,7 @@ impl Client {
 
     /// Invoke the Gazette journal Apply API.
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default).await?);
+        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
 
         let resp = client
             .apply(req)
@@ -66,7 +66,7 @@ impl Client {
         &self,
         req: broker::FragmentsRequest,
     ) -> crate::Result<broker::FragmentsResponse> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default).await?);
+        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
 
         let resp = client
             .list_fragments(req)
@@ -77,11 +77,13 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
-    fn into_sub(&self, channel: Channel) -> SubClient {
+    fn into_sub(&self, (channel, _local): (Channel, bool)) -> SubClient {
         proto_grpc::broker::journal_client::JournalClient::with_interceptor(
             channel,
             self.metadata.clone(),
         )
+        // TODO(johnny): Use `_local` to selectively enable LZ4 compression
+        // when traversing a non-local zone.
     }
 }
 

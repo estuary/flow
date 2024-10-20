@@ -20,6 +20,7 @@ futures = { workspace = true }
 futures-core = { workspace = true }
 hyper-util = { workspace = true }
 jsonwebtoken = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

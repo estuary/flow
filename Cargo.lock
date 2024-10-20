@@ -2566,6 +2566,7 @@ dependencies = [
  "pin-project-lite",
  "proto-gazette",
  "proto-grpc",
+ "rand 0.8.5",
  "reqwest",
  "serde_json",
  "simd-doc",
