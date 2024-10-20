@@ -44,7 +44,7 @@ impl Client {
         &self,
         req: consumer::ListRequest,
     ) -> Result<consumer::ListResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default).await?);
+        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
 
         let resp = client
             .list(req)
@@ -60,7 +60,7 @@ impl Client {
         &self,
         req: consumer::ApplyRequest,
     ) -> Result<consumer::ApplyResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default).await?);
+        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
 
         let resp = client
             .apply(req)
@@ -76,7 +76,7 @@ impl Client {
         &self,
         req: consumer::UnassignRequest,
     ) -> Result<consumer::UnassignResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default).await?);
+        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
 
         let resp = client
             .unassign(req)
@@ -87,7 +87,7 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
-    fn into_sub(&self, channel: Channel) -> SubClient {
+    fn into_sub(&self, (channel, _local): (Channel, bool)) -> SubClient {
         proto_grpc::consumer::shard_client::ShardClient::with_interceptor(
             channel,
             self.metadata.clone(),
