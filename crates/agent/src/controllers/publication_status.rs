@@ -51,11 +51,16 @@ impl ActivationStatus {
         if state.last_build_id > self.last_activated {
             let name = state.catalog_name.clone();
             let built_spec = state.built_spec.as_ref().expect("built_spec must be Some");
-            control_plane
-                .data_plane_activate(name, built_spec, state.data_plane_id)
-                .await
-                .with_retry(backoff_data_plane_activate(state.failures))
-                .context("failed to activate")?;
+
+            crate::timeout(
+                std::time::Duration::from_secs(60),
+                control_plane.data_plane_activate(name, built_spec, state.data_plane_id),
+                || "Timeout while activating into data-plane",
+            )
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))
+            .context("failed to activate into data-plane")?;
+
             tracing::debug!(last_activated = %state.last_build_id, "activated");
             self.last_activated = state.last_build_id;
         }
