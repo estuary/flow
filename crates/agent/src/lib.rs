@@ -74,3 +74,23 @@ pub fn next_name(current_name: &str) -> String {
     // complexity.
     format!("{current_name}_v2")
 }
+
+// timeout is a convienence for tokio::time::timeout which merges
+// its error with the Future's nested anyhow::Result Output.
+async fn timeout<Ok, Fut, C, WC>(
+    dur: std::time::Duration,
+    fut: Fut,
+    with_context: WC,
+) -> anyhow::Result<Ok>
+where
+    C: std::fmt::Display + Send + Sync + 'static,
+    Fut: std::future::Future<Output = anyhow::Result<Ok>>,
+    WC: FnOnce() -> C,
+{
+    use anyhow::Context;
+
+    match tokio::time::timeout(dur, fut).await {
+        Ok(result) => result,
+        Err(err) => Err(anyhow::anyhow!(err)).with_context(with_context),
+    }
+}
