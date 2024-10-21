@@ -5,6 +5,7 @@ use crate::{
 };
 use anyhow::Context;
 use doc::combine;
+use std::result::Result::Ok;
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -63,6 +64,8 @@ pub enum Command {
     JsonSchema,
     /// Read stats collection documents
     Stats(Stats),
+    /// List shards
+    ListShards,
 }
 
 #[derive(Debug, clap::Args)]
@@ -193,6 +196,7 @@ impl Advanced {
                 Ok(serde_json::to_writer_pretty(std::io::stdout(), &schema)?)
             }
             Command::Stats(stats) => stats.run(ctx).await,
+            Command::ListShards => do_list_shards(ctx).await,
         }
     }
 }
@@ -289,6 +293,15 @@ async fn do_bundle(_ctx: &mut crate::CliContext, Bundle { source }: &Bundle) -> 
     let mut draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
     ::sources::inline_draft_catalog(&mut draft);
     serde_json::to_writer_pretty(io::stdout(), &local_specs::into_catalog(draft))?;
+    Ok(())
+}
+
+async fn do_list_shards(_ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    let client = _ctx.client.clone();
+    let shard_list = client.list_shards().await?;
+    for shard_id in &shard_list {
+        println!("{}", shard_id);
+    }
     Ok(())
 }
 
