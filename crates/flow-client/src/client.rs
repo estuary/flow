@@ -59,16 +59,9 @@ impl Client {
         }
     }
 
-    pub fn with_creds(self, user_access_token: Option<String>) -> Self {
+    pub fn with_user_access_token(self, user_access_token: Option<String>) -> Self {
         Self {
-            user_access_token: user_access_token.or(self.user_access_token),
-            ..self
-        }
-    }
-
-    pub fn as_anonymous(self) -> Self {
-        Self {
-            user_access_token: None,
+            user_access_token,
             ..self
         }
     }
@@ -319,7 +312,7 @@ pub async fn refresh_authorizations(
         (Some(access), None) => {
             // We have an access token but no refresh token. Create one.
             let refresh_token = api_exec::<RefreshToken>(
-                client.clone().with_creds(Some(access.to_owned())).rpc(
+                client.clone().with_user_access_token(Some(access.to_owned())).rpc(
                     "create_refresh_token",
                     serde_json::json!({"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"})
                         .to_string(),
@@ -346,7 +339,7 @@ pub async fn refresh_authorizations(
             let Response {
                 access_token,
                 refresh_token: next_refresh_token,
-            } = api_exec::<Response>(client.clone().as_anonymous().rpc(
+            } = api_exec::<Response>(client.clone().with_user_access_token(None).rpc(
                 "generate_access_token",
                 serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
             ))

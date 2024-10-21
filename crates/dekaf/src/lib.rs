@@ -72,7 +72,7 @@ impl Authenticated {
             self.client = self
                 .client
                 .clone()
-                .with_creds(Some(access))
+                .with_user_access_token(Some(access))
                 .with_fresh_gazette_client();
         }
 
@@ -98,7 +98,7 @@ impl App {
         let client = self
             .client_base
             .clone()
-            .with_creds(Some(access.clone()))
+            .with_user_access_token(Some(access.clone()))
             .with_fresh_gazette_client();
 
         let claims = flow_client::client::client_claims(&client)?;
