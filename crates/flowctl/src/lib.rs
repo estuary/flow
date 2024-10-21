@@ -148,7 +148,7 @@ impl Cli {
                 config.user_access_token = Some(access.to_owned());
                 config.user_refresh_token = Some(refresh.to_owned());
 
-                anon_client.with_creds(Some(access))
+                anon_client.with_user_access_token(Some(access))
             }
             Err(err) => {
                 tracing::debug!(?err, "Error refreshing credentials");
