@@ -66,6 +66,13 @@ impl Client {
         }
     }
 
+    pub fn as_anonymous(self) -> Self {
+        Self {
+            user_access_token: None,
+            ..self
+        }
+    }
+
     /// Build a fresh `gazette::journal::Client` and `gazette::shard::Client`
     /// There is a bug that causes these clients to hang under heavy/varied load,
     /// so until that bug is found+fixed, this is the work-around.
@@ -331,10 +338,15 @@ pub async fn refresh_authorizations(
                 access_token: String,
                 refresh_token: Option<RefreshToken>, // Set iff the token was single-use.
             }
+            // We either never had an access token, or we had one and it expired,
+            // in which case the client may have an invalid access token configured.
+            // The `generate_access_token` RPC only needs the provided refresh token
+            // for authentication, so we should use an unauthenticated client to make
+            // the request.
             let Response {
                 access_token,
                 refresh_token: next_refresh_token,
-            } = api_exec::<Response>(client.rpc(
+            } = api_exec::<Response>(client.clone().as_anonymous().rpc(
                 "generate_access_token",
                 serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
             ))
