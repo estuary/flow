@@ -5,7 +5,6 @@
 This connector captures data from one LinkedIn Page into Flow collections via the [LinkedIn Marketing API](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/marketing-integrations-overview?view=li-lms-2024-03).
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
-You can find their documentation [here](https://docs.airbyte.com/integrations/sources/linkedin-pages), but keep in mind that the two versions may be significantly different.
 
 ## Prerequisites
 
