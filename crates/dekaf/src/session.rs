@@ -562,18 +562,8 @@ impl Session {
 
                 let (read, batch) = (&mut pending.handle).await??;
 
-                let batch = match batch {
-                    BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
-                    BatchResult::TimeoutExceededBeforeTarget(b) => Some(b),
-                    BatchResult::TimeoutNoData => None,
-                };
-
-                let mut partition_data = PartitionData::default()
-                    .with_partition_index(partition_request.partition)
-                    // `kafka-protocol` encodes None here using a length of -1, but librdkafka client library
-                    // complains with: `Protocol parse failure for Fetch v11 ... invalid MessageSetSize -1`
-                    // An empty Bytes will get encoded with a length of 0, which works fine.
-                    .with_records(batch.or(Some(Bytes::new())).to_owned());
+                let mut partition_data =
+                    PartitionData::default().with_partition_index(partition_request.partition);
 
                 match &self.data_preview_state {
                     SessionDataPreviewState::Unknown => {
@@ -584,16 +574,21 @@ impl Session {
                             .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
                             .with_last_stable_offset(pending.last_write_head);
 
+                        // Remove this Read so it can get recreated with new credentials on the next fetch
+                        if matches!(batch, BatchResult::CredentialsExpired) {
+                            self.reads.remove(&key);
+                        } else {
                         pending.offset = read.offset;
                         pending.last_write_head = read.last_write_head;
-                        pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                            read.next_batch(
+                            pending.handle = tokio_util::task::AbortOnDropHandle::new(
+                                tokio::spawn(read.next_batch(
                                 crate::read::ReadTarget::Bytes(
                                     partition_request.partition_max_bytes as usize,
                                 ),
                                 std::time::Instant::now() + timeout,
-                            ),
-                        ));
+                                )),
+                            );
+                        }
                     }
                     SessionDataPreviewState::DataPreview(data_preview_states) => {
                         let data_preview_state = data_preview_states
@@ -605,6 +600,19 @@ impl Session {
                         self.reads.remove(&key);
                     }
                 }
+
+                // `kafka-protocol` encodes None here using a length of -1, but librdkafka client library
+                // complains with: `Protocol parse failure for Fetch v11 ... invalid MessageSetSize -1`
+                // An empty Bytes will get encoded with a length of 0, which works fine.
+                match batch {
+                    BatchResult::TargetExceededBeforeTimeout(record_bytes)
+                    | BatchResult::TimeoutExceededBeforeTarget(record_bytes) => {
+                        partition_data = partition_data.with_records(Some(record_bytes));
+                    }
+                    _ => {
+                        partition_data = partition_data.with_records(Some(Bytes::new()));
+                    }
+                };
 
                 partition_responses.push(partition_data);
             }
@@ -1286,6 +1294,7 @@ impl Session {
             if fetch_offset <= latest_offset && latest_offset - fetch_offset < 13 {
                 tracing::debug!(
                     latest_offset,
+                    fetch_offset,
                     diff = latest_offset - fetch_offset,
                     "Marking session as data-preview"
                 );

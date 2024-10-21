@@ -39,6 +39,9 @@ pub enum BatchResult {
     TimeoutExceededBeforeTarget(bytes::Bytes),
     /// Read no docs, stopped reading because reached timeout
     TimeoutNoData,
+    /// Indicates that the journal client's credentials expired, and a new
+    /// Read should be created with fresh credentials
+    CredentialsExpired,
 }
 
 #[derive(Copy, Clone)]
@@ -169,6 +172,13 @@ impl Read {
                     Err(err @ gazette::Error::Parsing { .. }) => {
                         tracing::warn!(%err, "Got a second parse error, something is wrong");
                         Err(err)
+                    }
+                    Err(ref err @ gazette::Error::Grpc(ref status))
+                        if status.code() == tonic::Code::Unauthenticated
+                            && status.message().contains("token is expired") =>
+                    {
+                        tracing::info!(%err, "Journal client token expired, attempting to refresh");
+                        return Ok((self, BatchResult::CredentialsExpired));
                     }
                     Err(e) => Err(e),
                 }?,
