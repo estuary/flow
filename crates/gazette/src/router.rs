@@ -43,6 +43,7 @@ impl Router {
     ///
     /// route() will prefer to send requests to a ready member Channel if possible,
     /// or will dial new Channels if required by the `route` and `primary` requirement.
+    #[tracing::instrument(level = "trace", skip(self))]
     pub async fn route(
         &self,
         route: Option<&broker::Route>,
@@ -56,10 +57,12 @@ impl Router {
 
         // Fast path: client is dialed and ready.
         if let Some((ref client, uses)) = &mut *state {
+            tracing::trace!(uses, "Re-using already dialed channel");
             *uses += 1;
             return Ok(client.clone());
         }
 
+        tracing::trace!("No existing channel found, dialing new one");
         // Slow path: start dialing the endpoint.
         let channel = super::dial_channel(match index {
             Some(index) => &route.unwrap().endpoints[index],
