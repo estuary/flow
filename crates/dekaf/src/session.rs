@@ -1321,7 +1321,7 @@ impl Session {
             // If fetch_offset is > latest_offset, this is a caught-up consumer
             // polling for new documents, not a data preview request.
             if fetch_offset <= latest_offset && latest_offset - fetch_offset < 13 {
-                tracing::debug!(
+                tracing::info!(
                     latest_offset,
                     diff = latest_offset - fetch_offset,
                     "Marking session as data-preview"
