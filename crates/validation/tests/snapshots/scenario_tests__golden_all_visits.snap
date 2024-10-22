@@ -285,7 +285,12 @@ Outcome {
                                                     },
                                                 ),
                                                 retention: None,
-                                                flush_interval: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 86400,
+                                                        nanos: 0,
+                                                    },
+                                                ),
                                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                             },
                                         ),
@@ -743,7 +748,12 @@ Outcome {
                                                     },
                                                 ),
                                                 retention: None,
-                                                flush_interval: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 86400,
+                                                        nanos: 0,
+                                                    },
+                                                ),
                                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                             },
                                         ),
@@ -966,7 +976,12 @@ Outcome {
                                                     },
                                                 ),
                                                 retention: None,
-                                                flush_interval: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 86400,
+                                                        nanos: 0,
+                                                    },
+                                                ),
                                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                             },
                                         ),
@@ -1360,7 +1375,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                             },
                         ),
@@ -1590,7 +1610,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                             },
                         ),
@@ -1809,7 +1834,12 @@ Outcome {
                                                             },
                                                         ),
                                                         retention: None,
-                                                        flush_interval: None,
+                                                        flush_interval: Some(
+                                                            Duration {
+                                                                seconds: 86400,
+                                                                nanos: 0,
+                                                            },
+                                                        ),
                                                         path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                                     },
                                                 ),
@@ -2059,7 +2089,12 @@ Outcome {
                                                             },
                                                         ),
                                                         retention: None,
-                                                        flush_interval: None,
+                                                        flush_interval: Some(
+                                                            Duration {
+                                                                seconds: 86400,
+                                                                nanos: 0,
+                                                            },
+                                                        ),
                                                         path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                                     },
                                                 ),
@@ -3065,7 +3100,12 @@ Outcome {
                                                             },
                                                         ),
                                                         retention: None,
-                                                        flush_interval: None,
+                                                        flush_interval: Some(
+                                                            Duration {
+                                                                seconds: 86400,
+                                                                nanos: 0,
+                                                            },
+                                                        ),
                                                         path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                                     },
                                                 ),
@@ -3909,7 +3949,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                             },
                         ),
@@ -4158,7 +4203,12 @@ Outcome {
                                                             },
                                                         ),
                                                         retention: None,
-                                                        flush_interval: None,
+                                                        flush_interval: Some(
+                                                            Duration {
+                                                                seconds: 86400,
+                                                                nanos: 0,
+                                                            },
+                                                        ),
                                                         path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                                     },
                                                 ),
@@ -4578,7 +4628,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                             },
                         ),
@@ -4838,7 +4893,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                             },
                         ),
@@ -5242,7 +5302,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                             },
                         ),
@@ -5478,7 +5543,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                             },
                         ),
@@ -5782,7 +5852,12 @@ Outcome {
                                                     },
                                                 ),
                                                 retention: None,
-                                                flush_interval: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 86400,
+                                                        nanos: 0,
+                                                    },
+                                                ),
                                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                             },
                                         ),
@@ -6307,7 +6382,12 @@ Outcome {
                                                     },
                                                 ),
                                                 retention: None,
-                                                flush_interval: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 86400,
+                                                        nanos: 0,
+                                                    },
+                                                ),
                                                 path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
                                             },
                                         ),
