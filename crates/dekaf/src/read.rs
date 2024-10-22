@@ -218,19 +218,20 @@ impl Read {
                 //      ControlMessageKey => Version ControlMessageType
                 //          Version => int16
                 //          ControlMessageType => int16
-                // Skip control messages with version != 0:
-                // if (ctrl_data.Version != 0) {
-                //      rd_kafka_buf_skip_to(rkbuf, message_end);
-                //      return RD_KAFKA_RESP_ERR_NO_ERROR; /* Continue with next msg */
-                // }
+                // Control messages with version > 0 are entirely ignored:
                 // https://github.com/confluentinc/librdkafka/blob/master/src/rdkafka_msgset_reader.c#L777-L824
+                // But, we don't want our message to be entirely ignored,
+                // we just don't want it to be returned to the client.
+                // If we send a valid version 0 control message, with an
+                // invalid message type (not 0 or 1), that should do what we want:
+                // https://github.com/confluentinc/librdkafka/blob/master/src/rdkafka_msgset_reader.c#L882-L902
 
                 // Control Message keys are always 4 bytes:
-                // Version: Any value != 0: i16
-                buf.put_i16(9999);
-                // ControlMessageType: unused: i16
-                buf.put_i16(9999);
-                record_bytes += 4;
+                // Version: 0i16
+                buf.put_i16(0);
+                // ControlMessageType: >1 i16
+                buf.put_i16(2);
+                record_bytes += buf.len();
                 Some(buf.split().freeze())
             } else {
                 tmp.push(0);
