@@ -455,9 +455,23 @@ impl Session {
                 };
 
                 if matches!(self.reads.get(&key), Some(pending) if pending.offset == fetch_offset) {
+                    metrics::counter!(
+                        "dekaf_fetch_requests",
+                        "topic_name" => key.0.to_string(),
+                        "partition_index" => key.1.to_string(),
+                        "state" => "read_pending"
+                    )
+                    .increment(1);
                     continue; // Common case: fetch is at the pending offset.
                 }
                 let Some(collection) = Collection::new(&client, &key.0).await? else {
+                    metrics::counter!(
+                        "dekaf_fetch_requests",
+                        "topic_name" => key.0.to_string(),
+                        "partition_index" => key.1.to_string(),
+                        "state" => "collection_not_found"
+                    )
+                    .increment(1);
                     tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
                     continue; // Collection doesn't exist.
                 };
@@ -465,6 +479,13 @@ impl Session {
                     .partitions
                     .get(partition_request.partition as usize)
                 else {
+                    metrics::counter!(
+                        "dekaf_fetch_requests",
+                        "topic_name" => key.0.to_string(),
+                        "partition_index" => key.1.to_string(),
+                        "state" => "partition_not_found"
+                    )
+                    .increment(1);
                     tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
@@ -482,6 +503,13 @@ impl Session {
                             ..
                         }) if latest_offset - fetch_offset <= 12 => {
                             let diff = latest_offset - fetch_offset;
+                            metrics::counter!(
+                                "dekaf_fetch_requests",
+                                "topic_name" => key.0.to_string(),
+                                "partition_index" => key.1.to_string(),
+                                "state" => "new_data_preview_read"
+                            )
+                            .increment(1);
                             tokio::spawn(
                                 Read::new(
                                     collection.journal_client.clone(),
@@ -501,23 +529,32 @@ impl Session {
                                 ),
                             )
                         }
-                        _ => tokio::spawn(
-                            Read::new(
-                                collection.journal_client.clone(),
-                                &collection,
-                                partition,
-                                fetch_offset,
-                                key_schema_id,
-                                value_schema_id,
-                                None,
+                        _ => {
+                            metrics::counter!(
+                                "dekaf_fetch_requests",
+                                "topic_name" => key.0.to_string(),
+                                "partition_index" => key.1.to_string(),
+                                "state" => "new_regular_read"
                             )
-                            .next_batch(
-                                crate::read::ReadTarget::Bytes(
-                                    partition_request.partition_max_bytes as usize,
+                            .increment(1);
+                            tokio::spawn(
+                                Read::new(
+                                    collection.journal_client.clone(),
+                                    &collection,
+                                    partition,
+                                    fetch_offset,
+                                    key_schema_id,
+                                    value_schema_id,
+                                    None,
+                                )
+                                .next_batch(
+                                    crate::read::ReadTarget::Bytes(
+                                        partition_request.partition_max_bytes as usize,
+                                    ),
+                                    std::time::Instant::now() + timeout,
                                 ),
-                                std::time::Instant::now() + timeout,
-                            ),
-                        ),
+                            )
+                        }
                     }),
                 };
 
