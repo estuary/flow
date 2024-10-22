@@ -229,8 +229,8 @@ impl Read {
                 // Control Message keys are always 4 bytes:
                 // Version: 0i16
                 buf.put_i16(0);
-                // ControlMessageType: >1 i16
-                buf.put_i16(2);
+                // ControlMessageType: != 0 or 1 i16
+                buf.put_i16(-1);
                 record_bytes += buf.len();
                 Some(buf.split().freeze())
             } else {
