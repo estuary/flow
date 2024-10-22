@@ -21,6 +21,7 @@ expression: "json!([\"list_req\", list_req, \"spec\", spec])"
     "flags": 4,
     "fragment": {
       "compressionCodec": "GZIP",
+      "flushInterval": "86400s",
       "length": "536870912",
       "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
       "refreshInterval": "300s",
