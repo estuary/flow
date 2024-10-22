@@ -1804,6 +1804,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
 
 [[package]]
+name = "data-plane-controller"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "automations",
+ "clap 4.5.17",
+ "futures",
+ "humantime",
+ "humantime-serde",
+ "insta",
+ "md5",
+ "models",
+ "ops",
+ "rustls 0.23.10",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid 1.10.0",
+]
+
+[[package]]
 name = "dbl"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

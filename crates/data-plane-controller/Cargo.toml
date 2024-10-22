@@ -1,0 +1,55 @@
+[package]
+name = "data-plane-controller"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+async-process = { path = "../async-process" }
+automations = { path = "../automations" }
+models = { path = "../models" }
+ops = { path = "../ops" }
+
+#allocator = { path = "../allocator" }
+#gazette = { path = "../gazette" }
+#labels = { path = "../labels" }
+#models = { path = "../models" }
+#proto-flow = { path = "../proto-flow" }
+#proto-gazette = { path = "../proto-gazette" }
+#proto-grpc = { path = "../proto-grpc", features = ["runtime_client"] }
+#runtime = { path = "../runtime" }
+#sources = { path = "../sources" }
+#tables = { path = "../tables", features = ["persist"] }
+#validation = { path = "../validation" }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }
+humantime = { workspace = true }
+humantime-serde = { workspace = true }
+url = { workspace = true }
+
+#validator = { workspace = true }
+#xxhash-rust = { workspace = true }
+# uuid = { workspace = true }
+#tonic = { workspace = true }
+#tokio-util = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+md5 = { workspace = true }
+tokio = { workspace = true }
+serial_test = { workspace = true }
+uuid = { workspace = true }
