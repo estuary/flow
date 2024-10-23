@@ -7,7 +7,10 @@ use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
 use kafka_protocol::records::{Compression, TimestampType};
 use lz4_flex::frame::BlockMode;
-use std::time::{Duration, Instant};
+use std::{
+    cmp::max,
+    time::{Duration, Instant},
+};
 
 pub struct Read {
     /// Journal offset to be served by this Read.
@@ -29,6 +32,9 @@ pub struct Read {
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
 
+    // Offset before which no documents should be emitted
+    offset_start: i64,
+
     pub(crate) rewrite_offsets_from: Option<i64>,
 }
 
@@ -47,6 +53,8 @@ pub enum ReadTarget {
     Docs(usize),
 }
 
+const OFFSET_READBACK: i64 = 2 << 23 + 1; // 16mb, single document max size
+
 impl Read {
     pub fn new(
         client: journal::Client,
@@ -61,7 +69,8 @@ impl Read {
 
         let stream = client.clone().read_json_lines(
             broker::ReadRequest {
-                offset,
+                // Start reading at least 1 document in the past
+                offset: max(0, offset - OFFSET_READBACK),
                 block: true,
                 journal: partition.spec.name.clone(),
                 begin_mod_time: not_before_sec as i64,
@@ -89,6 +98,7 @@ impl Read {
 
             journal_name: partition.spec.name.clone(),
             rewrite_offsets_from,
+            offset_start: offset,
         }
     }
 
@@ -181,6 +191,10 @@ impl Read {
                 }
                 ReadJsonLine::Doc { root, next_offset } => (root, next_offset),
             };
+
+            if next_offset < self.offset_start {
+                continue;
+            }
 
             let mut record_bytes: usize = 0;
 
