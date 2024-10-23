@@ -430,7 +430,7 @@ impl Session {
                             // so long as the request is still a data preview request. If not, bail out
                             Entry::Occupied(entry) => {
                                 let data_preview_state = entry.get();
-                                if fetch_offset > data_preview_state.offset
+                                if fetch_offset >= data_preview_state.offset
                                     || data_preview_state.offset - fetch_offset > 12
                                 {
                                     bail!("Session was used for fetching preview data, cannot be used for fetching non-preview data.")
@@ -1318,9 +1318,9 @@ impl Session {
             .fetch_partition_offset(partition as usize, -1)
             .await?
         {
-            // If fetch_offset is > latest_offset, this is a caught-up consumer
+            // If fetch_offset is >= latest_offset, this is a caught-up consumer
             // polling for new documents, not a data preview request.
-            if fetch_offset <= latest_offset && latest_offset - fetch_offset < 13 {
+            if fetch_offset < latest_offset && latest_offset - fetch_offset < 13 {
                 tracing::info!(
                     latest_offset,
                     diff = latest_offset - fetch_offset,
