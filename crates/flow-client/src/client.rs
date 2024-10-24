@@ -1,5 +1,9 @@
 use crate::{api_exec, parse_jwt_claims};
 use anyhow::Context;
+use gazette::{
+    broker::{LabelSelector, LabelSet, ListRequest},
+    consumer, shard,
+};
 use models::authorizations::ControlClaims;
 use url::Url;
 
@@ -88,6 +92,22 @@ impl Client {
             shard_client,
             ..self
         }
+    }
+
+    pub async fn list_shards(&self) -> anyhow::Result<Vec<String>> {
+        let list_shards_req = consumer::ListRequest {
+            selector: Some(LabelSelector {
+                include: Some(LabelSet::default()),
+                exclude: None,
+            }),
+            ..Default::default()
+        };
+        let shards_list = self.shard_client.list(list_shards_req).await?.shards;
+        let shard_str_list: Vec<String> = shards_list
+            .into_iter()
+            .filter_map(|shard| shard.spec.map(|x| x.id.clone()))
+            .collect();
+        Ok(shard_str_list)
     }
 
     pub fn pg_client(&self) -> postgrest::Postgrest {
