@@ -119,8 +119,8 @@ pub fn partition_template(
     // Use a supplied compression codec. Or, if none, then default to gzip.
     let compression_codec = compression_codec(codec.unwrap_or(models::CompressionCodec::Gzip));
 
-    // If an explicit flush interval isn't provided, then don't set one.
-    let flush_interval = flush_interval.map(Into::into);
+    // If an explicit flush interval isn't provided, default to 24 hours
+    let flush_interval = flush_interval.unwrap_or(std::time::Duration::from_secs(24 * 3600)).into();
 
     // If a fragment length isn't set, default and then map MB to bytes.
     let length = (length.unwrap_or(512) as i64) << 20;
@@ -156,7 +156,7 @@ pub fn partition_template(
         replication,
         fragment: Some(broker::journal_spec::Fragment {
             compression_codec: compression_codec as i32,
-            flush_interval,
+            flush_interval: Some(flush_interval),
             length,
             path_postfix_template,
             refresh_interval,
