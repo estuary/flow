@@ -103,6 +103,8 @@ pub async fn start(
         // which will delegate to the actual entrypoint of the connector.
         "--entrypoint=/flow-connector-init".to_string(),
         // Mount the flow-connector-init binary and `docker inspect` output.
+        "--log-driver=none".to_string(),
+        // disable logging of connector containers
         format!(
             "--mount=type=bind,source={},target=/flow-connector-init",
             tmp_connector_init.to_string_lossy()
