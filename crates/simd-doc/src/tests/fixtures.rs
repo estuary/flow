@@ -108,7 +108,8 @@ fn test_incomplete_row_parsing() {
     let mut inputs = Vec::new();
     inputs.push(r###"st": {"this": "is", "a": "doc"}}"###.as_bytes());
     inputs.push(r###""test": {"this": "is", "a": "doc"}}"###.as_bytes());
-    inputs.push(r###"{"test": 5}, {"test": 6"}]"###.as_bytes());
+    inputs.push(r###"{"test": 5}, {"test": 6}]"###.as_bytes());
+    inputs.push(r###"{"test": 7}  {"test": 8}"###.as_bytes());
     inputs.push(r###"{"real": "object"}"###.as_bytes());
 
     let real = r###"{"this": "is a real doc"}"###;
@@ -166,76 +167,91 @@ fn test_incomplete_row_parsing() {
             }
         }
 
-        debug_assert_eq!(parse_snap, transcode_snap);
+        assert_eq!(parse_snap, transcode_snap);
 
         snaps.push((String::from_utf8(real_input).unwrap(), parse_snap));
     }
 
     insta::assert_debug_snapshot!(snaps, @r###"
-      [
-          (
-              "st\": {\"this\": \"is\", \"a\": \"doc\"}}\n{\"this\": \"is a real doc\"}\n",
-              [
-                  (
-                      -1,
-                      String("expected value at line 1 column 1 @ 0..33"),
-                  ),
-                  (
-                      59,
-                      Object {
-                          "this": String("is a real doc"),
-                      },
-                  ),
-              ],
-          ),
-          (
-              "\"test\": {\"this\": \"is\", \"a\": \"doc\"}}\n{\"this\": \"is a real doc\"}\n",
-              [
-                  (
-                      -1,
-                      String("incomplete row @ 0..45"),
-                  ),
-                  (
-                      62,
-                      Object {
-                          "this": String("is a real doc"),
-                      },
-                  ),
-              ],
-          ),
-          (
-              "{\"test\": 5}, {\"test\": 6\"}]\n{\"this\": \"is a real doc\"}\n",
-              [
-                  (
-                      -1,
-                      String("incomplete row @ 0..33"),
-                  ),
-                  (
-                      53,
-                      Object {
-                          "this": String("is a real doc"),
-                      },
-                  ),
-              ],
-          ),
-          (
-              "{\"real\": \"object\"}\n{\"this\": \"is a real doc\"}\n",
-              [
-                  (
-                      19,
-                      Object {
-                          "real": String("object"),
-                      },
-                  ),
-                  (
-                      45,
-                      Object {
-                          "this": String("is a real doc"),
-                      },
-                  ),
-              ],
-          ),
-      ]
+    [
+        (
+            "st\": {\"this\": \"is\", \"a\": \"doc\"}}\n{\"this\": \"is a real doc\"}\n",
+            [
+                (
+                    -1,
+                    String("expected value at line 1 column 1 @ 0..33"),
+                ),
+                (
+                    59,
+                    Object {
+                        "this": String("is a real doc"),
+                    },
+                ),
+            ],
+        ),
+        (
+            "\"test\": {\"this\": \"is\", \"a\": \"doc\"}}\n{\"this\": \"is a real doc\"}\n",
+            [
+                (
+                    -1,
+                    String("trailing characters at line 1 column 7 @ 0..36"),
+                ),
+                (
+                    62,
+                    Object {
+                        "this": String("is a real doc"),
+                    },
+                ),
+            ],
+        ),
+        (
+            "{\"test\": 5}, {\"test\": 6}]\n{\"this\": \"is a real doc\"}\n",
+            [
+                (
+                    -1,
+                    String("trailing characters at line 1 column 12 @ 0..26"),
+                ),
+                (
+                    52,
+                    Object {
+                        "this": String("is a real doc"),
+                    },
+                ),
+            ],
+        ),
+        (
+            "{\"test\": 7}  {\"test\": 8}\n{\"this\": \"is a real doc\"}\n",
+            [
+                (
+                    -1,
+                    String("trailing characters at line 1 column 14 @ 0..25"),
+                ),
+                (
+                    51,
+                    Object {
+                        "this": String("is a real doc"),
+                    },
+                ),
+            ],
+        ),
+        (
+            "{\"real\": \"object\"}\n{\"this\": \"is a real doc\"}\n",
+            [
+                (
+                    19,
+                    Object {
+                        "real": String("object"),
+                    },
+                ),
+                (
+                    45,
+                    Object {
+                        "this": String("is a real doc"),
+                    },
+                ),
+            ],
+        ),
+    ]
     "###);
 }
 
@@ -352,13 +368,26 @@ fn test_basic_parser_apis() {
     let doc = parser.parse_one(input.as_bytes(), &alloc).unwrap();
     snap.push((0, doc.to_debug_json_value()));
 
-    let input = input.repeat(3);
-    insta::assert_debug_snapshot!(parser.parse_one(input.as_bytes(), &alloc).unwrap_err(), @r###"
-    Custom {
-        kind: InvalidData,
-        error: "expected one document, but parsed 3",
+    {
+        let input = vec![input.as_str(), input.as_str(), input.as_str()].join("\n");
+        let input = input.as_bytes();
+
+        // Verify error handling of multiple valid documents in the input.
+        insta::assert_debug_snapshot!(parser.parse_one(input, &alloc).unwrap_err(), @r###"
+        Custom {
+            kind: InvalidData,
+            error: "expected one document, but parsed 3",
+        }
+        "###);
+
+        // Verify error handling of a trailing partial document.
+        insta::assert_debug_snapshot!(parser.parse_one(&input[..input.len()/2], &alloc).unwrap_err(), @r###"
+        Custom {
+            kind: InvalidData,
+            error: Error("trailing characters", line: 11, column: 1),
+        }
+        "###);
     }
-    "###);
 
     insta::assert_json_snapshot!(snap, @r###"
     [
