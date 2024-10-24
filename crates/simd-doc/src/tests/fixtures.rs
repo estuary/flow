@@ -128,23 +128,47 @@ fn test_incomplete_row_parsing() {
 
         let mut parser = Parser::new();
         parser.chunk(&real_input.clone(), 0).unwrap();
-        let mut snap = vec![];
+        let mut parse_snap = vec![];
+
         loop {
             match parser.parse_many(&alloc) {
-                Ok((begin, chunk)) => {
+                Ok((_, chunk)) => {
                     if chunk.len() == 0 {
                         break;
                     }
                     for (doc, next_offset) in chunk {
-                        snap.push((begin, next_offset, doc.to_debug_json_value()));
+                        parse_snap.push((next_offset, doc.to_debug_json_value()));
                     }
                 }
                 Err((err, location)) => {
-                    snap.push((-1, -1, json!(format!("{err} @ {location:?}"))));
+                    parse_snap.push((-1, json!(format!("{err} @ {location:?}"))));
                 }
             }
         }
-        snaps.push((String::from_utf8(real_input).unwrap(), snap));
+
+        let mut parser = Parser::new();
+        parser.chunk(&real_input.clone(), 0).unwrap();
+        let mut transcode_snap = vec![];
+
+        loop {
+            match parser.transcode_many(Default::default()) {
+                Ok(transcoded) => {
+                    if transcoded.is_empty() {
+                        break;
+                    }
+                    for (doc, next_offset) in transcoded.into_iter() {
+                        transcode_snap.push((next_offset, doc.get().to_debug_json_value()));
+                    }
+                }
+                Err((err, location)) => {
+                    transcode_snap.push((-1, json!(format!("{err} @ {location:?}"))));
+                }
+            }
+        }
+
+        debug_assert_eq!(parse_snap, transcode_snap);
+
+        snaps.push((String::from_utf8(real_input).unwrap(), parse_snap));
     }
 
     insta::assert_debug_snapshot!(snaps, @r###"
@@ -154,11 +178,9 @@ fn test_incomplete_row_parsing() {
               [
                   (
                       -1,
-                      -1,
                       String("expected value at line 1 column 1 @ 0..33"),
                   ),
                   (
-                      33,
                       59,
                       Object {
                           "this": String("is a real doc"),
@@ -171,11 +193,9 @@ fn test_incomplete_row_parsing() {
               [
                   (
                       -1,
-                      -1,
                       String("incomplete row @ 0..45"),
                   ),
                   (
-                      0,
                       62,
                       Object {
                           "this": String("is a real doc"),
@@ -188,11 +208,9 @@ fn test_incomplete_row_parsing() {
               [
                   (
                       -1,
-                      -1,
                       String("incomplete row @ 0..33"),
                   ),
                   (
-                      0,
                       53,
                       Object {
                           "this": String("is a real doc"),
@@ -204,14 +222,12 @@ fn test_incomplete_row_parsing() {
               "{\"real\": \"object\"}\n{\"this\": \"is a real doc\"}\n",
               [
                   (
-                      0,
                       19,
                       Object {
                           "real": String("object"),
                       },
                   ),
                   (
-                      0,
                       45,
                       Object {
                           "this": String("is a real doc"),
