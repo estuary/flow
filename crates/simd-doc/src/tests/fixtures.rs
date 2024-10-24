@@ -102,6 +102,127 @@ fn test_simd_and_fallback_results_are_equal() {
     assert!(!failed);
 }
 
+/// Make sure that we don't parse and return partial data from the middle of a row
+#[test]
+fn test_incomplete_row_parsing() {
+    let mut inputs = Vec::new();
+    inputs.push(r###"st": {"this": "is", "a": "doc"}}"###.as_bytes());
+    inputs.push(r###""test": {"this": "is", "a": "doc"}}"###.as_bytes());
+    inputs.push(r###"{"test": 5}, {"test": 6"}]"###.as_bytes());
+    inputs.push(r###"{"real": "object"}"###.as_bytes());
+
+    let real = r###"{"this": "is a real doc"}"###;
+
+    let alloc = doc::Allocator::new();
+
+    let mut snaps = vec![];
+
+    for input in inputs {
+        let real_input = input
+            .iter()
+            .chain(b"\n")
+            .chain(real.as_bytes())
+            .chain(b"\n")
+            .cloned()
+            .collect::<Vec<u8>>();
+
+        let mut parser = Parser::new();
+        parser.chunk(&real_input.clone(), 0).unwrap();
+        let mut snap = vec![];
+        loop {
+            match parser.parse_many(&alloc) {
+                Ok((begin, chunk)) => {
+                    if chunk.len() == 0 {
+                        break;
+                    }
+                    for (doc, next_offset) in chunk {
+                        snap.push((begin, next_offset, doc.to_debug_json_value()));
+                    }
+                }
+                Err((err, location)) => {
+                    snap.push((-1, -1, json!(format!("{err} @ {location:?}"))));
+                }
+            }
+        }
+        snaps.push((String::from_utf8(real_input).unwrap(), snap));
+    }
+
+    insta::assert_debug_snapshot!(snaps, @r###"
+      [
+          (
+              "st\": {\"this\": \"is\", \"a\": \"doc\"}}\n{\"this\": \"is a real doc\"}\n",
+              [
+                  (
+                      -1,
+                      -1,
+                      String("expected value at line 1 column 1 @ 0..33"),
+                  ),
+                  (
+                      33,
+                      59,
+                      Object {
+                          "this": String("is a real doc"),
+                      },
+                  ),
+              ],
+          ),
+          (
+              "\"test\": {\"this\": \"is\", \"a\": \"doc\"}}\n{\"this\": \"is a real doc\"}\n",
+              [
+                  (
+                      -1,
+                      -1,
+                      String("incomplete row @ 0..45"),
+                  ),
+                  (
+                      0,
+                      62,
+                      Object {
+                          "this": String("is a real doc"),
+                      },
+                  ),
+              ],
+          ),
+          (
+              "{\"test\": 5}, {\"test\": 6\"}]\n{\"this\": \"is a real doc\"}\n",
+              [
+                  (
+                      -1,
+                      -1,
+                      String("incomplete row @ 0..33"),
+                  ),
+                  (
+                      0,
+                      53,
+                      Object {
+                          "this": String("is a real doc"),
+                      },
+                  ),
+              ],
+          ),
+          (
+              "{\"real\": \"object\"}\n{\"this\": \"is a real doc\"}\n",
+              [
+                  (
+                      0,
+                      19,
+                      Object {
+                          "real": String("object"),
+                      },
+                  ),
+                  (
+                      0,
+                      45,
+                      Object {
+                          "this": String("is a real doc"),
+                      },
+                  ),
+              ],
+          ),
+      ]
+    "###);
+}
+
 #[test]
 fn test_basic_parser_apis() {
     let mut input = Vec::new();
