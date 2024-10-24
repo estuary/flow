@@ -72,6 +72,7 @@ impl Parser {
         );
         let mut buf = std::mem::take(&mut self.whole);
         buf.extend_from_slice(input);
+        buf.push(b'\n');
 
         if let Err(err) = parse_simd(&mut buf, 0, alloc, &mut self.parsed, &mut self.ffi) {
             self.parsed.clear(); // Clear a partial simd parsing.
@@ -79,6 +80,7 @@ impl Parser {
 
             let mut de = serde_json::Deserializer::from_slice(&buf);
             let node = doc::HeapNode::from_serde(&mut de, &alloc)?;
+            () = de.end()?;
             self.parsed.push((node, 0));
         }
         let mut parsed = self.parsed.drain(..);
@@ -292,7 +294,10 @@ fn parse_fallback<'a>(
         let pivot = memchr::memchr(b'\n', &input).expect("input always ends with newline") + 1;
 
         let mut de = serde_json::Deserializer::from_slice(&input[..pivot]);
-        match doc::HeapNode::from_serde(&mut de, &alloc) {
+        match doc::HeapNode::from_serde(&mut de, &alloc).and_then(|node| {
+            () = de.end()?;
+            Ok(node)
+        }) {
             Ok(node) => {
                 input = &input[pivot..];
                 consumed += pivot;
@@ -327,7 +332,10 @@ fn transcode_fallback(
         let pivot = memchr::memchr(b'\n', &input).expect("input always ends with newline") + 1;
 
         let mut de = serde_json::Deserializer::from_slice(&input[..pivot]);
-        match doc::HeapNode::from_serde(&mut de, &alloc) {
+        match doc::HeapNode::from_serde(&mut de, &alloc).and_then(|node| {
+            () = de.end()?;
+            Ok(node)
+        }) {
             Ok(node) => {
                 input = &input[pivot..];
                 consumed += pivot;
