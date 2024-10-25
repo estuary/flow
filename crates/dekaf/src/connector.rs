@@ -4,6 +4,19 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum DeletionMode {
+    Default,
+    Header,
+}
+
+impl Default for DeletionMode {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
 /// Configures the behavior of a whole dekaf task
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct DekafConfig {
@@ -15,6 +28,11 @@ pub struct DekafConfig {
     // #[schemars(extend("secret" = true))]
     #[schemars(schema_with = "token_secret")]
     pub token: String,
+    /// How to handle deletion events. "Default" emits them as regular Kafka
+    /// tombstones with null values, and "Header" emits then as a kafka document
+    /// with empty string and `_is_deleted` header set to `1`. Setting this value
+    /// will also cause all other non-deletions to have an `_is_deleted` header of `0`.
+    pub deletions: DeletionMode,
 }
 
 /// Configures a particular binding in a Dekaf-type materialization
