@@ -76,7 +76,11 @@ impl Read {
         let stream = client.clone().read_json_lines(
             broker::ReadRequest {
                 // Start reading at least 1 document in the past
-                offset: std::cmp::max(0, offset - OFFSET_READBACK),
+                offset: if rewrite_offsets_from.is_some() {
+                    offset
+                } else {
+                    std::cmp::max(0, offset - OFFSET_READBACK)
+                },
                 block: true,
                 journal: partition.spec.name.clone(),
                 begin_mod_time: not_before_sec as i64,
