@@ -1,11 +1,15 @@
 use super::{Collection, Partition};
+use crate::connector::DeletionMode;
 use anyhow::bail;
 use bytes::{Buf, BufMut, BytesMut};
 use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
-use kafka_protocol::records::{Compression, TimestampType};
+use kafka_protocol::{
+    protocol::StrBytes,
+    records::{Compression, TimestampType},
+};
 use lz4_flex::frame::BlockMode;
 
 pub struct Read {
@@ -31,6 +35,8 @@ pub struct Read {
     // Offset before which no documents should be emitted
     offset_start: i64,
 
+    deletes: DeletionMode,
+
     pub(crate) rewrite_offsets_from: Option<i64>,
 }
 
@@ -50,6 +56,9 @@ pub enum ReadTarget {
 }
 
 const OFFSET_READBACK: i64 = 2 << 25 + 1; // 64mb, single document max size
+const DELETION_HEADER: &str = "_is_deleted";
+const DELETION_VAL_DELETED: &[u8] = &[1u8];
+const DELETION_VAL_NOT_DELETED: &[u8] = &[0u8];
 
 impl Read {
     pub fn new(
@@ -60,6 +69,7 @@ impl Read {
         key_schema_id: u32,
         value_schema_id: u32,
         rewrite_offsets_from: Option<i64>,
+        deletes: DeletionMode,
     ) -> Self {
         let (not_before_sec, _) = collection.not_before.to_unix();
 
@@ -94,6 +104,7 @@ impl Read {
 
             journal_name: partition.spec.name.clone(),
             rewrite_offsets_from,
+            deletes,
             offset_start: offset,
         }
     }
@@ -257,18 +268,19 @@ impl Read {
             };
 
             // Encode the value.
-            let value = if is_control || is_deletion {
-                None
-            } else {
-                tmp.push(0);
-                tmp.extend(self.value_schema_id.to_be_bytes());
-                () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
+            let value =
+                if is_control || (is_deletion && matches!(self.deletes, DeletionMode::Default)) {
+                    None
+                } else {
+                    tmp.push(0);
+                    tmp.extend(self.value_schema_id.to_be_bytes());
+                    () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
 
-                record_bytes += tmp.len();
-                buf.extend_from_slice(&tmp);
-                tmp.clear();
-                Some(buf.split().freeze())
-            };
+                    record_bytes += tmp.len();
+                    buf.extend_from_slice(&tmp);
+                    tmp.clear();
+                    Some(buf.split().freeze())
+                };
 
             self.offset = next_offset;
 
@@ -293,7 +305,21 @@ impl Read {
 
             records.push(Record {
                 control: is_control,
-                headers: Default::default(),
+                headers: if matches!(self.deletes, DeletionMode::Header) {
+                    let deletion_val = if is_deletion {
+                        DELETION_VAL_DELETED
+                    } else {
+                        DELETION_VAL_NOT_DELETED
+                    };
+                    let mut headers = kafka_protocol::indexmap::IndexMap::new();
+                    headers.insert(
+                        StrBytes::from_static_str(DELETION_HEADER),
+                        Some(bytes::Bytes::from_static(&deletion_val)),
+                    );
+                    headers
+                } else {
+                    Default::default()
+                },
                 key,
                 offset: kafka_offset,
                 partition_leader_epoch: 1,

@@ -23,7 +23,7 @@ mod api_client;
 pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
-use connector::DekafConfig;
+use connector::{DekafConfig, DeletionMode};
 use flow_client::client::{refresh_authorizations, RefreshToken};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
@@ -42,10 +42,13 @@ pub struct App {
     pub client_base: flow_client::Client,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
+#[serde(deny_unknown_fields)]
 pub struct DeprecatedConfigOptions {
     #[serde(default = "bool::<false>")]
     pub strict_topic_names: bool,
+    #[serde(default)]
+    pub deletions: DeletionMode,
 }
 
 pub struct Authenticated {
@@ -103,7 +106,9 @@ impl App {
 
         let claims = flow_client::client::client_claims(&client)?;
 
-        if models::Materialization::regex().is_match(username.as_ref()) {
+        if models::Materialization::regex().is_match(username.as_ref())
+            && !username.starts_with("{")
+        {
             Ok(Authenticated {
                 client,
                 access_token: access,
@@ -119,6 +124,7 @@ impl App {
                 client,
                 task_config: DekafConfig {
                     strict_topic_names: config.strict_topic_names,
+                    deletions: config.deletions,
                     token: "".to_string(),
                 },
                 access_token: access,
