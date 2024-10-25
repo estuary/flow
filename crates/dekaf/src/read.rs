@@ -49,8 +49,6 @@ pub enum ReadTarget {
     Docs(usize),
 }
 
-const OFFSET_READBACK: i64 = 2 << 25 + 1; // 64mb, single document max size
-
 impl Read {
     pub fn new(
         client: journal::Client,
@@ -65,8 +63,7 @@ impl Read {
 
         let stream = client.clone().read_json_lines(
             broker::ReadRequest {
-                // Start reading at least 1 document in the past
-                offset: std::cmp::max(0, offset - OFFSET_READBACK),
+                offset,
                 block: true,
                 journal: partition.spec.name.clone(),
                 begin_mod_time: not_before_sec as i64,
@@ -322,7 +319,8 @@ impl Read {
             last_write_head = self.last_write_head,
             ratio = buf.len() as f64 / (records_bytes + 1) as f64,
             records_bytes,
-            "returning records"
+            did_timeout,
+            "batch complete"
         );
 
         metrics::counter!("dekaf_documents_read", "journal_name" => self.journal_name.to_owned())
