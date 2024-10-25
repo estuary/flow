@@ -374,13 +374,17 @@ impl Session {
             ..
         } = request;
 
-        let mut client = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?
-            .clone();
+        let (mut client, config) = {
+            let auth = self
+                .auth
+                .as_mut()
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+            (
+                auth.authenticated_client().await?.clone(),
+                auth.task_config.to_owned(),
+            )
+        };
 
         let timeout = std::time::Duration::from_millis(max_wait_ms as u64);
 
@@ -531,6 +535,7 @@ impl Session {
                                     key_schema_id,
                                     value_schema_id,
                                     Some(partition_request.fetch_offset - 1),
+                                    config.deletions,
                                 )
                                 .next_batch(
                                     // Have to read at least 2 docs, as the very last doc
@@ -558,6 +563,7 @@ impl Session {
                                     key_schema_id,
                                     value_schema_id,
                                     None,
+                                    config.deletions,
                                 )
                                 .next_batch(
                                     crate::read::ReadTarget::Bytes(
