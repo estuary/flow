@@ -66,6 +66,7 @@ humantime = "2.1"
 humantime-serde = "1.1"
 itertools = "0.10"
 indexmap = { version = "1.8", features = ["serde"] }
+ipnetwork = { version = "0.19", features = ["serde"] }
 iri-string = "0.6.0"
 jemallocator = { version = "0.3", features = ["profiling"] }
 jemalloc-ctl = "0.3"
@@ -141,6 +142,7 @@ strum_macros = "0.24"
 superslice = "1.0"
 sqlx = { version = "0.6", features = [
     "chrono",
+    "ipnetwork",
     "json",
     "macros",
     "postgres",
