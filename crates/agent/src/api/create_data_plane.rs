@@ -72,19 +72,24 @@ async fn do_create_data_plane(
         anyhow::bail!("authenticated user is not an admin of the 'ops/' tenant");
     }
 
-    let (data_plane_fqdn, base_name) = match &private {
+    let (data_plane_fqdn, base_name, pulumi_stack) = match &private {
         None => (
-            format!("{name}.dp.estuary-data.com"),
-            format!("public/{name}"),
+            format!("{name}.dp.estuary-data.com"), // 'aws-eu-west-1-c1.dp.estuary-data.com'
+            format!("public/{name}"),              // 'public/aws-eu-west-1-c1'
+            format!("public-{name}"),              // 'public-aws-eu-west-1-c1'
         ),
         Some(prefix) => {
             let base_name = format!("private/{prefix}{name}");
             (
+                // '9e571ae54b74e18.dp.estuary-data.com'
                 format!(
                     "{:x}.dp.estuary-data.com",
                     xxhash_rust::xxh3::xxh3_64(base_name.as_bytes()),
                 ),
+                // 'private/AcmeCo/aws-eu-west-1-c1'
                 base_name,
+                // 'private-AcmeCo-aws-eu-west-2-c3'
+                format!("private-{}-{name}", prefix.trim_end_matches("/")),
             )
         }
     };
@@ -93,8 +98,8 @@ async fn do_create_data_plane(
     let data_plane_name = format!("ops/dp/{base_name}");
     let ops_l1_inferred_name = format!("ops/rollups/L1/{base_name}/inferred-schemas");
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
-    let ops_l2_inferred_transform = format!("{data_plane_fqdn}");
-    let ops_l2_stats_transform = format!("{data_plane_fqdn}");
+    let ops_l2_inferred_transform = format!("from.{data_plane_fqdn}");
+    let ops_l2_stats_transform = format!("from.{data_plane_fqdn}");
     let ops_logs_name = format!("ops/tasks/{base_name}/logs");
     let ops_stats_name = format!("ops/tasks/{base_name}/stats");
 
@@ -147,9 +152,10 @@ async fn do_create_data_plane(
             broker_address,
             reactor_address,
             hmac_keys,
-            enable_l2
+            enable_l2,
+            pulumi_stack
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
         )
         on conflict (data_plane_name) do update set
             broker_address = $9,
@@ -172,6 +178,7 @@ async fn do_create_data_plane(
         reactor_address,
         hmac_keys.as_slice(),
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
+        pulumi_stack,
     )
     .fetch_one(pg_pool)
     .await?;
