@@ -63,6 +63,8 @@ pub enum Command {
     JsonSchema,
     /// Read stats collection documents
     Stats(Stats),
+    /// Stream logs associated with the given bearer token.
+    BearerLogs(BearerLogs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -173,6 +175,19 @@ impl Stats {
     }
 }
 
+#[derive(clap::Args, Debug)]
+pub struct BearerLogs {
+    /// Bearer logs token.
+    #[clap(long)]
+    pub token: uuid::Uuid,
+}
+
+impl BearerLogs {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+        crate::poll::stream_logs(&ctx.client, &self.token.to_string()).await
+    }
+}
+
 impl Advanced {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
@@ -193,6 +208,7 @@ impl Advanced {
                 Ok(serde_json::to_writer_pretty(std::io::stdout(), &schema)?)
             }
             Command::Stats(stats) => stats.run(ctx).await,
+            Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
         }
     }
 }
