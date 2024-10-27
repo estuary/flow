@@ -1804,6 +1804,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
 
 [[package]]
+name = "data-plane-controller"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "automations",
+ "chrono",
+ "clap 4.5.17",
+ "futures",
+ "humantime",
+ "humantime-serde",
+ "ipnetwork",
+ "itertools 0.10.5",
+ "models",
+ "ops",
+ "rustls 0.23.10",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "dbl"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3193,6 +3221,15 @@ name = "ipnet"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f518f335dce6725a761382244631d86cf0ccb2863413590b31338feb467f9c3"
+
+[[package]]
+name = "ipnetwork"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f84f1612606f3753f205a4e9a2efd6fe5b4c573a6269b2cc6c3003d44a0d127"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "iri-string"
@@ -6038,6 +6075,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "indexmap 1.9.3",
+ "ipnetwork",
  "itoa",
  "libc",
  "log",
