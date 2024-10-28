@@ -10,10 +10,11 @@ use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
-    indexmap::IndexMap,
     messages::{
         self,
-        metadata_response::{MetadataResponsePartition, MetadataResponseTopic},
+        metadata_response::{
+            MetadataResponseBroker, MetadataResponsePartition, MetadataResponseTopic,
+        },
         ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
         RequestHeader, TopicName,
     },
@@ -128,13 +129,10 @@ impl Session {
         }?;
 
         // We only ever advertise a single logical broker.
-        let mut brokers = kafka_protocol::indexmap::IndexMap::new();
-        brokers.insert(
-            messages::BrokerId(1),
-            messages::metadata_response::MetadataResponseBroker::default()
-                .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
-                .with_port(self.app.advertise_kafka_port as i32),
-        );
+        let brokers = vec![MetadataResponseBroker::default()
+            .with_node_id(messages::BrokerId(1))
+            .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
+            .with_port(self.app.advertise_kafka_port as i32)];
 
         Ok(messages::MetadataResponse::default()
             .with_brokers(brokers)
@@ -144,9 +142,7 @@ impl Session {
     }
 
     // Lists all read-able collections as Kafka topics. Omits partition metadata.
-    async fn metadata_all_topics(
-        &mut self,
-    ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
+    async fn metadata_all_topics(&mut self) -> anyhow::Result<Vec<MetadataResponseTopic>> {
         let collections = fetch_all_collection_names(
             &self
                 .auth
@@ -163,14 +159,12 @@ impl Session {
         let topics = collections
             .into_iter()
             .map(|name| {
-                (
-                    self.encode_topic_name(name),
-                    MetadataResponseTopic::default()
-                        .with_is_internal(false)
-                        .with_partitions(vec![MetadataResponsePartition::default()
-                            .with_partition_index(0)
-                            .with_leader_id(0.into())]),
-                )
+                MetadataResponseTopic::default()
+                    .with_name(Some(self.encode_topic_name(name)))
+                    .with_is_internal(false)
+                    .with_partitions(vec![MetadataResponsePartition::default()
+                        .with_partition_index(0)
+                        .with_leader_id(0.into())])
             })
             .collect();
 
@@ -181,7 +175,7 @@ impl Session {
     async fn metadata_select_topics(
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
-    ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
+    ) -> anyhow::Result<Vec<MetadataResponseTopic>> {
         let client = self
             .auth
             .as_mut()
@@ -206,13 +200,13 @@ impl Session {
             .await
             .map_err(|e| anyhow::anyhow!("Timed out loading metadata {e}"))?;
 
-        let mut topics = IndexMap::new();
+        let mut topics = vec![];
 
         for (name, maybe_collection) in collections? {
             let Some(collection) = maybe_collection else {
-                topics.insert(
-                    self.encode_topic_name(name.to_string()),
+                topics.push(
                     MetadataResponseTopic::default()
+                        .with_name(Some(self.encode_topic_name(name.to_string())))
                         .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
                 );
                 continue;
@@ -231,9 +225,9 @@ impl Session {
                 })
                 .collect();
 
-            topics.insert(
-                name,
+            topics.push(
                 MetadataResponseTopic::default()
+                    .with_name(Some(name))
                     .with_is_internal(false)
                     .with_partitions(partitions),
             );
@@ -732,21 +726,18 @@ impl Session {
         let responses = req
             .topic_data
             .into_iter()
-            .map(|(k, v)| {
-                (
-                    k,
-                    TopicProduceResponse::default().with_partition_responses(
-                        v.partition_data
-                            .into_iter()
-                            .map(|part| {
-                                PartitionProduceResponse::default()
-                                    .with_index(part.index)
-                                    .with_error_code(
-                                        kafka_protocol::error::ResponseError::InvalidRequest.code(),
-                                    )
-                            })
-                            .collect(),
-                    ),
+            .map(|v| {
+                TopicProduceResponse::default().with_partition_responses(
+                    v.partition_data
+                        .into_iter()
+                        .map(|part| {
+                            PartitionProduceResponse::default()
+                                .with_index(part.index)
+                                .with_error_code(
+                                    kafka_protocol::error::ResponseError::InvalidRequest.code(),
+                                )
+                        })
+                        .collect(),
                 )
             })
             .collect();
@@ -767,7 +758,7 @@ impl Session {
             .await?;
 
         let mut mutable_req = req.clone();
-        for (_, protocol) in mutable_req.protocols.iter_mut() {
+        for protocol in mutable_req.protocols.iter_mut() {
             let mut consumer_protocol_subscription_raw = protocol.metadata.clone();
 
             let consumer_protocol_subscription_version = consumer_protocol_subscription_raw
@@ -944,7 +935,10 @@ impl Session {
             consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
                 .assigned_partitions
                 .into_iter()
-                .map(|(name, item)| (self.encrypt_topic_name(name.to_owned().into()).into(), item))
+                .map(|part| {
+                    let transformed_topic = self.encrypt_topic_name(part.topic.to_owned());
+                    part.with_topic(transformed_topic)
+                })
                 .collect();
 
             let mut new_protocol_assignment = BytesMut::new();
@@ -980,7 +974,10 @@ impl Session {
         consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
             .assigned_partitions
             .into_iter()
-            .map(|(name, item)| (self.decrypt_topic_name(name.to_owned().into()).into(), item))
+            .map(|part| {
+                let transformed_topic = self.decrypt_topic_name(part.topic.to_owned());
+                part.with_topic(transformed_topic)
+            })
             .collect();
 
         let mut new_protocol_assignment = BytesMut::new();
@@ -1138,132 +1135,70 @@ impl Session {
     ) -> anyhow::Result<messages::ApiVersionsResponse> {
         use kafka_protocol::messages::{api_versions_response::ApiVersion, *};
 
-        fn version<T: kafka_protocol::protocol::Message>() -> ApiVersion {
-            let mut v = ApiVersion::default();
-            v.max_version = T::VERSIONS.max;
-            v.min_version = T::VERSIONS.min;
-            v
-        }
-        let mut res = ApiVersionsResponse::default();
-
-        res.api_keys.insert(
-            ApiKey::ApiVersionsKey as i16,
-            version::<ApiVersionsRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::SaslHandshakeKey as i16,
-            version::<SaslHandshakeRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::SaslAuthenticateKey as i16,
-            version::<SaslAuthenticateRequest>(),
-        );
-        res.api_keys
-            .insert(ApiKey::MetadataKey as i16, version::<MetadataRequest>());
-        res.api_keys.insert(
-            ApiKey::FindCoordinatorKey as i16,
+        fn version<T: kafka_protocol::protocol::Message>(api_key: ApiKey) -> ApiVersion {
             ApiVersion::default()
+                .with_api_key(api_key as i16)
+                .with_max_version(T::VERSIONS.max)
+                .with_min_version(T::VERSIONS.min)
+        }
+        let res = ApiVersionsResponse::default().with_api_keys(vec![
+            version::<ApiVersionsRequest>(ApiKey::ApiVersionsKey),
+            version::<SaslHandshakeRequest>(ApiKey::SaslHandshakeKey),
+            version::<SaslAuthenticateRequest>(ApiKey::SaslAuthenticateKey),
+            version::<MetadataRequest>(ApiKey::MetadataKey),
+            ApiVersion::default()
+                .with_api_key(ApiKey::FindCoordinatorKey as i16)
                 .with_min_version(0)
                 .with_max_version(2),
-        );
-        res.api_keys.insert(
-            ApiKey::ListOffsetsKey as i16,
-            version::<ListOffsetsRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::FetchKey as i16,
+            version::<ListOffsetsRequest>(ApiKey::ListOffsetsKey),
             ApiVersion::default()
+                .with_api_key(ApiKey::FetchKey as i16)
                 // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
                 // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
                 // just the consequence of convergent development, where some implicit requirement got encoded both in the client
                 // and server without being explicitly documented anywhere.
                 .with_min_version(4)
-                // I don't understand why, but some kafka clients don't seem to be able to send flexver fetch requests correctly
-                // For example, `kcat` sends an empty topic name when >= v12. I'm 99% sure there's more to this however.
-                .with_max_version(11),
-        );
-
-        // Needed by `kaf`.
-        res.api_keys.insert(
-            ApiKey::DescribeConfigsKey as i16,
-            version::<DescribeConfigsRequest>(),
-        );
-
-        res.api_keys.insert(
-            ApiKey::ProduceKey as i16,
+                // Version >= 13 did away with topic names in favor of unique topic UUIDs, so we need to stick below that.
+                .with_max_version(12),
+            // Needed by `kaf`.
+            version::<DescribeConfigsRequest>(ApiKey::DescribeConfigsKey),
             ApiVersion::default()
+                .with_api_key(ApiKey::ProduceKey as i16)
                 .with_min_version(3)
                 .with_max_version(9),
-        );
-
-        res.api_keys.insert(
-            ApiKey::JoinGroupKey as i16,
             self.app
                 .kafka_client
                 .supported_versions::<JoinGroupRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::LeaveGroupKey as i16,
             self.app
                 .kafka_client
                 .supported_versions::<LeaveGroupRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::ListGroupsKey as i16,
             self.app
                 .kafka_client
                 .supported_versions::<ListGroupsRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::SyncGroupKey as i16,
             self.app
                 .kafka_client
                 .supported_versions::<SyncGroupRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::DeleteGroupsKey as i16,
             self.app
                 .kafka_client
                 .supported_versions::<DeleteGroupsRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::HeartbeatKey as i16,
             self.app
                 .kafka_client
                 .supported_versions::<HeartbeatRequest>()?,
-        );
-
-        res.api_keys.insert(
-            ApiKey::OffsetCommitKey as i16,
             self.app
                 .kafka_client
                 .supported_versions::<OffsetCommitRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::OffsetFetchKey as i16,
             ApiVersion::default()
+                .with_api_key(ApiKey::OffsetFetchKey as i16)
                 .with_min_version(0)
                 .with_max_version(7),
-        );
+        ]);
 
         // UNIMPLEMENTED:
         /*
-        res.api_keys.insert(
-            ApiKey::LeaderAndIsrKey as i16,
-            version::<LeaderAndIsrRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::StopReplicaKey as i16,
-            version::<StopReplicaRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::CreateTopicsKey as i16,
-            version::<CreateTopicsRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::DeleteTopicsKey as i16,
-            version::<DeleteTopicsRequest>(),
-        );
+            ApiKey::LeaderAndIsrKey,
+            ApiKey::StopReplicaKey,
+            ApiKey::CreateTopicsKey,
+            ApiKey::DeleteTopicsKey,
         */
 
         Ok(res)
