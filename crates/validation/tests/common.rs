@@ -248,7 +248,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     // Load into LiveCatalog::live_materializations.
     for (materialization, mock) in &mock_calls.live_materializations {
         let model = models::MaterializationDef {
-            bindings: Vec::new(),
+            bindings: mock.bindings.clone(),
             endpoint: models::MaterializationEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
             shards: models::ShardTemplate::default(),
@@ -411,6 +411,8 @@ struct MockLiveMaterialization {
     last_pub_id: models::Id,
     #[serde(default)]
     last_build_id: Option<models::Id>,
+    #[serde(default)]
+    bindings: Vec<models::MaterializationBinding>,
 }
 
 #[derive(serde::Deserialize)]

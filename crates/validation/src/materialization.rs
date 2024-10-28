@@ -86,6 +86,7 @@ async fn walk_materialization(
         data_plane_id,
         expect_pub_id,
         expect_build_id,
+        live_model,
         live_spec,
         is_touch,
     ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
@@ -144,6 +145,7 @@ async fn walk_materialization(
                 materialization,
                 binding,
                 built_collections,
+                source_exclusions(live_model, binding.source.collection()),
                 errors,
             )
         })
@@ -376,6 +378,7 @@ fn walk_materialization_binding<'a>(
     catalog_name: &models::Materialization,
     binding: &'a models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
+    prior_exclusions: impl Iterator<Item = &'a models::Field> + Clone,
     errors: &mut tables::Errors,
 ) -> Option<materialize::request::validate::Binding> {
     let models::MaterializationBinding {
@@ -429,6 +432,7 @@ fn walk_materialization_binding<'a>(
         &spec,
         fields_include,
         fields_exclude,
+        prior_exclusions,
         errors,
     );
 
@@ -448,6 +452,7 @@ fn walk_materialization_fields<'a>(
     collection: &flow::CollectionSpec,
     include: &BTreeMap<models::Field, models::RawValue>,
     exclude: &[models::Field],
+    prior_exclusions: impl Iterator<Item = &'a models::Field> + Clone,
     errors: &mut tables::Errors,
 ) -> BTreeMap<String, String> {
     let flow::CollectionSpec {
@@ -476,7 +481,15 @@ fn walk_materialization_fields<'a>(
         let scope = scope.push_prop("exclude");
         let scope = scope.push_item(index);
 
-        if !projections.iter().any(|p| p.field == field.as_str()) {
+        if projections.iter().any(|p| p.field == field.as_str()) {
+            // Exclusion matches an existing collection projection.
+        } else if prior_exclusions.clone().any(|prior| field == prior) {
+            // As a special case, if this exclusion was also present in the prior
+            // model of this spec then allow it to carry forward without an error.
+            // This is to avoid breaking tasks which exclude inferred schema
+            // locations which may go away upon a simplification of the inferred
+            // schema (e.g. because they're collapsed into additionalProperties).
+        } else {
             Error::NoSuchProjection {
                 category: "exclude".to_string(),
                 field: field.to_string(),
@@ -719,4 +732,28 @@ fn extract_validated(
     let network_ports = internal.container.unwrap_or_default().network_ports;
 
     Ok((validated, network_ports))
+}
+
+// Build a Iterator + Clone over all models::Fields excluded by any
+// binding of `source` in `model`. The sequence may include duplicates.
+fn source_exclusions<'m>(
+    model: Option<&'m models::MaterializationDef>,
+    source: &'m models::Collection,
+) -> impl Iterator<Item = &'m models::Field> + Clone + 'm {
+    model
+        .into_iter()
+        .map(move |model| {
+            model
+                .bindings
+                .iter()
+                .filter_map(move |binding| {
+                    if !binding.disable && binding.source.collection() == source {
+                        Some(binding.fields.exclude.iter())
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+        })
+        .flatten()
 }

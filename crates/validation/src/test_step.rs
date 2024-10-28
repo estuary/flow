@@ -48,6 +48,7 @@ fn walk_test(
         _data_plane_id,
         expect_pub_id,
         expect_build_id,
+        _live_model,
         live_spec,
         is_touch,
     ) = match walk_transition(pub_id, build_id, Some(models::Id::zero()), eob, errors) {
