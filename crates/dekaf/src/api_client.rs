@@ -513,7 +513,8 @@ impl KafkaApiClient {
 
         let controller = resp
             .brokers
-            .get(&resp.controller_id)
+            .iter()
+            .find(|broker| broker.node_id == resp.controller_id)
             .context("Failed to find controller")?;
 
         let controller_url = format!("tcp://{}:{}", controller.host.to_string(), controller.port);
@@ -529,7 +530,8 @@ impl KafkaApiClient {
         let version = self
             .versions
             .api_keys
-            .get(&api_key)
+            .iter()
+            .find(|version| version.api_key == api_key)
             .context(format!("Unknown API key {api_key}"))?;
 
         Ok(version.to_owned())
@@ -553,18 +555,20 @@ impl KafkaApiClient {
         let resp = coord.send_request(req, None).await?;
         tracing::debug!(metadata=?resp, "Got metadata response");
 
-        if resp
-            .topics
-            .iter()
-            .all(|(name, topic)| topic_names.contains(&name) && topic.error_code == 0)
-        {
+        if resp.topics.iter().all(|topic| {
+            topic
+                .name
+                .as_ref()
+                .map(|topic_name| topic_names.contains(topic_name) && topic.error_code == 0)
+                .unwrap_or(false)
+        }) {
             return Ok(());
         } else {
-            let mut topics_map = kafka_protocol::indexmap::IndexMap::new();
+            let mut topics_map = vec![];
             for topic_name in topic_names.into_iter() {
-                topics_map.insert(
-                    topic_name,
+                topics_map.push(
                     messages::create_topics_request::CreatableTopic::default()
+                        .with_name(topic_name)
                         .with_replication_factor(2)
                         .with_num_partitions(-1),
                 );
@@ -573,11 +577,11 @@ impl KafkaApiClient {
             let create_resp = coord.send_request(create_req, None).await?;
             tracing::debug!(create_response=?create_resp, "Got create response");
 
-            for (name, topic) in create_resp.topics {
+            for topic in create_resp.topics {
                 if topic.error_code > 0 {
                     let err = kafka_protocol::ResponseError::try_from_code(topic.error_code);
                     tracing::warn!(
-                        topic = name.to_string(),
+                        topic = topic.name.to_string(),
                         error = ?err,
                         message = topic.error_message.map(|m|m.to_string()),
                         "Failed to create topic"
