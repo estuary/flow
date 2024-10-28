@@ -110,35 +110,44 @@ impl Schema {
         // no such conflicting definition (and we may produce an indexing error
         // later if they're wrong).
         if let Some(write) = write_bundle.filter(|_| read_bundle.references_write_schema()) {
-            defs.push((Schema::REF_WRITE_SCHEMA_URL, write));
+            defs.push(AddDef {
+                id: Schema::REF_WRITE_SCHEMA_URL,
+                schema: write,
+                overwrite: true, // always overwrite the write schema definition
+            });
         }
 
         if read_bundle.references_inferred_schema() {
-            if let Some(inferred) = inferred_bundle {
-                defs.push((Schema::REF_INFERRED_SCHEMA_URL, inferred));
-            } else {
-                defs.push((
-                    Schema::REF_INFERRED_SCHEMA_URL,
-                    &INFERRED_SCHEMA_PLACEHOLDER,
-                ));
-            }
+            let inferred = inferred_bundle.unwrap_or(&INFERRED_SCHEMA_PLACEHOLDER);
+            defs.push(AddDef {
+                id: Schema::REF_INFERRED_SCHEMA_URL,
+                schema: inferred,
+                overwrite: true,
+            });
         }
 
-        Schema::add_defs(read_bundle, true /* overwrite existing defs */, &defs)
+        Schema::add_defs(read_bundle, &defs)
     }
 
     pub fn build_read_schema_bundle(read_schema: &Schema, write_schema: &Schema) -> Schema {
         let mut defs = Vec::new();
         if read_schema.references_write_schema() {
-            defs.push((Schema::REF_WRITE_SCHEMA_URL, write_schema));
+            defs.push(AddDef {
+                id: Schema::REF_WRITE_SCHEMA_URL,
+                schema: write_schema,
+                overwrite: true, // always overwrite the write schema definition
+            });
         }
         if read_schema.references_inferred_schema() {
-            defs.push((
-                Schema::REF_INFERRED_SCHEMA_URL,
-                &INFERRED_SCHEMA_PLACEHOLDER,
-            ));
+            // The control plane will keep the inferred schema definition up to date,
+            // so we only ever add the placeholder here if it doesn't already exist.
+            defs.push(AddDef {
+                id: Schema::REF_INFERRED_SCHEMA_URL,
+                schema: &INFERRED_SCHEMA_PLACEHOLDER,
+                overwrite: false,
+            });
         }
-        Schema::add_defs(read_schema, false /* do not overwrite */, &defs)
+        Schema::add_defs(read_schema, &defs)
     }
 
     fn add_id(id: &str, schema: &Schema) -> RawValue {
@@ -151,7 +160,7 @@ impl Schema {
         serde_json::value::to_raw_value(&skim).unwrap().into()
     }
 
-    fn add_defs(target: &Schema, overwrite: bool, defs: &[(&str, &Schema)]) -> Schema {
+    fn add_defs(target: &Schema, defs: &[AddDef]) -> Schema {
         use serde_json::value::to_raw_value;
 
         let mut read_schema: Skim = serde_json::from_str(target.get()).unwrap();
@@ -160,7 +169,12 @@ impl Schema {
             .map(|d| serde_json::from_str(d.get()).unwrap())
             .unwrap_or_default();
 
-        for (id, schema) in defs {
+        for AddDef {
+            id,
+            schema,
+            overwrite,
+        } in defs
+        {
             if !overwrite && read_defs.contains_key(*id) {
                 continue;
             }
@@ -205,6 +219,12 @@ impl Schema {
             Self(to_raw_value(&read_schema).unwrap().into()),
         )
     }
+}
+
+struct AddDef<'a> {
+    id: &'a str,
+    schema: &'a Schema,
+    overwrite: bool,
 }
 
 // These patterns let us cheaply detect if a collection schema references the
@@ -412,25 +432,25 @@ mod test {
         }
         "###);
 
-        // Assert that existing defs are not overwritten.
-        // Note that in practice any `flow://write-schema` defs are removed by the publisher
-        // prior to validation, so it should never exist when this function is called. But this
-        // just documents the behavior, which is necessary in order to avoid replacing an existing
+        // Assert that existing inferred schema def is not overwritten, but that
+        // the write schema def is. Note that in practice any
+        // `flow://write-schema` defs are removed by the publisher prior to
+        // validation, so it should generally not exist when this function is
+        // called. But there's still some collection specs out there that have
+        // inlined write schema defs. Not overwriting the inferred schema def is
+        // necessary in order to avoid replacing an existing
         // `flow://inferred-schema` def with the placeholder.
         let read_schema = schema!({
             "$defs": {
                 "flow://inferred-schema": {
-                    "$id": "flow://inferred-schema",
                     "type": "object",
                     "properties": {
                         "c": { "type": "integer" }
                     }
                 },
                 "flow://write-schema": {
-                    "$id": "flow://write-schema",
-                    "type": "object",
                     "properties": {
-                        "a": { "type": "integer" }
+                        "c": { "const": "should be overwritten" }
                     }
                 },
             },
@@ -440,7 +460,40 @@ mod test {
             ]
         });
         let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
-        assert_eq!(read_schema, result); // assert that the schema is unchanged
+        insta::assert_json_snapshot!(result.to_value(), @r###"
+        {
+          "$defs": {
+            "flow://inferred-schema": {
+              "properties": {
+                "c": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "flow://write-schema": {
+              "$id": "flow://write-schema",
+              "properties": {
+                "a": {
+                  "type": "integer"
+                },
+                "b": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "flow://inferred-schema"
+            },
+            {
+              "$ref": "flow://write-schema"
+            }
+          ]
+        }
+        "###);
     }
 
     #[test]
