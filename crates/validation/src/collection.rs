@@ -52,6 +52,7 @@ fn walk_collection(
         data_plane_id,
         expect_pub_id,
         expect_build_id,
+        _live_model,
         live_spec,
         is_touch,
     ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {

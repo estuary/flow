@@ -276,3 +276,74 @@ driver:
     );
     insta::assert_debug_snapshot!(errors);
 }
+
+#[test]
+fn test_relaxation_of_existing_exclusions() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource: { table: bar }
+          fields:
+            recommended: true
+            exclude:
+              # Current projection.
+              - f_one
+              # Pre-existing exclusion which is not an error.
+              - existing/not/found
+              # Pre-existing exclusion, but its binding is disabled.
+              - existing/but/disabled
+              # Entirely new exclusion.
+              - new/not/found
+              # Existing exclusion, but for a different collection.
+              - other/not/found
+driver:
+  liveMaterializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource: ~
+          fields:
+            recommended: true
+            exclude:
+              - existing/not/found
+
+        - source: the/collection
+          disable: true
+          resource: ~
+          fields:
+            recommended: true
+            exclude:
+              - existing/but/disabled
+
+        - source: some/other/collection
+          resource: ~
+          fields:
+            recommended: true
+            exclude:
+              - other/not/found
+    "#,
+    );
+
+    // Expect `existing/not/found` does NOT produce an error, while others do.
+    insta::assert_debug_snapshot!(errors, @r###"
+    [
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/exclude/2,
+            error: exclude projection existing/but/disabled does not exist in collection the/collection,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/exclude/3,
+            error: exclude projection new/not/found does not exist in collection the/collection,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/exclude/4,
+            error: exclude projection other/not/found does not exist in collection the/collection,
+        },
+    ]
+    "###);
+}
