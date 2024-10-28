@@ -2,6 +2,7 @@
 /// values can safely be used in newline-delimited contexts.
 #[derive(serde::Serialize, Clone)]
 pub struct RawValue(Box<serde_json::value::RawValue>);
+
 // RawValues are only equal if they are byte-for-byte identical,
 // except for leading and trailing whitespace.
 impl std::cmp::PartialEq<RawValue> for RawValue {

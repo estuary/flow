@@ -406,7 +406,7 @@ pub trait DraftRow: crate::Row {
     fn expect_pub_id(&self) -> Option<models::Id>;
     /// Model of this specification.
     fn model(&self) -> Option<&Self::ModelDef>;
-    /// Whether this represents a touch operation. If true, then `model` must be `None`.
+    /// Whether this represents a touch operation.
     fn is_touch(&self) -> bool;
 
     fn spec_type(&self) -> models::CatalogType;
