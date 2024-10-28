@@ -1,0 +1,89 @@
+---
+source: crates/avro/src/schema.rs
+assertion_line: 370
+expression: "schema_test(&fixture, &key)"
+---
+{
+  "key": {
+    "fields": [
+      {
+        "name": "_flow_key",
+        "type": {
+          "fields": [
+            {
+              "name": "p1",
+              "type": "string"
+            }
+          ],
+          "name": "Parts",
+          "namespace": "root.Key",
+          "type": "record"
+        }
+      }
+    ],
+    "name": "Key",
+    "namespace": "root",
+    "type": "record"
+  },
+  "value": {
+    "fields": [
+      {
+        "name": "both_required",
+        "type": "string"
+      },
+      {
+        "name": "both_required_and_nullable",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "default": null,
+        "name": "neither_required",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "default": null,
+        "name": "side_a",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "default": null,
+        "name": "side_b",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      {
+        "name": "_flow_extra",
+        "type": {
+          "type": "map",
+          "values": [
+            "null",
+            {
+              "fields": [
+                {
+                  "name": "json",
+                  "type": "string"
+                }
+              ],
+              "name": "RawJSON",
+              "namespace": "root._flow_extra",
+              "type": "record"
+            }
+          ]
+        }
+      }
+    ],
+    "name": "root",
+    "type": "record"
+  }
+}

@@ -56,7 +56,12 @@ pub fn shape_to_avro(loc: json::Location, shape: doc::Shape, required: bool) -> 
     if !nullable || matches!(base, avro::Schema::Null) {
         base
     } else {
-        avro::Schema::Union(avro::UnionSchema::new(vec![base, avro::Schema::Null]).unwrap())
+        // Note that when a default value is specified for a record field whose type is a union,
+        // the type of the default value must match the first element of the union.
+        // Thus, for unions containing "null", the "null" is usually listed first,
+        // since the default value of such unions is typically null. [1]
+        // [1] https://avro.apache.org/docs/1.10.2/spec.html#Unions
+        avro::Schema::Union(avro::UnionSchema::new(vec![avro::Schema::Null, base]).unwrap())
     }
 }
 
@@ -152,7 +157,12 @@ fn object_to_avro(loc: json::Location, obj: doc::shape::ObjShape) -> avro::Schem
         fields.push(avro::RecordField {
             aliases: None,
             custom_attributes: Default::default(),
-            default,
+            default: if !prop.is_required && default.is_none() {
+                // Optional fields in Avro are encoded as nullable, with a default of null
+                Some(serde_json::Value::Null)
+            } else {
+                default
+            },
             doc: None,
             name: prop.name.to_string(),
             order: avro::RecordFieldOrder::Ascending,
@@ -325,5 +335,36 @@ mod test {
             "key": &key,
             "value": &value,
         })
+    }
+
+    #[test]
+    fn test_unions() {
+        let fixture = json!({
+          "allOf": [
+              {
+                  "type": "object",
+                  "properties": {
+                      "side_a": {"type": "string"},
+                      "both_required": {"type": "string"},
+                      "both_required_and_nullable": {"type": ["string", "null"]},
+                  },
+                  "required": ["both_required", "both_required_and_nullable"]
+              },
+              {
+                  "type": "object",
+                  "properties": {
+                      "side_b": {"type": "string"},
+                      "both_required": {"type": "string"},
+                      "both_required_and_nullable": {"type": ["string", "null"]},
+                  },
+                  "required": ["both_required", "both_required_and_nullable"]
+              }
+          ],
+        })
+        .to_string();
+
+        let key = &["/both_required"];
+        let key: Vec<_> = key.iter().map(|p| doc::Pointer::from_str(p)).collect();
+        insta::assert_json_snapshot!(schema_test(&fixture, &key));
     }
 }
