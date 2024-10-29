@@ -46,6 +46,7 @@ pub struct Session {
     secret: String,
     auth: Option<Authenticated>,
     data_preview_state: SessionDataPreviewState,
+    alloc: bumpalo::Bump,
     pub client_id: Option<String>,
 }
 
@@ -57,6 +58,7 @@ impl Session {
             auth: None,
             secret,
             client_id: None,
+            alloc: Default::default(),
             data_preview_state: SessionDataPreviewState::Unknown,
         }
     }
@@ -176,12 +178,13 @@ impl Session {
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
     ) -> anyhow::Result<Vec<MetadataResponseTopic>> {
-        let client = self
+        let auth = self
             .auth
             .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?;
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let client = auth.authenticated_client().await?;
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
@@ -192,6 +195,7 @@ impl Session {
                         client,
                         from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
                             .as_str(),
+                        deletions,
                     )
                     .await?;
                     Ok((topic.name.unwrap_or_default(), maybe_collection))
@@ -263,12 +267,13 @@ impl Session {
         &mut self,
         request: messages::ListOffsetsRequest,
     ) -> anyhow::Result<messages::ListOffsetsResponse> {
-        let client = self
+        let auth = self
             .auth
             .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?;
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let client = auth.authenticated_client().await?;
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
         // Map each "topic" into Vec<(Partition Index, Option<PartitionOffset>.
@@ -277,6 +282,7 @@ impl Session {
                 let maybe_collection = Collection::new(
                     client,
                     from_downstream_topic_name(topic.name.clone()).as_str(),
+                    deletions,
                 )
                 .await?;
 
@@ -480,7 +486,8 @@ impl Session {
                     _ => {}
                 }
 
-                let Some(collection) = Collection::new(&client, &key.0).await? else {
+                let Some(collection) = Collection::new(&client, &key.0, config.deletions).await?
+                else {
                     metrics::counter!(
                         "dekaf_fetch_requests",
                         "topic_name" => key.0.to_string(),
@@ -1038,13 +1045,13 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
-        let flow_client = self
+        let auth = self
             .auth
             .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?
-            .clone();
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let flow_client = auth.authenticated_client().await?.clone();
 
         client
             .ensure_topics(
@@ -1061,10 +1068,11 @@ impl Session {
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned());
 
-            let collection_partitions = Collection::new(&flow_client, topic.name.as_str())
-                .await?
-                .context(format!("unable to look up partitions for {:?}", topic.name))?
-                .partitions;
+            let collection_partitions =
+                Collection::new(&flow_client, topic.name.as_str(), deletions)
+                    .await?
+                    .context(format!("unable to look up partitions for {:?}", topic.name))?
+                    .partitions;
 
             for partition in &topic.partitions {
                 if let Some(error) = partition.error_code.err() {
@@ -1258,17 +1266,18 @@ impl Session {
         partition: i32,
         fetch_offset: i64,
     ) -> anyhow::Result<Option<PartitionOffset>> {
-        let client = self
+        let auth = self
             .auth
             .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?
-            .authenticated_client()
-            .await?;
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let client = auth.authenticated_client().await?;
 
         tracing::debug!(
             "Loading latest offset for this partition to check if session is data-preview"
         );
-        let collection = Collection::new(&client, collection_name.as_str())
+        let collection = Collection::new(&client, collection_name.as_str(), deletions)
             .await?
             .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
 

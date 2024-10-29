@@ -42,19 +42,27 @@ pub enum Error {
     ParseFloat(String, #[source] std::num::ParseFloatError),
 }
 
+/// Map a [`doc::Shape`] and key pointers into its equivalent AVRO schema.
+pub fn shape_to_avro(
+    shape: doc::Shape,
+    key: &[doc::Pointer],
+) -> (apache_avro::Schema, apache_avro::Schema) {
+    (
+        schema::key_to_avro(key, shape.clone()),
+        schema::shape_to_avro(json::Location::Root, shape, true),
+    )
+}
+
 /// Map a JSON schema bundle and key pointers into its equivalent AVRO schema.
 pub fn json_schema_to_avro(
-    json_schema: &str,
+    schema: &str,
     key: &[doc::Pointer],
 ) -> Result<(apache_avro::Schema, apache_avro::Schema), Error> {
-    let json_schema = doc::validation::build_bundle(json_schema)?;
+    let json_schema = doc::validation::build_bundle(schema)?;
     let validator = doc::Validator::new(json_schema)?;
     let shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-    Ok((
-        schema::key_to_avro(key, shape.clone()),
-        schema::shape_to_avro(json::Location::Root, shape, true),
-    ))
+    Ok(shape_to_avro(shape, key))
 }
 
 /// Encode a document into a binary AVRO representation using the given schema.

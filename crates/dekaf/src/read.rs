@@ -1,8 +1,8 @@
 use super::{Collection, Partition};
 use crate::connector::DeletionMode;
-use anyhow::bail;
+use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::AsNode;
+use doc::{heap::ArchivedNode, AsNode, HeapNode, OwnedArchivedNode};
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
@@ -10,6 +10,7 @@ use kafka_protocol::{
     protocol::StrBytes,
     records::{Compression, TimestampType},
 };
+use lazy_static::lazy_static;
 use lz4_flex::frame::BlockMode;
 
 pub struct Read {
@@ -36,6 +37,7 @@ pub struct Read {
     offset_start: i64,
 
     deletes: DeletionMode,
+    alloc: bumpalo::Bump,
 
     pub(crate) rewrite_offsets_from: Option<i64>,
 }
@@ -55,9 +57,9 @@ pub enum ReadTarget {
     Docs(usize),
 }
 
-const DELETION_HEADER: &str = "_is_deleted";
-const DELETION_VAL_DELETED: &[u8] = &[1u8];
-const DELETION_VAL_NOT_DELETED: &[u8] = &[0u8];
+lazy_static! {
+    static ref DELETION_INDICATOR_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/is_deleted");
+}
 
 impl Read {
     pub fn new(
@@ -103,6 +105,7 @@ impl Read {
             journal_name: partition.spec.name.clone(),
             rewrite_offsets_from,
             deletes,
+            alloc: Default::default(),
             offset_start: offset,
         }
     }
@@ -267,12 +270,24 @@ impl Read {
 
             // Encode the value.
             let value =
-                if is_control || (is_deletion && matches!(self.deletes, DeletionMode::Default)) {
+                if is_control || (is_deletion && matches!(self.deletes, DeletionMode::Kafka)) {
                     None
                 } else {
                     tmp.push(0);
                     tmp.extend(self.value_schema_id.to_be_bytes());
-                    () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
+
+                    if matches!(self.deletes, DeletionMode::CDC) {
+                        let mut heap_node = HeapNode::from_node(root.get(), &self.alloc);
+                        let foo = DELETION_INDICATOR_PTR
+                            .create_heap_node(&mut heap_node, &self.alloc)
+                            .context("Unable to add deletion meta indicator")?;
+
+                        *foo = HeapNode::PosInt(if is_deletion { 1 } else { 0 });
+
+                        () = avro::encode(&mut tmp, &self.value_schema, &heap_node)?;
+                    } else {
+                        () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
+                    }
 
                     record_bytes += tmp.len();
                     buf.extend_from_slice(&tmp);
@@ -303,21 +318,7 @@ impl Read {
 
             records.push(Record {
                 control: is_control,
-                headers: if matches!(self.deletes, DeletionMode::Header) {
-                    let deletion_val = if is_deletion {
-                        DELETION_VAL_DELETED
-                    } else {
-                        DELETION_VAL_NOT_DELETED
-                    };
-                    let mut headers = kafka_protocol::indexmap::IndexMap::new();
-                    headers.insert(
-                        StrBytes::from_static_str(DELETION_HEADER),
-                        Some(bytes::Bytes::from_static(&deletion_val)),
-                    );
-                    headers
-                } else {
-                    Default::default()
-                },
+                headers: Default::default(),
                 key,
                 offset: kafka_offset,
                 partition_leader_epoch: 1,
