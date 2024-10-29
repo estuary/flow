@@ -7,13 +7,19 @@ use std::collections::BTreeMap;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum DeletionMode {
-    Default,
-    Header,
+    // Handles deletions using the regular Kafka upsert envelope, where a deletion
+    // is represented by a record containing the key that was deleted, and a null value.
+    Kafka,
+    // Handles deletions by passing through the full deletion document as it exists
+    // in the source collection, as well as including a new field `_meta/is_deleted`
+    // which is defined as the number `1` on deletions, and `0` otherwise.
+    #[serde(rename = "cdc")]
+    CDC,
 }
 
 impl Default for DeletionMode {
     fn default() -> Self {
-        Self::Default
+        Self::Kafka
     }
 }
 

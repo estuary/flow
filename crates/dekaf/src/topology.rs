@@ -1,3 +1,4 @@
+use crate::connector::DeletionMode;
 use anyhow::Context;
 use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
@@ -61,6 +62,7 @@ impl Collection {
     pub async fn new(
         client: &flow_client::Client,
         collection: &str,
+        deletion_mode: DeletionMode,
     ) -> anyhow::Result<Option<Self>> {
         let not_before = uuid::Clock::default();
         let pg_client = client.pg_client();
@@ -87,7 +89,16 @@ impl Collection {
         } else {
             &spec.read_schema_json
         };
-        let (key_schema, value_schema) = avro::json_schema_to_avro(json_schema, &key_ptr)?;
+
+        let json_schema = doc::validation::build_bundle(json_schema)?;
+        let validator = doc::Validator::new(json_schema)?;
+        let mut shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
+        if matches!(deletion_mode, DeletionMode::CDC) {
+            shape.widen(&serde_json::json!({"_meta":{"is_deleted":1}}));
+        }
+
+        let (key_schema, value_schema) = avro::shape_to_avro(shape, &key_ptr);
 
         tracing::debug!(
             collection,
