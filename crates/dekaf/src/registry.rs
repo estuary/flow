@@ -73,8 +73,11 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let Authenticated { client, .. } =
-            app.authenticate(auth.username(), auth.password()).await?;
+        let Authenticated {
+            client,
+            task_config,
+            ..
+        } = app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
@@ -89,6 +92,7 @@ async fn get_subject_latest(
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
             ))),
+            task_config.deletions,
         )
         .await
         .context("failed to fetch collection metadata")?
