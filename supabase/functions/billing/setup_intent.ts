@@ -60,8 +60,9 @@ export async function setupIntent(
         customer: customer.id,
         description: "Store your payment details",
         usage: "off_session",
-        // payment_method_types: ["card", "us_bank_account"],
-        payment_method_types: ["card"],
+        automatic_payment_methods: {
+            enabled: true
+        }
     });
 
     return [JSON.stringify({ intent_secret: intent.client_secret }), {
