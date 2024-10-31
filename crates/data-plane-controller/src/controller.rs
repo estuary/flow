@@ -1,4 +1,4 @@
-use super::{run_cmd, stack};
+use super::{logs, run_cmd, stack};
 use crate::repo;
 use anyhow::Context;
 use itertools::{EitherOrBoth, Itertools};
@@ -518,6 +518,15 @@ impl Controller {
         )
         .await?;
 
+        self.logs_tx
+            .send(logs::Line {
+                token: state.logs_token,
+                stream: "controller".to_string(),
+                line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+            })
+            .await
+            .context("failed to send to logs sink")?;
+
         state.status = Status::AwaitDNS1;
         state.last_pulumi_up = chrono::Utc::now();
 
@@ -671,6 +680,15 @@ impl Controller {
             state.logs_token,
         )
         .await?;
+
+        self.logs_tx
+            .send(logs::Line {
+                token: state.logs_token,
+                stream: "controller".to_string(),
+                line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+            })
+            .await
+            .context("failed to send to logs sink")?;
 
         state.status = Status::AwaitDNS2;
         state.last_pulumi_up = chrono::Utc::now();
