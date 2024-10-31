@@ -180,11 +180,27 @@ pub struct BearerLogs {
     /// Bearer logs token.
     #[clap(long)]
     pub token: uuid::Uuid,
+    /// Start reading from this far in the past.
+    #[clap(long, default_value = "1h")]
+    pub since: Option<humantime::Duration>,
 }
 
 impl BearerLogs {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        crate::poll::stream_logs(&ctx.client, &self.token.to_string()).await
+        let bound = match self.since {
+            None => None,
+            Some(since) => {
+                let since: std::time::Duration = since.into();
+                Some(crate::Timestamp::from_unix_timestamp(
+                    (std::time::SystemTime::now() - since)
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64,
+                )?)
+            }
+        };
+
+        crate::poll::stream_logs(&ctx.client, &self.token.to_string(), bound).await
     }
 }
 

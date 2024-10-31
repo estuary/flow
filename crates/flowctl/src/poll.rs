@@ -12,7 +12,7 @@ pub async fn poll_while_queued(
 
     tokio::select! {
         outcome = poll_table(client, table, id) => return outcome,
-        result = stream_logs(client, logs_token) => return Err(result.unwrap_err()),
+        result = stream_logs(client, logs_token, None) => return Err(result.unwrap_err()),
     };
 }
 
@@ -47,9 +47,11 @@ pub async fn poll_table(
     Ok(outcome)
 }
 
-pub async fn stream_logs(client: &crate::Client, logs_token: &str) -> anyhow::Result<()> {
-    let mut last_logged_at = None;
-
+pub async fn stream_logs(
+    client: &crate::Client,
+    logs_token: &str,
+    mut last_logged_at: Option<crate::Timestamp>,
+) -> anyhow::Result<()> {
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
