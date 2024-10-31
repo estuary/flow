@@ -23,7 +23,7 @@ pub struct Args {
     #[clap(long = "database-ca", env = "DPC_DATABASE_CA")]
     database_ca: Option<String>,
     /// Number of tasks which may be polled concurrently.
-    #[clap(long = "concurrency", env = "DPC_CONCURRENCY", default_value = "1")]
+    #[clap(long = "concurrency", env = "DPC_CONCURRENCY", default_value = "2")]
     concurrency: u32,
     /// Interval between polls for dequeue-able tasks when otherwise idle.
     #[clap(
@@ -39,7 +39,7 @@ pub struct Args {
     #[clap(
         long = "heartbeat-timeout",
         env = "DPC_HEARTBEAT_TIMEOUT",
-        default_value = "30s"
+        default_value = "60s"
     )]
     #[serde(with = "humantime_serde")]
     #[arg(value_parser = humantime::parse_duration)]
