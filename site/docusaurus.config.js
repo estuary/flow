@@ -46,7 +46,7 @@ const config = {
   tagline: 'Dinosaurs are cool',
   url: URL,
   baseUrl: BASE_URL,
-  onBrokenAnchors: 'warn', // TODO(johnny): Fix broken links and make this 'throw'.
+  onBrokenAnchors: 'throw',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'throw',
   favicon: 'img/favicon-2.ico',
@@ -123,7 +123,7 @@ const config = {
         items: [
           {
             type: 'doc',
-            docId: 'overview/README',
+            docId: 'getting-started/getting-started',
             position: 'left',
             label: 'Documentation',
           },

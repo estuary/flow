@@ -1,10 +1,11 @@
-# Quickstart
+# Quickstart for Flow
 
 <head>
     <meta property="og:image" content="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//architecture_6bbaf2c5a6/architecture_6bbaf2c5a6.png" />
 </head>
 
-In this tutorial, we'll set up a streaming CDC pipeline from PostgreSQL to Snowflake using Estuary Flow.
+In this tutorial, you will learn how to set up a streaming Change Data Capture (CDC) pipeline from PostgreSQL to
+Snowflake using Estuary Flow.
 
 Before you get started, make sure you do two things.
 
@@ -56,7 +57,7 @@ To see how Flow parsed the incoming records, click on the Collection tab and ver
 
 ![Configure Collections](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//collections_configuration_34e53025c7/collections_configuration_34e53025c7.png)
 
-## Step 3. Set up a Materialization<a id="step-3-set-up-a-materialization"></a>
+## Step 2. Set up a Materialization<a id="step-3-set-up-a-materialization"></a>
 
 Similarly to the source side, we’ll need to set up some initial configuration in Snowflake to allow Flow to materialize
 collections into a table.

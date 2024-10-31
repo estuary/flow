@@ -55,4 +55,7 @@ Once you've installed flowctl and are ready to begin working, authenticate your 
 
 The token will expire after a predetermined duration. Repeat this process to re-authenticate.
 
-[Learn more about using flowctl.](../concepts/flowctl.md)
+# Next steps
+
+1. [flowctl concepts](../concepts/flowctl.md): Learn more about using flowctl.
+2. [User guides](../guides/flowctl/README.md): Check out some of the detailed user guides to see flowctl in action.
