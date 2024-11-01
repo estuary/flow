@@ -218,6 +218,10 @@ into JSON arrays or objects and embeds them into the mapped document:
 `{"greeting": "hello", "items": [1, "two", 3]}`.
 If parsing fails, the raw string is used instead.
 
+If you would like to select all columns of the input collection, 
+rather than `select *`, use `select JSON($flow_document)`, e.g. 
+`select JSON($flow_document where $status = open;`.
+
 As a special case if your query selects a _single_ column
 having a name that begins with `json` or `JSON`,
 as is common when working with SQLite's [JSON functions](https://www.sqlite.org/json1.html),
