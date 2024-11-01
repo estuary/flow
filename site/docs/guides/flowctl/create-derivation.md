@@ -24,7 +24,7 @@ If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
    * [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
    GitPod comes ready for derivation writing, with stubbed out files and flowctl installed. You'll need a GitLab, GitHub, or BitBucket account to log in.
 
-   * Your local development environment. [Install flowctl locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli)
+   * Your local development environment. * [Install flowctl locally](../get-started-with-flowctl.md)
 
 ## Get started with GitPod
 
