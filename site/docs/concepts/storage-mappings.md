@@ -7,7 +7,7 @@ Flow stores the documents that comprise your collections in a cloud storage buck
 Your **storage mapping** tells Flow which bucket to use.
 
 When you first register for Flow, your storage mapping is Estuary's secure Google Cloud Storage bucket.
-Data in Flow's cloud storage bucket is deleted 30 days after collection.
+Data in Flow's cloud storage bucket is deleted 20 days after collection.
 
 For production workflows, you should [set up your own cloud storage bucket as a storage mapping](../guides/configure-cloud-storage.md).
 

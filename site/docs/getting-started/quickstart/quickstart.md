@@ -16,7 +16,7 @@ Before you get started, make sure you do two things.
    ask a question.
 
 When you register for Flow, your account will use Flow's secure cloud storage bucket to store your data.
-Data in Flow's cloud storage bucket is deleted 30 days after collection.
+Data in Flow's cloud storage bucket is deleted 20 days after collection.
 
 For production use cases, you
 should [configure your own cloud storage bucket to use with Flow](#configuring-your-cloud-storage-bucket-for-use-with-flow).
