@@ -62,4 +62,4 @@ captures:
 
 This capture definition should only have one binding, as `exchange_rates` is the only available data stream.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../concepts/captures.md)

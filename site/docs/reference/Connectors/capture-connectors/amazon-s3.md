@@ -141,7 +141,7 @@ captures:
 
 Your capture definition may be more complex, with additional bindings for different S3 prefixes within the same bucket.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../concepts/captures.md)
 
 ### Advanced: Parsing cloud storage data
 
