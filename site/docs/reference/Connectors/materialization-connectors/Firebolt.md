@@ -63,6 +63,7 @@ Use the below properties to configure a Firebolt materialization, which will dir
 | **`/s3_bucket`** | S3 bucket | Name of S3 bucket where the intermediate files for external table will be stored. | string | Required |
 | `/s3_prefix` | S3 prefix | A prefix for files stored in the bucket. | string |  |
 | **`/client_id`** | Client ID | ID of your Firebolt service account. | string | Required |
+| **`/account_name`** | Account Name | Name of your [account](https://docs.firebolt.io/Overview/organizations-accounts.html) within your Firebolt organization. | string | Required |
 
 
 #### Bindings
@@ -86,6 +87,7 @@ materializations:
             # For public S3 buckets, only the bucket name is required
             s3_bucket: my-bucket
             client_id: firebolt-user
+            account_name: my-account
           # Path to the latest version of the connector, provided as a Docker image
           image: ghcr.io/estuary/materialize-firebolt:dev
 	# If you have multiple collections you need to materialize, add a binding for each one
