@@ -163,7 +163,7 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../../concepts/captures.md)
+[Learn more about capture definitions.](/concepts/captures.md)
 
 ## Troubleshooting Capture Errors
 
