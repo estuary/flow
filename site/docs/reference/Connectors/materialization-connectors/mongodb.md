@@ -10,7 +10,15 @@ MongoDB is a NoSQL database. Its [data
 model](https://www.mongodb.com/docs/manual/core/data-modeling-introduction/)
 consists of **documents** (lightweight records that contain mappings of fields
 and values) organized in **collections**. MongoDB documents have a mandatory
-`_id` field that is used as the key of the collection.
+`_id` field that is used as the key of the collection. Flow collection documents
+are materialized as MongoDB documents with an `_id` field value based on the
+Flow collection key.
+
+:::info
+If your Flow collection already has a field named `_id`, its value will
+be present in the materialized MongoDB document as the field `_flow_id` to
+prevent conflicts with the required `_id` field.
+:::
 
 ## Prerequisites
 
