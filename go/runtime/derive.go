@@ -52,9 +52,11 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 			base.drop()
 			return nil, fmt.Errorf("building SQLite backing store: %w", err)
 		} else if err = sqlite.Open(""); err != nil {
+			sqlite.Destroy()
 			base.drop()
 			return nil, fmt.Errorf("opening SQLite backing store: %w", err)
 		} else if err = sqlite.SQLiteDB.Close(); err != nil {
+			sqlite.Destroy()
 			base.drop()
 			return nil, fmt.Errorf("closing SQLite DB in preparation for opening it again: %w", err)
 		}
