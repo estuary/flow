@@ -227,8 +227,12 @@ async fn ready_tasks_iter(
     // If permits remain, there were not enough tasks to dequeue.
     // Sleep for up-to `dequeue_interval`, cancelling early if a task completes.
     if permits.num_permits() != 0 {
+        // Jitter dequeue by 10% in either direction, to ensure
+        // distribution of tasks and retries across executors.
+        let jitter = 0.9 + rand::random::<f64>() * 0.2; // [0.9, 1.1)
+
         tokio::select! {
-            () = tokio::time::sleep(dequeue_interval) => (),
+            () = tokio::time::sleep(dequeue_interval.mul_f64(jitter)) => (),
             _ = semaphore.clone().acquire_owned() => (), // Cancel sleep.
         }
     }
