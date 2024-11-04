@@ -32,7 +32,7 @@ pub struct PublishInvoice {
     #[clap(long)]
     stripe_api_key: String,
     /// Comma-separated list of tenants to publish invoices for
-    #[clap(long, value_delimiter = ',', required_unless_present("all-tenants"))]
+    #[clap(long, value_delimiter = ',', required_unless_present("all_tenants"))]
     tenants: Vec<String>,
     /// Generate invoices for all tenants that have bills in the provided month.
     #[clap(long, conflicts_with("tenants"))]
