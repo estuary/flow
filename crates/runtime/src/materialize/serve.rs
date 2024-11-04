@@ -169,6 +169,7 @@ async fn serve_session<L: LogHandler>(
                         &mut saw_acknowledged,
                         &mut saw_flush,
                         &mut saw_flushed,
+                        &task,
                         &mut txn,
                         &mut wb,
                     )

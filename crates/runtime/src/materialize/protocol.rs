@@ -212,10 +212,14 @@ pub fn recv_client_load_or_flush(
         }) => {
             let binding = &task.bindings[binding_index as usize];
 
-            let (memtable, _alloc, doc) =
-                accumulator
-                    .doc_bytes_to_heap_node(doc_json.as_bytes())
-                    .context("couldn't parse materialized document as JSON")?;
+            let (memtable, _alloc, doc) = accumulator
+                .doc_bytes_to_heap_node(doc_json.as_bytes())
+                .with_context(|| {
+                format!(
+                    "couldn't parse source document as JSON (source {})",
+                    binding.collection_name
+                )
+            })?;
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
@@ -285,6 +289,7 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
     saw_acknowledged: &mut bool,
     saw_flush: &mut bool,
     saw_flushed: &mut bool,
+    task: &Task,
     txn: &mut Transaction,
     wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<Option<Response>> {
@@ -297,9 +302,16 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
                 }),
             ..
         }) => {
+            let binding = &task.bindings[binding_index as usize];
+
             let (memtable, _alloc, doc) = accumulator
                 .doc_bytes_to_heap_node(doc_json.as_bytes())
-                .context("couldn't parse loaded document as JSON")?;
+                .with_context(|| {
+                format!(
+                    "couldn't parse loaded document as JSON (source {})",
+                    binding.collection_name
+                )
+            })?;
 
             memtable.add(binding_index, doc, true)?;
 
