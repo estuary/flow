@@ -1,0 +1,15 @@
+---
+source: crates/derive-sqlite/src/validate.rs
+expression: validated
+---
+{
+  "transforms": [
+    {
+      "readOnly": true
+    }
+  ],
+  "generatedFiles": {
+    "file://path/to/migration.stub": "\n-- Use migrations to create or alter tables that your derivation will use.\n-- Each migration is run only once, and new migrations will be applied as needed.\n--\n-- For example, create the join table below, and then use it across multiple lambdas:\n--\n-- A first lambda that updates indexed state:\n--\n--   INSERT INTO my_join_table (id, joined_value) VALUES ($id, $my::value)\n--     ON CONFLICT REPLACE;\n--\n-- A second lambda that reads out and joins over the indexed state:\n--\n--    SELECT $id, $other$value, j.joined_value FROM my_join_table WHERE id = $id;\n\nCREATE TABLE my_join_table (\n    -- A common ID that's joined over.\n    id           INTEGER PRIMARY KEY NOT NULL,\n    -- A value that's updated by one lambda, and read by another.\n    joined_value TEXT NOT NULL\n);\n\n",
+    "file://path/to/transform.stub.sql": "\n-- Example statement which passes-through source acmeCo/foo/bar documents without modification.\n-- Use a WHERE clause to filter, for example: WHERE $my$column = 1234\nSELECT JSON($flow_document);\n\n-- Example statement demonstrating how to SELECT specific locations from documents of acmeCo/foo/bar.\n-- This statement is effectively disabled by its WHERE FALSE clause and does not emit any documents.\n--\n-- You can rename a location by using the SQL \"AS\" syntax, for example:\n--   SELECT $some$column AS \"my_new_column_name;\n--\n-- You can also filter by using locations in a WHERE clause, for example:\n--   SELECT $some$column WHERE $other$column = 1234;\nSELECT\n    -- Key id at /id\n    $id,\n    -- Partitioned field part at /part\n    $part,\n    -- Field nested/int at /nested/int\n    $nested$int,\n    -- Field value at /value\n    $value\n-- Disable this statement, so that it emits no documents.\nWHERE FALSE;\n"
+  }
+}
