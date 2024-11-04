@@ -107,20 +107,20 @@ const MIGRATION_STUB: &str = r#"
 --
 -- A second lambda that reads out and joins over the indexed state:
 --
---    SELECT $id, $other::value, j.joined_value FROM my_join_table WHERE id = $id;
+--    SELECT $id, $other$value, j.joined_value FROM my_join_table WHERE id = $id;
 
-create table my_join_table (
+CREATE TABLE my_join_table (
     -- A common ID that's joined over.
-    id           integer primary key not null,
+    id           INTEGER PRIMARY KEY NOT NULL,
     -- A value that's updated by one lambda, and read by another.
-    joined_value text not null
+    joined_value TEXT NOT NULL
 );
 
 "#;
 
 fn lambda_stub(
     Transform {
-        name,
+        name: _,
         source,
         block: _,
         params,
@@ -129,11 +129,32 @@ fn lambda_stub(
     use std::fmt::Write;
     let mut w = String::with_capacity(4096);
 
+    let root = params.iter().find(|param| param.projection.ptr.is_empty());
+
+    if let Some(root) = root {
+        _ = write!(
+            w,
+            r#"
+-- Example statement which passes-through source {source} documents without modification.
+-- Use a WHERE clause to filter, for example: WHERE $my$column = 1234
+SELECT JSON({});
+"#,
+            root.canonical_encoding
+        );
+    }
+
     _ = write!(
         w,
         r#"
--- Example select statement for transform {name} of source collection {source}.
-select
+-- Example statement demonstrating how to SELECT specific locations from documents of {source}.
+-- This statement is effectively disabled by its WHERE FALSE clause and does not emit any documents.
+--
+-- You can rename a location by using the SQL "AS" syntax, for example:
+--   SELECT $some$column AS "my_new_column_name;
+--
+-- You can also filter by using locations in a WHERE clause, for example:
+--   SELECT $some$column WHERE $other$column = 1234;
+SELECT
 "#,
     );
 
@@ -167,11 +188,62 @@ select
 
     let params: Vec<String> = params
         .iter()
-        .map(|p| format!("    -- {}\n    {}", comment(p), p.canonical_encoding))
+        .filter_map(|p| {
+            if p.projection.ptr.is_empty() {
+                None // Skip projection of the document root.
+            } else {
+                Some(format!(
+                    "    -- {}\n    {}",
+                    comment(p),
+                    p.canonical_encoding
+                ))
+            }
+        })
         .collect();
 
     w.push_str(&params.join(",\n"));
-    w.push_str("\n;");
+    w.push_str(
+        r#"
+-- Disable this statement, so that it emits no documents.
+WHERE FALSE;
+"#,
+    );
 
     w
+}
+
+#[cfg(test)]
+mod test {
+    use super::super::test_param;
+    use super::do_validate;
+    use crate::Transform;
+
+    #[test]
+    fn test_stub_generation() {
+        let mut params = vec![
+            test_param("id", "/id", false, false, false),
+            test_param("part", "/part", false, false, false),
+            test_param("flow_document", "", false, false, false),
+            test_param("nested/int", "/nested/int", false, true, false),
+            test_param("value", "/value", false, false, false),
+        ];
+        params[0].projection.is_primary_key = true;
+        params[1].projection.is_partition_key = true;
+
+        let migrations = vec![
+            "file://path/to/migration.stub".to_string(),
+            "CREATE TABLE foo (one TEXT, two INTEGER);".to_string(),
+        ];
+
+        let transforms = vec![Transform {
+            block: "file://path/to/transform.stub.sql".to_string(),
+            name: "fromFoobar".to_string(),
+            source: "acmeCo/foo/bar".to_string(),
+            params,
+        }];
+
+        let validated = do_validate(&migrations, &transforms).unwrap();
+
+        insta::assert_json_snapshot!(validated);
+    }
 }
