@@ -34,12 +34,13 @@ echo "Adding connector image_name: '${CONNECTOR}', image_tag: '${TAG}'" 1>&2
 psql 'postgres://postgres:postgres@localhost:5432/postgres' <<EOF
     begin;
 
-    insert into connectors (image_name, title, short_description, logo_url, external_url) values (
+    insert into connectors (image_name, title, short_description, logo_url, external_url, recommended) values (
         '${CONNECTOR}',
         json_build_object('en-US','${CONNECTOR}'),
         json_build_object('en-US','${CONNECTOR}'),
         json_build_object('en-US',''),
-        'https://estuary.dev/'
+        'https://estuary.dev/',
+        false
     ) on conflict do nothing;
 
     insert into connector_tags (connector_id, image_tag)
