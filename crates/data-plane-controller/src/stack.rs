@@ -29,7 +29,7 @@ pub struct DataPlane {
     pub control_plane_api: url::Url,
     pub data_buckets: Vec<url::Url>,
     pub gcp_project: String,
-    pub ssh_subnets: Vec<ipnetwork::Ipv6Network>,
+    pub ssh_subnets: Vec<ipnetwork::IpNetwork>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub private_links: Vec<AWSPrivateLink>,
     pub deployments: Vec<Deployment>,
@@ -86,7 +86,7 @@ pub struct AnsibleRole {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AnsibleHost {
-    pub ansible_host: std::net::Ipv6Addr,
+    pub ansible_host: std::net::IpAddr,
     pub ansible_user: String,
     pub host_fqdn: String,
     pub local_cert_pem: String,

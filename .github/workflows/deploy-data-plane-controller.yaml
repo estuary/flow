@@ -1,0 +1,64 @@
+name: Deploy data-plane-controller
+
+on:
+  workflow_dispatch: {}
+  # TODO(johnny): Remove after merging.
+  push:
+    branches: [johnny/dpc-cd]
+
+env:
+  CARGO_INCREMENTAL: 0 # Faster from-scratch builds.
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      # Permissions required of the Github token in order for
+      # federated identity and authorization to work.
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: true
+
+      - uses: supabase/setup-cli@v1
+      - run: supabase start
+
+      - name: Build `data-plane-controller`
+        run: cargo build --release -p data-plane-controller
+
+      - run: mv target/release/data-plane-controller crates/data-plane-controller/
+
+      - name: Authenticate with GCP Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          service_account: cd-github-actions@estuary-control.iam.gserviceaccount.com
+          workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
+
+      - name: Update Cloud Run job `data-plane-controller`
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          job: data-plane-controller
+          project_id: estuary-control
+          region: us-central1
+          source: crates/data-plane-controller/
+          timeout: 2h # Self-cancels after 1 hour, with 1 hour grace period.
+
+          env_vars: |-
+            DPC_DATABASE_CA=/etc/db-ca.crt
+            DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
+            NO_COLOR=1
+
+          secrets: |-
+            CONTROL_PLANE_DB_CA_CERT=CONTROL_PLANE_DB_CA_CERT:latest
+            DPC_GITHUB_SSH_KEY=DPC_GITHUB_SSH_KEY:latest
+            DPC_IAM_CREDENTIALS=DPC_IAM_CREDENTIALS:latest
+            DPC_SERVICE_ACCOUNT=DPC_SERVICE_ACCOUNT:latest
+            PGPASSWORD=POSTGRES_PASSWORD:latest
+            VULTR_API_KEY=DPC_VULTR_API_KEY:latest
+
+          env_vars_update_strategy: overwrite
+          secrets_update_strategy: overwrite

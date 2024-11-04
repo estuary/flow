@@ -17,19 +17,18 @@ pub struct Args {
         env = "DPC_DATABASE_URL",
         default_value = "postgres://postgres:postgres@127.0.0.1:5432/postgres"
     )]
-    #[serde(skip_serializing)]
     database_url: url::Url,
     /// Path to CA certificate of the database.
     #[clap(long = "database-ca", env = "DPC_DATABASE_CA")]
     database_ca: Option<String>,
     /// Number of tasks which may be polled concurrently.
-    #[clap(long = "concurrency", env = "DPC_CONCURRENCY", default_value = "2")]
+    #[clap(long = "concurrency", env = "DPC_CONCURRENCY", default_value = "1")]
     concurrency: u32,
     /// Interval between polls for dequeue-able tasks when otherwise idle.
     #[clap(
         long = "dequeue-interval",
         env = "DPC_DEQUEUE_INTERVAL",
-        default_value = "5s"
+        default_value = "10s"
     )]
     #[serde(with = "humantime_serde")]
     #[arg(value_parser = humantime::parse_duration)]
@@ -96,7 +95,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     }
 
     let pg_pool = sqlx::postgres::PgPoolOptions::new()
-        .acquire_timeout(std::time::Duration::from_secs(5))
+        .acquire_timeout(std::time::Duration::from_secs(30))
         .connect_with(pg_options)
         .await
         .context("connecting to database")?;
