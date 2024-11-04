@@ -646,10 +646,6 @@ impl Session {
                         unreachable!("Must have already determined data-preview status of session")
                     }
                     SessionDataPreviewState::NotDataPreview => {
-                        partition_data = partition_data
-                            .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
-                            .with_last_stable_offset(pending.last_write_head);
-
                         pending.offset = read.offset;
                         pending.last_write_head = read.last_write_head;
                         pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
@@ -660,6 +656,10 @@ impl Session {
                                 std::time::Instant::now() + timeout,
                             ),
                         ));
+
+                        partition_data = partition_data
+                            .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
+                            .with_last_stable_offset(pending.last_write_head);
                     }
                     SessionDataPreviewState::DataPreview(data_preview_states) => {
                         let data_preview_state = data_preview_states
