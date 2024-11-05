@@ -227,6 +227,7 @@ pub async fn start(
     let channel = tonic::transport::Endpoint::new(init_address.clone())
         .expect("formatting endpoint address")
         .connect_timeout(std::time::Duration::from_secs(5))
+        .http2_keep_alive_interval(std::time::Duration::from_secs(5))
         .connect()
         .await
         .with_context(|| {
