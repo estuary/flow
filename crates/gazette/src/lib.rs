@@ -87,11 +87,10 @@ pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
         // Note this connect_timeout accounts only for TCP connection time and
         // does not apply to time required for TLS or HTTP/2 transport start,
         // which can block indefinitely if the server is bound but not listening.
-        // Callers MUST implement per-RPC timeouts if that's important.
-        // This timeout is only a best-effort sanity check.
         .connect_timeout(Duration::from_secs(5))
-        .keep_alive_timeout(Duration::from_secs(120))
-        .keep_alive_while_idle(true)
+        // HTTP/2 keep-alive sends a PING frame every interval to confirm the
+        // health of the end-to-end HTTP/2 transport.
+        .http2_keep_alive_interval(std::time::Duration::from_secs(5))
         .tls_config(
             tonic::transport::ClientTlsConfig::new()
                 .with_native_roots()
