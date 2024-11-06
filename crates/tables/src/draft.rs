@@ -220,6 +220,55 @@ impl DraftCatalog {
 
         Ok(())
     }
+
+    /// Adds the given live catalog to this draft. All live specs are added with
+    /// `is_touch` set to `true`.
+    pub fn add_live(&mut self, live: crate::LiveCatalog) {
+        for capture in live.captures {
+            let scope = crate::synthetic_scope(models::CatalogType::Capture, &capture.capture);
+            self.captures.insert(DraftCapture {
+                capture: capture.capture,
+                scope,
+                expect_pub_id: Some(capture.last_pub_id),
+                model: Some(capture.model),
+                is_touch: true,
+            });
+        }
+        for collection in live.collections {
+            let scope =
+                crate::synthetic_scope(models::CatalogType::Collection, &collection.collection);
+            self.collections.insert(DraftCollection {
+                collection: collection.collection,
+                scope,
+                expect_pub_id: Some(collection.last_pub_id),
+                model: Some(collection.model),
+                is_touch: true,
+            });
+        }
+        for materialization in live.materializations {
+            let scope = crate::synthetic_scope(
+                models::CatalogType::Materialization,
+                &materialization.materialization,
+            );
+            self.materializations.insert(DraftMaterialization {
+                materialization: materialization.materialization,
+                scope,
+                expect_pub_id: Some(materialization.last_pub_id),
+                model: Some(materialization.model),
+                is_touch: true,
+            });
+        }
+        for test in live.tests {
+            let scope = crate::synthetic_scope(models::CatalogType::Test, &test.test);
+            self.tests.insert(DraftTest {
+                test: test.test,
+                scope,
+                expect_pub_id: Some(test.last_pub_id),
+                model: Some(test.model),
+                is_touch: true,
+            });
+        }
+    }
 }
 
 impl std::fmt::Debug for DraftCatalog {

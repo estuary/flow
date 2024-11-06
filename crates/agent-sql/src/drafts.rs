@@ -54,6 +54,24 @@ pub async fn fetch_draft_specs(
     .await
 }
 
+pub async fn delete_specs(
+    draft_id: Id,
+    catalog_names: &[&str],
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        delete from draft_specs
+        where draft_id = $1 and catalog_name = any($2)
+        "#,
+        draft_id as Id,
+        catalog_names as &[&str],
+    )
+    .execute(txn)
+    .await?;
+    Ok(())
+}
+
 #[tracing::instrument(err, level = "debug", skip(spec, txn))]
 pub async fn upsert_spec<S>(
     draft_id: Id,
