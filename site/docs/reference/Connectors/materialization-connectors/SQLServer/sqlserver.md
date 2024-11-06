@@ -135,7 +135,7 @@ Flow considers all the reserved words in the official [SQLServer documentation](
 These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
 
 | Reserved words |               |               |               |               |
-| -------------- | ------------- | ------------- | ------------- | ------------- | ----- |
+| -------------- | ------------- | ------------- | ------------- | ------------- |
 | absolute       | connect       | else          | intersect     | on            |
 | action         | connection    | end           | intersection  | only          |
 | ada            | constraint    | end-exec      | interval      | open          |
