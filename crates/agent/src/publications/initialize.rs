@@ -130,45 +130,27 @@ impl Initialize for ExpandDraft {
             .map(|d| d.collection.as_str())
             .collect::<Vec<_>>();
         let all_drafted_specs = draft.all_spec_names().collect::<Vec<_>>();
-        let expanded_rows = agent_sql::live_specs::fetch_expanded_live_specs(
+
+        let capability_filter = if self.filter_user_has_admin {
+            Some(Capability::Admin)
+        } else {
+            None
+        };
+        let expanded_catalog = crate::live_specs::get_connected_live_specs(
             user_id,
             &drafted_collections,
             &all_drafted_specs,
+            capability_filter,
             db,
         )
         .await?;
-        let mut expanded_names = Vec::with_capacity(expanded_rows.len());
-        for exp in expanded_rows {
-            if self.filter_user_has_admin
-                && !exp
-                    .user_capability
-                    .map(|c| c == Capability::Admin)
-                    .unwrap_or(false)
-            {
-                // Skip specs that the user doesn't have permission to change, as it would just
-                // cause errors during the build.
-                continue;
-            }
-            let Some(spec_type) = exp.spec_type.map(Into::into) else {
-                anyhow::bail!("missing spec_type for expanded row: {:?}", exp.catalog_name);
-            };
-            let Some(model_json) = &exp.spec else {
-                anyhow::bail!("missing spec for expanded row: {:?}", exp.catalog_name);
-            };
-            let scope = tables::synthetic_scope(spec_type, &exp.catalog_name);
-            if let Err(e) = draft.add_spec(
-                spec_type,
-                &exp.catalog_name,
-                scope,
-                Some(exp.last_pub_id.into()),
-                Some(&model_json),
-                true, // is_touch
-            ) {
-                draft.errors.push(e);
-            }
-            expanded_names.push(exp.catalog_name);
-        }
-        tracing::debug!(?expanded_names, "expanded draft");
+        tracing::debug!(
+            expanded_names = %expanded_catalog.all_spec_names().format(","),
+            "expanded draft"
+        );
+
+        draft.add_live(expanded_catalog);
+
         Ok(())
     }
 }

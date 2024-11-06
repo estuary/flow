@@ -8,6 +8,7 @@ use crate::{
     publications::{self, DraftPublication, PublicationResult, Publisher, UncommittedBuild},
     ControlPlane, HandleResult, Handler, PGControlPlane,
 };
+use crate::{evolution, DiscoverHandler};
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
 use models::{CatalogType, Id};
@@ -1055,6 +1056,14 @@ impl ControlPlane for TestControlPlane {
 
     fn current_time(&self) -> DateTime<Utc> {
         self.inner.current_time()
+    }
+
+    async fn evolve_collections(
+        &mut self,
+        draft: tables::DraftCatalog,
+        collections: Vec<evolution::EvolveRequest>,
+    ) -> anyhow::Result<evolution::EvolutionOutput> {
+        self.inner.evolve_collections(draft, collections).await
     }
 
     async fn publish(
