@@ -168,6 +168,14 @@ impl<R: Row> Table<R> {
             .filter_map(join)
     }
 
+    /// Removes and returns the element with the given key.
+    pub fn remove_by_key(&mut self, key: &R::Key) -> Option<R> {
+        match self.0.binary_search_by(|r| r.cmp_key(key)) {
+            Ok(index) => Some(self.0.remove(index)),
+            Err(_) => None,
+        }
+    }
+
     pub fn get_by_key(&self, key: &R::Key) -> Option<&R> {
         self.0
             .binary_search_by(|r| r.cmp_key(key))

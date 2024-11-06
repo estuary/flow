@@ -47,6 +47,30 @@ fn is_acquire_lock_error(err: &anyhow::Error) -> bool {
         .is_some()
 }
 
+/// Returns a vector of `EvolveRequest`s for the given incompatible collections.
+/// If re-creating a collection is required, then this will use a default name
+/// generation function to add or increment a version suffix. If `affected_materializations`
+/// are non-empty, then they will always be set on the `EvolveRequest`.
+pub fn evolutions_requests(
+    incompatible_collections: &[publications::IncompatibleCollection],
+) -> Vec<evolution::EvolveRequest> {
+    incompatible_collections
+        .iter()
+        .map(|ic| {
+            let req = evolution::EvolveRequest::of(&ic.collection).with_materializations(
+                ic.affected_materializations
+                    .iter()
+                    .map(|ac| ac.name.as_str()),
+            );
+            if ic.requires_recreation.is_empty() {
+                req
+            } else {
+                req.with_version_increment()
+            }
+        })
+        .collect()
+}
+
 /// Takes an existing name and returns a new name with an incremeted version suffix.
 /// The name `foo` will become `foo_v2`, and `foo_v2` will become `foo_v3` and so on.
 pub fn next_name(current_name: &str) -> String {
@@ -92,5 +116,77 @@ where
     match tokio::time::timeout(dur, fut).await {
         Ok(result) => result,
         Err(err) => Err(anyhow::anyhow!(err)).with_context(with_context),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_evolutions_requests() {
+        let incompatible_collections = vec![
+            publications::IncompatibleCollection {
+                collection: "acmeCo/collectionA".to_string(),
+                affected_materializations: vec![publications::AffectedConsumer {
+                    name: "acmeCo/bar".to_string(),
+                    fields: Vec::new(),
+                    resource_path: Vec::new(),
+                }],
+                requires_recreation: vec![],
+            },
+            publications::IncompatibleCollection {
+                collection: "acmeCo/collectionB_v2".to_string(),
+                affected_materializations: vec![publications::AffectedConsumer {
+                    name: "acmeCo/baz".to_string(),
+                    fields: Vec::new(),
+                    resource_path: Vec::new(),
+                }],
+                requires_recreation: vec![publications::ReCreateReason::KeyChange],
+            },
+            publications::IncompatibleCollection {
+                collection: "acmeCo/collectionC".to_string(),
+                affected_materializations: Vec::new(),
+                requires_recreation: Vec::new(),
+            },
+            publications::IncompatibleCollection {
+                collection: "acmeCo/collectionD".to_string(),
+                affected_materializations: Vec::new(),
+                requires_recreation: vec![publications::ReCreateReason::PartitionChange],
+            },
+        ];
+        let requests = evolutions_requests(&incompatible_collections);
+        insta::assert_debug_snapshot!(requests, @r###"
+        [
+            EvolveRequest {
+                current_name: "acmeCo/collectionA",
+                new_name: None,
+                materializations: [
+                    "acmeCo/bar",
+                ],
+            },
+            EvolveRequest {
+                current_name: "acmeCo/collectionB_v2",
+                new_name: Some(
+                    "acmeCo/collectionB_v3",
+                ),
+                materializations: [
+                    "acmeCo/baz",
+                ],
+            },
+            EvolveRequest {
+                current_name: "acmeCo/collectionC",
+                new_name: None,
+                materializations: [],
+            },
+            EvolveRequest {
+                current_name: "acmeCo/collectionD",
+                new_name: Some(
+                    "acmeCo/collectionD_v2",
+                ),
+                materializations: [],
+            },
+        ]
+        "###);
     }
 }

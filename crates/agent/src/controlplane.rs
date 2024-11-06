@@ -7,9 +7,13 @@ use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::{collections::BTreeSet, ops::Deref};
 
-use crate::publications::{
-    DefaultRetryPolicy, DraftPublication, JobStatus, NoExpansion, NoopFinalize, PublicationResult,
-    Publisher, UpdateInferredSchemas,
+use crate::{
+    evolution::{self, EvolutionOutput},
+    publications::{
+        DefaultRetryPolicy, DraftPublication, NoopFinalize, PublicationResult, Publisher,
+        UpdateInferredSchemas,
+    },
+    Connectors,
 };
 
 macro_rules! unwrap_single {
@@ -67,6 +71,12 @@ pub trait ControlPlane: Send {
 
     /// Triggers controller runs for all dependents of the given `catalog_name`.
     async fn notify_dependents(&mut self, catalog_name: String) -> anyhow::Result<()>;
+
+    async fn evolve_collections(
+        &mut self,
+        draft: tables::DraftCatalog,
+        collections: Vec<evolution::EvolveRequest>,
+    ) -> anyhow::Result<EvolutionOutput>;
 
     /// Attempts to publish the given draft, returning a result that indicates
     /// whether it was successful. Returns an `Err` only if there was an error
@@ -345,6 +355,20 @@ impl ControlPlane for PGControlPlane {
 
     fn current_time(&self) -> DateTime<Utc> {
         Utc::now()
+    }
+
+    async fn evolve_collections(
+        &mut self,
+        draft: tables::DraftCatalog,
+        requests: Vec<evolution::EvolveRequest>,
+    ) -> anyhow::Result<EvolutionOutput> {
+        let evolve = evolution::Evolution {
+            user_id: self.system_user_id,
+            draft,
+            requests,
+            require_user_can_admin: false,
+        };
+        evolution::evolve(evolve, &self.pool).await
     }
 
     async fn publish(
