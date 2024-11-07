@@ -3,7 +3,7 @@ use super::{Id, TextJson as Json};
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sqlx::{types::Uuid, FromRow};
+use sqlx::{postgres::types::PgInterval, types::Uuid, FromRow};
 
 /// Row is the dequeued task shape of a tag connector operation. Note that `connector_tags` jobs
 /// are expected to all be `background` jobs, so we don't bother to include that field in this struct.
@@ -178,7 +178,7 @@ pub async fn update_tag_fields(
 pub async fn fetch_resource_path_pointers(
     image_name: &str,
     image_tag: &str,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: impl sqlx::PgExecutor<'_>,
 ) -> sqlx::Result<Vec<String>> {
     let row = sqlx::query!(
         r#"
@@ -191,7 +191,7 @@ pub async fn fetch_resource_path_pointers(
         image_name,
         image_tag
     )
-    .fetch_optional(txn)
+    .fetch_optional(db)
     .await?;
 
     Ok(row.and_then(|r| r.pointers).unwrap_or_default())
@@ -204,6 +204,7 @@ pub struct ConnectorSpec {
     pub resource_config_schema: Json<Box<RawValue>>,
     pub resource_path_pointers: Vec<String>,
     pub oauth2: Option<Json<Box<RawValue>>>,
+    pub auto_discover_interval: crate::Interval,
 }
 
 pub async fn fetch_connector_spec(
@@ -220,7 +221,8 @@ pub async fn fetch_connector_spec(
             ct.endpoint_spec_schema as "endpoint_config_schema!: Json<Box<RawValue>>",
             ct.resource_spec_schema as "resource_config_schema!: Json<Box<RawValue>>",
             coalesce(ct.resource_path_pointers, array[]::json_pointer[]) as "resource_path_pointers!: Vec<String>",
-            c.oauth2_spec as "oauth2: Json<Box<RawValue>>"
+            c.oauth2_spec as "oauth2: Json<Box<RawValue>>",
+            ct.auto_discover_interval as "auto_discover_interval: crate::Interval"
         from connectors c
         join connector_tags ct on c.id = ct.connector_id
         where c.image_name = $1

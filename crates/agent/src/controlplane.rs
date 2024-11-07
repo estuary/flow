@@ -5,15 +5,16 @@ use models::CatalogType;
 use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
-use std::{collections::BTreeSet, ops::Deref};
+use std::collections::BTreeSet;
 
 use crate::{
+    discovers::{Discover, DiscoverOutput},
     evolution::{self, EvolutionOutput},
     publications::{
         DefaultRetryPolicy, DraftPublication, NoopFinalize, PublicationResult, Publisher,
         UpdateInferredSchemas,
     },
-    Connectors,
+    Connectors, DiscoverHandler,
 };
 
 macro_rules! unwrap_single {
@@ -41,6 +42,7 @@ pub struct ConnectorSpec {
     pub resource_config_schema: models::Schema,
     pub resource_path_pointers: Vec<doc::Pointer>,
     pub oauth2: Option<Box<RawValue>>,
+    pub auto_discover_interval: chrono::Duration,
 }
 
 /// A trait for allowing controllers access to the database.
@@ -78,6 +80,15 @@ pub trait ControlPlane: Send {
         collections: Vec<evolution::EvolveRequest>,
     ) -> anyhow::Result<EvolutionOutput>;
 
+    async fn discover(
+        &mut self,
+        capture_name: models::Capture,
+        draft: tables::DraftCatalog,
+        update_only: bool,
+        logs_token: Uuid,
+        data_plane_id: models::Id,
+    ) -> anyhow::Result<DiscoverOutput>;
+
     /// Attempts to publish the given draft, returning a result that indicates
     /// whether it was successful. Returns an `Err` only if there was an error
     /// executing the publication. Unsuccessful publications are represented by
@@ -87,6 +98,7 @@ pub trait ControlPlane: Send {
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
+        default_data_plane: Option<String>,
     ) -> anyhow::Result<PublicationResult>;
 
     /// Fetch the given set of live specs, returning them all as part of a `LiveCatalog`.
@@ -155,25 +167,28 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 
 /// Implementation of `ControlPlane` that connects directly to postgres.
 #[derive(Clone)]
-pub struct PGControlPlane {
+pub struct PGControlPlane<C: Connectors> {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
     pub publications_handler: Publisher,
     pub id_generator: models::IdGenerator,
+    pub discovers_handler: DiscoverHandler<C>,
 }
 
-impl PGControlPlane {
+impl<C: Connectors> PGControlPlane<C> {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
         publications_handler: Publisher,
         id_generator: models::IdGenerator,
+        discovers_handler: DiscoverHandler<C>,
     ) -> Self {
         Self {
             pool,
             system_user_id,
             publications_handler,
             id_generator,
+            discovers_handler,
         }
     }
 
@@ -240,7 +255,7 @@ impl PGControlPlane {
 }
 
 #[async_trait::async_trait]
-impl ControlPlane for PGControlPlane {
+impl<C: Connectors> ControlPlane for PGControlPlane<C> {
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&mut self, catalog_name: String) -> anyhow::Result<()> {
         let now = self.current_time();
@@ -264,6 +279,7 @@ impl ControlPlane for PGControlPlane {
             resource_config_schema,
             resource_path_pointers,
             oauth2,
+            auto_discover_interval,
         } = row;
         let Some(runtime_protocol) =
             runtime::RuntimeProtocol::from_database_string_value(&protocol)
@@ -286,6 +302,7 @@ impl ControlPlane for PGControlPlane {
             )),
             resource_path_pointers,
             oauth2: oauth2.map(|o| o.0),
+            auto_discover_interval: auto_discover_interval.into(),
         })
     }
 
@@ -294,37 +311,15 @@ impl ControlPlane for PGControlPlane {
         names: BTreeSet<String>,
     ) -> anyhow::Result<tables::LiveCatalog> {
         let names = names.into_iter().collect::<Vec<_>>();
-        let rows = agent_sql::live_specs::fetch_live_specs(self.system_user_id, &names, &self.pool)
-            .await?;
-        let mut live = tables::LiveCatalog::default();
-        for row in rows {
-            // Spec type might be null because we used to set it to null when deleting specs.
-            // For recently deleted specs, it will still be present.
-            let Some(catalog_type) = row.spec_type.map(Into::into) else {
-                continue;
-            };
-            let Some(model_json) = row.spec.as_deref() else {
-                continue;
-            };
-            let built_spec_json = row.built_spec.as_ref().ok_or_else(|| {
-                tracing::warn!(catalog_name = %row.catalog_name, id = %row.id, "got row with spec but not built_spec");
-                anyhow::anyhow!("missing built_spec for {:?}, but spec is non-null", row.catalog_name)
-            })?.deref();
+        let mut live = crate::live_specs::get_live_specs(
+            self.system_user_id,
+            &names,
+            None, // don't filter based on user capability
+            &self.pool,
+        )
+        .await?;
 
-            live.add_spec(
-                catalog_type,
-                &row.catalog_name,
-                row.id.into(),
-                row.data_plane_id.into(),
-                row.last_pub_id.into(),
-                row.last_build_id.into(),
-                model_json,
-                built_spec_json,
-                row.dependency_hash,
-            )
-            .with_context(|| format!("deserializing specs for {:?}", row.catalog_name))?;
-        }
-
+        // TODO: Can we stop adding inferred schemas to live specs?
         // Fetch inferred schemas and add to live specs.
         let collection_names = live
             .collections
@@ -371,11 +366,47 @@ impl ControlPlane for PGControlPlane {
         evolution::evolve(evolve, &self.pool).await
     }
 
+    async fn discover(
+        &mut self,
+        capture_name: models::Capture,
+        draft: tables::DraftCatalog,
+        update_only: bool,
+        logs_token: Uuid,
+        data_plane_id: models::Id,
+    ) -> anyhow::Result<DiscoverOutput> {
+        let PGControlPlane {
+            ref pool,
+            discovers_handler,
+            system_user_id,
+            ..
+        } = self;
+        let data_planes = agent_sql::data_plane::fetch_data_planes(
+            pool,
+            vec![data_plane_id],
+            "not-a-real-default",
+            *system_user_id,
+        )
+        .await?;
+        let Some(data_plane) = data_planes.into_iter().next() else {
+            anyhow::bail!("data plane '{data_plane_id}' not found");
+        };
+        let req = Discover {
+            user_id: *system_user_id,
+            capture_name,
+            draft,
+            update_only,
+            logs_token,
+            data_plane,
+        };
+        discovers_handler.discover(pool, req).await
+    }
+
     async fn publish(
         &mut self,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
+        default_data_plane: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
         let publication = DraftPublication {
             user_id: self.system_user_id,
@@ -383,8 +414,7 @@ impl ControlPlane for PGControlPlane {
             draft,
             detail,
             dry_run: false,
-            // Controllers don't publish new specs currently, so this is not needed
-            default_data_plane_name: None,
+            default_data_plane_name: default_data_plane,
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
             initialize: UpdateInferredSchemas,

@@ -105,7 +105,7 @@ impl Publisher {
             "processing publication",
         );
 
-        let draft = specs::load_draft(row.draft_id.into(), &self.db).await?;
+        let draft = crate::draft::load_draft(row.draft_id.into(), &self.db).await?;
         tracing::debug!(
             n_drafted = draft.all_spec_names().count(),
             errors = draft.errors.len(),

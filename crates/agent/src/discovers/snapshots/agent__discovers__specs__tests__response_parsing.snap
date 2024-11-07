@@ -4,60 +4,50 @@ expression: json!(out)
 ---
 [
   {
-    "connector": {
-      "config": {
-        "some": "config"
+    "disable": true,
+    "documentSchema": {
+      "properties": {
+        "croak": {
+          "type": "string"
+        }
       },
-      "image": "ghcr.io/foo/bar/source-potato:v1.2.3"
+      "required": [
+        "croak"
+      ],
+      "type": "object"
+    },
+    "key": [
+      "/croak"
+    ],
+    "recommendedName": "frogs",
+    "resourceConfig": {
+      "stream": "greetings",
+      "syncMode": "incremental"
     }
   },
-  [
-    {
-      "disable": true,
-      "documentSchema": {
-        "properties": {
-          "croak": {
-            "type": "string"
-          }
+  {
+    "documentSchema": {
+      "properties": {
+        "count": {
+          "type": "integer"
         },
-        "required": [
-          "croak"
-        ],
-        "type": "object"
+        "message": {
+          "type": "string"
+        }
       },
-      "key": [
-        "/croak"
+      "required": [
+        "count",
+        "message"
       ],
-      "recommendedName": "frogs",
-      "resourceConfig": {
-        "stream": "greetings",
-        "syncMode": "incremental"
-      }
+      "type": "object"
     },
-    {
-      "documentSchema": {
-        "properties": {
-          "count": {
-            "type": "integer"
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "count",
-          "message"
-        ],
-        "type": "object"
-      },
-      "key": [
-        "/count"
-      ],
-      "recommendedName": "some_greetings",
-      "resourceConfig": {
-        "stream": "greetings",
-        "syncMode": "incremental"
-      }
+    "key": [
+      "/count"
+    ],
+    "recommendedName": "some_greetings",
+    "resourceConfig": {
+      "stream": "greetings",
+      "syncMode": "incremental"
     }
-  ]
+  }
 ]
