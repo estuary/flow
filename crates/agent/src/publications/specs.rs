@@ -929,41 +929,6 @@ fn spec_meta(
     panic!("draft is missing spec for '{catalog_name}'");
 }
 
-pub async fn load_draft(
-    draft_id: Id,
-    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-) -> anyhow::Result<tables::DraftCatalog> {
-    let rows = agent_sql::drafts::fetch_draft_specs(draft_id.into(), db).await?;
-    let mut draft = tables::DraftCatalog::default();
-
-    for row in rows {
-        let Some(spec_type) = row.spec_type.map(Into::into) else {
-            let scope = tables::synthetic_scope("deletion", &row.catalog_name);
-            draft.errors.push(tables::Error {
-                scope,
-                error: anyhow::anyhow!(
-                    "draft contains a deletion of {:?}, but no such live spec exists",
-                    row.catalog_name
-                ),
-            });
-            continue;
-        };
-        let scope = tables::synthetic_scope(spec_type, &row.catalog_name);
-
-        if let Err(err) = draft.add_spec(
-            spec_type,
-            &row.catalog_name,
-            scope,
-            row.expect_pub_id.map(Into::into),
-            row.spec.as_deref().map(|j| &**j),
-            false, // !is_touch
-        ) {
-            draft.errors.push(err);
-        }
-    }
-    Ok(draft)
-}
-
 // add_built_specs_to_draft_specs adds the built spec and validated response to the draft_specs row
 // for all tasks included in build_output if they are in the list of specifications which are
 // changing in this publication per the list of spec_rows.

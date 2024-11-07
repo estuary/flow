@@ -5,7 +5,7 @@ expression: fetched_capture
 {
   "endpoint": {
     "connector": {
-      "image": "an/image",
+      "image": "old/image",
       "config": {
         "$serde_json::private::RawValue": "{\"fetched\":1}"
       }
@@ -20,16 +20,10 @@ expression: fetched_capture
     },
     {
       "resource": {
-        "$serde_json::private::RawValue": "{\"modified\":2,\"namespace\":\"spacename\",\"stream\":\"foo\"}"
-      },
-      "target": "acmeCo/renamed-namepaced"
-    },
-    {
-      "resource": {
-        "$serde_json::private::RawValue": "{\"modified\":0,\"stream\":\"bar\"}"
+        "$serde_json::private::RawValue": "{\"stream\":\"bar\"}"
       },
       "disable": true,
-      "target": "acmeCo/other"
+      "target": "acmeCo/barName"
     },
     {
       "resource": {

@@ -62,8 +62,10 @@ impl MaterializationStatus {
         if let Some(source_capture) = &model.source_capture {
             // If the source capture has been deleted, we will have already handled that as a
             // part of `handle_deleted_dependencies`.
-            if let Some(source_capture_model) =
-                dependencies.live.captures.get_by_key(&source_capture.capture_name())
+            if let Some(source_capture_model) = dependencies
+                .live
+                .captures
+                .get_by_key(&source_capture.capture_name())
             {
                 if self.source_capture.is_none() {
                     self.source_capture = Some(SourceCaptureStatus::default());
@@ -103,8 +105,9 @@ impl MaterializationStatus {
                     .with_maybe_retry(backoff_publication_failure(state.failures))
                     .context("applying evolution actions")?;
 
+                // We should never be creating any new specs when publishing here, so no need to set data_plane_name
                 let new_result = control_plane
-                    .publish(detail, state.logs_token, draft)
+                    .publish(detail, state.logs_token, draft, None)
                     .await
                     .context("failed to execute publication")?;
                 self.publications

@@ -1,0 +1,79 @@
+---
+source: crates/agent/src/integration_tests/discovers.rs
+expression: result.draft
+---
+DraftCatalog {
+    captures: [
+        DraftCapture {
+            capture: squirrels/capture-1,
+            scope: flow://capture/squirrels/capture-1,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "autoDiscover": {
+                "addNewBindings": true,
+                "evolveIncompatibleCollections": true
+              },
+              "endpoint": {
+                "connector": {
+                  "image": "source/test:test",
+                  "config": {"tail": "shake"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"id":"acorns"},
+                  "target": "squirrels/acorns"
+                },
+                {
+                  "resource": {"id":"crab apples"},
+                  "disable": true,
+                  "target": "squirrels/crab_apples"
+                },
+                {
+                  "resource": {"id":"walnuts"},
+                  "target": "squirrels/walnuts"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: squirrels/acorns,
+            scope: flow://collection/squirrels/acorns,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: squirrels/crab_apples,
+            scope: flow://collection/squirrels/crab_apples,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: squirrels/walnuts,
+            scope: flow://collection/squirrels/walnuts,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":1,"type":"number"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+}

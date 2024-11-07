@@ -7,11 +7,7 @@ use std::collections::BTreeSet;
 
 mod handler;
 
-// process_row is only exported because it is used in tests
-#[cfg(test)]
-pub use handler::process_row;
-
-pub use handler::{EvolutionHandler, JobStatus};
+pub use handler::EvolutionHandler;
 
 #[derive(Debug)]
 pub struct Evolution {
