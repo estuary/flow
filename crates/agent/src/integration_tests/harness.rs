@@ -1,14 +1,19 @@
+pub mod connectors;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::publications::{DefaultRetryPolicy, UpdateInferredSchemas};
 use crate::{
     controllers::{ControllerHandler, ControllerState},
     controlplane::ConnectorSpec,
-    publications::{self, DraftPublication, PublicationResult, Publisher, UncommittedBuild},
-    ControlPlane, HandleResult, Handler, PGControlPlane,
+    discovers::{self, DiscoverHandler, DiscoverOutput},
+    evolution,
+    publications::{
+        self, DefaultRetryPolicy, DraftPublication, PublicationResult, Publisher, UncommittedBuild,
+        UpdateInferredSchemas,
+    },
+    ControlPlane, Handler, PGControlPlane,
 };
-use crate::{evolution, DiscoverHandler};
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
 use models::{CatalogType, Id};
@@ -18,6 +23,8 @@ use serde_json::{value::RawValue, Value};
 use sqlx::types::Uuid;
 use tables::DraftRow;
 use tempfile::tempdir;
+
+use self::connectors::MockConnectors;
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
@@ -49,6 +56,53 @@ pub struct ScenarioResult {
     pub live_specs: Vec<LiveSpec>,
 }
 
+pub struct UserDiscoverResult {
+    pub job_status: discovers::handler::JobStatus,
+    pub draft: tables::DraftCatalog,
+    pub errors: Vec<(String, String)>,
+}
+
+impl UserDiscoverResult {
+    async fn load(discover_id: Id, db: &sqlx::PgPool) -> UserDiscoverResult {
+        let discover = sqlx::query!(
+            r#"select
+                draft_id as "draft_id: Id",
+                job_status as "job_status: TextJson<discovers::handler::JobStatus>"
+            from discovers
+            where id = $1;"#,
+            discover_id as Id,
+        )
+        .fetch_one(db)
+        .await
+        .expect("failed to query discover");
+
+        let draft = crate::draft::load_draft(discover.draft_id, db)
+            .await
+            .unwrap();
+
+        let errors = load_draft_errors(discover.draft_id, db).await;
+
+        UserDiscoverResult {
+            job_status: discover.job_status.0,
+            draft,
+            errors,
+        }
+    }
+}
+
+async fn load_draft_errors(draft_id: Id, db: &sqlx::PgPool) -> Vec<(String, String)> {
+    sqlx::query!(
+        r#"select scope, detail from draft_errors where draft_id = $1;"#,
+        draft_id as Id
+    )
+    .fetch_all(db)
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|de| (de.scope, de.detail))
+    .collect::<Vec<(String, String)>>()
+}
+
 /// Facilitates writing integration tests.
 /// **Note:** integration tests require exclusive access to the database,
 /// so it's required to use the attribute: `#[serial_test::serial]` on every
@@ -62,6 +116,7 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub controllers: ControllerHandler<TestControlPlane>,
+    pub discover_handler: DiscoverHandler<connectors::MockConnectors>,
 }
 
 impl TestHarness {
@@ -95,6 +150,8 @@ impl TestHarness {
         });
 
         let id_gen = models::IdGenerator::new(1);
+        let mock_connectors = connectors::MockConnectors::default();
+        let discover_handler = DiscoverHandler::new(mock_connectors);
 
         let publisher = Publisher::new(
             "/not/a/real/bin/dir",
@@ -110,6 +167,7 @@ impl TestHarness {
             system_user_id,
             publisher.clone(),
             id_gen.clone(),
+            discover_handler.clone(),
         );
         let controllers = ControllerHandler::new(TestControlPlane::new(control_plane));
         let mut harness = Self {
@@ -118,6 +176,7 @@ impl TestHarness {
             publisher,
             controllers,
             builds_root,
+            discover_handler,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -558,6 +617,20 @@ impl TestHarness {
         assert_eq!(0, live_specs.spec_count());
     }
 
+    pub async fn set_auto_discover_interval(&mut self, capture: &str, interval: &str) {
+        sqlx::query!(
+            r#"update controller_jobs
+            set status = jsonb_set(status::jsonb, '{ auto_discover, interval }', to_jsonb($2::text), true)::json
+            where live_spec_id = (select id from live_specs where catalog_name = $1)
+            returning 1 as "must_exist: bool";"#,
+            capture,
+            interval,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("failed to update controller_jobs");
+    }
+
     /// Returns a `ControllerState` representing the given live spec and
     /// controller status from the perspective of a controller.
     pub async fn get_controller_state(&mut self, name: &str) -> ControllerState {
@@ -573,15 +646,18 @@ impl TestHarness {
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
                 ls.spec_type as "spec_type: agent_sql::CatalogType",
                 ls.dependency_hash as "live_dependency_hash",
+                ls.created_at,
                 cj.controller_version as "controller_version: i32",
                 cj.updated_at,
                 cj.logs_token,
                 cj.status as "status: TextJson<Box<RawValue>>",
                 cj.failures,
                 cj.error,
-                ls.data_plane_id as "data_plane_id: Id"
+                ls.data_plane_id as "data_plane_id: Id",
+                dp.data_plane_name as "data_plane_name?: String"
             from live_specs ls
             join controller_jobs cj on ls.id = cj.live_spec_id
+            left outer join data_planes dp on ls.data_plane_id = dp.id
             where ls.catalog_name = $1;"#,
             name
         )
@@ -639,6 +715,68 @@ impl TestHarness {
         states
     }
 
+    pub async fn user_discover(
+        &mut self,
+        image_name: &str,
+        image_tag: &str,
+        capture_name: &str,
+        draft_id: Id,
+        endpoint_config: &str, // TODO: different type?
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> UserDiscoverResult {
+        let connector_tag = sqlx::query!(
+            r##"select ct.id as "id: Id"
+            from connectors c
+            join connector_tags ct on c.id = ct.connector_id
+            where c.image_name = $1
+            and ct.image_tag = $2;"##,
+            image_name,
+            image_tag
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("querying for connector_tags id");
+
+        let config_json = TextJson(models::RawValue::from_str(endpoint_config).unwrap());
+        let disco_id = sqlx::query!(
+            r##"insert into discovers (
+                capture_name,
+                connector_tag_id,
+                draft_id,
+                endpoint_config,
+                update_only,
+                data_plane_name
+            ) values ($1, $2, $3, $4, $5, 'ops/dp/public/test')
+            returning id as "id: Id";"##,
+            capture_name as &str,
+            connector_tag.id as Id,
+            draft_id as Id,
+            config_json as TextJson<models::RawValue>,
+            update_only
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+
+        self.discover_handler
+            .connectors
+            .mock_discover(mock_discover_resp);
+
+        let result = self
+            .discover_handler
+            .handle(&self.pool, false)
+            .await
+            .expect("discover handler failed");
+        assert_eq!(
+            crate::HandleResult::HadJob,
+            result,
+            "expected discovers handler to handle a job"
+        );
+
+        UserDiscoverResult::load(disco_id.id, &self.pool).await
+    }
+
     /// Performs a publication as if it were initiated by `flowctl` or the UI,
     /// and return a `ScenarioResult` describing the results.
     pub async fn user_publication(
@@ -647,24 +785,18 @@ impl TestHarness {
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, draft, false, false)
+        self.async_publication(user_id, detail, Either::L(draft), false, false)
             .await
     }
 
-    pub async fn auto_discover_publication(
+    pub async fn create_user_publication(
         &mut self,
-        draft: tables::DraftCatalog,
-        auto_evolve: bool,
+        user_id: Uuid,
+        draft_id: Id,
+        detail: impl Into<String>,
     ) -> ScenarioResult {
-        let system_user = self.control_plane().inner.system_user_id;
-        self.async_publication(
-            system_user,
-            "test auto-discover publication",
-            draft,
-            auto_evolve,
-            true,
-        )
-        .await
+        self.async_publication(user_id, detail, Either::R(draft_id), false, false)
+            .await
     }
 
     /// Runs a publication by inserting into the `publications` table and
@@ -675,12 +807,15 @@ impl TestHarness {
         &mut self,
         user_id: Uuid,
         detail: impl Into<String>,
-        draft: tables::DraftCatalog,
+        draft: Either<tables::DraftCatalog, Id>,
         auto_evolve: bool,
         background: bool,
     ) -> ScenarioResult {
         let detail = detail.into();
-        let draft_id = self.create_draft(user_id, detail.clone(), draft).await;
+        let draft_id = match draft {
+            Either::L(catalog) => self.create_draft(user_id, detail.clone(), catalog).await,
+            Either::R(id) => id,
+        };
         let mut txn = self
             .pool
             .begin()
@@ -707,7 +842,7 @@ impl TestHarness {
             .expect("publications handler failed");
 
         assert_eq!(
-            HandleResult::HadJob,
+            crate::HandleResult::HadJob,
             handler_result,
             "expected publications handler to have a job"
         );
@@ -749,16 +884,7 @@ impl TestHarness {
         .await
         .expect("failed to fetch publication");
 
-        let errors = sqlx::query!(
-            r#"select scope, detail from draft_errors where draft_id = $1;"#,
-            result.draft_id as Id
-        )
-        .fetch_all(&self.pool)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|de| (de.scope, de.detail))
-        .collect::<Vec<(String, String)>>();
+        let errors = load_draft_errors(result.draft_id, &self.pool).await;
 
         ScenarioResult {
             publication_row_id,
@@ -939,7 +1065,7 @@ impl FailBuild for InjectBuildError {
 /// A wrapper around `PGControlPlane` that has a few basic capbilities for verifying
 /// activation calls and simulating failures of activations and publications.
 pub struct TestControlPlane {
-    inner: PGControlPlane,
+    inner: PGControlPlane<MockConnectors>,
     activations: Vec<Activation>,
     fail_activations: BTreeSet<String>,
     build_failures: InjectBuildFailures,
@@ -972,7 +1098,7 @@ impl crate::publications::FinalizeBuild for InjectBuildFailures {
 }
 
 impl TestControlPlane {
-    fn new(inner: PGControlPlane) -> Self {
+    fn new(inner: PGControlPlane<MockConnectors>) -> Self {
         Self {
             inner,
             activations: Vec::new(),
@@ -1066,11 +1192,25 @@ impl ControlPlane for TestControlPlane {
         self.inner.evolve_collections(draft, collections).await
     }
 
+    async fn discover(
+        &mut self,
+        capture_name: models::Capture,
+        draft: tables::DraftCatalog,
+        update_only: bool,
+        logs_token: Uuid,
+        data_plane_id: models::Id,
+    ) -> anyhow::Result<DiscoverOutput> {
+        self.inner
+            .discover(capture_name, draft, update_only, logs_token, data_plane_id)
+            .await
+    }
+
     async fn publish(
         &mut self,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
+        data_plane_name: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
         let finalize = self.build_failures.clone();
         let publication = DraftPublication {
@@ -1079,7 +1219,7 @@ impl ControlPlane for TestControlPlane {
             draft,
             logs_token,
             dry_run: false,
-            default_data_plane_name: Some("ops/dp/public/test".to_string()),
+            default_data_plane_name: data_plane_name,
             verify_user_authz: false,
             initialize: UpdateInferredSchemas,
             finalize,
@@ -1128,4 +1268,9 @@ impl ControlPlane for TestControlPlane {
         });
         Ok(())
     }
+}
+
+enum Either<L, R> {
+    L(L),
+    R(R),
 }

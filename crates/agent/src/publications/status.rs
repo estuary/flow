@@ -53,6 +53,16 @@ impl JobStatus {
         }
     }
 
+    pub fn incompatible_collections(&self) -> Option<&[IncompatibleCollection]> {
+        match self {
+            JobStatus::BuildFailed {
+                incompatible_collections,
+                ..
+            } if !incompatible_collections.is_empty() => Some(incompatible_collections.as_slice()),
+            _ => None,
+        }
+    }
+
     pub fn has_incompatible_collections(&self) -> bool {
         matches!(self, JobStatus::BuildFailed { incompatible_collections, .. } if !incompatible_collections.is_empty())
     }

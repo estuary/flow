@@ -3,14 +3,14 @@ use anyhow::Context;
 
 use crate::{
     controlplane::{ControlPlane, PGControlPlane},
-    HandleResult, Handler,
+    DataPlaneConnectors, HandleResult, Handler,
 };
 
 use super::{ControllerState, NextRun, RetryableError, Status};
 
 use crate::controllers::CONTROLLER_VERSION;
 
-pub struct ControllerHandler<C: ControlPlane = PGControlPlane> {
+pub struct ControllerHandler<C: ControlPlane = PGControlPlane<DataPlaneConnectors>> {
     control_plane: C,
 }
 

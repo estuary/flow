@@ -2,6 +2,7 @@
 extern crate allocator;
 
 use agent::publications::Publisher;
+use agent::{DataPlaneConnectors, DiscoverHandler};
 use anyhow::Context;
 use clap::Parser;
 use derivative::Derivative;
@@ -169,6 +170,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
+    let connectors = DataPlaneConnectors::new(logs_tx.clone());
+    let discover_handler = DiscoverHandler::new(connectors);
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
@@ -187,6 +190,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         system_user_id,
         publisher.clone(),
         id_gen.clone(),
+        discover_handler.clone(),
     );
 
     // Share-able future which completes when the agent should exit.
@@ -213,7 +217,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                     &logs_tx,
                     args.allow_local,
                 )),
-                Box::new(agent::DiscoverHandler::new(&logs_tx)),
+                Box::new(discover_handler),
                 Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
                 Box::new(agent::EvolutionHandler),
                 Box::new(agent::controllers::ControllerHandler::new(control_plane)),
