@@ -113,7 +113,12 @@ async fn test_dependencies_and_controllers() {
 
     let result = harness
         .control_plane()
-        .publish(Some(format!("initial publication")), Uuid::new_v4(), draft)
+        .publish(
+            Some(format!("initial publication")),
+            Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
         .await
         .expect("initial publish failed");
     assert!(
@@ -184,6 +189,7 @@ async fn test_dependencies_and_controllers() {
             Some("test publication of owls/hoots".to_string()),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("publication failed");
@@ -290,7 +296,12 @@ async fn test_dependencies_and_controllers() {
     });
     harness
         .control_plane()
-        .publish(Some("3rd pub of hoots".to_string()), Uuid::new_v4(), draft)
+        .publish(
+            Some("3rd pub of hoots".to_string()),
+            Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
         .await
         .expect("publication must succeed");
     let runs = harness.run_pending_controllers(None).await;
@@ -340,7 +351,12 @@ async fn test_dependencies_and_controllers() {
     draft.delete("owls/hoots", CatalogType::Collection, None);
     let del_result = harness
         .control_plane()
-        .publish(Some("delete owls/hoots".to_string()), Uuid::new_v4(), draft)
+        .publish(
+            Some("delete owls/hoots".to_string()),
+            Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
         .await
         .expect("failed to publish collection deletion");
     assert!(del_result.status.is_success());
@@ -453,7 +469,12 @@ async fn test_dependencies_and_controllers() {
     draft.delete("owls/capture", CatalogType::Capture, None);
     let result = harness
         .control_plane()
-        .publish(Some("deleting capture".to_string()), Uuid::new_v4(), draft)
+        .publish(
+            Some("deleting capture".to_string()),
+            Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
         .await
         .expect("failed to publish");
     assert!(result.status.is_success());
@@ -522,6 +543,7 @@ async fn test_dependencies_and_controllers() {
             Some("delete owls/ stuff".to_string()),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("failed to publish deletions");

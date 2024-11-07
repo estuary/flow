@@ -68,7 +68,7 @@ tables!(
         val md5: String,
     }
 
-    table DataPlanes (row DataPlane, sql "data_planes") {
+    table DataPlanes (row #[derive(Clone, PartialEq)] DataPlane, sql "data_planes") {
         // Control-plane identifier for this data-plane.
         key control_id: models::Id,
         // Name of this data-plane under the catalog namespace.

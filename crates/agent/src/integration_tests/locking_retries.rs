@@ -249,6 +249,7 @@ async fn test_publication_optimistic_locking_failures() {
             Some("test retry Superseded errors".to_string()),
             Uuid::new_v4(),
             capture_draft.clone_specs(),
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .unwrap()

@@ -21,7 +21,23 @@ expression: out
         },
         UsedBinding {
             target: Collection(
-                "acmeCo/barName",
+                "acmeCo/renamed-namepaced",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"discovered-namepaced"},
+                ),
+            ),
+            key: [],
+            resource_path: [
+                "foo",
+                "spacename",
+            ],
+            disable: false,
+        },
+        UsedBinding {
+            target: Collection(
+                "acmeCo/other",
             ),
             document_schema: Schema(
                 RawValue(
@@ -55,7 +71,7 @@ expression: out
             "bar",
         ]: Changed {
             target: Collection(
-                "acmeCo/barName",
+                "acmeCo/other",
             ),
             disable: true,
         },

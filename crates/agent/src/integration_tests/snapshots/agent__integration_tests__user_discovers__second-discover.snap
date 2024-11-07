@@ -1,0 +1,92 @@
+---
+source: crates/agent/src/integration_tests/user_discovers.rs
+expression: result.draft
+---
+DraftCatalog {
+    captures: [
+        DraftCapture {
+            capture: squirrels/capture-1,
+            scope: flow://capture/squirrels/capture-1,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "source/test:test",
+                  "config": { "newConfig": "forDiscover" }
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"id":"acorns"},
+                  "disable": true,
+                  "target": "squirrels/acorns"
+                },
+                {
+                  "resource": {"id":"hickory-nuts"},
+                  "disable": true,
+                  "target": "squirrels/hickory_nuts"
+                },
+                {
+                  "resource": {"expect":"this config should be retained after merge","id":"walnuts"},
+                  "target": "squirrels/walnuts"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    collections: [
+        DraftCollection {
+            collection: squirrels/acorns,
+            scope: flow://collection/squirrels/acorns,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":2,"type":"number"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ],
+              "projections": {
+                "iiiiiideeeee": "/id"
+              }
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: squirrels/extra,
+            scope: flow://collection/squirrels/extra,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: squirrels/hickory_nuts,
+            scope: flow://collection/squirrels/hickory_nuts,
+            expect_pub_id: "0000000000000000",
+            model: {
+              "schema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":2,"type":"number"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: squirrels/walnuts,
+            scope: flow://collection/squirrels/walnuts,
+            expect_pub_id: NULL,
+            model: {
+              "writeSchema": {"properties":{"id":{"type":"string"},"nuttiness":{"maximum":2,"type":"number"}},"required":["id"],"type":"object"},
+              "readSchema": {"properties":{"drafted":{"type":"string"},"id":{"type":"string"}},"required":["id","drafted"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+}

@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::publications::LockFailure;
 
 use super::Id;
@@ -45,62 +43,93 @@ impl From<LockFailure> for Error {
     }
 }
 
-/// upsert_specs updates the given draft with specifications of the catalog.
-/// The `expect_pub_ids` parameter is used to lookup the `last_pub_id` by catalog name.
-/// For each item in the catalog, if an entry exists in `expect_pub_ids`, then it will
-/// be used as the `expect_pub_id` column.
-pub async fn upsert_specs(
+pub async fn load_draft(
     draft_id: Id,
-    models::Catalog {
-        collections,
+    db: impl sqlx::PgExecutor<'static>,
+) -> anyhow::Result<tables::DraftCatalog> {
+    let rows = agent_sql::drafts::fetch_draft_specs(draft_id.into(), db).await?;
+    let mut draft = tables::DraftCatalog::default();
+
+    for row in rows {
+        let Some(spec_type) = row.spec_type.map(Into::into) else {
+            let scope = tables::synthetic_scope("deletion", &row.catalog_name);
+            draft.errors.push(tables::Error {
+                scope,
+                error: anyhow::anyhow!(
+                    "draft contains a deletion of {:?}, but no such live spec exists",
+                    row.catalog_name
+                ),
+            });
+            continue;
+        };
+        let scope = tables::synthetic_scope(spec_type, &row.catalog_name);
+
+        if let Err(err) = draft.add_spec(
+            spec_type,
+            &row.catalog_name,
+            scope,
+            row.expect_pub_id.map(Into::into),
+            row.spec.as_deref().map(|j| &**j),
+            false, // !is_touch
+        ) {
+            draft.errors.push(err);
+        }
+    }
+    Ok(draft)
+}
+
+pub async fn upsert_draft_catalog(
+    draft_id: Id,
+    catalog: &tables::DraftCatalog,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> anyhow::Result<()> {
+    let tables::DraftCatalog {
         captures,
+        collections,
         materializations,
         tests,
         ..
-    }: models::Catalog,
-    expect_pub_ids: &BTreeMap<&str, Id>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<(), sqlx::Error> {
-    for (collection, spec) in collections {
+    } = catalog;
+    for row in collections {
         drafts_sql::upsert_spec(
             draft_id,
-            collection.as_str(),
-            spec,
+            row.collection.as_str(),
+            row.model.as_ref(),
             CatalogType::Collection,
-            expect_pub_ids.get(collection.as_str()).copied(),
+            row.expect_pub_id,
             txn,
         )
         .await?;
     }
-    for (capture, spec) in captures {
+    for row in captures {
         drafts_sql::upsert_spec(
             draft_id,
-            capture.as_str(),
-            spec,
+            row.capture.as_str(),
+            row.model.as_ref(),
             CatalogType::Capture,
-            expect_pub_ids.get(capture.as_str()).copied(),
+            row.expect_pub_id,
             txn,
         )
         .await?;
     }
-    for (materialization, spec) in materializations {
+    for row in materializations {
         drafts_sql::upsert_spec(
             draft_id,
-            materialization.as_str(),
-            spec,
+            row.materialization.as_str(),
+            row.model.as_ref(),
             CatalogType::Materialization,
-            expect_pub_ids.get(materialization.as_str()).copied(),
+            row.expect_pub_id,
             txn,
         )
         .await?;
     }
-    for (test, steps) in tests {
+    for row in tests {
         drafts_sql::upsert_spec(
             draft_id,
-            test.as_str(),
-            steps,
+            row.test.as_str(),
+            row.model.as_ref(),
             CatalogType::Test,
-            expect_pub_ids.get(test.as_str()).copied(),
+            row.expect_pub_id,
             txn,
         )
         .await?;
@@ -108,58 +137,6 @@ pub async fn upsert_specs(
 
     agent_sql::drafts::touch(draft_id, txn).await?;
     Ok(())
-}
-
-pub fn extend_catalog<'a>(
-    catalog: &mut models::Catalog,
-    it: impl Iterator<Item = (CatalogType, &'a str, &'a serde_json::value::RawValue)>,
-) -> Vec<Error> {
-    let mut errors = Vec::new();
-
-    for (catalog_type, catalog_name, spec) in it {
-        let mut on_err = |detail| {
-            errors.push(Error {
-                catalog_name: catalog_name.to_string(),
-                detail,
-                ..Error::default()
-            });
-        };
-
-        match catalog_type {
-            CatalogType::Collection => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog
-                        .collections
-                        .insert(models::Collection::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("parsing collection {catalog_name}: {err}")),
-            },
-            CatalogType::Capture => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog
-                        .captures
-                        .insert(models::Capture::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("parsing capture {catalog_name}: {err}")),
-            },
-            CatalogType::Materialization => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog
-                        .materializations
-                        .insert(models::Materialization::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("parsing materialization {catalog_name}: {err}")),
-            },
-            CatalogType::Test => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog.tests.insert(models::Test::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("parsing test {catalog_name}: {err}")),
-            },
-        }
-    }
-
-    errors
 }
 
 pub async fn insert_errors(

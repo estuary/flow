@@ -239,6 +239,13 @@ impl RelativeUrl {
 #[schemars(example = "CompositeKey::example")]
 pub struct CompositeKey(Vec<JsonPointer>);
 
+impl FromIterator<JsonPointer> for CompositeKey {
+    fn from_iter<T: IntoIterator<Item = JsonPointer>>(iter: T) -> Self {
+        let inner = iter.into_iter().collect::<Vec<_>>();
+        CompositeKey(inner)
+    }
+}
+
 impl CompositeKey {
     pub fn new(parts: impl Into<Vec<JsonPointer>>) -> Self {
         Self(parts.into())

@@ -42,6 +42,7 @@ clap = { workspace = true }
 colored_json = { workspace = true }       # Used to render ops::Logs for UI.
 derivative = { workspace = true }
 futures = { workspace = true }
+humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
 jsonwebtoken = { workspace = true }
