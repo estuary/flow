@@ -40,6 +40,8 @@ pub enum JobStatus {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         failures: Vec<LockFailure>,
     },
+    /// The publication used the deprecated background flag, which is no longer supported.
+    DeprecatedBackground,
 }
 
 impl JobStatus {
