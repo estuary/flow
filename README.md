@@ -25,6 +25,17 @@ With a Flow pipeline, you:
 -   🌊 **Derive** new collections by transforming from other collections, using
     the full gamut of stateful stream workflow, joins, and aggregations — in real time.
 
+## Get started
+Ready to try out Flow? [Sign up](https://dashboard.estuary.dev/register)
+for free to get started! 🚀
+
+Have questions? We'd love to hear from you:
+
+- Join our [Slack Community](https://go.estuary.dev/slack)
+- Reach out [directly](https://go.estuary.dev/contact-us)
+
+---
+
 ![Workflow Overview](site/docs/concepts/at-a-glance.png)
 
 ## Using Flow
