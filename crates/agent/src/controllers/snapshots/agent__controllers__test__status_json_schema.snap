@@ -446,6 +446,21 @@ expression: schema
             "type"
           ],
           "type": "object"
+        },
+        {
+          "description": "The publication used the deprecated background flag, which is no longer supported.",
+          "properties": {
+            "type": {
+              "enum": [
+                "deprecatedBackground"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
         }
       ]
     },

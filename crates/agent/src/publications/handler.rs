@@ -104,6 +104,19 @@ impl Publisher {
             %row.data_plane_name,
             "processing publication",
         );
+        if row.background {
+            // Terminal error: background publications are no longer supported.
+            return Ok(PublicationResult::new(
+                row.pub_id,
+                row.user_id,
+                row.detail,
+                row.updated_at,
+                build::Output::default(),
+                tables::Errors::default(),
+                JobStatus::DeprecatedBackground,
+                0,
+            ));
+        }
 
         let draft = crate::draft::load_draft(row.draft_id.into(), &self.db).await?;
         tracing::debug!(
