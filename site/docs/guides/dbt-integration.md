@@ -20,6 +20,9 @@ Follow these steps to configure the dbt Cloud Job Trigger within an Estuary Flow
 
 To configure the dbt Cloud Job Trigger, you’ll need the following information:
 
+- Access URL: The dbt access URL can be found in your dbt Account Settings. Use this URL if your dbt account requires a
+  specific access endpoint. For more information, visit go.estuary.dev/dbt-cloud-trigger. If you have not yet migrated
+  to the new API, your Access URL is: https://cloud.getdbt.com/
 - Job ID: The unique identifier for the dbt job you wish to trigger.
 - Account ID: Your dbt account identifier.
 - API Key: The dbt API key associated with your account. This allows Estuary Flow to authenticate with dbt Cloud and
@@ -27,8 +30,6 @@ To configure the dbt Cloud Job Trigger, you’ll need the following information:
 
 ### Optional Parameters
 
-- Access URL: The dbt access URL can be found in your dbt Account Settings. Use this URL if your dbt account requires a
-  specific access endpoint. For more information, visit go.estuary.dev/dbt-cloud-trigger.
 - Cause Message: Set a custom message that will appear as the "cause" for each triggered job. This is useful for
   tracking the context of each run, especially in complex workflows. If left empty, it defaults to "Estuary Flow."
 - Job Trigger Mode:
@@ -42,14 +43,37 @@ To configure the dbt Cloud Job Trigger, you’ll need the following information:
 
 ### Regular Data Transformation on New Data
 
-Suppose you have a data pipeline that ingests data into a warehouse every 1 hour (configured via a Sync Frequency),
-and you want to run a dbt job on the same cadence to transform this data. Configure the `Run Interval` to `1h` to ensure
-that the dbt job is triggered automatically after every data ingestion cycle.
+In scenarios where data arrival may be delayed (for example, a materialization connector's `Sync Frequency` is set to
+`1hr`), the dbt Cloud Job Trigger mechanism in Estuary Flow is designed to ensure transformations are consistent without
+overwhelming the dbt job queue. Here’s how the process works:
+
+1. Connector Initialization: When the connector starts, it immediately triggers a dbt job. This initial job ensures that
+   data is consistent, even if the connector has restarted.
+
+2. Materializing Initial Data: The connector materializes an initial chunk of data and then starts a timer, set to
+   trigger the dbt job in a specified interval (`Run Interval`).
+
+3. Handling Subsequent Data Chunks: The connector continues materializing the remaining data chunks and, after
+   completing the initial data load, starts a scheduled delay (e.g., 1 hour if no new data is arriving).
+
+4. dbt Job Trigger Timing: The dbt job triggers once the set interval (e.g., 30 minutes) has passed from the initial
+   timer, regardless of whether there is backfilled data.
+
+    1. If the data arrival is sparse or infrequent, such as once per day, the default 30-minute interval allows for
+       timely but controlled job triggers without excessive job runs.
+    2. During periods without backfilling, the 30-minute interval provides a balance—triggering jobs at regular
+       intervals while avoiding rapid job initiation and reducing load on the dbt Cloud system.
+
+7. Minimizing Latency: The `Run Interval` ensures that the dbt job runs shortly after the first bulk of data is
+   committed, without triggering too frequently, particularly during backfills.
+
+Defaulting to a lower (e.g. 30-minute) interval—supports various use cases, such as cases where connectors don’t use
+`Sync Interval` or where data arrival is infrequent.
 
 ### Job Management
 
-If you want to avoid triggering multiple overlapping dbt jobs, set Job Trigger Mode to skip. This way, if a job is
-already running, the trigger will not start a new job, helping you manage resources efficiently.
+The default behaviour is to avoid triggering multiple overlapping dbt jobs, set Job Trigger Mode to skip. This way, if a
+job is already running, the trigger will not start a new job, helping you manage resources efficiently.
 
 Alternatively, if you need each transformation job to run regardless of current jobs, set Job Trigger Mode to ignore to
 initiate a new dbt job each time data is materialized.
