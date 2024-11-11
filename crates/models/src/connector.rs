@@ -20,7 +20,9 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
 /// Dekaf service configuration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct DekafConfig {
-    /// # Dekaf variant type
+    /// # Dekaf variant type. Since we support integrating with a bunch of different providers via Dekaf,
+    /// this allows us to store which of those connector variants this particular Dekaf connector was
+    /// created as, in order to e.g link to the correct docs URL, show the correct name and logo, etc.
     pub variant: String,
     /// # Dekaf endpoint config.
     pub config: RawValue,
