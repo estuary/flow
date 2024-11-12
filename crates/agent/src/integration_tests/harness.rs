@@ -24,7 +24,7 @@ use sqlx::types::Uuid;
 use tables::DraftRow;
 use tempfile::tempdir;
 
-use self::connectors::MockConnectors;
+use self::connectors::MockDiscoverConnectors;
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
@@ -116,7 +116,7 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub controllers: ControllerHandler<TestControlPlane>,
-    pub discover_handler: DiscoverHandler<connectors::MockConnectors>,
+    pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
 }
 
 impl TestHarness {
@@ -150,7 +150,7 @@ impl TestHarness {
         });
 
         let id_gen = models::IdGenerator::new(1);
-        let mock_connectors = connectors::MockConnectors::default();
+        let mock_connectors = connectors::MockDiscoverConnectors::default();
         let discover_handler = DiscoverHandler::new(mock_connectors);
 
         let publisher = Publisher::new(
@@ -761,7 +761,7 @@ impl TestHarness {
 
         self.discover_handler
             .connectors
-            .mock_discover(mock_discover_resp);
+            .mock_discover(capture_name, mock_discover_resp);
 
         let result = self
             .discover_handler
@@ -1065,7 +1065,7 @@ impl FailBuild for InjectBuildError {
 /// A wrapper around `PGControlPlane` that has a few basic capbilities for verifying
 /// activation calls and simulating failures of activations and publications.
 pub struct TestControlPlane {
-    inner: PGControlPlane<MockConnectors>,
+    inner: PGControlPlane<MockDiscoverConnectors>,
     activations: Vec<Activation>,
     fail_activations: BTreeSet<String>,
     build_failures: InjectBuildFailures,
@@ -1098,7 +1098,7 @@ impl crate::publications::FinalizeBuild for InjectBuildFailures {
 }
 
 impl TestControlPlane {
-    fn new(inner: PGControlPlane<MockConnectors>) -> Self {
+    fn new(inner: PGControlPlane<MockDiscoverConnectors>) -> Self {
         Self {
             inner,
             activations: Vec::new(),

@@ -121,7 +121,7 @@ async fn test_auto_discovers_add_new_bindings() {
     harness
         .discover_handler
         .connectors
-        .mock_discover(Box::new(Ok(discovered)));
+        .mock_discover("marmots/capture", Ok(discovered));
     tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
     harness.run_pending_controller("marmots/capture").await;
 
@@ -226,7 +226,7 @@ async fn test_auto_discovers_add_new_bindings() {
     harness
         .discover_handler
         .connectors
-        .mock_discover(Box::new(Ok(discovered)));
+        .mock_discover("marmots/capture", Ok(discovered));
 
     tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
     harness.run_pending_controller("marmots/capture").await;
@@ -390,7 +390,7 @@ async fn test_auto_discovers_no_evolution() {
             draft_id,
             r#"{"hee": "hawwww"}"#,
             false,
-            Box::new(Ok(discovered.clone())),
+            Ok(discovered.clone()),
         )
         .await;
     assert!(result.job_status.is_success());
@@ -418,7 +418,7 @@ async fn test_auto_discovers_no_evolution() {
     harness
         .discover_handler
         .connectors
-        .mock_discover(Box::new(Ok(new_discovered)));
+        .mock_discover("mules/capture", Ok(new_discovered));
     harness.run_pending_controller("mules/capture").await;
 
     let capture_state = harness.get_controller_state("mules/capture").await;
@@ -504,7 +504,7 @@ async fn test_auto_discovers_no_evolution() {
     harness
         .discover_handler
         .connectors
-        .mock_discover(Box::new(Ok(discovered)));
+        .mock_discover("mules/capture", Ok(discovered));
     harness.run_pending_controller("mules/capture").await;
 
     let capture_state = harness.get_controller_state("mules/capture").await;
@@ -693,7 +693,7 @@ async fn test_auto_discovers_update_only() {
     harness
         .discover_handler
         .connectors
-        .mock_discover(Box::new(Ok(discovered)));
+        .mock_discover("pikas/capture", Ok(discovered));
 
     harness.run_pending_controller("pikas/capture").await;
     let capture_state = harness.get_controller_state("pikas/capture").await;
@@ -742,10 +742,10 @@ async fn test_auto_discovers_update_only() {
     assert!(last_success.publish_result.is_none());
 
     // Now simulate a discover error, and expect to see the error status reported.
-    harness
-        .discover_handler
-        .connectors
-        .mock_discover(Box::new(Err("a simulated discover error".to_string())));
+    harness.discover_handler.connectors.mock_discover(
+        "pikas/capture",
+        Err("a simulated discover error".to_string()),
+    );
     tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
     harness.run_pending_controller("pikas/capture").await;
 
@@ -791,7 +791,7 @@ async fn test_auto_discovers_update_only() {
     harness
         .discover_handler
         .connectors
-        .mock_discover(Box::new(Ok(discovered)));
+        .mock_discover("pikas/capture", Ok(discovered));
     harness.control_plane().fail_next_build(
         "pikas/capture",
         InjectBuildError::new(
@@ -860,7 +860,7 @@ async fn test_auto_discovers_update_only() {
     harness
         .discover_handler
         .connectors
-        .mock_discover(Box::new(Ok(discovered)));
+        .mock_discover("pikas/capture", Ok(discovered));
     tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
     harness.run_pending_controller("pikas/capture").await;
 
