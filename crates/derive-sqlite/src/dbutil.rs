@@ -170,7 +170,10 @@ pub fn sql_block_to_statements(mut block: &str) -> Result<Vec<&str>, Error> {
         };
 
         if unsafe { rusqlite::ffi::sqlite3_complete(c_stmt.as_ptr()) } != 0 {
-            statements.push(&block[0..pivot]);
+            // Ignore extra semi-colons ("statements" which are only whitespace).
+            if c_stmt.as_bytes().trim_ascii() != b";" {
+                statements.push(&block[0..pivot]);
+            }
             block = &block[pivot..];
             pivot = 0;
         }
@@ -374,6 +377,26 @@ mod test {
         [
             "\n            select 1;",
             "\n\n            -- This time, the statement has a closing colon.\n            update foobar set value = 'a ; new value';",
+        ]
+        "###);
+
+        let statements = sql_block_to_statements(
+            r#"
+            -- Whitespace-only statements (extra semi-colons) are ignored.
+            select 1;;
+            ;
+            select 2;  ;
+            ;
+            /* However, they're still included if they follow a comment */ ;
+            "#,
+        )
+        .unwrap();
+
+        insta::assert_debug_snapshot!(statements, @r###"
+        [
+            "\n            -- Whitespace-only statements (extra semi-colons) are ignored.\n            select 1;",
+            "\n            select 2;",
+            "\n            /* However, they're still included if they follow a comment */ ;",
         ]
         "###);
 
