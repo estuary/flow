@@ -1,112 +1,54 @@
-use crate::proxy_connectors::Connectors;
+use crate::proxy_connectors::DiscoverConnectors;
 use proto_flow::capture;
-use std::fmt::Debug;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-pub trait MockCall<Req, Resp>: Send + Sync + 'static {
-    fn call(
-        &self,
-        req: Req,
-        logs_token: uuid::Uuid,
-        task: ops::ShardRef,
-        data_plane: &tables::DataPlane,
-    ) -> anyhow::Result<Resp>;
-}
-
-impl<Req, Resp> MockCall<Req, Resp> for Result<Resp, String>
-where
-    Resp: Clone + Send + Sync + 'static,
-{
-    fn call(
-        &self,
-        _req: Req,
-        _logs_token: uuid::Uuid,
-        _task: ops::ShardRef,
-        _data_plane: &tables::DataPlane,
-    ) -> anyhow::Result<Resp> {
-        self.clone().map_err(anyhow::Error::msg)
-    }
-}
-
-struct DefaultFail;
-impl<Req, Resp> MockCall<Req, Resp> for DefaultFail
-where
-    Req: Debug,
-{
-    fn call(
-        &self,
-        req: Req,
-        _logs_token: uuid::Uuid,
-        _task: ops::ShardRef,
-        _data_plane: &tables::DataPlane,
-    ) -> anyhow::Result<Resp> {
-        Err(anyhow::anyhow!("default mock failure for request: {req:?}"))
-    }
-}
-
-pub type MockDiscover =
-    Box<dyn MockCall<capture::request::Discover, capture::response::Discovered>>;
+pub type MockDiscover = Result<capture::response::Discovered, String>;
 
 #[derive(Clone)]
-pub struct MockConnectors {
-    discover: Arc<Mutex<MockDiscover>>,
+pub struct MockDiscoverConnectors {
+    mocks: Arc<Mutex<HashMap<models::Capture, MockDiscover>>>,
 }
 
-impl Default for MockConnectors {
+impl Default for MockDiscoverConnectors {
     fn default() -> Self {
-        MockConnectors {
-            discover: Arc::new(Mutex::new(Box::new(DefaultFail))),
+        MockDiscoverConnectors {
+            mocks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
 
-impl MockConnectors {
-    pub fn mock_discover(&mut self, respond: MockDiscover) {
-        let mut lock = self.discover.lock().unwrap();
-        *lock = respond;
+impl MockDiscoverConnectors {
+    pub fn mock_discover(&mut self, capture_name: &str, respond: MockDiscover) {
+        let mut lock = self.mocks.lock().unwrap();
+        lock.insert(models::Capture::new(capture_name), respond);
     }
 }
 
-/// Currently, `MockConnectors` only supports capture Discover RPCs.
-/// Publications do not yet use this for validate RPCs, but the plan is to do
-/// that at some point, so that we can more easily test the publication logic.
-impl Connectors for MockConnectors {
-    async fn unary_capture<'a>(
+impl DiscoverConnectors for MockDiscoverConnectors {
+    async fn discover<'a>(
         &'a self,
         mut req: capture::Request,
-        logs_token: uuid::Uuid,
+        _logs_token: uuid::Uuid,
         task: ops::ShardRef,
-        data_plane: &'a tables::DataPlane,
+        _data_plane: &'a tables::DataPlane,
     ) -> anyhow::Result<capture::Response> {
-        if let Some(discover) = req.discover.take() {
-            let locked = self.discover.lock().unwrap();
-            return locked
-                .call(discover, logs_token, task, data_plane)
-                .map(|resp| capture::Response {
-                    discovered: Some(resp),
-                    ..Default::default()
-                });
-        }
-        Err(anyhow::anyhow!("unhandled capture request type: {req:?}"))
-    }
+        let Some(discover) = req.discover.take() else {
+            anyhow::bail!("unexpected capture request type: {req:?}")
+        };
 
-    async fn unary_derive<'a>(
-        &'a self,
-        _req: proto_flow::derive::Request,
-        _logs_token: uuid::Uuid,
-        _task: ops::ShardRef,
-        _data_plane: &'a tables::DataPlane,
-    ) -> anyhow::Result<proto_flow::derive::Response> {
-        unimplemented!("mock connectors do not yet handle unary_derive calls");
-    }
+        let locked = self.mocks.lock().unwrap();
+        let capture = models::Capture::new(&task.name);
+        let Some(mock) = locked.get(&capture) else {
+            anyhow::bail!("no mock for capture: {capture}");
+        };
 
-    async fn unary_materialize<'a>(
-        &'a self,
-        _req: proto_flow::materialize::Request,
-        _logs_token: uuid::Uuid,
-        _task: ops::ShardRef,
-        _data_plane: &'a tables::DataPlane,
-    ) -> anyhow::Result<proto_flow::materialize::Response> {
-        unimplemented!("mock connectors do not yet handle unary_materialize calls");
+        tracing::debug!(req = ?discover, resp = ?mock, "responding with mock discovered response");
+        mock.clone()
+            .map_err(|err_str| anyhow::anyhow!("{err_str}"))
+            .map(|dr| capture::Response {
+                discovered: Some(dr),
+                ..Default::default()
+            })
     }
 }

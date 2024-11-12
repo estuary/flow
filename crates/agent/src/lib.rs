@@ -25,7 +25,7 @@ pub use discovers::DiscoverHandler;
 pub use evolution::EvolutionHandler;
 pub use handlers::{serve, HandleResult, Handler};
 use lazy_static::lazy_static;
-pub use proxy_connectors::{Connectors, DataPlaneConnectors, ProxyConnectors};
+pub use proxy_connectors::{DataPlaneConnectors, DiscoverConnectors, ProxyConnectors};
 use regex::Regex;
 
 // Used during tests.

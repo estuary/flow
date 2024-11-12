@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use crate::proxy_connectors::Connectors;
+use crate::proxy_connectors::DiscoverConnectors;
 
 use anyhow::Context;
 use models::split_image_tag;
@@ -158,13 +158,13 @@ pub struct DiscoverHandler<C> {
     pub connectors: C,
 }
 
-impl<C: Connectors> DiscoverHandler<C> {
+impl<C: DiscoverConnectors> DiscoverHandler<C> {
     pub fn new(connectors: C) -> Self {
         Self { connectors }
     }
 }
 
-impl<C: Connectors> DiscoverHandler<C> {
+impl<C: DiscoverConnectors> DiscoverHandler<C> {
     #[tracing::instrument(skip_all, fields(
         capture_name = %req.capture_name,
         data_plane_name = %req.data_plane.data_plane_name,
@@ -234,7 +234,7 @@ impl<C: Connectors> DiscoverHandler<C> {
 
         let result = self
             .connectors
-            .unary_capture(request, logs_token, task, &data_plane)
+            .discover(request, logs_token, task, &data_plane)
             .await;
 
         let response = match result {

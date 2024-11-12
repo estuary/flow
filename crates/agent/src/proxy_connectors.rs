@@ -5,34 +5,17 @@ use proto_flow::{capture, derive, flow::materialization_spec, materialize};
 use std::future::Future;
 use uuid::Uuid;
 
-/// Trait for performing unary connector RPCs from the control plane, which handles logging.
-pub trait Connectors: Clone + Send + Sync + 'static {
-    fn unary_capture<'a>(
+/// Trait for performing Discover operations from the control plane, which handles logging.
+pub trait DiscoverConnectors: Clone + Send + Sync + 'static {
+    fn discover<'a>(
         &'a self,
         req: capture::Request,
         logs_token: Uuid,
         task: ops::ShardRef,
         data_plane: &'a tables::DataPlane,
     ) -> impl Future<Output = anyhow::Result<capture::Response>> + 'a + Send;
-
-    fn unary_derive<'a>(
-        &'a self,
-        req: derive::Request,
-        logs_token: Uuid,
-        task: ops::ShardRef,
-        data_plane: &'a tables::DataPlane,
-    ) -> impl Future<Output = anyhow::Result<derive::Response>> + 'a + Send;
-
-    fn unary_materialize<'a>(
-        &'a self,
-        req: materialize::Request,
-        logs_token: Uuid,
-        task: ops::ShardRef,
-        data_plane: &'a tables::DataPlane,
-    ) -> impl Future<Output = anyhow::Result<materialize::Response>> + 'a + Send;
 }
 
-// TODO: better name?
 #[derive(Debug, Clone)]
 pub struct DataPlaneConnectors {
     logs_tx: logs::Tx,
@@ -43,14 +26,18 @@ impl DataPlaneConnectors {
     }
 }
 
-impl Connectors for DataPlaneConnectors {
-    async fn unary_capture<'a>(
+impl DiscoverConnectors for DataPlaneConnectors {
+    async fn discover<'a>(
         &'a self,
         req: capture::Request,
         logs_token: Uuid,
         task: ops::ShardRef,
         data_plane: &'a tables::DataPlane,
     ) -> anyhow::Result<capture::Response> {
+        assert!(
+            req.discover.is_some(),
+            "expected a discover request, got: {req:?}"
+        );
         let log_handler = logs::ops_handler(
             self.logs_tx.clone(),
             "unary_capture".to_string(),
@@ -58,35 +45,6 @@ impl Connectors for DataPlaneConnectors {
         );
         let proxy = ProxyConnectors::new(log_handler);
         proxy.unary_capture(data_plane, task, req).await
-    }
-
-    async fn unary_derive<'a>(
-        &'a self,
-        req: derive::Request,
-        logs_token: Uuid,
-        task: ops::ShardRef,
-        data_plane: &'a tables::DataPlane,
-    ) -> anyhow::Result<derive::Response> {
-        let log_handler =
-            logs::ops_handler(self.logs_tx.clone(), "unary_derive".to_string(), logs_token);
-        let proxy = ProxyConnectors::new(log_handler);
-        proxy.unary_derive(data_plane, task, req).await
-    }
-
-    async fn unary_materialize<'a>(
-        &'a self,
-        req: materialize::Request,
-        logs_token: Uuid,
-        task: ops::ShardRef,
-        data_plane: &'a tables::DataPlane,
-    ) -> anyhow::Result<materialize::Response> {
-        let log_handler = logs::ops_handler(
-            self.logs_tx.clone(),
-            "unary_materialize".to_string(),
-            logs_token,
-        );
-        let proxy = ProxyConnectors::new(log_handler);
-        proxy.unary_materialize(data_plane, task, req).await
     }
 }
 

@@ -53,7 +53,7 @@ async fn test_user_discovers() {
             draft_id,
             endpoint_config,
             false,
-            Box::new(Ok::<Discovered, String>(initial_resp)),
+            Ok(initial_resp),
         )
         .await;
     assert!(
@@ -217,7 +217,7 @@ async fn test_user_discovers() {
             draft_id,
             endpoint_config,
             true,
-            Box::new(Ok(next_discover.clone())),
+            Ok(next_discover.clone()),
         )
         .await;
     assert!(result.job_status.is_success());
@@ -292,7 +292,7 @@ async fn test_user_discovers() {
             draft_id,
             endpoint_config,
             true,
-            Box::new(Ok(next_discover)),
+            Ok(next_discover),
         )
         .await;
     assert!(result.job_status.is_success());
