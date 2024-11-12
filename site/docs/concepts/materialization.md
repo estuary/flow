@@ -317,6 +317,17 @@ A given endpoint may support standard updates, delta updates, or both.
 This depends on the [materialization connector](../reference/Connectors/materialization-connectors/README.md). Expect that a connector will use
 standard updates only unless otherwise noted in its documentation.
 
+### Delta updates for every binding in a Materialization
+
+When configuring a materialization, you can set delta updates as the materialziation mechanism
+for every binding. Afterwards, you are able to modify this setting individually for each binding
+for further customization.
+
+:::note
+This functionality is not supported for all Materialization connectors. Consult the individual connector
+documentation for details.
+:::
+
 ## Using `sourceCapture` to synchronize capture and materialization bindings
 
 In some cases, you just want a destination system to always reflects the source
@@ -328,3 +339,47 @@ capture. As bindings are added to the capture, they will be automatically added
 to the materialization. This works regardless of whether the bindings were added
 to the capture manually or automatically. Bindings that are removed from the
 capture are _not_ removed from the materialization.
+
+## Default Schema Names in Destinations
+
+Estuary Flow supports configuring the default destination schema on the materialization level.
+
+When a capture provides a schema or namespace, it will automatically be used as the default schema value
+for all bindings in the materialization.
+
+While schema names are automatically assigned based on the capture, you can still
+manually set the schema name for individual bindings if needed.
+
+You can also set a default schema name at the materialization level.
+This applies to all bindings within that materialization, ensuring a consistent schema naming convention throughout the
+data pipeline.
+
+:::note
+This functionality is not supported for all Materialization connectors. Consult the individual connector
+documentation for details.
+:::
+
+### How It Works
+
+1. **Source Capture Level:**
+   - If the source capture provides a schema or namespace, it will be used as the default schema for all bindings in
+   - the materialization.
+
+2. **Manual Overrides:**
+   - You can still manually configure schema names for each binding, overriding the default schema if needed.
+
+3. **Materialization-Level Configuration:**
+   - The default schema name can be set at the materialization level, ensuring that all new captures within that
+   - materialization automatically inherit the default schema name.
+
+### Configuration Steps
+
+1. **Set Default Schema at Source Capture Level:**
+   - When defining your source capture, specify the schema or namespace. If no schema is provided, Estuary Flow will
+   - automatically assign a default schema.
+   
+2. **Override Schema at Binding Level:**
+   - For any binding, you can manually override the default schema by specifying a different schema name.
+
+3. **Set Default Schema at Materialization Level:**
+   - During the materialization configuration, set a default schema name for all captures within the materialization.
