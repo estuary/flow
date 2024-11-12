@@ -18,7 +18,7 @@ low-latency analytics on large-scale data.
 
    ![Create StarTree Connection](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//startree_create_connection_548379d134/startree_create_connection_548379d134.png)
 
-    - **Bootstrap Servers**: `dekaf.estuary.dev`
+    - **Bootstrap Servers**: `dekaf.estuary-data.com`
     - **Security Protocol**: `SASL_SSL`
     - **SASL Mechanism**: `PLAIN`
     - **SASL Username**: `{}`
@@ -26,7 +26,7 @@ low-latency analytics on large-scale data.
 
 5. **Configure Schema Registry**: To decode Avro messages, enable schema registry settings:
 
-    - **Schema Registry URL**: `https://dekaf.estuary.dev`
+    - **Schema Registry URL**: `https://dekaf.estuary-data.com`
     - **Schema Registry Username**: `{}` (same as SASL Username)
     - **Schema Registry Password**: `The same Estuary Refresh Token as above`
 

@@ -14,14 +14,14 @@ In this guide, you'll learn how to use Estuary Flow to push data streams to Tiny
 
 To configure the connection details, use the following settings.
 
-Bootstrap servers: `dekaf.estuary.dev`
+Bootstrap servers: `dekaf.estuary-data.com`
 SASL Mechanism: `PLAIN`
 SASL Username: `{}`
 SASL Password: `Estuary Refresh Token` (Generate your token in the Estuary Admin Dashboard)
 
 Tick the Decode Avro messages with Schema Register box, and use the following settings:
 
-- URL: `https://dekaf.estuary.dev`
+- URL: `https://dekaf.estuary-data.com`
 - Username: `{}`
 - Password: `The same Estuary Refresh Token as above`
 

@@ -20,7 +20,7 @@ for defining transformations and queries.
    
    CREATE
    CONNECTION estuary_connection TO KAFKA (
-       BROKER 'dekaf.estuary.dev',
+       BROKER 'dekaf.estuary-data.com',
        SECURITY PROTOCOL = 'SASL_SSL',
        SASL MECHANISMS = 'PLAIN',
        SASL USERNAME = '{}',
@@ -29,7 +29,7 @@ for defining transformations and queries.
    
    CREATE
    CONNECTION csr_estuary_connection TO CONFLUENT SCHEMA REGISTRY (
-       URL 'https://dekaf.estuary.dev',
+       URL 'https://dekaf.estuary-data.com',
        USERNAME = '{}',
        PASSWORD = SECRET estuary_refresh_token
    );
