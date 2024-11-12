@@ -1,5 +1,5 @@
 use super::{Discover, DiscoverHandler};
-use crate::{draft, proxy_connectors::Connectors, HandleResult, Handler, Id};
+use crate::{draft, proxy_connectors::DiscoverConnectors, HandleResult, Handler, Id};
 use agent_sql::discovers::Row;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ impl JobStatus {
 }
 
 #[async_trait::async_trait]
-impl<C: Connectors> Handler for DiscoverHandler<C> {
+impl<C: DiscoverConnectors> Handler for DiscoverHandler<C> {
     async fn handle(
         &mut self,
         pg_pool: &sqlx::PgPool,
@@ -64,7 +64,7 @@ impl<C: Connectors> Handler for DiscoverHandler<C> {
     }
 }
 
-impl<C: Connectors> DiscoverHandler<C> {
+impl<C: DiscoverConnectors> DiscoverHandler<C> {
     #[tracing::instrument(err, skip_all, fields(id=?row.id, draft_id = ?row.draft_id, user_id = %row.user_id))]
     async fn process(
         &mut self,

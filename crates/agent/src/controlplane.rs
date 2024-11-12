@@ -14,7 +14,7 @@ use crate::{
         DefaultRetryPolicy, DraftPublication, NoopFinalize, PublicationResult, Publisher,
         UpdateInferredSchemas,
     },
-    Connectors, DiscoverHandler,
+    DiscoverConnectors, DiscoverHandler,
 };
 
 macro_rules! unwrap_single {
@@ -167,7 +167,7 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 
 /// Implementation of `ControlPlane` that connects directly to postgres.
 #[derive(Clone)]
-pub struct PGControlPlane<C: Connectors> {
+pub struct PGControlPlane<C: DiscoverConnectors> {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
     pub publications_handler: Publisher,
@@ -175,7 +175,7 @@ pub struct PGControlPlane<C: Connectors> {
     pub discovers_handler: DiscoverHandler<C>,
 }
 
-impl<C: Connectors> PGControlPlane<C> {
+impl<C: DiscoverConnectors> PGControlPlane<C> {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
@@ -255,7 +255,7 @@ impl<C: Connectors> PGControlPlane<C> {
 }
 
 #[async_trait::async_trait]
-impl<C: Connectors> ControlPlane for PGControlPlane<C> {
+impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&mut self, catalog_name: String) -> anyhow::Result<()> {
         let now = self.current_time();
