@@ -120,7 +120,7 @@ func startWatches(ctx context.Context, jc pb.JournalClient, shuffles []shuffle) 
 	}
 	// Block until all watches are ready, surfacing any errors during initialization.
 	// We log but don't fail on errors after fetching initial snapshots.
-	for ready := false; !ready; {
+	for ready := len(shuffles) == 0; !ready; {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
