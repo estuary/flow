@@ -32,7 +32,7 @@ for free to get started! 🚀
 Have questions? We'd love to hear from you:
 
 - Join our [Slack Community](https://go.estuary.dev/slack)
-- Reach out [directly](https://go.estuary.dev/contact-us)
+- Reach out [directly](https://go.estuary.dev/say-hi)
 
 ---
 
