@@ -2,14 +2,11 @@ use super::{Collection, Partition};
 use crate::connector::DeletionMode;
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::{heap::ArchivedNode, AsNode, HeapNode, OwnedArchivedNode};
+use doc::{AsNode, HeapNode};
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
-use kafka_protocol::{
-    protocol::StrBytes,
-    records::{Compression, TimestampType},
-};
+use kafka_protocol::records::{Compression, TimestampType};
 use lazy_static::lazy_static;
 use lz4_flex::frame::BlockMode;
 

@@ -112,7 +112,7 @@ dependencies = [
  "build",
  "bytes",
  "chrono",
- "clap 4.5.17",
+ "clap 4.5.21",
  "colored_json",
  "dekaf",
  "derivative",
@@ -904,7 +904,7 @@ dependencies = [
  "anyhow",
  "async-stripe",
  "chrono",
- "clap 4.5.17",
+ "clap 4.5.21",
  "futures",
  "itertools 0.10.5",
  "serde",
@@ -1310,9 +1310,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.17"
+version = "4.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e5a21b8495e732f1b3c364c9949b201ca7bae518c502c80256c96ad79eaf6ac"
+checksum = "fb3b4b9e5a7c7514dfa52869339ee98b3156b0bfb4e8a77c4ff4babb64b1604f"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1320,9 +1320,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.17"
+version = "4.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cf2dd12af7a047ad9d6da2b6b249759a22a7abc0f474c1dae1777afa4b21a73"
+checksum = "b17a95aa67cc7b5ebd32aa5370189aa0d79069ef1c64ce893bd30fb24bff20ec"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1332,9 +1332,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.13"
+version = "4.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "501d359d5f3dcaf6ecdeee48833ae73ec6e42723a1e52419c79abf9507eec0a0"
+checksum = "4ac6a0c7b1a9e9a5186361f67dfa1b88213572f427fb9ab038efb2bd8c582dab"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -1445,7 +1445,7 @@ dependencies = [
  "async-process",
  "async-trait",
  "bytes",
- "clap 4.5.17",
+ "clap 4.5.21",
  "futures",
  "insta",
  "ops",
@@ -1886,7 +1886,7 @@ dependencies = [
  "async-process",
  "automations",
  "chrono",
- "clap 4.5.17",
+ "clap 4.5.21",
  "futures",
  "humantime",
  "humantime-serde",
@@ -1946,7 +1946,7 @@ dependencies = [
  "base64 0.13.1",
  "bumpalo",
  "bytes",
- "clap 4.5.17",
+ "clap 4.5.21",
  "crypto-common",
  "deadpool",
  "doc",
@@ -1958,6 +1958,7 @@ dependencies = [
  "humantime",
  "itertools 0.10.5",
  "json",
+ "jsonwebtoken",
  "kafka-protocol",
  "labels",
  "lazy_static",
@@ -1975,6 +1976,7 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "rsasl",
+ "runtime",
  "rustls 0.23.10",
  "rustls-native-certs 0.7.2",
  "rustls-pemfile 2.1.3",
@@ -1983,6 +1985,7 @@ dependencies = [
  "serde_json",
  "simd-doc",
  "socket2",
+ "sqlx",
  "time 0.3.36",
  "tokio",
  "tokio-rustls 0.26.0",
@@ -2414,7 +2417,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "atty",
- "clap 4.5.17",
+ "clap 4.5.21",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2431,7 +2434,7 @@ dependencies = [
  "build",
  "bytelines",
  "bytes",
- "clap 4.5.17",
+ "clap 4.5.21",
  "comfy-table",
  "connector-init",
  "coroutines",
@@ -3633,7 +3636,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -4374,7 +4377,7 @@ dependencies = [
  "caseless",
  "chardetng",
  "chrono",
- "clap 4.5.17",
+ "clap 4.5.21",
  "criterion",
  "csv",
  "doc",
@@ -4785,7 +4788,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5bb182580f71dd070f88d01ce3de9f4da5021db7115d2e1c3605a754153b77c1"
 dependencies = [
  "bytes",
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.13.0",
  "log",
  "multimap",
@@ -5408,7 +5411,7 @@ dependencies = [
  "assemble",
  "async-process",
  "bytes",
- "clap 4.5.17",
+ "clap 4.5.21",
  "connector-init",
  "coroutines",
  "dekaf",
@@ -5661,7 +5664,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bytes",
- "clap 4.5.17",
+ "clap 4.5.21",
  "doc",
  "flow_cli_common",
  "indexmap 1.9.3",

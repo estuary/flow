@@ -38,6 +38,10 @@ pub struct App {
     pub secret: String,
     /// Share a single base client in order to re-use connection pools
     pub client_base: flow_client::Client,
+    /// The domain name of the data-plane that we're running inside of
+    pub data_plane_fqdn: String,
+    /// The key used to sign data-plane access token requests
+    pub data_plane_signer: jsonwebtoken::EncodingKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
@@ -49,15 +53,68 @@ pub struct DeprecatedConfigOptions {
     pub deletions: DeletionMode,
 }
 
-pub struct Authenticated {
+pub struct UserAuth {
     client: flow_client::Client,
     refresh_token: RefreshToken,
     access_token: String,
-    task_config: DekafConfig,
     claims: models::authorizations::ControlClaims,
+    config: DeprecatedConfigOptions,
 }
 
-impl Authenticated {
+pub struct TaskAuth {
+    client: flow_client::Client,
+    task_name: String,
+    config: DekafConfig,
+    spec: models::MaterializationDef,
+    ops_logs_journal: String,
+    ops_stats_journal: String,
+
+    // When access token expires
+    exp: time::OffsetDateTime,
+}
+
+pub enum SessionAuthentication {
+    User(UserAuth),
+    Task(TaskAuth),
+}
+
+impl SessionAuthentication {
+    pub fn valid_until(&self) -> SystemTime {
+        match self {
+            SessionAuthentication::User(user) => {
+                std::time::UNIX_EPOCH + std::time::Duration::new(user.claims.exp, 0)
+            }
+            SessionAuthentication::Task(task) => task.exp.into(),
+        }
+    }
+
+    pub async fn flow_client(&mut self, app: &App) -> anyhow::Result<&flow_client::Client> {
+        match self {
+            SessionAuthentication::User(auth) => auth.authenticated_client().await,
+            SessionAuthentication::Task(auth) => auth.authenticated_client(app).await,
+        }
+    }
+
+    pub fn refresh_gazette_clients(&mut self) {
+        match self {
+            SessionAuthentication::User(auth) => {
+                auth.client = auth.client.clone().with_fresh_gazette_client();
+            }
+            SessionAuthentication::Task(auth) => {
+                auth.client = auth.client.clone().with_fresh_gazette_client();
+            }
+        }
+    }
+
+    pub fn deletions(&self) -> DeletionMode {
+        match self {
+            SessionAuthentication::User(user_auth) => user_auth.config.deletions,
+            SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
+        }
+    }
+}
+
+impl UserAuth {
     pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         let (access, refresh) = refresh_authorizations(
             &self.client,
@@ -81,54 +138,99 @@ impl Authenticated {
     }
 }
 
+impl TaskAuth {
+    pub async fn authenticated_client(
+        &mut self,
+        app: &App,
+    ) -> anyhow::Result<&flow_client::Client> {
+        if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
+            let (client, claims, _ops_logs_journal, _ops_stats_journal, _task_spec) =
+                topology::fetch_dekaf_task_auth(
+                    self.client.clone(),
+                    &self.task_name,
+                    &app.data_plane_fqdn,
+                    &app.data_plane_signer,
+                )
+                .await?;
+
+            self.client = client.with_fresh_gazette_client();
+            self.exp =
+                time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64);
+        }
+
+        Ok(&self.client)
+    }
+}
+
 impl App {
     #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
-    async fn authenticate(&self, username: &str, password: &str) -> anyhow::Result<Authenticated> {
+    async fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> anyhow::Result<SessionAuthentication> {
         let username = if let Ok(decoded) = decode_safe_name(username.to_string()) {
             decoded
         } else {
             username.to_string()
         };
 
-        let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
-        let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
-
-        let (access, refresh) =
-            refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
-
-        let client = self
-            .client_base
-            .clone()
-            .with_user_access_token(Some(access.clone()))
-            .with_fresh_gazette_client();
-
-        let claims = flow_client::client::client_claims(&client)?;
-
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
-            Ok(Authenticated {
-                client,
-                access_token: access,
-                refresh_token: refresh,
-                task_config: todo!("Fetch and unseal task config"),
-                claims,
-            })
+            // Ask the agent for information about this task, as well as a short-lived
+            // control-plane access token authorized to interact with the avro schemas table
+            let (client, claims, ops_logs_journal, ops_stats_journal, task_spec) =
+                topology::fetch_dekaf_task_auth(
+                    self.client_base.clone(),
+                    &username,
+                    &self.data_plane_fqdn,
+                    &self.data_plane_signer,
+                )
+                .await?;
+
+            // Decrypt this materialization's endpoint config
+            let config = topology::extract_dekaf_config(&task_spec).await?;
+
+            // 3. Validate that the provided password matches the task's bearer token
+            if password != config.token {
+                anyhow::bail!("Invalid username or password")
+            }
+
+            Ok(SessionAuthentication::Task(TaskAuth {
+                task_name: username,
+                config,
+                spec: task_spec,
+                ops_logs_journal,
+                ops_stats_journal,
+                client: client.with_fresh_gazette_client(),
+                exp: time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
+            }))
         } else if username.contains("{") {
+            let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
+            let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
+
+            let (access, refresh) =
+                refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
+
+            let client = self
+                .client_base
+                .clone()
+                .with_user_access_token(Some(access.clone()))
+                .with_fresh_gazette_client();
+
+            let claims = flow_client::client::client_claims(&client)?;
+
             let config: DeprecatedConfigOptions = serde_json::from_str(&username)
                 .context("failed to parse username as a JSON object")?;
 
-            Ok(Authenticated {
+            Ok(SessionAuthentication::User(UserAuth {
                 client,
-                task_config: DekafConfig {
-                    strict_topic_names: config.strict_topic_names,
-                    deletions: config.deletions,
-                    token: "".to_string(),
-                },
                 access_token: access,
                 refresh_token: refresh,
                 claims,
-            })
+                config,
+            }))
         } else {
             anyhow::bail!("Invalid username or password")
         }
@@ -468,6 +570,13 @@ fn decode_safe_name(safe_name: String) -> anyhow::Result<String> {
         .decode_utf8()
         .and_then(|decoded| Ok(decoded.into_owned()))
         .map_err(anyhow::Error::from)
+}
+
+/// A "shard template id" is normally the most-specific task identifier
+/// used throughout the data-plane. Dekaf materializations, on the other hand, have predictable
+/// shard template IDs since they never publish shards whose names could conflict.
+fn dekaf_shard_template_id(task_name: &str) -> String {
+    format!("materialize/{task_name}/0000000000000000/")
 }
 
 /// Modified from [this](https://github.com/serde-rs/serde/issues/368#issuecomment-1579475447)

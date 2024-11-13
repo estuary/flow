@@ -1,10 +1,8 @@
 use super::{App, Collection, Read};
 use crate::{
-    from_downstream_topic_name, from_upstream_topic_name,
-    read::BatchResult,
-    to_downstream_topic_name, to_upstream_topic_name,
-    topology::{fetch_all_collection_names, PartitionOffset},
-    Authenticated, KafkaApiClient,
+    from_downstream_topic_name, from_upstream_topic_name, read::BatchResult,
+    to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset, KafkaApiClient,
+    SessionAuthentication,
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -20,10 +18,10 @@ use kafka_protocol::{
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
-use std::{cmp::max, sync::Arc, time::Duration};
+use std::{cmp::max, sync::Arc};
 use std::{
     collections::{hash_map::Entry, HashMap},
-    time::{SystemTime, UNIX_EPOCH},
+    time::SystemTime,
 };
 use tracing::instrument;
 
@@ -45,12 +43,11 @@ pub struct Session {
     client: Option<KafkaApiClient>,
     reads: HashMap<(TopicName, i32), (PendingRead, std::time::Instant)>,
     secret: String,
-    auth: Option<Authenticated>,
+    auth: Option<SessionAuthentication>,
     data_preview_state: SessionDataPreviewState,
     broker_url: String,
     broker_username: String,
     broker_password: String,
-    pub client_id: Option<String>,
 }
 
 impl Session {
@@ -70,7 +67,6 @@ impl Session {
             reads: HashMap::new(),
             auth: None,
             secret,
-            client_id: None,
             data_preview_state: SessionDataPreviewState::Unknown,
         }
     }
@@ -126,17 +122,16 @@ impl Session {
 
         let response = match self.app.authenticate(authcid, password).await {
             Ok(auth) => {
-                let claims = auth.claims.clone();
-                self.auth.replace(auth);
-
                 let mut response = messages::SaslAuthenticateResponse::default();
-                response.session_lifetime_ms = (1000
-                    * (claims.exp
-                        - SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .context("")?
-                            .as_secs()))
-                .try_into()?;
+
+                response.session_lifetime_ms = (auth
+                    .valid_until()
+                    .duration_since(SystemTime::now())?
+                    .as_secs()
+                    * 1000)
+                    .try_into()?;
+
+                self.auth.replace(auth);
                 response
             }
             Err(err) => messages::SaslAuthenticateResponse::default()
@@ -177,16 +172,12 @@ impl Session {
 
     // Lists all read-able collections as Kafka topics. Omits partition metadata.
     async fn metadata_all_topics(&mut self) -> anyhow::Result<Vec<MetadataResponseTopic>> {
-        let collections = fetch_all_collection_names(
-            &self
-                .auth
-                .as_mut()
-                .ok_or(anyhow::anyhow!("Session not authenticated"))?
-                .authenticated_client()
-                .await?
-                .pg_client(),
-        )
-        .await?;
+        let collections = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?
+            .fetch_all_collection_names()
+            .await?;
 
         tracing::debug!(collections=?ops::DebugJson(&collections), "fetched all collections");
 
@@ -215,16 +206,20 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let deletions = auth.task_config.deletions.to_owned();
-        let client = auth.authenticated_client().await?;
+        let app = &self.app;
+        let pg_client = &auth.flow_client(app).await?.pg_client();
+
+        // Re-declare here to drop mutable reference
+        let auth = self.auth.as_ref().unwrap();
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
-                    client,
+                    app,
+                    auth,
+                    pg_client,
                     from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
-                    deletions,
                 )
                 .await?;
                 Ok((topic.name.unwrap_or_default(), maybe_collection))
@@ -299,17 +294,21 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let deletions = auth.task_config.deletions.to_owned();
-        let client = auth.authenticated_client().await?;
+        let app = &self.app;
+        let pg_client = &auth.flow_client(app).await?.pg_client();
+
+        // Re-declare here to drop mutable reference
+        let auth = self.auth.as_ref().unwrap();
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
         // Map each "topic" into Vec<(Partition Index, Option<PartitionOffset>.
         let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<PartitionOffset>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
-                    client,
+                    app,
+                    auth,
+                    pg_client,
                     from_downstream_topic_name(topic.name.clone()).as_str(),
-                    deletions,
                 )
                 .await?;
 
@@ -407,18 +406,6 @@ impl Session {
             ..
         } = request;
 
-        let (mut client, config) = {
-            let auth = self
-                .auth
-                .as_mut()
-                .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-
-            (
-                auth.authenticated_client().await?.clone(),
-                auth.task_config.to_owned(),
-            )
-        };
-
         let timeout = std::time::Duration::from_millis(max_wait_ms as u64);
 
         // Start reads for all partitions which aren't already pending.
@@ -498,7 +485,13 @@ impl Session {
                         .increment(1);
                         tracing::debug!(lifetime=?started_at.elapsed(), topic_name=?key.0,partition_index=?key.1, "Restarting expired Read");
                         self.reads.remove(&key);
-                        client = client.with_fresh_gazette_client();
+
+                        let auth = self
+                            .auth
+                            .as_mut()
+                            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+                        auth.refresh_gazette_clients();
                     }
                     Some(_) => {
                         metrics::counter!(
@@ -513,7 +506,10 @@ impl Session {
                     _ => {}
                 }
 
-                let Some(collection) = Collection::new(&client, &key.0, config.deletions).await?
+                let auth = self.auth.as_mut().unwrap();
+                let pg_client = auth.flow_client(&self.app).await?.pg_client();
+                let Some(collection) =
+                    Collection::new(&self.app, &auth, &pg_client, &key.0).await?
                 else {
                     metrics::counter!(
                         "dekaf_fetch_requests",
@@ -539,9 +535,8 @@ impl Session {
                     tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
-                let (key_schema_id, value_schema_id) = collection
-                    .registered_schema_ids(&client.pg_client())
-                    .await?;
+                let (key_schema_id, value_schema_id) =
+                    collection.registered_schema_ids(&pg_client).await?;
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
@@ -569,7 +564,7 @@ impl Session {
                                     key_schema_id,
                                     value_schema_id,
                                     Some(partition_request.fetch_offset - 1),
-                                    config.deletions,
+                                    auth.deletions(),
                                 )
                                 .next_batch(
                                     // Have to read at least 2 docs, as the very last doc
@@ -597,7 +592,7 @@ impl Session {
                                     key_schema_id,
                                     value_schema_id,
                                     None,
-                                    config.deletions,
+                                    auth.deletions(),
                                 )
                                 .next_batch(
                                     crate::read::ReadTarget::Bytes(
@@ -832,7 +827,7 @@ impl Session {
                 .iter_mut()
                 .for_each(|topic| {
                     let transformed = self.encrypt_topic_name(topic.to_owned().into()).into();
-                    tracing::info!(topic_name = ?topic, encrypted_name=?transformed, "Joining group");
+                    tracing::info!(topic_name = ?topic, "Request to join group");
                     *topic = transformed;
                 });
 
@@ -977,7 +972,7 @@ impl Session {
                 .into_iter()
                 .map(|part| {
                     let transformed_topic = self.encrypt_topic_name(part.topic.to_owned());
-                    tracing::info!(topic_name = ?part.topic, encrypted_name=?transformed_topic, "Syncing group");
+                    tracing::info!(topic_name = ?part.topic, "Syncing group");
                     part.with_topic(transformed_topic)
                 })
                 .collect();
@@ -1073,17 +1068,9 @@ impl Session {
         let mut mutated_req = req.clone();
         for topic in &mut mutated_req.topics {
             let encrypted = self.encrypt_topic_name(topic.name.clone());
-            tracing::info!(topic_name = ?topic.name, encrypted_name=?encrypted, "Committing offset");
+            tracing::info!(topic_name = ?topic.name, partitions = ?topic.partitions, "Committing offset");
             topic.name = encrypted;
         }
-
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-
-        let deletions = auth.task_config.deletions.to_owned();
-        let flow_client = auth.authenticated_client().await?.clone();
 
         let client = self
             .get_kafka_client()
@@ -1103,14 +1090,28 @@ impl Session {
 
         let mut resp = client.send_request(mutated_req, Some(header)).await?;
 
+        let auth = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let flow_client = auth.flow_client(&self.app).await?.clone();
+
+        // Redeclare to drop mutability
+        let auth = self.auth.as_ref().unwrap();
+
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned());
 
-            let collection_partitions =
-                Collection::new(&flow_client, topic.name.as_str(), deletions)
-                    .await?
-                    .context(format!("unable to look up partitions for {:?}", topic.name))?
-                    .partitions;
+            let collection_partitions = Collection::new(
+                &self.app,
+                auth,
+                &flow_client.pg_client(),
+                topic.name.as_str(),
+            )
+            .await?
+            .context(format!("unable to look up partitions for {:?}", topic.name))?
+            .partitions;
 
             for partition in &topic.partitions {
                 if let Some(error) = partition.error_code.err() {
@@ -1156,9 +1157,7 @@ impl Session {
         let mut mutated_req = req.clone();
         if let Some(ref mut topics) = mutated_req.topics {
             for topic in topics {
-                let encrypted = self.encrypt_topic_name(topic.name.clone());
-                tracing::info!(topic_name = ?topic.name, encrypted_name = ?encrypted, "Fetching offset");
-                topic.name = encrypted;
+                topic.name = self.encrypt_topic_name(topic.name.clone());
             }
         }
 
@@ -1250,35 +1249,28 @@ impl Session {
         to_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.auth
-                .as_ref()
-                .expect("Must be authenticated")
-                .claims
-                .sub
-                .to_string(),
+            match self.auth.as_ref().expect("Must be authenticated") {
+                SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
+                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
+            },
         )
     }
     fn decrypt_topic_name(&self, name: TopicName) -> TopicName {
         from_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.auth
-                .as_ref()
-                .expect("Must be authenticated")
-                .claims
-                .sub
-                .to_string(),
+            match self.auth.as_ref().expect("Must be authenticated") {
+                SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
+                SessionAuthentication::Task(auth) => auth.config.token.to_string(),
+            },
         )
     }
 
     fn encode_topic_name(&self, name: String) -> TopicName {
-        if self
-            .auth
-            .as_ref()
-            .expect("Must be authenticated")
-            .task_config
-            .strict_topic_names
-        {
+        if match self.auth.as_ref().expect("Must be authenticated") {
+            SessionAuthentication::User(auth) => auth.config.strict_topic_names,
+            SessionAuthentication::Task(auth) => auth.config.strict_topic_names,
+        } {
             to_downstream_topic_name(TopicName(StrBytes::from_string(name)))
         } else {
             TopicName(StrBytes::from_string(name))
@@ -1299,15 +1291,19 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let deletions = auth.task_config.deletions.to_owned();
-        let client = auth.authenticated_client().await?;
+        let client = auth.flow_client(&self.app).await?.clone();
 
         tracing::debug!(
             "Loading latest offset for this partition to check if session is data-preview"
         );
-        let collection = Collection::new(&client, collection_name.as_str(), deletions)
-            .await?
-            .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
+        let collection = Collection::new(
+            &self.app,
+            auth,
+            &client.pg_client(),
+            collection_name.as_str(),
+        )
+        .await?
+        .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
 
         if let Some(
             partition_offset @ PartitionOffset {

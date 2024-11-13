@@ -229,7 +229,7 @@ pub async fn fetch_task_authorization(
     Ok(journal_client)
 }
 
-fn build_task_authorization_request_token(
+pub fn build_task_authorization_request_token(
     shard_template_id: &str,
     data_plane_fqdn: &str,
     data_plane_signer: &jsonwebtoken::EncodingKey,
@@ -336,7 +336,7 @@ pub async fn fetch_user_task_authorization(
 }
 
 #[tracing::instrument(skip(client), err)]
-pub async fn fetch_collection_authorization(
+pub async fn fetch_user_collection_authorization(
     client: &Client,
     collection: &str,
 ) -> anyhow::Result<(String, gazette::journal::Client)> {

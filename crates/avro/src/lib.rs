@@ -1,6 +1,8 @@
 mod encode;
 mod schema;
 
+pub use schema::key_to_avro;
+
 // Re-export fundamental schema types so crates don't have to depend on apache_avro.
 pub use apache_avro::{
     schema::{Name as RecordName, RecordField, RecordSchema, UnionSchema},
@@ -42,15 +44,14 @@ pub enum Error {
     ParseFloat(String, #[source] std::num::ParseFloatError),
 }
 
-/// Map a [`doc::Shape`] and key pointers into its equivalent AVRO schema.
-pub fn shape_to_avro(
-    shape: doc::Shape,
-    key: &[doc::Pointer],
-) -> (apache_avro::Schema, apache_avro::Schema) {
-    (
-        schema::key_to_avro(key, shape.clone()),
-        schema::shape_to_avro(json::Location::Root, shape, true),
-    )
+/// Map a [`doc::Shape`] into its equivalent AVRO schema.
+pub fn shape_to_avro(shape: doc::Shape) -> apache_avro::Schema {
+    schema::shape_to_avro(json::Location::Root, shape, true)
+}
+
+/// Map a [`doc::Shape`] and location into its equivalent AVRO schema.
+pub fn located_shape_to_avro(loc: json::Location, shape: doc::Shape) -> apache_avro::Schema {
+    schema::shape_to_avro(loc, shape, true)
 }
 
 /// Map a JSON schema bundle and key pointers into its equivalent AVRO schema.
@@ -62,7 +63,7 @@ pub fn json_schema_to_avro(
     let validator = doc::Validator::new(json_schema)?;
     let shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-    Ok(shape_to_avro(shape, key))
+    Ok((key_to_avro(key, shape.clone()), shape_to_avro(shape)))
 }
 
 /// Encode a document into a binary AVRO representation using the given schema.
