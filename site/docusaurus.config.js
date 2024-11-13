@@ -71,6 +71,14 @@ const config = {
             to: '/guides/flowctl/create-derivation/',
             from: '/guides/create-derivation/',
           },
+          {
+            to: '/getting-started/comparisons/',
+            from: '/overview/comparisons/',
+          },
+          {
+            to: '/getting-started/who-should-use-flow/',
+            from: '/overview/who-should-use-flow/',
+          },
         ],
       },
     ],
