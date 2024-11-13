@@ -44,7 +44,9 @@ impl DiscoverConnectors for DataPlaneConnectors {
             logs_token,
         );
         let proxy = ProxyConnectors::new(log_handler);
-        proxy.unary_capture(data_plane, task, req).await
+        let resp = proxy.unary_capture(data_plane, task, req).await;
+        tracing::debug!(error = ?resp.as_ref().err(), "finished discover proxy-connector RPC");
+        resp
     }
 }
 
