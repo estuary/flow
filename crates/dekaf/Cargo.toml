@@ -27,6 +27,7 @@ axum = { workspace = true }
 axum-extra = { workspace = true }
 axum-server = { workspace = true }
 base64 = { workspace = true }
+humantime = { workspace = true }
 bumpalo = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }

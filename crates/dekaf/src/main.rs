@@ -82,6 +82,10 @@ pub struct Cli {
     #[arg(long, env = "BROKER_CONNECTION_POOL_SIZE", default_value = "20")]
     broker_connection_pool_size: usize,
 
+    /// How long to wait for a message before closing an idle connection
+    #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
+    idle_session_timeout: std::time::Duration,
+
     #[command(flatten)]
     tls: Option<TlsArgs>,
 }
@@ -219,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
                         continue
                     };
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
+                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, cli.idle_session_timeout, stop.clone()));
                 }
                 _ = &mut stop => break,
             }
@@ -240,7 +244,7 @@ async fn main() -> anyhow::Result<()> {
                     };
                     socket.set_nodelay(true)?;
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
+                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, cli.idle_session_timeout, stop.clone()));
                 }
                 _ = &mut stop => break,
             }
@@ -255,6 +259,7 @@ async fn serve<S>(
     mut session: Session,
     socket: S,
     addr: std::net::SocketAddr,
+    idle_timeout: std::time::Duration,
     _stop: impl futures::Future<Output = ()>, // TODO(johnny): stop.
 ) -> anyhow::Result<()>
 where
@@ -278,7 +283,7 @@ where
 
     let result = async {
         loop {
-            let Some(frame) = tokio::time::timeout(SESSION_TIMEOUT, r.try_next())
+            let Some(frame) = tokio::time::timeout(idle_timeout, r.try_next())
                 .await
                 .context("timeout waiting for next session request")?
                 .context("failed to read next session request")?
@@ -336,5 +341,3 @@ fn validate_certificate_name(
     }
     return Ok(false);
 }
-
-const SESSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
