@@ -79,6 +79,7 @@ impl CaptureStatus {
                 .context("updating auto-discover")?;
             Some(next_auto_discover)
         } else {
+            self.auto_discover = None; // clear auto-discover status to avoid confusion
             None
         };
 
@@ -362,24 +363,36 @@ impl AutoDiscoverStatus {
         if !output.is_success() {
             let (outcome, _) =
                 AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
-            if let Some(failure) = self.failure.as_mut() {
+            let failure_count = if let Some(failure) = self.failure.as_mut() {
                 failure.count += 1;
                 failure.last_outcome = outcome;
+                failure.count
             } else {
                 self.failure = Some(AutoDiscoverFailure {
                     count: 1,
                     first_ts: control_plane.current_time(),
                     last_outcome: outcome,
                 });
-            }
+                1
+            };
             let retry_at = self.next_discover_time(state, auto_discover_interval);
+            tracing::warn!(%failure_count, %retry_at, "auto-discover failed");
             return Ok(NextRun::after(retry_at));
         }
 
         // The discover was successful, but has anything actually changed?
         // First prune the discovered draft to remove any unchanged specs.
         let unchanged_count = output.prune_unchanged_specs();
-        if output.is_unchanged() {
+        let is_unchanged = output.is_unchanged();
+        tracing::info!(
+            %is_unchanged,
+            %unchanged_count,
+            added=output.added.len(),
+            removed=output.removed.len(),
+            modified=output.modified.len(),
+            "auto-discover succeeded"
+        );
+        if is_unchanged {
             let (outcome, _) =
                 AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
             self.failure = None; // Clear any previous failure.
@@ -395,16 +408,6 @@ impl AutoDiscoverStatus {
         assert!(
             draft.spec_count() > 0,
             "draft should have at least one spec since is_unchanged() returned false"
-        );
-
-        // Try to publish the changes
-        tracing::info!(
-            %unchanged_count,
-            drafted_count = %draft.spec_count(),
-            added = %outcome.added.len(),
-            modified = %outcome.modified.len(),
-            removed = %outcome.removed.len(),
-            "Auto-discover has changes to publish"
         );
 
         let publish_detail = format!(
@@ -552,7 +555,7 @@ impl AutoDiscoverStatus {
                 n @ 2..=4 => n as i64 * (interval.num_seconds() / 4),
                 n @ 5.. => n.min(23) as i64 * (interval.num_seconds() / 2),
             };
-            tracing::info!( %backoff_secs, "Auto-discover will retry after backoff");
+            tracing::info!( %backoff_secs, failure_count = %failure.count, "Auto-discover will retry after backoff");
             failure.last_outcome.ts + chrono::Duration::seconds(backoff_secs)
         } else {
             let last_disco_time = self
@@ -567,8 +570,6 @@ impl AutoDiscoverStatus {
             next
         }
     }
-
-    // async fn publication_finished()
 }
 
 fn backoff_publication_failure(prev_failures: i32) -> Option<NextRun> {
