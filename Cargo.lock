@@ -1881,6 +1881,7 @@ dependencies = [
  "gazette",
  "hex",
  "hexdump",
+ "humantime",
  "itertools 0.10.5",
  "kafka-protocol",
  "labels",
