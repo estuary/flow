@@ -1,5 +1,5 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name, topology, Authenticated};
+use crate::{from_downstream_topic_name, to_downstream_topic_name, SessionAuthentication};
 use anyhow::Context;
 use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
@@ -34,20 +34,21 @@ async fn all_subjects(
     >,
 ) -> Response {
     wrap(async move {
-        let Authenticated {
-            client,
-            task_config,
-            ..
-        } = app.authenticate(auth.username(), auth.password()).await?;
+        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
 
-        topology::fetch_all_collection_names(&client.pg_client())
+        let strict_topic_names = match auth {
+            SessionAuthentication::User(ref auth) => auth.config.strict_topic_names,
+            SessionAuthentication::Task(ref auth) => auth.config.strict_topic_names,
+        };
+
+        auth.fetch_all_collection_names()
             .await
             .context("failed to list collections from the control plane")
             .map(|collections| {
                 collections
                     .into_iter()
                     .map(|name| {
-                        if task_config.strict_topic_names {
+                        if strict_topic_names {
                             to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
                                 .to_string()
                         } else {
@@ -73,11 +74,7 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let Authenticated {
-            client,
-            task_config,
-            ..
-        } = app.authenticate(auth.username(), auth.password()).await?;
+        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
@@ -87,19 +84,22 @@ async fn get_subject_latest(
             anyhow::bail!("expected subject to end with -key or -value")
         };
 
+        let client = &auth.flow_client(&app).await?.pg_client();
+
         let collection = super::Collection::new(
-            &client,
+            &app,
+            &auth,
+            client,
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
             ))),
-            task_config.deletions,
         )
         .await
         .context("failed to fetch collection metadata")?
         .with_context(|| format!("collection {collection} does not exist"))?;
 
         let (key_id, value_id) = collection
-            .registered_schema_ids(&client.pg_client())
+            .registered_schema_ids(&client)
             .await
             .context("failed to resolve registered Avro schemas")?;
 
@@ -131,8 +131,8 @@ async fn get_schema_by_id(
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let Authenticated { client, .. } =
-            app.authenticate(auth.username(), auth.password()).await?;
+        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
+        let client = &auth.flow_client(&app).await?.pg_client();
 
         #[derive(serde::Deserialize)]
         struct Row {
