@@ -4,12 +4,13 @@ extern crate allocator;
 use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
-use dekaf::{KafkaApiClient, Session};
+use dekaf::Session;
 use flow_client::{
-    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+    DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
+    LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
+    LOCAL_PG_URL,
 };
 use futures::{FutureExt, TryStreamExt};
-use rsasl::config::SASLConfig;
 use rustls::pki_types::CertificateDer;
 use std::{
     fs::File,
@@ -29,6 +30,7 @@ pub struct Cli {
     #[arg(
         long,
         default_value = DEFAULT_PG_URL.as_str(),
+        default_value_if("local", "true", Some(LOCAL_PG_URL.as_str())),
         env = "API_ENDPOINT"
     )]
     api_endpoint: Url,
@@ -36,13 +38,22 @@ pub struct Cli {
     #[arg(
         long,
         default_value = DEFAULT_PG_PUBLIC_TOKEN,
+        default_value_if("local", "true", Some(LOCAL_PG_PUBLIC_TOKEN)),
         env = "API_KEY"
     )]
     api_key: String,
+    /// Endpoint of the Estuary agent API to use.
+    #[arg(
+            long,
+            default_value = DEFAULT_AGENT_URL.as_str(),
+            default_value_if("local", "true", Some(LOCAL_AGENT_URL.as_str())),
+            env = "AGENT_ENDPOINT"
+        )]
+    agent_endpoint: Url,
 
     /// When true, override the configured API endpoint and token,
     /// in preference of a local control plane.
-    #[arg(long)]
+    #[arg(long, action(clap::ArgAction::SetTrue))]
     local: bool,
     /// The hostname to advertise when enumerating Kafka "brokers".
     /// This is the hostname at which `dekaf` may be accessed.
@@ -80,6 +91,28 @@ pub struct Cli {
     /// How long to wait for a message before closing an idle connection
     #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     idle_session_timeout: std::time::Duration,
+
+    /// The fully-qualified domain name of the data plane that Dekaf is running inside of
+    #[arg(
+        long,
+        env = "DATA_PLANE_FQDN",
+        default_value=DEFAULT_DATA_PLANE_FQDN,
+        default_value_if("local", "true", Some(LOCAL_DATA_PLANE_FQDN)),
+    )]
+    data_plane_fqdn: String,
+    /// An HMAC key recognized by the data plane that Dekaf is running inside of. Used to
+    /// sign data-plane access token requests.
+    #[arg(
+        long,
+        env = "DATA_PLANE_ACCESS_KEY",
+        default_value_if("local", "true", Some(LOCAL_DATA_PLANE_HMAC)),
+        // This is a work-around to clap_derive's somewhat buggy handling of `default_value_if`.
+        // The end result is that `data_plane_access_key` is required iff `--local` is not specified.
+        // If --local is specified, it will use the value in LOCAL_DATA_PLANE_HMAC unless overridden.
+        // See https://github.com/clap-rs/clap/issues/4086 and https://github.com/clap-rs/clap/issues/4918
+        required(false)
+    )]
+    data_plane_access_key: String,
 
     #[command(flatten)]
     tls: Option<TlsArgs>,
@@ -131,12 +164,11 @@ async fn main() -> anyhow::Result<()> {
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
         secret: cli.encryption_secret.to_owned(),
-        client_base: flow_client::Client::new(
-            DEFAULT_AGENT_URL.to_owned(),
-            api_key,
-            api_endpoint,
-            None,
-        ),
+        data_plane_signer: jsonwebtoken::EncodingKey::from_base64_secret(
+            &cli.data_plane_access_key,
+        )?,
+        data_plane_fqdn: cli.data_plane_fqdn,
+        client_base: flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None),
     });
 
     let mut stop = async {
