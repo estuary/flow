@@ -336,7 +336,7 @@ pub async fn fetch_user_task_authorization(
 }
 
 #[tracing::instrument(skip(client), err)]
-pub async fn fetch_collection_authorization(
+pub async fn fetch_user_collection_authorization(
     client: &Client,
     collection: &str,
 ) -> anyhow::Result<(String, gazette::journal::Client)> {

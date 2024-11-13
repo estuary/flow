@@ -327,7 +327,22 @@ async fn walk_materialization(
     {
         shard_template.id.clone()
     } else {
-        assemble::shard_id_prefix(pub_id, materialization, labels::TASK_TYPE_MATERIALIZATION)
+        assemble::shard_id_prefix(
+            match endpoint {
+                // Dekaf materializations don't create any shards, so the problem of
+                // deleting and re-creating tasks with the same name, which this
+                // shard id template logic was introduced to resolve, isn't applicable.
+                // Instead, since the Dekaf service uses the task name to authenticate
+                // whereas the authorization API expects the shard template id, it's
+                // useful to be able to generate the correct shard template id for a
+                // Dekaf materialization given only its task name.
+                models::MaterializationEndpoint::Dekaf(_) => models::Id::zero(),
+                models::MaterializationEndpoint::Connector(_)
+                | models::MaterializationEndpoint::Local(_) => pub_id,
+            },
+            materialization,
+            labels::TASK_TYPE_MATERIALIZATION,
+        )
     };
 
     let recovery_log_template = assemble::recovery_log_template(

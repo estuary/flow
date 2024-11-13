@@ -1,30 +1,94 @@
-use crate::connector::DeletionMode;
-use anyhow::Context;
-use futures::{StreamExt, TryStreamExt};
+use crate::{
+    connector::{DekafConfig, DeletionMode},
+    dekaf_shard_template_id, App, SessionAuthentication, TaskAuth, UserAuth,
+};
+use anyhow::{bail, Context};
+use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
+use models::Materialization;
 use proto_flow::flow;
 
-/// Fetch the names of all collections which the current user may read.
-/// Each is mapped into a kafka topic.
-pub async fn fetch_all_collection_names(
+impl UserAuth {
+    /// Fetch the names of all collections which the current user may read.
+    /// Each is mapped into a kafka topic.
+    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
+        let client = self.authenticated_client().await?.pg_client();
+        #[derive(serde::Deserialize)]
+        struct Row {
+            catalog_name: String,
+        }
+        let rows_builder = client
+            .from("live_specs_ext")
+            .eq("spec_type", "collection")
+            .select("catalog_name");
+
+        let items = flow_client::pagination::into_items::<Row>(rows_builder)
+            .map(|res| res.map(|Row { catalog_name }| catalog_name))
+            .try_collect()
+            .await
+            .context("listing current catalog specifications")?;
+
+        Ok(items)
+    }
+}
+
+impl TaskAuth {
+    pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .bindings
+            .iter()
+            .map(|b| b.source.collection().to_string())
+            .collect())
+    }
+}
+
+impl SessionAuthentication {
+    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
+        match self {
+            SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
+            SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
+        }
+    }
+}
+
+pub async fn get_dekaf_materialization(
     client: &postgrest::Postgrest,
-) -> anyhow::Result<Vec<String>> {
+    name: Materialization,
+) -> anyhow::Result<(models::MaterializationDef, crate::connector::DekafConfig)> {
     #[derive(serde::Deserialize)]
     struct Row {
-        catalog_name: String,
+        spec_type: models::CatalogType,
+        spec: String,
     }
-    let rows_builder = client
-        .from("live_specs_ext")
-        .eq("spec_type", "collection")
-        .select("catalog_name");
 
-    let items = flow_client::pagination::into_items::<Row>(rows_builder)
-        .map(|res| res.map(|Row { catalog_name }| catalog_name))
-        .try_collect()
-        .await
-        .context("listing current catalog specifications")?;
+    let row = client
+        .from("live_specs")
+        .eq("catalog_name", name.clone())
+        .select("spec, spec_type")
+        .single()
+        .execute()
+        .await?
+        .json::<Row>()
+        .await?;
 
-    Ok(items)
+    if !matches!(row.spec_type, models::CatalogType::Materialization) {
+        bail!("Unexpected spec type {}", row.spec_type);
+    } else {
+        let parsed_spec = serde_json::from_str::<models::MaterializationDef>(&row.spec)?;
+
+        match &parsed_spec.endpoint {
+            models::MaterializationEndpoint::Dekaf(dekaf_endpoint) => {
+                let decrypted = runtime::unseal::decrypt_sops(&dekaf_endpoint.config).await?;
+
+                let dekaf_config = serde_json::from_value::<DekafConfig>(decrypted.to_value())?;
+                Ok((parsed_spec, dekaf_config))
+            }
+            models::MaterializationEndpoint::Connector(_)
+            | models::MaterializationEndpoint::Local(_) => {
+                bail!("{name} is not a Dekaf materialization")
+            }
+        }
+    }
 }
 
 /// Collection is the assembled metadata of a collection being accessed as a Kafka topic.
@@ -59,17 +123,35 @@ pub struct PartitionOffset {
 impl Collection {
     /// Build a Collection by fetching its spec, a authenticated data-plane access token, and its partitions.
     pub async fn new(
-        client: &flow_client::Client,
+        app: &App,
+        auth: &SessionAuthentication,
+        pg_client: &postgrest::Postgrest,
         collection: &str,
-        deletion_mode: DeletionMode,
     ) -> anyhow::Result<Option<Self>> {
         let not_before = uuid::Clock::default();
-        let pg_client = client.pg_client();
+
+        if let SessionAuthentication::Task(TaskAuth {
+            ref bindings,
+            ref name,
+            ..
+        }) = auth
+        {
+            if let Some(binding) = bindings
+                .iter()
+                .find(|b| b.source.collection().as_str() == collection)
+            {
+                if binding.disable {
+                    bail!("Binding {collection} is disabled in {name}")
+                }
+            } else {
+                bail!("Collection {collection} is not a binding of {name}")
+            }
+        }
 
         // Build a journal client and use it to fetch partitions while concurrently
         // fetching the collection's metadata from the control plane.
         let client_partitions = async {
-            let journal_client = Self::build_journal_client(&client, collection).await?;
+            let journal_client = Self::build_journal_client(app, collection).await?;
             let partitions = Self::fetch_partitions(&journal_client, collection).await?;
             Ok((journal_client, partitions))
         };
@@ -295,13 +377,20 @@ impl Collection {
     }
 
     /// Build a journal client by resolving the collections data-plane gateway and an access token.
-    async fn build_journal_client(
-        client: &flow_client::Client,
-        collection: &str,
-    ) -> anyhow::Result<journal::Client> {
-        let (_, journal_client) = flow_client::fetch_collection_authorization(client, collection)
-            .await
-            .context(format!("building journal client for {collection}"))?;
+    async fn build_journal_client(app: &App, collection: &str) -> anyhow::Result<journal::Client> {
+        let (_ops_logs_journal, _ops_stats_journal, journal_client) =
+            flow_client::client::fetch_task_authorization(
+                &app.client_base,
+                &dekaf_shard_template_id(collection),
+                &app.data_plane_fqdn,
+                &app.data_plane_signer,
+                proto_flow::capability::AUTHORIZE & proto_gazette::capability::READ,
+                gazette::broker::LabelSelector {
+                    include: Some(labels::build_set([(labels::TASK_NAME, collection)])),
+                    exclude: None,
+                },
+            )
+            .await?;
 
         Ok(journal_client)
     }

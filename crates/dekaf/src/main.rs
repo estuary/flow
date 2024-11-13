@@ -81,6 +81,14 @@ pub struct Cli {
     #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     idle_session_timeout: std::time::Duration,
 
+    /// The fully-qualified domain name of the data plane that Dekaf is running inside of
+    #[arg(long, env = "DATA_PLANE_FQDN")]
+    data_plane_fqdn: String,
+    /// An HMAC key recognized by the data plane that Dekaf is running inside of. Used to
+    /// sign data-plane access token requests.
+    #[arg(long, env = "DATA_PLANE_ACCESS_KEY")]
+    data_plane_access_key: String,
+
     #[command(flatten)]
     tls: Option<TlsArgs>,
 }
@@ -131,6 +139,8 @@ async fn main() -> anyhow::Result<()> {
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
         secret: cli.encryption_secret.to_owned(),
+        data_plane_signer: jsonwebtoken::EncodingKey::from_base64_secret(&cli.data_plane_access_key)?,
+        data_plane_fqdn: cli.data_plane_fqdn,
         client_base: flow_client::Client::new(
             DEFAULT_AGENT_URL.to_owned(),
             api_key,

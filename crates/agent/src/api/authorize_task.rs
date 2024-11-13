@@ -129,7 +129,6 @@ fn evaluate_authorization(
         tasks,
         ..
     } = snapshot;
-
     // Map `claims.sub`, a Shard ID, into its task.
     let task = tasks
         .binary_search_by(|task| {

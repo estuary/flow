@@ -14,7 +14,7 @@ mod rocksdb;
 mod task_service;
 mod tokio_context;
 mod unary;
-mod unseal;
+pub mod unseal;
 pub mod uuid;
 
 pub use container::flow_runtime_protocol;
