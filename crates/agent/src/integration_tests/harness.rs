@@ -151,7 +151,8 @@ impl TestHarness {
 
         let id_gen = models::IdGenerator::new(1);
         let mock_connectors = connectors::MockDiscoverConnectors::default();
-        let discover_handler = DiscoverHandler::new(mock_connectors);
+        let discover_handler =
+            DiscoverHandler::new(mock_connectors, std::time::Duration::from_secs(5));
 
         let publisher = Publisher::new(
             "/not/a/real/bin/dir",

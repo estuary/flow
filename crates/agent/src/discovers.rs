@@ -156,11 +156,15 @@ impl DiscoverOutput {
 #[derive(Clone)]
 pub struct DiscoverHandler<C> {
     pub connectors: C,
+    pub discover_timeout: std::time::Duration,
 }
 
 impl<C: DiscoverConnectors> DiscoverHandler<C> {
-    pub fn new(connectors: C) -> Self {
-        Self { connectors }
+    pub fn new(connectors: C, discover_timeout: std::time::Duration) -> Self {
+        Self {
+            connectors,
+            discover_timeout,
+        }
     }
 }
 
@@ -232,10 +236,13 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             ..Default::default()
         };
 
-        let result = self
-            .connectors
-            .discover(request, logs_token, task, &data_plane)
-            .await;
+        let result = crate::timeout(
+            self.discover_timeout,
+            self.connectors
+                .discover(request, logs_token, task, &data_plane),
+            || "discover operation timed out",
+        )
+        .await;
 
         let response = match result {
             Ok(response) => response,

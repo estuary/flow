@@ -50,6 +50,13 @@ struct Args {
     /// Origin to allow in CORS contexts. May be specified multiple times.
     #[clap(long = "allow-origin")]
     allow_origin: Vec<String>,
+    #[clap(
+        long = "discover-timeout",
+        env = "DISCOVER_TIMEOUT",
+        value_parser = humantime::parse_duration,
+        default_value = "5m"
+    )]
+    discover_timeout: std::time::Duration,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -171,7 +178,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors);
+    let discover_handler = DiscoverHandler::new(connectors, args.discover_timeout);
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
