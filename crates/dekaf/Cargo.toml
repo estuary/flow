@@ -14,6 +14,7 @@ allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
 flow-client = { path = "../flow-client" }
+runtime = { path = "../runtime" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
 labels = { path = "../labels" }
@@ -29,9 +30,11 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
 axum-server = { workspace = true }
+jsonwebtoken = { workspace = true }
 base64 = { workspace = true }
 bumpalo = { workspace = true }
 bytes = { workspace = true }
+humantime = { workspace = true }
 clap = { workspace = true }
 crypto-common = { workspace = true }
 deadpool = { workspace = true }
