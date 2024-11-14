@@ -20,7 +20,7 @@ offering high performance for both transactional and analytical workloads.
     CREATE TABLE test_table (id NUMERIC, server_name VARCHAR(255), title VARCHAR(255));
     
     CREATE PIPELINE test AS
-            LOAD DATA KAFKA "dekaf.estuary.dev:9092/demo/wikipedia/recentchange-sampled"
+            LOAD DATA KAFKA "dekaf.estuary-data.com:9092/demo/wikipedia/recentchange-sampled"
             CONFIG '{
                 "security.protocol":"SASL_SSL",
                 "sasl.mechanism":"PLAIN",
@@ -34,7 +34,7 @@ offering high performance for both transactional and analytical workloads.
                 "schema.registry.password": "ESTUARY_ACCESS_TOKEN"
             }'
             INTO table test_table
-            FORMAT AVRO SCHEMA REGISTRY 'https://dekaf.estuary.dev'
+            FORMAT AVRO SCHEMA REGISTRY 'https://dekaf.estuary-data.com'
             ( id <- id, server_name <- server_name, title <- title );
     ```
 4. Your pipeline should now start ingesting data from Estuary Flow into SingleStore.
