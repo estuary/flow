@@ -18,7 +18,7 @@ Druid, designed for real-time analytics on streaming and batch data.
 
 5. In the Kafka configuration section, enter the following details:
 
-    - **Bootstrap Servers**: `dekaf.estuary.dev:9092`
+    - **Bootstrap Servers**: `dekaf.estuary-data.com:9092`
     - **Topic**: Your Estuary Flow collection name (e.g., `/my-organization/my-collection`)
     - **Security Protocol**: `SASL_SSL`
     - **SASL Mechanism**: `PLAIN`
@@ -28,7 +28,7 @@ Druid, designed for real-time analytics on streaming and batch data.
 6. For the "Input Format", select "avro".
 
 7. Configure the Schema Registry settings:
-    - **Schema Registry URL**: `https://dekaf.estuary.dev`
+    - **Schema Registry URL**: `https://dekaf.estuary-data.com`
     - **Schema Registry Username**: `{}` (same as SASL Username)
     - **Schema Registry Password**: `The same Estuary Access Token as above`
 

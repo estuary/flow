@@ -30,8 +30,8 @@ walk you through the steps to connect to Estuary Flow using Dekaf and its schema
 
 To connect to Estuary Flow via Dekaf, you need the following connection details:
 
-- **Broker Address**: `dekaf.estuary.dev`
-- **Schema Registry Address**: `https://dekaf.estuary.dev`
+- **Broker Address**: `dekaf.estuary-data.com`
+- **Schema Registry Address**: `https://dekaf.estuary-data.com`
 - **Security Protocol**: `SASL_SSL`
 - **SASL Mechanism**: `PLAIN`
 - **SASL Username**: `{}`
@@ -57,7 +57,7 @@ from kafka import KafkaConsumer
 
 # Configuration details
 conf = {
-    'bootstrap_servers': 'dekaf.estuary.dev:9092',
+    'bootstrap_servers': 'dekaf.estuary-data.com:9092',
     'security_protocol': 'SASL_SSL',
     'sasl_mechanism': 'PLAIN',
     'sasl_plain_username': '{}',
@@ -100,10 +100,10 @@ kcat -C \
     -X sasl.mechanism=PLAIN \
     -X sasl.username="{}" \
     -X sasl.password="Your_Estuary_Refresh_Token" \
-    -b dekaf.estuary.dev:9092 \
+    -b dekaf.estuary-data.com:9092 \
     -t "full/nameof/estuarycolletion" \
     -p 0 \
     -o beginning \
     -s avro \
-    -r https://{}:{Your_Estuary_Refresh_Token}@dekaf.estuary.dev
+    -r https://{}:{Your_Estuary_Refresh_Token}@dekaf.estuary-data.com
 ```
