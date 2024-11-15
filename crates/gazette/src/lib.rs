@@ -89,8 +89,13 @@ pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
         // which can block indefinitely if the server is bound but not listening.
         .connect_timeout(Duration::from_secs(5))
         // HTTP/2 keep-alive sends a PING frame every interval to confirm the
-        // health of the end-to-end HTTP/2 transport.
-        .http2_keep_alive_interval(std::time::Duration::from_secs(5))
+        // health of the end-to-end HTTP/2 transport. The duration was selected
+        // to be compatible with the default grpc server setting of 5 minutes
+        // for `GRPC_ARG_HTTP2_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS`. If we
+        // send pings more frequently than that, then the server may close the
+        // connection unexpectedly.
+        // See: https://github.com/grpc/grpc/blob/master/doc/keepalive.md
+        .http2_keep_alive_interval(std::time::Duration::from_secs(301))
         .tls_config(
             tonic::transport::ClientTlsConfig::new()
                 .with_native_roots()
