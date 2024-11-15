@@ -90,7 +90,7 @@ pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
         .connect_timeout(Duration::from_secs(5))
         // HTTP/2 keep-alive sends a PING frame every interval to confirm the
         // health of the end-to-end HTTP/2 transport.
-        .http2_keep_alive_interval(std::time::Duration::from_secs(5))
+        //.http2_keep_alive_interval(std::time::Duration::from_secs(5))
         .tls_config(
             tonic::transport::ClientTlsConfig::new()
                 .with_native_roots()
