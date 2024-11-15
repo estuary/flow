@@ -101,7 +101,7 @@ Array fields do not support being marked as nullable, so you will not be able to
 
 ### Hard deletes
 
-Instead of exposing deletion events for you to handle on your own, hard deletes causes deleted documents (identified by their unique key) to be deleted from the Tinybird dataflow entirely.
+Instead of exposing deletion events for you to handle on your own, hard deletes cause deleted documents (identified by their unique key) to be deleted from the Tinybird dataflow entirely.
 
 #### Enable Dekaf's `cdc` deletions mode.
 
@@ -118,7 +118,7 @@ Pick one of the two options from above:
 - [Store whole document as JSON](#store-whole-document-as-json)
 - [Mark extracted fields as nullable](#mark-extracted-fields-as-nullable)
 
-Then, you can extract the `/_meta.is_deleted` field, and configure the `ReplacingMergeTree` engine's `ENGINE_IS_DELETED` flag to use it:
+Then, you can extract the `/_meta/is_deleted` field, and configure the `ReplacingMergeTree` engine's `ENGINE_IS_DELETED` flag to use it:
 
 ```
 SCHEMA >
