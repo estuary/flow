@@ -202,6 +202,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         jwt_secret.into_bytes(),
         pg_pool.clone(),
         publisher.clone(),
+        discover_handler.clone(),
+        system_user_id,
         &args.allow_origin,
     )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());

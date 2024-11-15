@@ -5,11 +5,14 @@ mod authorize_task;
 mod authorize_user_collection;
 mod authorize_user_task;
 mod create_data_plane;
+mod discover;
 mod snapshot;
 mod update_l2_reporting;
 
 use anyhow::Context;
 use snapshot::Snapshot;
+
+use crate::{discovers::DiscoverHandler, DataPlaneConnectors};
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
@@ -42,11 +45,13 @@ pub enum Rejection {
 
 struct App {
     id_generator: Mutex<models::IdGenerator>,
+    system_user_id: uuid::Uuid,
     jwt_secret: jsonwebtoken::DecodingKey,
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
     snapshot: std::sync::RwLock<Snapshot>,
+    discover_handler: DiscoverHandler<DataPlaneConnectors>,
 }
 
 /// Build the agent's API router.
@@ -55,6 +60,8 @@ pub fn build_router(
     jwt_secret: Vec<u8>,
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
+    discover_handler: DiscoverHandler<DataPlaneConnectors>,
+    system_user_id: uuid::Uuid,
     allow_origin: &[String],
 ) -> anyhow::Result<axum::Router<()>> {
     let jwt_secret = jsonwebtoken::DecodingKey::from_secret(&jwt_secret);
@@ -70,6 +77,8 @@ pub fn build_router(
         jwt_validation,
         pg_pool,
         publisher,
+        discover_handler,
+        system_user_id,
         snapshot: std::sync::RwLock::new(snapshot),
     });
     tokio::spawn(snapshot::fetch_loop(app.clone(), seed_rx));
@@ -124,6 +133,10 @@ pub fn build_router(
             "/admin/update-l2-reporting",
             post(update_l2_reporting::update_l2_reporting)
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
+        )
+        .route(
+            "/test/discover/*capture_name",
+            post(discover::test_discover),
         )
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(cors)
