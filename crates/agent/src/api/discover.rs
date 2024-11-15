@@ -115,12 +115,22 @@ async fn do_test_discover(
         removed,
     } = app.discover_handler.discover(&pool, disco).await?;
 
-    let errors = draft
-        .errors
-        .iter()
-        .map(crate::draft::Error::from_tables_error)
-        .collect();
-    let resp_draft = sources::merge::into_catalog(draft);
+    let (errors, draft) = if draft.errors.is_empty() {
+        let resp_draft = sources::merge::into_catalog(draft);
+        (Vec::new(), resp_draft)
+    } else {
+        for err in draft.errors.iter() {
+            tracing::warn!(error = ?err.error, "discover error");
+        }
+        (
+            draft
+                .errors
+                .iter()
+                .map(crate::draft::Error::from_tables_error)
+                .collect(),
+            models::Catalog::default(),
+        )
+    };
     let added = added.into_iter().map(|(rp, c)| changed(rp, c)).collect();
     let modified = modified.into_iter().map(|(rp, c)| changed(rp, c)).collect();
     let removed = removed.into_iter().map(|(rp, c)| changed(rp, c)).collect();
@@ -128,7 +138,7 @@ async fn do_test_discover(
     Ok(DiscoverResp {
         capture_name,
         errors,
-        draft: resp_draft,
+        draft,
         added,
         modified,
         removed,
