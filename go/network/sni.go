@@ -79,9 +79,13 @@ func newResolvedSNI(parsed parsedSNI, shard *pc.ShardSpec) resolvedSNI {
 	var portProtocol = shard.LabelSet.ValueOf(labels.PortProtoPrefix + parsed.port)
 	var portIsPublic = shard.LabelSet.ValueOf(labels.PortPublicPrefix+parsed.port) == "true"
 
-	// Private ports MUST use the HTTP/1.1 reverse proxy.
-	if !portIsPublic {
-		portProtocol = ""
+	// HTTP/1.1 is the only protocol which we reverse proxy. It's the assumed
+	// protocol if none is specified, and is required if the port is private.
+	if portProtocol == "" || !portIsPublic {
+		portProtocol = protoHTTP11
+	} else if portProtocol == "h2c" {
+		// Connector expects cleartext HTTP/2. We terminate TLS and TCP proxy.
+		portProtocol = protoHTTP2
 	}
 
 	return resolvedSNI{
@@ -122,3 +126,8 @@ func listShards(ctx context.Context, shards pc.ShardClient, parsed parsedSNI, sh
 
 	return resp.Shards, nil
 }
+
+const (
+	protoHTTP11 = "http/1.1"
+	protoHTTP2  = "h2"
+)
