@@ -21,7 +21,6 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"golang.org/x/net/http2"
 )
 
 // Frontend accepts connections over its configured Listener,
@@ -233,27 +232,53 @@ func (p *Frontend) getTLSConfigForClient(hello *tls.ClientHelloInfo) (*tls.Confi
 		}
 	}
 
-	if conn.sniErr == nil && conn.resolved.portProtocol != "" {
-		// We intend to TCP proxy to the connector. Dial the shard now so that
-		// we fail-fast during TLS handshake, instead of letting the client
-		// think it has a good connection.
-		var addr = conn.raw.RemoteAddr().String()
-		conn.dialed, conn.dialErr = dialShard(
-			hello.Context(), p.networkClient, p.shardClient, conn.parsed, conn.resolved, addr)
-	}
+	if conn.sniErr != nil {
+		// We failed to resolve to a shard, and will send a best-effort HTTP/1.1 error.
+		conn.resolved.portProtocol = protoHTTP11
+	} else if conn.resolved.portProtocol == protoHTTP11 {
+		// We intend to reverse proxy HTTP requests to connector shards.
 
-	var nextProtos []string
-	if conn.sniErr != nil || conn.dialErr != nil {
-		nextProtos = []string{"http/1.1"} // We'll send a descriptive HTTP/1.1 error.
-	} else if conn.dialed == nil {
-		nextProtos = []string{"h2"} // We'll reverse-proxy. The user MUST speak HTTP/2.
-	} else {
-		nextProtos = []string{conn.resolved.portProtocol} // We'll TCP proxy.
+		if slices.Contains(hello.SupportedProtos, protoHTTP2) {
+			// We'll proxy client HTTP/2 to connector HTTP/1.1
+			conn.resolved.portProtocol = protoHTTP2
+		} else if len(hello.SupportedProtos) == 0 {
+			// Some clients, such as NodeJS's `https` module, don't support ALPN.
+			// We assume HTTP/1.1 and hope it works out.
+		} else if !slices.Contains(hello.SupportedProtos, protoHTTP11) {
+			conn.sniErr = fmt.Errorf(
+				"client supports ALPN protocols %v, but the connector requires `h2` or `http/1.1`",
+				hello.SupportedProtos,
+			)
+		}
+
+	} else if len(hello.SupportedProtos) != 0 &&
+		!slices.Contains(hello.SupportedProtos, conn.resolved.portProtocol) {
+		// We intend to TCP proxy, but the client sent supported protocols and none match.
+		// We'll send a best-effort error.
+		conn.sniErr = fmt.Errorf(
+			"client supports ALPN protocols %v, but the connector requires protocol %s",
+			hello.SupportedProtos,
+			conn.resolved.portProtocol,
+		)
+		conn.resolved.portProtocol = protoHTTP11
+
+	} else if conn.dialed, conn.dialErr = dialShard(
+		hello.Context(),
+		p.networkClient,
+		p.shardClient,
+		conn.parsed,
+		conn.resolved,
+		conn.raw.RemoteAddr().String(),
+	); conn.dialErr != nil {
+		// We intend to TCP proxy to the connector. We dialed the shard so that
+		// we fail-fast during TLS handshake, instead of letting the client
+		// think it has a good connection, and now report a best-effort dial error.
+		conn.resolved.portProtocol = protoHTTP11
 	}
 
 	return &tls.Config{
 		Certificates: p.tlsConfig.Certificates,
-		NextProtos:   nextProtos,
+		NextProtos:   []string{conn.resolved.portProtocol},
 	}, nil
 }
 
@@ -370,13 +395,23 @@ func (p *Frontend) serveConnHTTP(user *frontendConn) {
 		}
 	}
 
-	(&http2.Server{
-		// IdleTimeout can be generous: it's intended to catch broken TCP transports.
-		// MaxConcurrentStreams is an important setting left as the default (100).
-		IdleTimeout: time.Minute,
-	}).ServeConn(user.tls, &http2.ServeConnOpts{
+	var stubListener = &stubListener{conn: user.tls, done: make(chan struct{})}
+
+	_ = (&http.Server{
 		Handler: http.HandlerFunc(handle),
-	})
+		// ReadHeaderTimeout applies only to HTTP/1.1 connections.
+		ReadHeaderTimeout: time.Second * 30,
+		// IdleTimeout apples to HTTP/1.1 and HTTP/2. It can be generous: it's
+		// intended to catch broken TCP transports.
+		// MaxConcurrentStreams is another important HTTP/2 setting left as the default (100).
+		IdleTimeout: time.Minute,
+		// ConnState hook which stops this Server when its one connection is done.
+		ConnState: func(_ net.Conn, cs http.ConnState) {
+			if cs == http.StateClosed {
+				close(stubListener.done) // Accept now unblocks with an error.
+			}
+		},
+	}).Serve(stubListener)
 
 	userHandledCounter.WithLabelValues(task, port, proto, "OK").Inc()
 }
@@ -395,3 +430,20 @@ func (f *Frontend) serveConnErr(conn net.Conn, status int, body string) {
 	_, _ = conn.Write(resp)
 	_ = conn.Close()
 }
+
+type stubListener struct {
+	conn net.Conn
+	done chan struct{}
+}
+
+func (l *stubListener) Accept() (net.Conn, error) {
+	if c := l.conn; c != nil {
+		l.conn = nil
+		return c, nil
+	}
+	<-l.done
+	return nil, io.EOF
+}
+
+func (l *stubListener) Close() error   { return nil }
+func (l *stubListener) Addr() net.Addr { return l.conn.LocalAddr() }
