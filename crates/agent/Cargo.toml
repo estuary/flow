@@ -7,7 +7,6 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 license.workspace = true
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -15,8 +14,8 @@ activate = { path = "../activate" }
 agent-sql = { path = "../agent-sql" }
 allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
-dekaf = { path = "../dekaf" }
 build = { path = "../build" }
+dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -72,6 +71,6 @@ xxhash-rust = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 md5 = { workspace = true }
-tokio = { workspace = true }
 serial_test = { workspace = true }
+tokio = { workspace = true }
 uuid = { workspace = true }
