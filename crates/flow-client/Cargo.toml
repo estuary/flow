@@ -10,8 +10,6 @@ license.workspace = true
 
 [dependencies]
 gazette = { path = "../gazette" }
-proto-gazette = { path = "../proto-gazette" }
-proto-flow = { path = "../proto-flow" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
@@ -24,7 +22,6 @@ jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
 page-turner = { workspace = true }
 postgrest = { workspace = true }
-jsonwebtoken = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
