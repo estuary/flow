@@ -31,6 +31,12 @@ fn ex_projections() -> Vec<flow::Projection> {
                 has_maximum: false,
                 maximum: 0.0,
             }),
+            array: Some(inference::Array {
+                min_items: 10,
+                has_max_items: true,
+                max_items: 20,
+                item_types: vec!["null".to_string(), "integer".to_string()],
+            }),
         }),
     }]
 }

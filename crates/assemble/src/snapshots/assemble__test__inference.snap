@@ -22,6 +22,7 @@ expression: "&[out1, out2, out3]"
         secret: true,
         exists: Must,
         numeric: None,
+        array: None,
     },
     Inference {
         types: [
@@ -34,6 +35,7 @@ expression: "&[out1, out2, out3]"
         secret: true,
         exists: May,
         numeric: None,
+        array: None,
     },
     Inference {
         types: [
@@ -61,5 +63,6 @@ expression: "&[out1, out2, out3]"
                 maximum: 1000.0,
             },
         ),
+        array: None,
     },
 ]

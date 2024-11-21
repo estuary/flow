@@ -86,6 +86,8 @@ pub struct Inference {
     pub exists: i32,
     #[prost(message, optional, tag = "9")]
     pub numeric: ::core::option::Option<inference::Numeric>,
+    #[prost(message, optional, tag = "10")]
+    pub array: ::core::option::Option<inference::Array>,
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
@@ -129,6 +131,28 @@ pub mod inference {
         /// has_maximum for if a zero value should be interpreted as 0 or unknown.
         #[prost(double, tag = "4")]
         pub maximum: f64,
+    }
+    /// Array type-specific inferences. Will be nil if types doesn't include
+    /// "array", or if the specification was built prior to array inference
+    /// existing in the protocol.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Array {
+        /// Minimum number of items the array must contain.
+        #[prost(uint32, tag = "1")]
+        pub min_items: u32,
+        /// True if there is an inferred maximum allowed number of items the array
+        /// may contain, otherwise False.
+        #[prost(bool, tag = "2")]
+        pub has_max_items: bool,
+        /// Maximum number of items the array may contain.
+        #[prost(uint32, tag = "3")]
+        pub max_items: u32,
+        /// The possible types of items contained in this array.
+        /// Subset of ["null", "boolean", "object", "array", "integer", "numeric",
+        /// "string"].
+        #[prost(string, repeated, tag = "4")]
+        pub item_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
     /// Exists enumerates the possible states of existence for a location.
     #[derive(
