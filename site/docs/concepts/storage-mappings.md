@@ -11,8 +11,6 @@ Data in Flow's cloud storage bucket is deleted 20 days after collection.
 
 For production workflows, you should [set up your own cloud storage bucket as a storage mapping](../guides/configure-cloud-storage.md).
 
-You may also use apply different storage mappings to different [catalog prefixes](./catalogs.md#namespace) within your organization's prefix.
-
 You can set up a bucket lifecycle policy to manage data retention in your storage mapping;
 for example, to remove data after six months.
 
