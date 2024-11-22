@@ -617,18 +617,18 @@ impl TestHarness {
         assert_eq!(0, live_specs.spec_count());
     }
 
-    pub async fn set_auto_discover_interval(&mut self, capture: &str, interval: &str) {
+    pub async fn set_auto_discover_due(&mut self, capture: &str) {
+        let now = Utc::now().to_rfc3339();
         sqlx::query!(
             r#"update controller_jobs
-            set status = jsonb_set(status::jsonb, '{ auto_discover, interval }', to_jsonb($2::text), true)::json
+            set status = jsonb_set(status::jsonb, '{auto_discover, next_at}', to_jsonb($2::text), true)::json
             where live_spec_id = (select id from live_specs where catalog_name = $1)
             returning 1 as "must_exist: bool";"#,
             capture,
-            interval,
-        )
-        .fetch_one(&self.pool)
+            now
+        ).fetch_one(&self.pool)
         .await
-        .expect("failed to update controller_jobs");
+        .expect("failed to set auto-discover next_at");
     }
 
     /// Returns a `ControllerState` representing the given live spec and
