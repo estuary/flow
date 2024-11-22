@@ -156,6 +156,12 @@ expression: schema
           ],
           "description": "The outcome of the last _successful_ auto-discover. If `failure` is set, then that will typically be more recent than `last_success`."
         },
+        "next_at": {
+          "default": null,
+          "description": "Time at which the next auto-discover should be run.",
+          "format": "date-time",
+          "type": "string"
+        },
         "pending_publish": {
           "anyOf": [
             {

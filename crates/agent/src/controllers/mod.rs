@@ -278,9 +278,13 @@ impl NextRun {
             return Utc::now();
         }
         let delta_millis = self.after_seconds as i64 * 1000;
-        let jitter_mul = self.jitter_percent as f64 / 100.0;
-        let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
-        let jitter_add = rand::thread_rng().gen_range(0..jitter_max);
+        let jitter_add = if self.jitter_percent > 0 {
+            let jitter_mul = self.jitter_percent as f64 / 100.0;
+            let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
+            rand::thread_rng().gen_range(0..jitter_max)
+        } else {
+            0
+        };
         let dur = chrono::TimeDelta::milliseconds(delta_millis + jitter_add);
         Utc::now() + dur
     }
@@ -507,6 +511,14 @@ mod test {
                 .abs()
                 < chrono::TimeDelta::milliseconds(10)
         );
+    }
+
+    #[test]
+    fn test_next_run_no_jitter() {
+        let then = Utc::now() + chrono::Duration::seconds(60);
+        let next = NextRun::after(then).with_jitter_percent(0).compute_time();
+        let diff = next - then;
+        assert_eq!(0, diff.abs().num_seconds());
     }
 
     #[test]
