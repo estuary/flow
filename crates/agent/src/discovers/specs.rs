@@ -5,7 +5,7 @@ use anyhow::Context;
 use proto_flow::capture::{self, response::discovered};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use tables::DraftCollection;
 
@@ -96,21 +96,24 @@ fn index_fetched_bindings<'a>(
     resource_path_pointers: &'_ [doc::Pointer],
     bindings: &'a [models::CaptureBinding],
 ) -> Result<HashMap<ResourcePath, &'a models::CaptureBinding>, InvalidResource> {
-    bindings
-        .iter()
-        .map(|binding| {
-            let resource = serde_json::from_str(binding.resource.get())
-                .expect("parsing resource config json cannot fail");
-            match resource_path(resource_path_pointers, &resource) {
-                Ok(rp) => Ok((rp, binding)),
-                Err(resource_path_pointer) => Err(InvalidResource {
+    let mut map = HashMap::new();
+    for binding in bindings.iter() {
+        let resource = serde_json::from_str(binding.resource.get())
+            .expect("parsing resource config json cannot fail");
+        let path =
+            resource_path(resource_path_pointers, &resource).map_err(|resource_path_pointer| {
+                InvalidResource {
                     binding_type: BindingType::Existing,
                     resource_path_pointer,
                     resource_json: binding.resource.clone().into(),
-                }),
-            }
-        })
-        .collect()
+                }
+            })?;
+        if map.contains_key(&path) {
+            tracing::warn!(resource_path = ?path, ?binding, "existing capture model contains bindings with duplicate resource path");
+        }
+        map.insert(path, binding);
+    }
+    Ok(map)
 }
 
 /// An intermediate representation of a discovered capture binding, along with
@@ -147,6 +150,7 @@ pub fn update_capture_bindings(
     let mut added_resources = BTreeMap::new();
     let mut used_bindings = Vec::with_capacity(discovered_bindings.len());
 
+    let mut discovered_resource_paths = HashSet::new();
     let mut next_bindings = Vec::new();
     for discovered_binding in discovered_bindings {
         let discovered::Binding {
@@ -168,6 +172,15 @@ pub fn update_capture_bindings(
                 resource_json: resource_config_json.clone(),
             },
         )?;
+        if !discovered_resource_paths.insert(resource_path.clone()) {
+            // For now we just want to warn if this is happening, but in the future this may become an error.
+            tracing::warn!(
+                ?resource_path,
+                %resource_config_json,
+                %document_schema_json,
+                ?key,
+                "connector discover response includes multiple bindings with the same resource path");
+        }
 
         // Remove matched bindings from the existing map, so we can tell which ones are being removed.
         let existing_binding = existing_bindings_by_path.remove(&resource_path);
@@ -803,6 +816,49 @@ mod tests {
         // * Dropped the removed binding.
         // * Updated the endpoint configuration.
         // * Preserved unrelated fields of the capture (shard template and interval).
+        insta::assert_debug_snapshot!(out);
+        insta::assert_json_snapshot!(fetched_capture);
+    }
+
+    #[test]
+    fn test_capture_merge_duplicate_bindings() {
+        let (discovered_bindings, mut fetched_capture) =
+            serde_json::from_value::<(Vec<discovered::Binding>, models::CaptureDef)>(json!([
+                [
+                    { "recommendedName": "fooName", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": "discovered" } },
+                    { "recommendedName": "fooName2", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": "discovered2" } },
+                ],
+                {
+                  "bindings": [
+                    { "resource": { "stream": "foo", "modified": 1 }, "target": "acmeCo/renamed" },
+                    { "resource": { "stream": "foo", "modified": 1 }, "disable": true, "target": "acmeCo/does-not-exist" },
+                  ],
+                  "endpoint": { "connector": { "config": { "fetched": 1 }, "image": "old/image" } },
+                },
+            ]))
+            .unwrap();
+
+        let resource_path_ptrs = ptr_vec(&["/stream"]);
+
+        let subscriber = tracing_subscriber::FmtSubscriber::builder()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .finish();
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        let out = super::update_capture_bindings(
+            "acmeCo/my-capture",
+            &mut fetched_capture,
+            discovered_bindings.clone(),
+            true,
+            &resource_path_ptrs,
+        )
+        .unwrap();
+
+        // What do we expect to happen here? I don't know! I'd like to have
+        // discover merge return an error if either the model or the discover
+        // repsonse contain duplicate resource paths. But for now I'm just
+        // adding some logging so we can see how widespread that is currently.
+        // We'll need to update this test once we figure out a more long term
+        // expected behavior.
         insta::assert_debug_snapshot!(out);
         insta::assert_json_snapshot!(fetched_capture);
     }
