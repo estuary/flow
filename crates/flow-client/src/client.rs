@@ -229,7 +229,7 @@ pub async fn fetch_task_authorization(
     Ok(journal_client)
 }
 
-fn build_task_authorization_request_token(
+pub fn build_task_authorization_request_token(
     shard_template_id: &str,
     data_plane_fqdn: &str,
     data_plane_signer: &jsonwebtoken::EncodingKey,

@@ -18,7 +18,7 @@ use kafka_protocol::{
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
-use std::{cmp::max, sync::Arc, time::Duration};
+use std::{cmp::max, sync::Arc};
 use std::{
     collections::{hash_map::Entry, HashMap},
     time::SystemTime,
@@ -1091,6 +1091,16 @@ impl Session {
             .await?;
 
         let mut resp = client.send_request(mutated_req, Some(header)).await?;
+
+        let auth = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let flow_client = auth.flow_client(&self.app).await?.clone();
+
+        // Redeclare to drop mutability
+        let auth = self.auth.as_ref().unwrap();
 
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned());

@@ -1,7 +1,5 @@
 use super::App;
-use crate::{
-    from_downstream_topic_name, to_downstream_topic_name, topology, SessionAuthentication,
-};
+use crate::{from_downstream_topic_name, to_downstream_topic_name, SessionAuthentication};
 use anyhow::Context;
 use axum::response::{IntoResponse, Response};
 use axum_extra::headers;

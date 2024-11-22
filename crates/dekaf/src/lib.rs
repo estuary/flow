@@ -24,15 +24,10 @@ pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::{DekafConfig, DeletionMode};
-use flow_client::client::{
-    fetch_control_plane_authorization, fetch_task_authorization, refresh_authorizations,
-    RefreshToken,
-};
-use models::{authorizations::ControlClaims, Materialization};
+use flow_client::client::{refresh_authorizations, RefreshToken};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
-use proto_flow::flow::MaterializationSpec;
 use serde::{Deserialize, Serialize};
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
 pub struct App {
     /// Hostname which is advertised for Kafka access.
@@ -68,12 +63,14 @@ pub struct UserAuth {
 
 pub struct TaskAuth {
     client: flow_client::Client,
-    name: String,
+    task_name: String,
     config: DekafConfig,
-    bindings: Vec<models::MaterializationBinding>,
+    spec: models::MaterializationDef,
+    ops_logs_journal: String,
+    ops_stats_journal: String,
 
-    // Needed to refresh auth token
-    claims: ControlClaims,
+    // When access token expires
+    exp: time::OffsetDateTime,
 }
 
 pub enum SessionAuthentication {
@@ -146,23 +143,19 @@ impl TaskAuth {
         &mut self,
         app: &App,
     ) -> anyhow::Result<&flow_client::Client> {
-        if self.claims.time_remaining().whole_seconds() < 60 {
-            let (client, claims) = fetch_control_plane_authorization(
-                self.client.clone(),
-                models::authorizations::AllowedRole::Dekaf,
-                &dekaf_shard_template_id(&self.name),
-                &app.data_plane_fqdn,
-                &app.data_plane_signer,
-                proto_flow::capability::AUTHORIZE & proto_gazette::capability::READ,
-                gazette::broker::LabelSelector {
-                    include: Some(labels::build_set([(labels::TASK_NAME, self.name.as_str())])),
-                    exclude: None,
-                },
-            )
-            .await?;
+        if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
+            let (client, claims, _ops_logs_journal, _ops_stats_journal, _task_spec) =
+                topology::fetch_dekaf_task_auth(
+                    self.client.clone(),
+                    &self.task_name,
+                    &app.data_plane_fqdn,
+                    &app.data_plane_signer,
+                )
+                .await?;
 
             self.client = client.with_fresh_gazette_client();
-            self.claims = claims;
+            self.exp =
+                time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64);
         }
 
         Ok(&self.client)
@@ -185,29 +178,19 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
-            // 1. Fetch a client authorized to use the `dekaf` role
-            let (client, claims) = fetch_control_plane_authorization(
-                self.client_base.clone(),
-                models::authorizations::AllowedRole::Dekaf,
-                &dekaf_shard_template_id(&username),
-                &self.data_plane_fqdn,
-                &self.data_plane_signer,
-                proto_flow::capability::AUTHORIZE & proto_gazette::capability::READ,
-                gazette::broker::LabelSelector {
-                    include: Some(labels::build_set([(labels::TASK_NAME, username.as_str())])),
-                    exclude: None,
-                },
-            )
-            .await?;
+            // Ask the agent for information about this task, as well as a short-lived
+            // control-plane access token authorized to interact with the avro schemas table
+            let (client, claims, ops_logs_journal, ops_stats_journal, task_spec) =
+                topology::fetch_dekaf_task_auth(
+                    self.client_base.clone(),
+                    &username,
+                    &self.data_plane_fqdn,
+                    &self.data_plane_signer,
+                )
+                .await?;
 
-            let client = client.with_fresh_gazette_client();
-
-            // 2. Look up task by name, unseal
-            let (task_spec, config) = topology::get_dekaf_materialization(
-                &client.pg_client(),
-                models::Materialization::new(username.clone()),
-            )
-            .await?;
+            // Decrypt this materialization's endpoint config
+            let config = topology::extract_dekaf_config(&task_spec).await?;
 
             // 3. Validate that the provided password matches the task's bearer token
             if password != config.token {
@@ -215,11 +198,13 @@ impl App {
             }
 
             Ok(SessionAuthentication::Task(TaskAuth {
-                name: username,
+                task_name: username,
                 config,
-                bindings: task_spec.bindings.clone(),
-                client,
-                claims,
+                spec: task_spec,
+                ops_logs_journal,
+                ops_stats_journal,
+                client: client.with_fresh_gazette_client(),
+                exp: time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
             }))
         } else if username.contains("{") {
             let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
@@ -591,7 +576,7 @@ fn decode_safe_name(safe_name: String) -> anyhow::Result<String> {
 /// used throughout the data-plane. Dekaf materializations, on the other hand, have predictable
 /// shard template IDs since they never publish shards whose names could conflict.
 fn dekaf_shard_template_id(task_name: &str) -> String {
-    format!("materialize/{task_name}/0000000000000000")
+    format!("materialize/{task_name}/0000000000000000/")
 }
 
 /// Modified from [this](https://github.com/serde-rs/serde/issues/368#issuecomment-1579475447)
