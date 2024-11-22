@@ -1,6 +1,7 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::{Arc, Mutex};
 
+mod authorize_role;
 mod authorize_task;
 mod authorize_user_collection;
 mod authorize_user_task;
@@ -42,7 +43,8 @@ pub enum Rejection {
 
 struct App {
     id_generator: Mutex<models::IdGenerator>,
-    jwt_secret: jsonwebtoken::DecodingKey,
+    control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
+    control_plane_jwt_signer: jsonwebtoken::EncodingKey,
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
@@ -57,8 +59,6 @@ pub fn build_router(
     publisher: crate::publications::Publisher,
     allow_origin: &[String],
 ) -> anyhow::Result<axum::Router<()>> {
-    let jwt_secret = jsonwebtoken::DecodingKey::from_secret(&jwt_secret);
-
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
@@ -66,7 +66,8 @@ pub fn build_router(
 
     let app = Arc::new(App {
         id_generator: Mutex::new(id_generator),
-        jwt_secret,
+        control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
+        control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
         jwt_validation,
         pg_pool,
         publisher,
@@ -103,6 +104,10 @@ pub fn build_router(
 
     let schema_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))
+        .route(
+            "/authorize/role/:role_name",
+            post(authorize_role::authorize_role),
+        )
         .route(
             "/authorize/user/task",
             post(authorize_user_task::authorize_user_task)
@@ -192,7 +197,7 @@ async fn authorize(
 ) -> axum::response::Response {
     let token = match jsonwebtoken::decode::<ControlClaims>(
         bearer.token(),
-        &app.jwt_secret,
+        &app.control_plane_jwt_verifier,
         &app.jwt_validation,
     ) {
         Ok(claims) => claims,
