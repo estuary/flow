@@ -13,6 +13,18 @@ pub async fn authorize_task(
     super::wrap(async move { do_authorize_task(&app, &request).await }).await
 }
 
+/// Authorizes some set of actions to be performed on a particular collection by way of a task.
+/// This checks that:
+///     * The request is `iss`ued by an actor in a particular data plane
+///         * Validated by checking the request signature against the HMACs for the `iss`uer data-plane
+///     * The request is on behalf of a `sub`ject task running in that data plane
+///         * The subject task is identified by its `shard_template_id`, not just its name.
+///     * The request is to perform some `cap`abilities on a particular collection
+///         * The collection is identified by its `journal_template_name`, not just its name.
+///         * The target collection is specified as a label selector for the label `name`
+///     * The request's subject is granted those capabilities on that collection by
+///       the control-plane
+///     * The requested collection may be in a different data plane than the issuer.
 #[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
 async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
     let jsonwebtoken::TokenData { header, mut claims }: jsonwebtoken::TokenData<
