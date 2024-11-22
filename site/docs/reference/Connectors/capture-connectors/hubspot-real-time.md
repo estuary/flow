@@ -9,14 +9,15 @@ The connector automatically discovers bindings for the following HubSpot resourc
 * [Companies](https://developers.hubspot.com/docs/api/crm/companies)
 * [Contacts](https://developers.hubspot.com/docs/api/crm/contacts)
 * [Custom Objects](https://developers.hubspot.com/docs/api/crm/crm-custom-objects)
+* [Deal Pipelines](https://developers.hubspot.com/beta-docs/guides/api/crm/pipelines)
 * [Deals](https://developers.hubspot.com/docs/api/crm/deals)
 * [Engagements](https://developers.hubspot.com/docs/api/crm/engagements)
 * [Email Events](https://developers.hubspot.com/docs/methods/email/get_events)
+* [Line Items](https://developers.hubspot.com/beta-docs/guides/api/crm/objects/line-items)
+* [Owners](https://developers.hubspot.com/beta-docs/reference/api/crm/owners/v2)
+* [Products](https://developers.hubspot.com/beta-docs/guides/api/crm/objects/products)
 * [Properties](https://developers.hubspot.com/docs/api/crm/properties)
 * [Tickets](https://developers.hubspot.com/docs/api/crm/tickets)
-
-Updates for **Email Events** and **Custom Objects** may be delayed by up to 5 minutes due to
-eventual consistency of the HubSpot API.
 
 ## Prerequisites
 
