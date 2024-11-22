@@ -47,16 +47,28 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
     claims.cap &= !proto_flow::capability::AUTHORIZE;
 
     // Validate and match the requested capabilities to a corresponding role.
+    // NOTE: Because we pass through the claims after validating them here,
+    // we need to explicitly enumerate and exactly match every case, as just
+    // checking that the requested capability contains a particular grant isn't enough.
+    // For example, we wouldn't want to allow a request for `REPLICATE` just
+    // because it also requests `READ`.
     let required_role = match claims.cap {
-        proto_gazette::capability::LIST | proto_gazette::capability::READ => {
+        cap if (cap == proto_gazette::capability::LIST)
+            || (cap == proto_gazette::capability::READ)
+            || (cap == (proto_gazette::capability::LIST | proto_gazette::capability::READ)) =>
+        {
             models::Capability::Read
         }
-        proto_gazette::capability::APPLY | proto_gazette::capability::APPEND => {
+        // We're intentionally rejecting requests for both APPLY and APPEND, as those two
+        // grants authorize wildly different capabilities, and no sane logic should
+        // need both at the same time. So as a sanity check/defense-in-depth measure
+        // we won't grant you a token that has both, even if we technically could.
+        cap if (cap == proto_gazette::capability::APPLY)
+            || (cap == proto_gazette::capability::APPEND) =>
+        {
             models::Capability::Write
         }
-        cap => {
-            anyhow::bail!("capability {cap} cannot be authorized by this service");
-        }
+        cap => anyhow::bail!("capability {cap} cannot be authorized by this service"),
     };
 
     match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
@@ -69,7 +81,13 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
             required_role,
         )
     }) {
-        Ok((encoding_key, data_plane_fqdn, broker_address)) => {
+        Ok((
+            encoding_key,
+            data_plane_fqdn,
+            broker_address,
+            ops_logs_journal,
+            ops_stats_journal,
+        )) => {
             claims.iss = data_plane_fqdn;
             claims.exp = claims.iat + super::exp_seconds();
 
@@ -79,6 +97,8 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
             Ok(Response {
                 broker_address,
                 token,
+                ops_logs_journal,
+                ops_stats_journal,
                 ..Default::default()
             })
         }
@@ -91,19 +111,21 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
 }
 
 fn evaluate_authorization(
-    Snapshot {
-        collections,
-        data_planes,
-        role_grants,
-        tasks,
-        ..
-    }: &Snapshot,
+    snapshot: &Snapshot,
     shard_id: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
-) -> anyhow::Result<(jsonwebtoken::EncodingKey, String, String)> {
+) -> anyhow::Result<(jsonwebtoken::EncodingKey, String, String, String, String)> {
+    let Snapshot {
+        collections,
+        data_planes,
+        role_grants,
+        tasks,
+        ..
+    } = snapshot;
+
     // Map `claims.sub`, a Shard ID, into its task.
     let task = tasks
         .binary_search_by(|task| {
@@ -210,6 +232,20 @@ fn evaluate_authorization(
     };
     let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)?;
 
+    let (Some(ops_logs), Some(ops_stats)) = (
+        snapshot.collection_by_catalog_name(&collection_data_plane.ops_logs_name),
+        snapshot.collection_by_catalog_name(&collection_data_plane.ops_stats_name),
+    ) else {
+        anyhow::bail!(
+            "couldn't resolve data-plane {} ops collections",
+            task.data_plane_id
+        )
+    };
+
+    let ops_suffix = super::ops_suffix(task);
+    let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
+    let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
+
     Ok((
         encoding_key,
         collection_data_plane.data_plane_fqdn.clone(),
@@ -217,5 +253,7 @@ fn evaluate_authorization(
             task.data_plane_id != collection.data_plane_id,
             &collection_data_plane.broker_address,
         ),
+        ops_logs_journal,
+        ops_stats_journal,
     ))
 }
