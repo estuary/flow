@@ -6,8 +6,8 @@
 <title data-rh="true">HubSpot ( Real-Time ) | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/reference/Connectors/capture-connectors/hubspot-real-time/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="HubSpot ( Real-Time ) | Estuary Flow Documentation"><meta data-rh="true" name="description" content="This connector captures data from HubSpot into Flow collections."><meta data-rh="true" property="og:description" content="This connector captures data from HubSpot into Flow collections."><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/reference/Connectors/capture-connectors/hubspot-real-time/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/reference/Connectors/capture-connectors/hubspot-real-time/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/reference/Connectors/capture-connectors/hubspot-real-time/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.f5a6b67d.js" defer="defer"></script>
-<script src="/assets/js/main.975c6bdc.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.c497e9b5.js" defer="defer"></script>
+<script src="/assets/js/main.8da3637b.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -21,14 +21,16 @@
 <li><a href="https://developers.hubspot.com/docs/api/crm/companies" target="_blank" rel="noopener noreferrer">Companies</a></li>
 <li><a href="https://developers.hubspot.com/docs/api/crm/contacts" target="_blank" rel="noopener noreferrer">Contacts</a></li>
 <li><a href="https://developers.hubspot.com/docs/api/crm/crm-custom-objects" target="_blank" rel="noopener noreferrer">Custom Objects</a></li>
+<li><a href="https://developers.hubspot.com/beta-docs/guides/api/crm/pipelines" target="_blank" rel="noopener noreferrer">Deal Pipelines</a></li>
 <li><a href="https://developers.hubspot.com/docs/api/crm/deals" target="_blank" rel="noopener noreferrer">Deals</a></li>
 <li><a href="https://developers.hubspot.com/docs/api/crm/engagements" target="_blank" rel="noopener noreferrer">Engagements</a></li>
 <li><a href="https://developers.hubspot.com/docs/methods/email/get_events" target="_blank" rel="noopener noreferrer">Email Events</a></li>
+<li><a href="https://developers.hubspot.com/beta-docs/guides/api/crm/objects/line-items" target="_blank" rel="noopener noreferrer">Line Items</a></li>
+<li><a href="https://developers.hubspot.com/beta-docs/reference/api/crm/owners/v2" target="_blank" rel="noopener noreferrer">Owners</a></li>
+<li><a href="https://developers.hubspot.com/beta-docs/guides/api/crm/objects/products" target="_blank" rel="noopener noreferrer">Products</a></li>
 <li><a href="https://developers.hubspot.com/docs/api/crm/properties" target="_blank" rel="noopener noreferrer">Properties</a></li>
 <li><a href="https://developers.hubspot.com/docs/api/crm/tickets" target="_blank" rel="noopener noreferrer">Tickets</a></li>
 </ul>
-<p>Updates for <strong>Email Events</strong> and <strong>Custom Objects</strong> may be delayed by up to 5 minutes due to
-eventual consistency of the HubSpot API.</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="prerequisites">Prerequisites<a class="hash-link" aria-label="Direct link to Prerequisites" title="Direct link to Prerequisites" href="/reference/Connectors/capture-connectors/hubspot-real-time/#prerequisites">​</a></h2>
 <p>There are two ways to authenticate with HubSpot when capturing data: using OAuth2, or with a private app access token.
 Their prerequisites differ.</p>
