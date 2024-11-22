@@ -18,8 +18,10 @@ The following data resources are supported:
 * [Ad activities](https://developers.facebook.com/docs/marketing-api/reference/ad-activity)
 * [Ad creatives](https://developers.facebook.com/docs/marketing-api/reference/ad-creative)
 * [Ad insights](https://developers.facebook.com/docs/marketing-api/reference/adgroup/insights/)
+* [Ad sets](https://developers.facebook.com/docs/marketing-api/reference/ad-campaign/v19.0)
 * [Business ad accounts](https://developers.facebook.com/docs/marketing-api/reference/business/adaccount/)
 * [Campaigns](https://developers.facebook.com/docs/marketing-api/reference/ad-campaign-group)
+* [Custom Conversions](https://developers.facebook.com/docs/marketing-api/reference/custom-conversion/v19.0)
 * [Images](https://developers.facebook.com/docs/marketing-api/reference/ad-image)
 * [Videos](https://developers.facebook.com/docs/graph-api/reference/video/)
 
@@ -89,7 +91,7 @@ are a subset of breakdowns that must be specified separately.
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/access_token`** | Access Token | The value of the access token generated. | string | Required |
-| **`/account_id`** | Account ID | The Facebook Ad account ID to use when pulling data from the Facebook Marketing API. | string | Required for [manual authentication](#configuring-manually-with-an-access-token) only |
+| **`/account_ids`** | Account IDs | A comma delimited string of Facebook Ad account IDs to use when pulling data from the Facebook Marketing API. | string | Required |
 | `/custom_insights` | Custom Insights | A list which contains insights entries. Each entry must have a name and can contains fields, breakdowns or action&#x5F;breakdowns | array |  |
 | _`/custom_insights/-/action_breakdowns`_ | Action Breakdowns | A list of chosen action&#x5F;breakdowns to apply | array | `[]` |
 | _`/custom_insights/-/action_breakdowns/-`_ | ValidActionBreakdowns | Generic enumeration. Derive from this class to define new enumerations. | string |  |
@@ -128,7 +130,7 @@ captures:
         image: ghcr.io/estuary/source-facebook-marketing:dev
         config:
             access_token: <secret>
-            account_id: 000000000000000
+            account_ids: "000000000000000,111111111111111"
             start_date: 2022-03-01T00:00:00Z
             custom_insights:
               - name: my-custom-insight
@@ -177,6 +179,10 @@ captures:
           stream: campaigns
           syncMode: incremental
         target: ${PREFIX}/campaigns
+      - resource:
+          stream: custom_conversions
+          syncMode: full_refresh
+        target: ${PREFIX}/custom_conversions
       - resource:
           stream: activities
           syncMode: incremental
