@@ -138,7 +138,7 @@ impl Client {
             Ok(response.json().await?)
         } else {
             let body = response.text().await?;
-            anyhow::bail!("{status}: {body}");
+            anyhow::bail!("POST {path}: {status}: {body}");
         }
     }
 }
@@ -149,8 +149,144 @@ pub struct RefreshToken {
     pub secret: String,
 }
 
-#[tracing::instrument(skip(client), err)]
+#[tracing::instrument(skip(client, data_plane_signer), err)]
 pub async fn fetch_task_authorization(
+    client: &Client,
+    shard_template_id: &str,
+    data_plane_fqdn: &str,
+    data_plane_signer: &jsonwebtoken::EncodingKey,
+    capability: u32,
+    selector: gazette::broker::LabelSelector,
+) -> anyhow::Result<(String, String, gazette::journal::Client)> {
+    let request_token = build_task_authorization_request_token(
+        shard_template_id,
+        data_plane_fqdn,
+        data_plane_signer,
+        capability,
+        selector,
+    )?;
+
+    let models::authorizations::TaskAuthorization {
+        broker_address,
+        token,
+        ops_logs_journal,
+        ops_stats_journal,
+        retry_millis: _,
+    } = loop {
+        let response: models::authorizations::TaskAuthorization = client
+            .agent_unary(
+                "/authorize/task",
+                &models::authorizations::TaskAuthorizationRequest {
+                    token: request_token.clone(),
+                },
+            )
+            .await?;
+
+        if response.retry_millis != 0 {
+            tracing::warn!(
+                secs = response.retry_millis as f64 / 1000.0,
+                "authorization service tentatively rejected our request, but will retry before failing"
+            );
+            () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
+            continue;
+        }
+        break response;
+    };
+
+    tracing::debug!(broker_address, "resolved task data-plane and authorization");
+
+    let mut md = gazette::Metadata::default();
+    md.bearer_token(&token)?;
+
+    let journal_client = client
+        .journal_client
+        .with_endpoint_and_metadata(broker_address, md);
+
+    Ok((ops_logs_journal, ops_stats_journal, journal_client))
+}
+
+fn build_task_authorization_request_token(
+    shard_template_id: &str,
+    data_plane_fqdn: &str,
+    data_plane_signer: &jsonwebtoken::EncodingKey,
+    capability: u32,
+    selector: gazette::broker::LabelSelector,
+) -> anyhow::Result<String> {
+    let access_token_claims = proto_gazette::Claims {
+        cap: capability,
+        sub: shard_template_id.to_string(),
+        iss: data_plane_fqdn.to_string(),
+        iat: jsonwebtoken::get_current_timestamp(),
+        exp: jsonwebtoken::get_current_timestamp() + 60 * 60,
+        sel: selector,
+    };
+
+    let signed_request_token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &access_token_claims,
+        &data_plane_signer,
+    )?;
+
+    Ok(signed_request_token)
+}
+
+// Claims returned by `/authorize/role`
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RoleTokenClaims {
+    pub role: String,
+    pub iat: u64,
+    pub exp: u64,
+}
+
+#[tracing::instrument(skip(client, data_plane_signer), err)]
+pub async fn fetch_control_plane_authorization(
+    client: Client,
+    role: models::authorizations::AllowedRole,
+    shard_template_id: &str,
+    data_plane_fqdn: &str,
+    data_plane_signer: &jsonwebtoken::EncodingKey,
+    capability: u32,
+    selector: gazette::broker::LabelSelector,
+) -> anyhow::Result<(Client, RoleTokenClaims)> {
+    let request_token = build_task_authorization_request_token(
+        shard_template_id,
+        data_plane_fqdn,
+        data_plane_signer,
+        capability,
+        selector,
+    )?;
+
+    let models::authorizations::RoleAuthorization {
+        token,
+        retry_millis: _,
+    } = loop {
+        let response: models::authorizations::RoleAuthorization = client
+            .agent_unary(
+                format!("/authorize/role/{}", role.to_string()).as_str(),
+                &models::authorizations::TaskAuthorizationRequest {
+                    token: request_token.clone(),
+                },
+            )
+            .await?;
+
+        if response.retry_millis != 0 {
+            tracing::warn!(
+                secs = response.retry_millis as f64 / 1000.0,
+                "authorization service tentatively rejected our request, but will retry before failing"
+            );
+            () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
+            continue;
+        }
+        break response;
+    };
+
+    let claims = parse_jwt_claims(token.as_str())?;
+
+    Ok((client.with_user_access_token(Some(token)), claims))
+}
+
+#[tracing::instrument(skip(client), err)]
+pub async fn fetch_user_task_authorization(
     client: &Client,
     task: &str,
 ) -> anyhow::Result<(
