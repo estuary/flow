@@ -71,16 +71,19 @@ impl CaptureStatus {
             }
         }
 
-        let ad_next_run = if model.auto_discover.is_some() && !model.shards.disable {
-            let ad_status = self.auto_discover.get_or_insert_with(Default::default);
-            let next_auto_discover = ad_status
+        if model.auto_discover.is_some() {
+            let ad_status = self
+                .auto_discover
+                .get_or_insert_with(AutoDiscoverStatus::default);
+            ad_status
                 .update(state, control_plane, model, &mut pending_pub)
                 .await
                 .context("updating auto-discover")?;
-            Some(next_auto_discover)
         } else {
-            self.auto_discover = None; // clear auto-discover status to avoid confusion
-            None
+            // Clear auto-discover status to avoid confusion, but only if
+            // auto-discover is disabled. We leave the auto-discover status if
+            // shards are disabled, since it's still useful for debugging.
+            self.auto_discover = None;
         };
 
         if pending_pub.has_pending() {
@@ -116,7 +119,15 @@ impl CaptureStatus {
                 .context("failed to notify dependents")?;
         }
 
-        Ok(ad_next_run)
+        // Finally, determine the time at which we should next attampt an auto-discover, if appropriate
+        if let Some(auto_discover) = self.auto_discover.as_mut() {
+            let maybe_next_run = auto_discover
+                .update_next_run(state, model, control_plane)
+                .await?;
+            Ok(maybe_next_run)
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -166,6 +177,11 @@ pub struct AutoDiscoverOutcome {
 }
 
 impl AutoDiscoverOutcome {
+    fn has_changes(&self) -> bool {
+        self.errors.is_empty()
+            && (!self.added.is_empty() || !self.modified.is_empty() || !self.removed.is_empty())
+    }
+
     fn spec_error(
         ts: DateTime<Utc>,
         capture_name: &str,
@@ -186,6 +202,7 @@ impl AutoDiscoverOutcome {
             publish_result: None,
         }
     }
+
     fn from_output(ts: DateTime<Utc>, output: DiscoverOutput) -> (Self, tables::DraftCatalog) {
         let DiscoverOutput {
             capture_name: _,
@@ -247,6 +264,11 @@ pub struct AutoDiscoverStatus {
     )]
     #[schemars(schema_with = "interval_schema")]
     pub interval: Option<std::time::Duration>,
+
+    /// Time at which the next auto-discover should be run.
+    #[serde(default)]
+    #[schemars(schema_with = "super::datetime_schema")]
+    pub next_at: Option<DateTime<Utc>>,
     /// The outcome of the a recent discover, which is about to be published.
     /// This will typically only be observed if the publication failed for some
     /// reason.
@@ -271,10 +293,6 @@ fn interval_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
 }
 
 impl AutoDiscoverStatus {
-    /// Used as the default interval for determining retry backoff when we're
-    /// unable to get the spec for a given connector image/tag.
-    const FALLBACK_INTERVAL: chrono::Duration = chrono::Duration::hours(2);
-
     async fn try_connector_spec<C: ControlPlane>(
         model: &models::CaptureDef,
         control_plane: &mut C,
@@ -298,133 +316,93 @@ impl AutoDiscoverStatus {
         control_plane: &mut C,
         model: &models::CaptureDef,
         pending: &mut PendingPublication,
-    ) -> anyhow::Result<NextRun> {
-        // If there's no `connector_tags` row for this capture connector, then we cannot discover.
-        let connector_spec = match Self::try_connector_spec(model, control_plane).await {
-            Ok(s) => s,
-            Err(error) => {
-                tracing::warn!(?error, "auto-discvover failed due to connector spec error");
-                let outcome = AutoDiscoverOutcome::spec_error(
-                    control_plane.current_time(),
-                    &state.catalog_name,
-                    &error,
-                );
-                if let Some(failure) = self.failure.as_mut() {
-                    failure.count += 1;
-                    failure.last_outcome = outcome;
-                } else {
-                    self.failure = Some(AutoDiscoverFailure {
-                        count: 1,
-                        first_ts: control_plane.current_time(),
-                        last_outcome: outcome,
-                    });
-                };
-                return Ok(NextRun::after(
-                    self.next_discover_time(state, Self::FALLBACK_INTERVAL),
-                ));
-            }
-        };
-        let auto_discover_interval = self.interval(connector_spec.auto_discover_interval);
-
-        let next_disco_time = self.next_discover_time(state, auto_discover_interval);
-        if control_plane.current_time() <= next_disco_time {
-            return Ok(NextRun::after(next_disco_time));
+    ) -> anyhow::Result<()> {
+        if model.shards.disable {
+            self.next_at = None;
+            return Ok(());
         }
+        if !self
+            .next_at
+            .is_some_and(|due| control_plane.current_time() >= due)
+        {
+            // Not due yet.
+            return Ok(());
+        }
+
         // Time to discover. Start by clearing out any pending publish, since we'll use the outcome
         // of the discover to determine that.
         self.pending_publish = None;
-        let update_only = !model.auto_discover.as_ref().unwrap().add_new_bindings;
-        let capture_name = models::Capture::new(&state.catalog_name);
 
-        let mut draft = std::mem::take(&mut pending.draft);
-        if !draft.captures.get_by_key(&capture_name).is_some() {
-            draft.captures.insert(tables::DraftCapture {
-                capture: capture_name.clone(),
-                scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
-                expect_pub_id: Some(state.last_pub_id),
-                model: Some(model.clone()),
-                // start with a touch. The discover merge will set this to false if it actually updates the capture
-                is_touch: true,
+        // We'll return the original discover error if it fails
+        let result = self
+            .try_auto_discover(state, control_plane, model, pending)
+            .await;
+        let (outcome, error) = match result {
+            Ok(o) => (o, None),
+            Err(err) => {
+                let outcome = AutoDiscoverOutcome::spec_error(
+                    control_plane.current_time(),
+                    &state.catalog_name,
+                    &err,
+                );
+                (outcome, Some(err))
+            }
+        };
+        if !outcome.errors.is_empty() {
+            let err = error.unwrap_or_else(|| {
+                anyhow::anyhow!("discover failed: {}", &outcome.errors[0].detail)
             });
-        }
+            tracing::info!(error = ?err, "auto-discover failed");
 
-        let mut output = control_plane
-            .discover(
-                models::Capture::new(&state.catalog_name),
-                draft,
-                update_only,
-                state.logs_token,
-                state.data_plane_id,
-            )
-            .await
-            .context("failed to discover")?;
-
-        // Return early if there was a discover error.
-        if !output.is_success() {
-            let (outcome, _) =
-                AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
-            let failure_count = if let Some(failure) = self.failure.as_mut() {
+            if let Some(failure) = self.failure.as_mut() {
                 failure.count += 1;
                 failure.last_outcome = outcome;
-                failure.count
             } else {
                 self.failure = Some(AutoDiscoverFailure {
                     count: 1,
                     first_ts: control_plane.current_time(),
                     last_outcome: outcome,
                 });
-                1
             };
-            let retry_at = self.next_discover_time(state, auto_discover_interval);
-            tracing::warn!(%failure_count, %retry_at, "auto-discover failed");
-            return Ok(NextRun::after(retry_at));
-        }
 
-        // The discover was successful, but has anything actually changed?
-        // First prune the discovered draft to remove any unchanged specs.
-        let unchanged_count = output.prune_unchanged_specs();
-        let is_unchanged = output.is_unchanged();
-        tracing::info!(
-            %is_unchanged,
-            %unchanged_count,
-            added=output.added.len(),
-            removed=output.removed.len(),
-            modified=output.modified.len(),
-            "auto-discover succeeded"
-        );
-        if is_unchanged {
-            let (outcome, _) =
-                AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
-            self.failure = None; // Clear any previous failure.
+            Err(err)
+        } else if outcome.has_changes() {
+            assert!(
+                pending.has_pending(),
+                "pending draft must contain specs to publish"
+            );
+            self.pending_publish = Some(outcome);
+            Ok(())
+        } else {
+            self.failure = None;
             self.last_success = Some(outcome);
-            return Ok(NextRun::after(
-                self.next_discover_time(state, auto_discover_interval),
-            ));
+            Ok(())
+        }
+    }
+
+    async fn update_next_run<C: ControlPlane>(
+        &mut self,
+        state: &ControllerState,
+        model: &models::CaptureDef,
+        control_plane: &mut C,
+    ) -> anyhow::Result<Option<NextRun>> {
+        if model.shards.disable {
+            self.next_at = None;
+            return Ok(None);
         }
 
-        let (outcome, draft) =
-            AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
-
-        assert!(
-            draft.spec_count() > 0,
-            "draft should have at least one spec since is_unchanged() returned false"
-        );
-
-        let publish_detail = format!(
-            "auto-discover changes ({} added, {} modified, {} removed)",
-            outcome.added.len(),
-            outcome.modified.len(),
-            outcome.removed.len(),
-        );
-        pending.details.push(publish_detail);
-        // Add the draft back into the pending publication, so it will be published.
-        pending.draft = draft;
-
-        self.pending_publish = Some(outcome);
-
-        Ok(NextRun::after(
-            self.next_discover_time(state, auto_discover_interval),
-        ))
+        // If the current `next_at` is still in the future, then don't overwrite it.
+        let next = if let Some(n) = self.next_at.filter(|n| *n > control_plane.current_time()) {
+            n
+        } else {
+            // next_at is none or past, so determine the next auto-discover time
+            let next = self
+                .determine_next_discover_time(state.created_at, model, control_plane)
+                .await?;
+            self.next_at = Some(next);
+            next
+        };
+        Ok(Some(NextRun::after(next).with_jitter_percent(0)))
     }
 
     async fn publication_finished<C: ControlPlane>(
@@ -531,44 +509,128 @@ impl AutoDiscoverStatus {
         return Ok(pub_result);
     }
 
-    fn interval(&self, connector_spec_interval: chrono::Duration) -> chrono::Duration {
-        self.interval
-            .and_then(|i| chrono::Duration::from_std(i).ok())
-            .unwrap_or(connector_spec_interval)
-            .abs()
-    }
-
-    fn next_discover_time(
+    async fn try_auto_discover<C: ControlPlane>(
         &self,
         state: &ControllerState,
-        connector_spec_interval: chrono::Duration,
-    ) -> DateTime<Utc> {
-        let interval = self.interval(connector_spec_interval);
+        control_plane: &mut C,
+        model: &models::CaptureDef,
+        pending: &mut PendingPublication,
+    ) -> anyhow::Result<AutoDiscoverOutcome> {
+        let update_only = !model.auto_discover.as_ref().unwrap().add_new_bindings;
+        let capture_name = models::Capture::new(&state.catalog_name);
 
-        if let Some(failure) = self.failure.as_ref() {
-            // We scale the backoff multiplier based on the configured interval
-            // here. This is both to keep the backoffs reasonable, and to allow
-            // us to test multiple failure scenarios in integration tests.
-            let backoff_secs = match failure.count {
-                0 => 0, // just in case someone manually sets the failure count to 0
-                1 => interval.num_seconds() / 8,
-                n @ 2..=4 => n as i64 * (interval.num_seconds() / 4),
-                n @ 5.. => n.min(23) as i64 * (interval.num_seconds() / 2),
-            };
-            tracing::info!( %backoff_secs, failure_count = %failure.count, "Auto-discover will retry after backoff");
-            failure.last_outcome.ts + chrono::Duration::seconds(backoff_secs)
-        } else {
-            let last_disco_time = self
-                .pending_publish
-                .as_ref()
-                .map(|s| s.ts)
-                .or_else(|| self.last_success.as_ref().map(|p| p.ts))
-                .unwrap_or(state.created_at);
-
-            let next = last_disco_time + interval;
-            tracing::info!(%last_disco_time, ?interval, %next, "determined next auto-discover run time");
-            next
+        // Take the draft out of the pending publication, and put it back in at
+        // the end if everything is successful. This ensures that we don't
+        // clobber other changes that may have already been made to the draft.
+        let mut draft = std::mem::take(&mut pending.draft);
+        if !draft.captures.get_by_key(&capture_name).is_some() {
+            draft.captures.insert(tables::DraftCapture {
+                capture: capture_name.clone(),
+                scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
+                expect_pub_id: Some(state.last_pub_id),
+                model: Some(model.clone()),
+                // start with a touch. The discover merge will set this to false if it actually updates the capture
+                is_touch: true,
+            });
         }
+
+        let mut output = control_plane
+            .discover(
+                models::Capture::new(&state.catalog_name),
+                draft,
+                update_only,
+                state.logs_token,
+                state.data_plane_id,
+            )
+            .await
+            .context("failed to discover")?;
+
+        // Return early if there was a discover error.
+        if !output.is_success() {
+            let (outcome, _) =
+                AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
+            return Ok(outcome);
+        }
+
+        // The discover was successful, but has anything actually changed?
+        // First prune the discovered draft to remove any unchanged specs.
+        let unchanged_count = output.prune_unchanged_specs();
+        let is_unchanged = output.is_unchanged();
+        tracing::info!(
+            %is_unchanged,
+            %unchanged_count,
+            added=output.added.len(),
+            removed=output.removed.len(),
+            modified=output.modified.len(),
+            "auto-discover succeeded"
+        );
+        if is_unchanged {
+            let (outcome, _) =
+                AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
+            return Ok(outcome);
+        }
+
+        // We must publish the discovered changes
+        let (outcome, draft) =
+            AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
+
+        assert!(
+            draft.spec_count() > 0,
+            "draft should have at least one spec since is_unchanged() returned false"
+        );
+
+        let publish_detail = format!(
+            "auto-discover changes ({} added, {} modified, {} removed)",
+            outcome.added.len(),
+            outcome.modified.len(),
+            outcome.removed.len(),
+        );
+        pending.details.push(publish_detail);
+        // Add the draft back into the pending publication, so it will be published.
+        pending.draft = draft;
+        Ok(outcome)
+    }
+
+    async fn determine_next_discover_time<C: ControlPlane>(
+        &self,
+        spec_created_at: DateTime<Utc>,
+        model: &models::CaptureDef,
+        control_plane: &mut C,
+    ) -> anyhow::Result<DateTime<Utc>> {
+        // If there's no `connector_tags` row for this capture connector then we
+        // cannot discover, so this is an error.
+        let connector_spec = Self::try_connector_spec(model, control_plane)
+            .await
+            .context("fetching connector spec")?;
+
+        let auto_discover_interval = self
+            .interval
+            .and_then(|i| chrono::Duration::from_std(i).ok())
+            .unwrap_or(connector_spec.auto_discover_interval)
+            .abs();
+
+        let prev = self
+            .last_success
+            .as_ref()
+            .map(|s| s.ts)
+            .into_iter()
+            .chain(self.failure.as_ref().map(|f| f.last_outcome.ts))
+            .chain(Some(spec_created_at))
+            .max()
+            .unwrap();
+
+        let failures = self.failure.as_ref().map(|f| f.count).unwrap_or(0);
+
+        let delay = match failures {
+            0..3 => auto_discover_interval / 8,
+            3..8 => auto_discover_interval / 2,
+            8.. => auto_discover_interval,
+        };
+        let backoff = delay * failures as i32;
+
+        let next = prev + auto_discover_interval + backoff;
+        tracing::debug!(%prev, %failures, %backoff, %auto_discover_interval, "determined next auto-discover time");
+        Ok(next)
     }
 }
 

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::{
     controllers::capture::DiscoverChange,
     integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
@@ -7,15 +5,6 @@ use crate::{
 };
 use proto_flow::capture::response::{discovered::Binding, Discovered};
 use serde_json::json;
-
-// Testing auto-discovers is a bit tricky because we don't really have the
-// ability to "fast-forward" time. We have to just set the interval to something
-// very low and wait until it's due. We can't use a 0 interval, though, because
-// then the auto-discover will run literally every time the controller runs,
-// even when it's just supposed to activate. So we resign ourselves to `sleep`,
-// and just try to make it as fast as possible.
-const AUTO_DISCOVER_WAIT: Duration = Duration::from_millis(20);
-const AUTO_DISCOVER_INTERVAL: &str = "15ms";
 
 #[tokio::test]
 #[serial_test::serial]
@@ -94,9 +83,6 @@ async fn test_auto_discovers_add_new_bindings() {
         .is_none());
     assert!(no_disco_capture_state.next_run.is_none());
 
-    harness
-        .set_auto_discover_interval("marmots/capture", AUTO_DISCOVER_INTERVAL)
-        .await;
     let discovered = Discovered {
         bindings: vec![
             Binding {
@@ -122,7 +108,7 @@ async fn test_auto_discovers_add_new_bindings() {
         .discover_handler
         .connectors
         .mock_discover("marmots/capture", Ok(discovered));
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("marmots/capture").await;
     harness.run_pending_controller("marmots/capture").await;
 
     let capture_state = harness.get_controller_state("marmots/capture").await;
@@ -188,7 +174,7 @@ async fn test_auto_discovers_add_new_bindings() {
     let last_success_time = auto_discover.ts;
 
     // Subsequent discover with the same bindings should result in a no-op
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("marmots/capture").await;
     harness.run_pending_controller("marmots/capture").await;
 
     let capture_state = harness.get_controller_state("marmots/capture").await;
@@ -228,7 +214,7 @@ async fn test_auto_discovers_add_new_bindings() {
         .connectors
         .mock_discover("marmots/capture", Ok(discovered));
 
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("marmots/capture").await;
     harness.run_pending_controller("marmots/capture").await;
 
     let capture_state = harness.get_controller_state("marmots/capture").await;
@@ -411,10 +397,7 @@ async fn test_auto_discovers_no_evolution() {
             resource_path: Vec::new(),
         }],
     };
-    harness
-        .set_auto_discover_interval("mules/capture", AUTO_DISCOVER_INTERVAL)
-        .await;
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("mules/capture").await;
     harness
         .discover_handler
         .connectors
@@ -422,10 +405,14 @@ async fn test_auto_discovers_no_evolution() {
     harness.run_pending_controller("mules/capture").await;
 
     let capture_state = harness.get_controller_state("mules/capture").await;
+    assert!(capture_state.error.is_some());
+    assert_eq!(1, capture_state.failures);
+    assert!(capture_state.next_run.is_some());
     let capture_status = capture_state.current_status.unwrap_capture();
     // Expect to see that the discover succeeded, but that the publication failed.
     insta::assert_json_snapshot!(capture_status, {
         ".activation.last_activated" => "[build_id]",
+        ".auto_discover.next_at" => "[ts]",
         ".auto_discover.failure.first_ts" => "[ts]",
         ".auto_discover.failure.last_outcome.ts" => "[ts]",
         ".publications.max_observed_pub_id" => "[pub_id]",
@@ -467,7 +454,7 @@ async fn test_auto_discovers_no_evolution() {
         "last_activated": "[build_id]"
       },
       "auto_discover": {
-        "interval": "15ms",
+        "next_at": "[ts]",
         "failure": {
           "count": 1,
           "first_ts": "[ts]",
@@ -500,7 +487,7 @@ async fn test_auto_discovers_no_evolution() {
     "###);
 
     // Now simulate the discovered key going back to normal and assert that it succeeds
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("mules/capture").await;
     harness
         .discover_handler
         .connectors
@@ -646,7 +633,18 @@ async fn test_auto_discovers_update_only() {
         .current_status
         .unwrap_capture()
         .auto_discover
-        .is_none());
+        .is_some());
+    assert!(
+        disabled_state
+            .current_status
+            .unwrap_capture()
+            .auto_discover
+            .as_ref()
+            .unwrap()
+            .next_at
+            .is_none(),
+        "expect auto-discover next_at to be unset"
+    );
     let ad_disabled_state = harness
         .get_controller_state("pikas/capture-auto-disco-disabled")
         .await;
@@ -657,10 +655,7 @@ async fn test_auto_discovers_update_only() {
         .auto_discover
         .is_none());
 
-    harness
-        .set_auto_discover_interval("pikas/capture", AUTO_DISCOVER_INTERVAL)
-        .await;
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("pikas/capture").await;
     let discovered = Discovered {
         bindings: vec![
             Binding {
@@ -720,8 +715,7 @@ async fn test_auto_discovers_update_only() {
         .is_some_and(|pr| pr.is_success()));
     let last_disco_time = last_success.ts;
 
-    // Discover again with the same response, and assert that there are no changes, and no publication.
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("pikas/capture").await;
     harness.run_pending_controller("pikas/capture").await;
 
     let capture_state = harness.get_controller_state("pikas/capture").await;
@@ -746,10 +740,16 @@ async fn test_auto_discovers_update_only() {
         "pikas/capture",
         Err("a simulated discover error".to_string()),
     );
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("pikas/capture").await;
     harness.run_pending_controller("pikas/capture").await;
 
     let capture_state = harness.get_controller_state("pikas/capture").await;
+    assert!(capture_state.error.is_some());
+    assert_eq!(1, capture_state.failures);
+    assert!(
+        capture_state.next_run.is_some(),
+        "expect error to be retried automatically"
+    );
     let auto_discover = capture_state
         .current_status
         .unwrap_capture()
@@ -762,6 +762,13 @@ async fn test_auto_discovers_update_only() {
         .detail
         .contains("a simulated discover error"));
     assert_eq!(1, failure.count);
+    assert!(
+        auto_discover
+            .next_at
+            .is_some_and(|n| n < chrono::Utc::now()),
+        "expected next_at to not be updated since the discover failed, got: {:?}",
+        auto_discover.next_at
+    );
 
     // Now simulate a subsequent successful discover, but with a failure to
     // publish. We'll expect to see the error count go up.
@@ -799,7 +806,7 @@ async fn test_auto_discovers_update_only() {
             anyhow::anyhow!("a simulated build failure"),
         ),
     );
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("pikas/capture").await;
     harness.run_pending_controller("pikas/capture").await;
 
     let capture_state = harness.get_controller_state("pikas/capture").await;
@@ -861,7 +868,7 @@ async fn test_auto_discovers_update_only() {
         .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok(discovered));
-    tokio::time::sleep(AUTO_DISCOVER_WAIT).await;
+    harness.set_auto_discover_due("pikas/capture").await;
     harness.run_pending_controller("pikas/capture").await;
 
     let capture_state = harness.get_controller_state("pikas/capture").await;
