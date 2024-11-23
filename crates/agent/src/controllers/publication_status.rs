@@ -128,7 +128,6 @@ fn is_touch_pub(draft: &tables::DraftCatalog) -> bool {
 
 impl PublicationInfo {
     pub fn is_success(&self) -> bool {
-        // TODO: should EmptyDraft be considered successful?
         self.result.as_ref().is_some_and(|s| s.is_success())
     }
 
@@ -146,10 +145,29 @@ impl PublicationInfo {
         }
     }
 
+    /// Tries to reduce `other` into `self` if the two should be combined in the
+    /// history. If `other` cannot be reduced into `self`, then it is returned
+    /// unmodified.
+    ///
+    /// Combining events in the history is a way to cram more information into a
+    /// smaller summary, and it helps avoid having repeated publications (like
+    /// touch publications, which can number in the hundreds) quickly push out
+    /// relevant prior events. But it's important that we _only_ combine
+    /// publication entries in the specific cases where we know it won't cause
+    /// confusion. Two publications should be combined in the history only if
+    /// their final `job_status`es are identical (e.g. both `{"type":
+    /// "buildFailed"}`). And then only in one of these cases:
+    /// - they are both touch publications
+    /// - If they are both _unsuccessful_ non-touch publications (i.e. we never
+    ///   combine successful publications that have modified the spec)
     fn try_reduce(&mut self, other: PublicationInfo) -> Option<PublicationInfo> {
-        if !self.is_touch || !other.is_touch || self.result != other.result {
+        if (self.is_touch != other.is_touch)
+            || (self.result != other.result)
+            || (!self.is_touch && self.is_success())
+        {
             return Some(other);
         }
+        self.id = other.id;
         self.count += other.count;
         self.completed = other.completed;
         self.errors = other.errors;
@@ -392,7 +410,6 @@ impl PublicationStatus {
         Ok(())
     }
 
-    // TODO: fold touch publication into history
     pub fn record_result(&mut self, publication: PublicationInfo) {
         tracing::info!(pub_id = ?publication.id, status = ?publication.result, "controller finished publication");
         for err in publication.errors.iter() {
@@ -409,5 +426,143 @@ impl PublicationStatus {
                 self.history.pop_back();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[test]
+    fn test_publication_history_folding() {
+        let touch_success = PublicationInfo {
+            id: models::Id::new([1, 1, 1, 1, 1, 1, 1, 1]),
+            created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+            completed: Some("2024-11-22T17:01:01Z".parse().unwrap()),
+            detail: Some("touch success".to_string()),
+            result: Some(publications::JobStatus::Success),
+            errors: Vec::new(),
+            is_touch: true,
+            count: 1,
+        };
+
+        // Sucessful touch publications should be combined
+        let other_touch_success = PublicationInfo {
+            id: models::Id::new([2, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-11-22T22:22:22Z".parse().unwrap()),
+            created: Some("2024-11-11T11:00:00Z".parse().unwrap()),
+            detail: Some("other touch success".to_string()),
+            ..touch_success.clone()
+        };
+        let mut reduced = touch_success.clone();
+        assert!(reduced.try_reduce(other_touch_success).is_none());
+        assert_eq!(
+            reduced,
+            PublicationInfo {
+                id: models::Id::new([2, 1, 1, 1, 1, 1, 1, 1]),
+                completed: Some("2024-11-22T22:22:22Z".parse().unwrap()),
+                created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+                detail: Some("other touch success".to_string()),
+                result: Some(publications::JobStatus::Success),
+                errors: Vec::new(),
+                is_touch: true,
+                count: 2,
+            }
+        );
+
+        let reg_success = PublicationInfo {
+            id: models::Id::new([3, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-11-23T23:33:33Z".parse().unwrap()),
+            created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+            detail: Some("non-touch success".to_string()),
+            result: Some(publications::JobStatus::Success),
+            errors: Vec::new(),
+            is_touch: false,
+            count: 1,
+        };
+        // Touch success and regular success should not be combined
+        let mut touch_subject = touch_success.clone();
+        assert!(touch_subject.try_reduce(reg_success.clone()).is_some());
+
+        // Successful non-touch publications should never be combined because we
+        // want to preserve the history of modifications to the model.
+        let mut reg_subject = reg_success.clone();
+        assert!(reg_subject
+            .try_reduce(PublicationInfo {
+                id: models::Id::new([4, 1, 1, 1, 1, 1, 1, 1]),
+                ..reg_success.clone()
+            })
+            .is_some(),);
+
+        let reg_fail = PublicationInfo {
+            id: models::Id::new([5, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-12-01T01:55:55Z".parse().unwrap()),
+            created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+            detail: Some("reg failure".to_string()),
+            result: Some(publications::JobStatus::BuildFailed {
+                incompatible_collections: Vec::new(),
+                evolution_id: None,
+            }),
+            errors: vec![crate::draft::Error {
+                catalog_name: "acmeCo/fail-thing".to_string(),
+                scope: None,
+                detail: "schmeetail".to_string(),
+            }],
+            is_touch: false,
+            count: 1,
+        };
+
+        // A publication with the same unsuccessful status should be combined,
+        // and the detail and error should be that of the most recent
+        // publication.
+        let same_reg_fail = PublicationInfo {
+            id: models::Id::new([5, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-12-01T01:55:55Z".parse().unwrap()),
+            detail: Some("same but different reg failure".to_string()),
+            errors: vec![crate::draft::Error {
+                catalog_name: "acmeCo/fail-thing".to_string(),
+                scope: None,
+                detail: "a different error".to_string(),
+            }],
+            ..reg_fail.clone()
+        };
+        let mut reduced = reg_fail.clone();
+        assert!(reduced.try_reduce(same_reg_fail.clone()).is_none());
+        assert_eq!(
+            reduced,
+            PublicationInfo {
+                id: models::Id::new([5, 1, 1, 1, 1, 1, 1, 1]),
+                completed: Some("2024-12-01T01:55:55Z".parse().unwrap()),
+                created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+                detail: Some("same but different reg failure".to_string()),
+                errors: vec![crate::draft::Error {
+                    catalog_name: "acmeCo/fail-thing".to_string(),
+                    scope: None,
+                    detail: "a different error".to_string(),
+                }],
+                result: Some(publications::JobStatus::BuildFailed {
+                    incompatible_collections: Vec::new(),
+                    evolution_id: None
+                }),
+                is_touch: false,
+                count: 2,
+            }
+        );
+
+        // A publication with a different status should not be combined
+        let diff_reg_fail = PublicationInfo {
+            result: Some(publications::JobStatus::BuildFailed {
+                incompatible_collections: vec![publications::IncompatibleCollection {
+                    collection: "acmeCo/anvils".to_string(),
+                    requires_recreation: Vec::new(),
+                    affected_materializations: Vec::new(),
+                }],
+                evolution_id: None,
+            }),
+            ..same_reg_fail.clone()
+        };
+        let mut reg_subject = reg_fail.clone();
+        assert!(reg_subject.try_reduce(diff_reg_fail).is_some());
     }
 }
