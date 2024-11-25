@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 description: High level explanations of Flow in terms of the systems you already know
 ---
 

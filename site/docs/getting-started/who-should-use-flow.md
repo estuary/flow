@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 description: Common pain points you might have, and how Flow addresses them.
 ---
 
