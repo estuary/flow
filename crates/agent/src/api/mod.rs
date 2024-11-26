@@ -1,7 +1,7 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::{Arc, Mutex};
 
-mod authorize_role;
+mod authorize_dekaf;
 mod authorize_task;
 mod authorize_user_collection;
 mod authorize_user_task;
@@ -104,10 +104,7 @@ pub fn build_router(
 
     let schema_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))
-        .route(
-            "/authorize/role/:role_name",
-            post(authorize_role::authorize_role),
-        )
+        .route("/authorize/dekaf", post(authorize_dekaf::authorize_dekaf))
         .route(
             "/authorize/user/task",
             post(authorize_user_task::authorize_user_task)
