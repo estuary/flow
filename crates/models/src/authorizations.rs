@@ -46,12 +46,6 @@ pub struct TaskAuthorization {
     /// # Address of Gazette brokers for the issued token.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub broker_address: String,
-    // Name of the journal that contains the logs for the specified task
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub ops_logs_journal: String,
-    // Name of the journal that contains the stats for the specified task
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub ops_stats_journal: String,
     /// # Number of milliseconds to wait before retrying the request.
     /// Non-zero if and only if token is not set.
     pub retry_millis: u64,
@@ -154,28 +148,21 @@ pub struct UserTaskAuthorization {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub shard_id_prefix: String,
 }
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum AllowedRole {
-    #[serde(rename = "dekaf")]
-    Dekaf,
-}
-
-impl fmt::Display for AllowedRole {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let role_str = match self {
-            AllowedRole::Dekaf => "dekaf",
-        };
-        write!(f, "{}", role_str)
-    }
-}
-
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct RoleAuthorization {
+pub struct DekafAuthResponse {
     /// # Control plane access token with the requested role
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub token: String,
+    // Name of the journal that contains the logs for the specified task
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ops_logs_journal: String,
+    // Name of the journal that contains the stats for the specified task
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ops_stats_journal: String,
+    // Spec of the task
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_spec: Option<crate::materializations::MaterializationDef>,
     /// # Number of milliseconds to wait before retrying the request.
     /// Non-zero if and only if token is not set.
     pub retry_millis: u64,

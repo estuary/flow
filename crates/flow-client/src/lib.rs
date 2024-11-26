@@ -2,8 +2,7 @@ use anyhow::Context;
 
 pub mod client;
 pub use client::{
-    fetch_collection_authorization, fetch_control_plane_authorization, fetch_task_authorization,
-    fetch_user_task_authorization, Client,
+    fetch_collection_authorization, fetch_task_authorization, fetch_user_task_authorization, Client,
 };
 
 pub mod pagination;

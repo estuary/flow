@@ -157,7 +157,7 @@ pub async fn fetch_task_authorization(
     data_plane_signer: &jsonwebtoken::EncodingKey,
     capability: u32,
     selector: gazette::broker::LabelSelector,
-) -> anyhow::Result<(String, String, gazette::journal::Client)> {
+) -> anyhow::Result<gazette::journal::Client> {
     let request_token = build_task_authorization_request_token(
         shard_template_id,
         data_plane_fqdn,
@@ -169,8 +169,6 @@ pub async fn fetch_task_authorization(
     let models::authorizations::TaskAuthorization {
         broker_address,
         token,
-        ops_logs_journal,
-        ops_stats_journal,
         retry_millis: _,
     } = loop {
         let response: models::authorizations::TaskAuthorization = client
@@ -202,7 +200,7 @@ pub async fn fetch_task_authorization(
         .journal_client
         .with_endpoint_and_metadata(broker_address, md);
 
-    Ok((ops_logs_journal, ops_stats_journal, journal_client))
+    Ok(journal_client)
 }
 
 fn build_task_authorization_request_token(
@@ -228,61 +226,6 @@ fn build_task_authorization_request_token(
     )?;
 
     Ok(signed_request_token)
-}
-
-// Claims returned by `/authorize/role`
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct RoleTokenClaims {
-    pub role: String,
-    pub iat: u64,
-    pub exp: u64,
-}
-
-#[tracing::instrument(skip(client, data_plane_signer), err)]
-pub async fn fetch_control_plane_authorization(
-    client: Client,
-    role: models::authorizations::AllowedRole,
-    shard_template_id: &str,
-    data_plane_fqdn: &str,
-    data_plane_signer: &jsonwebtoken::EncodingKey,
-    capability: u32,
-    selector: gazette::broker::LabelSelector,
-) -> anyhow::Result<(Client, RoleTokenClaims)> {
-    let request_token = build_task_authorization_request_token(
-        shard_template_id,
-        data_plane_fqdn,
-        data_plane_signer,
-        capability,
-        selector,
-    )?;
-
-    let models::authorizations::RoleAuthorization {
-        token,
-        retry_millis: _,
-    } = loop {
-        let response: models::authorizations::RoleAuthorization = client
-            .agent_unary(
-                format!("/authorize/role/{}", role.to_string()).as_str(),
-                &models::authorizations::TaskAuthorizationRequest {
-                    token: request_token.clone(),
-                },
-            )
-            .await?;
-
-        if response.retry_millis != 0 {
-            tracing::warn!(
-                secs = response.retry_millis as f64 / 1000.0,
-                "authorization service tentatively rejected our request, but will retry before failing"
-            );
-            () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
-            continue;
-        }
-        break response;
-    };
-
-    let claims = parse_jwt_claims(token.as_str())?;
-
-    Ok((client.with_user_access_token(Some(token)), claims))
 }
 
 #[tracing::instrument(skip(client), err)]

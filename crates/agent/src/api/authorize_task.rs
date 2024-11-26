@@ -93,13 +93,7 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
             required_role,
         )
     }) {
-        Ok((
-            encoding_key,
-            data_plane_fqdn,
-            broker_address,
-            ops_logs_journal,
-            ops_stats_journal,
-        )) => {
+        Ok((encoding_key, data_plane_fqdn, broker_address)) => {
             claims.iss = data_plane_fqdn;
             claims.exp = claims.iat + super::exp_seconds();
 
@@ -109,8 +103,6 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
             Ok(Response {
                 broker_address,
                 token,
-                ops_logs_journal,
-                ops_stats_journal,
                 ..Default::default()
             })
         }
@@ -129,7 +121,7 @@ fn evaluate_authorization(
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
-) -> anyhow::Result<(jsonwebtoken::EncodingKey, String, String, String, String)> {
+) -> anyhow::Result<(jsonwebtoken::EncodingKey, String, String)> {
     let Snapshot {
         collections,
         data_planes,
@@ -244,20 +236,6 @@ fn evaluate_authorization(
     };
     let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)?;
 
-    let (Some(ops_logs), Some(ops_stats)) = (
-        snapshot.collection_by_catalog_name(&collection_data_plane.ops_logs_name),
-        snapshot.collection_by_catalog_name(&collection_data_plane.ops_stats_name),
-    ) else {
-        anyhow::bail!(
-            "couldn't resolve data-plane {} ops collections",
-            task.data_plane_id
-        )
-    };
-
-    let ops_suffix = super::ops_suffix(task);
-    let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
-    let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
-
     Ok((
         encoding_key,
         collection_data_plane.data_plane_fqdn.clone(),
@@ -265,7 +243,5 @@ fn evaluate_authorization(
             task.data_plane_id != collection.data_plane_id,
             &collection_data_plane.broker_address,
         ),
-        ops_logs_journal,
-        ops_stats_journal,
     ))
 }
