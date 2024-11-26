@@ -141,11 +141,23 @@ impl Collection {
                         task_auth.task_name
                     )
                 }
-            } else {
+            } else if let Some(suggested_binding) = task_auth
+                .spec
+                .bindings
+                .iter()
+                .find(|b| b.source.collection().to_string() == topic_name)
+            {
+                let correct_topic_name = serde_json::from_value::<
+                    crate::connector::DekafResourceConfig,
+                >(suggested_binding.resource.to_value())?
+                .topic_name;
                 bail!(
-                    "Unable to find binding for topic {topic_name} is not a binding of {}",
-                    task_auth.task_name
+                    "{topic_name} is not a binding of {}. Did you mean {}?",
+                    task_auth.task_name,
+                    correct_topic_name
                 )
+            } else {
+                bail!("{topic_name} is not a binding of {}", task_auth.task_name)
             }
         }
 
