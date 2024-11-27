@@ -27,7 +27,10 @@ pub async fn upsert_storage_mapping<T: serde::Serialize + Send + Sync>(
         r#"
         insert into storage_mappings (detail, catalog_prefix, spec)
         values ($1, $2, $3)
-        on conflict (catalog_prefix) do update set detail = $1, spec = $3"#,
+        on conflict (catalog_prefix) do update set
+            detail = $1,
+            spec = $3,
+            updated_at = now()"#,
         detail as &str,
         catalog_prefix as &str,
         TextJson(spec) as TextJson<T>,
