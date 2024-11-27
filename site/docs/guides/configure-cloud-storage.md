@@ -34,7 +34,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
 
 2. Follow the steps
    to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting the
-   policy below.
+   policy below. The policy below will work for the US Data Plane. If you're on the EU Data Plane, [get in touch].
    Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
 
 ```json
