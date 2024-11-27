@@ -1,15 +1,21 @@
-use axum::{http::StatusCode, response::IntoResponse};
+use axum::{http::StatusCode, response::IntoResponse, routing::get};
+use models::Capability;
 use std::sync::{Arc, Mutex};
 
 mod authorize_task;
 mod authorize_user_collection;
 mod authorize_user_task;
+mod controller_status;
 mod create_data_plane;
+mod error;
+mod history;
 mod snapshot;
 mod update_l2_reporting;
 
 use anyhow::Context;
 use snapshot::Snapshot;
+
+pub use error::ApiError;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
@@ -47,6 +53,35 @@ struct App {
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
     snapshot: std::sync::RwLock<Snapshot>,
+}
+
+impl App {
+    pub async fn is_user_authorized(
+        &self,
+        claims: &ControlClaims,
+        catalog_name: &str,
+        capability: Capability,
+    ) -> anyhow::Result<bool> {
+        let started_unix = jsonwebtoken::get_current_timestamp();
+        loop {
+            match Snapshot::evaluate(&self.snapshot, started_unix, |snapshot: &Snapshot| {
+                Ok(tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                    &catalog_name,
+                    capability,
+                ))
+            }) {
+                Ok(authz_result) => return Ok(authz_result),
+                Err(Ok(retry_millis)) => {
+                    tracing::debug!(%retry_millis, "waiting before retrying authZ check");
+                    () = tokio::time::sleep(std::time::Duration::from_millis(retry_millis)).await;
+                }
+                Err(Err(err)) => return Err(err),
+            }
+        }
+    }
 }
 
 /// Build the agent's API router.
@@ -123,6 +158,11 @@ pub fn build_router(
         .route(
             "/admin/update-l2-reporting",
             post(update_l2_reporting::update_l2_reporting)
+                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
+        )
+        .route(
+            "/api/v1/status/*catalog_name",
+            get(controller_status::handle_get_status)
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
         )
         .layer(tower_http::trace::TraceLayer::new_for_http())

@@ -149,6 +149,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tonic",
+ "tower 0.5.0",
  "tower-http",
  "tracing",
  "tracing-subscriber",
