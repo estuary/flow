@@ -1,7 +1,6 @@
 use super::errors::*;
 use super::firebolt_queries::{CreateTable, DropTable, InsertFromTable};
 use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType};
-use doc::shape::location::Exists::Implicit;
 use doc::shape::Shape;
 use doc::{Annotation, Pointer};
 use json::schema::{self, types};
@@ -84,7 +83,7 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
 
         let mut nullable = !exists.must();
         let fb_type;
-        if exists == Implicit && !shape.type_.is_single_type() {
+        if !shape.type_.is_single_type() {
             // If there's no specific type in schema, try to infer it from projection
             let inferred_type = projection.inference.as_ref().ok_or(Error::UnknownType {
                 r#type: shape.type_.to_json_array(),
@@ -553,6 +552,229 @@ mod tests {
                     key: "obj".to_string(),
                     r#type: FireboltType::Text,
                     nullable: false,
+                    is_key: true,
+                }],
+            },
+        );
+
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    keys: vec!["test".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    write_schema_json: json!({
+                    "properties": {
+                    "test": {}
+                    }
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "test".to_string(),
+                        ptr: "/test".to_string(),
+                        inference: Some(Inference {
+                            types: vec!["string".to_string()],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "test".to_string(),
+                    r#type: FireboltType::Text,
+                    nullable: true,
+                    is_key: true,
+                }],
+            },
+        );
+
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    keys: vec!["test".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    write_schema_json: json!({
+                    "properties": {
+                        "test": {}
+                    }
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "test".to_string(),
+                        ptr: "/test".to_string(),
+                        inference: Some(Inference {
+                            types: vec!["boolean".to_string()],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "test".to_string(),
+                    r#type: FireboltType::Boolean,
+                    nullable: true,
+                    is_key: true,
+                }],
+            },
+        );
+
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    keys: vec!["test".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    write_schema_json: json!({
+                    "properties": {
+                        "test": {}
+                    }
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "test".to_string(),
+                        ptr: "/test".to_string(),
+                        inference: Some(Inference {
+                            types: vec!["number".to_string()],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "test".to_string(),
+                    r#type: FireboltType::Double,
+                    nullable: true,
+                    is_key: true,
+                }],
+            },
+        );
+
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    values: vec!["test".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    write_schema_json: json!({
+                    "properties": {
+                        "test": {}
+                    }
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "test".to_string(),
+                        ptr: "/test".to_string(),
+                        inference: Some(Inference {
+                            types: vec!["integer".to_string()],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "test".to_string(),
+                    r#type: FireboltType::Int,
+                    nullable: true,
+                    is_key: false,
+                }],
+            },
+        );
+
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    keys: vec!["test".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    write_schema_json: json!({
+                    "properties": {
+                        "test": {}
+                    }
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "test".to_string(),
+                        ptr: "/test".to_string(),
+                        inference: Some(Inference {
+                            types: vec!["object".to_string()],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "test".to_string(),
+                    r#type: FireboltType::Text,
+                    nullable: true,
+                    is_key: true,
+                }],
+            },
+        );
+
+        // Ensure explicit schema takes precedence over inferred type
+        assert_eq!(
+            build_firebolt_schema(&Binding {
+                field_selection: Some(FieldSelection {
+                    keys: vec!["test".to_string()],
+                    ..Default::default()
+                }),
+                collection: Some(CollectionSpec {
+                    write_schema_json: json!({
+                    "properties": {
+                        "test": {"type": "boolean"},
+                    }
+                    })
+                    .to_string(),
+                    projections: vec![Projection {
+                        field: "test".to_string(),
+                        ptr: "/test".to_string(),
+                        inference: Some(Inference {
+                            types: vec!["object".to_string()], // Should be ignored
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            TableSchema {
+                columns: vec![Column {
+                    key: "test".to_string(),
+                    r#type: FireboltType::Boolean,
+                    nullable: true,
                     is_key: true,
                 }],
             },
