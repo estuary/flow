@@ -8,6 +8,7 @@ mod evolutions;
 pub mod harness;
 mod locking_retries;
 mod null_bytes;
+mod periodic_publications;
 mod quotas;
 mod schema_evolution;
 mod source_captures;
