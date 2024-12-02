@@ -1,6 +1,9 @@
+use std::collections::BTreeSet;
+
 use super::{
     backoff_data_plane_activate,
-    publication_status::{ActivationStatus, Dependencies, PendingPublication},
+    dependencies::Dependencies,
+    publication_status::{ActivationStatus, PendingPublication},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::controllers::publication_status::PublicationStatus;
@@ -28,101 +31,71 @@ impl CollectionStatus {
         control_plane: &mut C,
         model: &models::CollectionDef,
     ) -> anyhow::Result<Option<NextRun>> {
-        let mut pending_pub = PendingPublication::new();
-        let dependencies = self
-            .publications
-            .resolve_dependencies(state, control_plane)
-            .await?;
-
-        if dependencies.hash != state.live_dependency_hash {
-            if dependencies.deleted.is_empty() {
-                pending_pub.start_touch(state, dependencies.hash.as_deref());
-            } else {
-                let draft = pending_pub.start_spec_update(
-                    state,
-                    "in response to publication of one or more depencencies",
-                );
-                let add_detail = handle_deleted_dependencies(draft, state, dependencies);
-                pending_pub.update_pending_draft(add_detail);
-            }
-        }
-
-        let inferred_schema_next_run = if uses_inferred_schema(model) {
-            if self.inferred_schema.is_none() {
-                self.inferred_schema = Some(InferredSchemaStatus::default());
-            }
-            self.inferred_schema
-                .as_mut()
-                .unwrap()
-                .update(
-                    state,
-                    control_plane,
-                    model,
-                    &mut self.publications,
-                    &mut pending_pub,
-                )
+        let uses_inferred_schema = uses_inferred_schema(model);
+        if uses_inferred_schema {
+            let inferred_schema_status = self.inferred_schema.get_or_insert_with(Default::default);
+            if inferred_schema_status
+                .update(state, control_plane, model, &mut self.publications)
                 .await?
+            {
+                return Ok(Some(NextRun::immediately()));
+            }
         } else {
             self.inferred_schema = None;
-            None
         };
 
-        if pending_pub.has_pending() {
-            let _result = pending_pub
-                .finish(state, &mut self.publications, control_plane)
-                .await?;
-        } else {
-            // Not much point in activating if we just published, since we're going to be
-            // immediately invoked again.
-            self.activation
-                .update(state, control_plane)
-                .await
-                .with_retry(backoff_data_plane_activate(state.failures))?;
-            // Wait until after activation is complete to notify dependents.
-            // This just helps encourage more orderly rollouts.
-            self.publications
-                .notify_dependents(state, control_plane)
-                .await?;
+        let mut dependencies = Dependencies::resolve(state, control_plane).await?;
+        if dependencies
+            .update(state, control_plane, &mut self.publications, |deleted| {
+                handle_deleted_dependencies(model.clone(), deleted)
+            })
+            .await?
+        {
+            return Ok(Some(NextRun::immediately()));
         }
 
-        Ok(inferred_schema_next_run)
+        self.activation
+            .update(state, control_plane)
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))?;
+
+        self.publications
+            .update_notify_dependents(state, control_plane)
+            .await?;
+
+        // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
+        // bypassed for some reason.
+        let next_run = if uses_inferred_schema {
+            Some(NextRun::after_minutes(240))
+        } else {
+            None
+        };
+        Ok(next_run)
     }
 }
 
 /// Disables transforms that source from deleted collections.
 /// Expects the draft to already contain the collection spec, which must be a derivation.
 fn handle_deleted_dependencies(
-    draft: &mut tables::DraftCatalog,
-    state: &ControllerState,
-    dependencies: Dependencies,
-) -> String {
-    let drafted = draft
-        .collections
-        .get_mut_by_key(&models::Collection::new(&state.catalog_name))
-        .expect("collection must have been drafted");
-    let model = drafted
-        .model
-        .as_mut()
-        .expect("model must be Some since collection is not deleted");
+    mut model: models::CollectionDef,
+    deleted: &BTreeSet<String>,
+) -> anyhow::Result<(String, models::CollectionDef)> {
     let derive = model
         .derive
         .as_mut()
         .expect("must be a derivation if it has dependencies");
     let mut disable_count = 0;
     for transform in derive.transforms.iter_mut() {
-        if dependencies
-            .deleted
-            .contains(transform.source.collection().as_str())
-            && !transform.disable
-        {
+        if deleted.contains(transform.source.collection().as_str()) && !transform.disable {
             disable_count += 1;
             transform.disable = true;
         }
     }
-    format!(
+    let detail = format!(
         "disabled {disable_count} transform(s) in response to deleted collections: [{}]",
-        dependencies.deleted.iter().format(", ")
-    )
+        deleted.iter().format(", ")
+    );
+    Ok((detail, model))
 }
 
 /// Status of the inferred schema
@@ -149,14 +122,8 @@ impl InferredSchemaStatus {
         control_plane: &mut C,
         collection_def: &models::CollectionDef,
         publication_status: &mut PublicationStatus,
-        pending_pub: &mut PendingPublication,
-    ) -> anyhow::Result<Option<NextRun>> {
+    ) -> anyhow::Result<bool> {
         let collection_name = models::Collection::new(&state.catalog_name);
-
-        if !uses_inferred_schema(collection_def) {
-            self.schema_md5 = None;
-            return Ok(None);
-        }
 
         let maybe_inferred_schema = control_plane
             .get_inferred_schema(collection_name.clone())
@@ -167,7 +134,8 @@ impl InferredSchemaStatus {
         // TODO: remove this code once all production collections have been updated.
         let must_remove_write_schema = read_schema_bundles_write_schema(collection_def);
         if must_remove_write_schema {
-            let draft = pending_pub.update_pending_draft("removing bundled write schema");
+            let mut pending_pub = PendingPublication::new();
+            let draft = pending_pub.start_spec_update(state, "removing bundled write schema");
             let draft_row = draft.collections.get_or_insert_with(&collection_name, || {
                 tables::DraftCollection {
                     collection: collection_name.clone(),
@@ -191,8 +159,15 @@ impl InferredSchemaStatus {
             } else {
                 tracing::warn!("bundled write schema was not removed");
             }
+            pending_pub
+                .finish(state, publication_status, control_plane)
+                .await?
+                .error_for_status()?;
+            return Ok(true);
         }
+
         if let Some(inferred_schema) = maybe_inferred_schema {
+            let mut pending_pub = PendingPublication::new();
             let tables::InferredSchema {
                 collection_name,
                 schema: _, // we let the publications handler set the inferred schema
@@ -206,8 +181,7 @@ impl InferredSchemaStatus {
                     new_md5 = ?md5,
                     "updating inferred schema"
                 );
-                let draft =
-                    pending_pub.update_pending_draft("updating inferred schema".to_string());
+                let draft = pending_pub.start_spec_update(state, "updating inferred schema");
                 let draft_row = draft.collections.get_or_insert_with(&collection_name, || {
                     tables::DraftCollection {
                         collection: collection_name.clone(),
@@ -232,14 +206,13 @@ impl InferredSchemaStatus {
 
                 self.schema_md5 = Some(md5);
                 self.schema_last_updated = Some(pub_result.started_at);
+                return Ok(true);
             }
         } else {
             tracing::debug!(%collection_name, "No inferred schema available yet");
         }
 
-        // Keep an infrequent periodic check, as a fallback in case the database trigger
-        // gets disabled.
-        Ok(Some(NextRun::after_minutes(180)))
+        Ok(false)
     }
 }
 
