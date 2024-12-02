@@ -5,10 +5,10 @@ use crate::{
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use models::{AnySpec, Id, ModelDef};
+use models::Id;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 
 use super::{backoff_data_plane_activate, ControllerState};
 
@@ -215,13 +215,10 @@ impl PendingPublication {
         pending
     }
 
-    pub fn start_touch(&mut self, state: &ControllerState, new_dependency_hash: Option<&str>) {
-        tracing::info!("starting touch");
-        let new_hash = new_dependency_hash.unwrap_or("None");
-        let old_hash = state.live_dependency_hash.as_deref().unwrap_or("None");
-        self.details.push(format!(
-            "in response to change in dependencies, prev hash: {old_hash}, new hash: {new_hash}"
-        ));
+    pub fn start_touch(&mut self, state: &ControllerState, detail: impl Into<String>) {
+        let detail = detail.into();
+        tracing::debug!(%detail, "starting touch");
+        self.details.push(detail);
         let model = state
             .live_spec
             .as_ref()

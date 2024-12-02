@@ -4,6 +4,7 @@ pub(crate) mod collection;
 pub(crate) mod dependencies;
 mod handler;
 pub(crate) mod materialization;
+pub(crate) mod periodic;
 pub(crate) mod publication_status;
 
 use crate::controlplane::ControlPlane;
@@ -298,6 +299,18 @@ impl NextRun {
         };
         let dur = chrono::TimeDelta::milliseconds(delta_millis + jitter_add);
         Utc::now() + dur
+    }
+
+    pub fn earliest(runs: impl IntoIterator<Item = Option<NextRun>>) -> Option<NextRun> {
+        let mut min = None;
+        for run in runs {
+            match (min, run) {
+                (Some(m), Some(r)) if r < m => min = run,
+                (None, _) => min = run,
+                _ => { /* pass */ }
+            }
+        }
+        min
     }
 }
 

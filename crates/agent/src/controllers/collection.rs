@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use super::{
     backoff_data_plane_activate,
     dependencies::Dependencies,
+    periodic,
     publication_status::{ActivationStatus, PendingPublication},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
@@ -54,6 +55,10 @@ impl CollectionStatus {
             return Ok(Some(NextRun::immediately()));
         }
 
+        if periodic::update_periodic_publish(state, &mut self.publications, control_plane).await? {
+            return Ok(Some(NextRun::immediately()));
+        }
+
         self.activation
             .update(state, control_plane)
             .await
@@ -65,12 +70,13 @@ impl CollectionStatus {
 
         // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
         // bypassed for some reason.
-        let next_run = if uses_inferred_schema {
+        let inferred_schema_next = if uses_inferred_schema {
             Some(NextRun::after_minutes(240))
         } else {
             None
         };
-        Ok(next_run)
+        let periodic_next = periodic::next_periodic_publish(state);
+        Ok(NextRun::earliest([inferred_schema_next, periodic_next]))
     }
 }
 

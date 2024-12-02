@@ -1,6 +1,7 @@
 use super::{
     dependencies::Dependencies,
-    publication_status::{ActivationStatus, PendingPublication, PublicationInfo},
+    periodic,
+    publication_status::{ActivationStatus, PendingPublication},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::{
@@ -77,11 +78,17 @@ impl MaterializationStatus {
             self.source_capture.take();
         }
 
+        let periodic = periodic::start_periodic_publish_update(state, control_plane);
+        if periodic.has_pending() {
+            do_publication(&mut self.publications, state, periodic, control_plane).await?;
+            return Ok(Some(NextRun::immediately()));
+        }
+
         self.activation.update(state, control_plane).await?;
 
         // There isn't any call to notify dependents because nothing currently can depend on a materialization.
 
-        Ok(None)
+        Ok(periodic::next_periodic_publish(state))
     }
 }
 
