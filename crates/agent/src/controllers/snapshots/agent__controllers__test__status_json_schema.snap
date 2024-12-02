@@ -622,6 +622,7 @@ expression: schema
           "uniqueItems": true
         },
         "up_to_date": {
+          "default": false,
           "description": "Whether the materialization bindings are up-to-date with respect to the `sourceCapture` bindings. In normal operation, this should always be `true`. Otherwise, there will be a controller `error` and the publication status will contain details of why the update failed.",
           "type": "boolean"
         }

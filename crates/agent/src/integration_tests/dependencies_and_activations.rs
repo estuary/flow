@@ -394,7 +394,7 @@ async fn test_dependencies_and_controllers() {
     assert!(capture_model.bindings[0].disable);
     assert_eq!(0, capture_state.failures);
     assert_eq!(
-        Some("in response to publication of one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]"),
+        Some("in response to deletion one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]"),
         capture_state
             .current_status
             .unwrap_capture()
@@ -418,7 +418,7 @@ async fn test_dependencies_and_controllers() {
         .unwrap();
     assert!(derivation_model.transforms[0].disable);
     assert_eq!(
-        Some("in response to publication of one or more depencencies, disabled 1 transform(s) in response to deleted collections: [owls/hoots]"),
+        Some("in response to deletion one or more depencencies, disabled 1 transform(s) in response to deleted collections: [owls/hoots]"),
         derivation_state
             .current_status
             .unwrap_collection()
@@ -443,7 +443,7 @@ async fn test_dependencies_and_controllers() {
     // deleted, again in response to the publication of the source capture, and again in response
     // to the publication of the derivation (both of which also published in response to the hoots
     // deletion).
-    let expected = "in response to publication of one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]";
+    let expected = "in response to deletion one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]";
     let history = &materialization_state
         .current_status
         .unwrap_materialization()
@@ -460,9 +460,14 @@ async fn test_dependencies_and_controllers() {
     let test_state = harness.get_controller_state("owls/test-test").await;
     let test_status = test_state.current_status.unwrap_test();
     assert!(!test_status.passing);
-    assert!(!test_status.publications.history[0].is_success());
-    let err = &test_status.publications.history[0].errors[0];
-    assert_eq!("collection owls/hoots, referenced by this test step, is not defined; did you mean owls/nests defined at flow://collection/owls/nests ?", err.detail);
+
+    let actual_error = test_state
+        .error
+        .expect("expected controller error to be Some");
+    assert_eq!(
+        "updating model in response to deleted dependencies: test failed because 1 of the collection(s) it depends on have been deleted",
+        &actual_error
+    );
 
     // Delete the capture, and expect the materialization to respond by removing the `sourceCapture`
     let mut draft = tables::DraftCatalog::default();

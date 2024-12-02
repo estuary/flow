@@ -12,18 +12,6 @@ use std::collections::{BTreeSet, VecDeque};
 
 use super::{backoff_data_plane_activate, ControllerState};
 
-/// Information about the dependencies of a live spec.
-pub struct Dependencies {
-    /// Dependencies that have not been deleted (but might have been updated).
-    /// The `last_pub_id` of each spec can be used to determine whether the dependent needs to
-    /// be published.
-    pub live: tables::LiveCatalog,
-    /// Dependencies that have been deleted. If this is non-empty, then the dependent needs to be
-    /// published.
-    pub deleted: BTreeSet<String>,
-    pub hash: Option<String>,
-}
-
 /// Status of the activation of the task in the data-plane
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct ActivationStatus {
@@ -43,6 +31,7 @@ impl Default for ActivationStatus {
 }
 
 impl ActivationStatus {
+    /// Activates the spec in the data plane if necessary.
     pub async fn update<C: ControlPlane>(
         &mut self,
         state: &ControllerState,
@@ -202,8 +191,28 @@ impl PendingPublication {
         }
     }
 
+    pub fn of(details: Vec<String>, draft: tables::DraftCatalog) -> PendingPublication {
+        PendingPublication { details, draft }
+    }
+
     pub fn has_pending(&self) -> bool {
         self.draft.spec_count() > 0
+    }
+
+    pub fn update_model<M: Into<models::AnySpec>>(
+        name: &str,
+        last_pub_id: Id,
+        model: M,
+        detail: impl Into<String>,
+    ) -> PendingPublication {
+        let mut pending = PendingPublication::new();
+        pending.details.push(detail.into());
+        let model: models::AnySpec = model.into();
+        let scope = tables::synthetic_scope(model.catalog_type(), name);
+        pending
+            .draft
+            .add_any_spec(name, scope, Some(last_pub_id), model, false);
+        pending
     }
 
     pub fn start_touch(&mut self, state: &ControllerState, new_dependency_hash: Option<&str>) {
@@ -354,49 +363,7 @@ impl Default for PublicationStatus {
 impl PublicationStatus {
     const MAX_HISTORY: usize = 5;
 
-    pub async fn resolve_dependencies<C: ControlPlane>(
-        &mut self,
-        state: &ControllerState,
-        control_plane: &mut C,
-    ) -> anyhow::Result<Dependencies> {
-        let Some(model) = state.live_spec.as_ref() else {
-            // The spec is being deleted, and thus has no dependencies
-            return Ok(Dependencies {
-                live: Default::default(),
-                deleted: Default::default(),
-                hash: None,
-            });
-        };
-        let all_deps = model.all_dependencies();
-        let live = control_plane
-            .get_live_specs(all_deps.clone())
-            .await
-            .context("fetching live_specs dependencies")?;
-        let mut deleted = all_deps;
-        for name in live.all_spec_names() {
-            deleted.remove(name);
-        }
-
-        let dep_hasher = tables::Dependencies::from_live(&live);
-        let hash = match model {
-            AnySpec::Capture(c) => dep_hasher.compute_hash(c),
-            AnySpec::Collection(c) => dep_hasher.compute_hash(c),
-            AnySpec::Materialization(m) => dep_hasher.compute_hash(m),
-            AnySpec::Test(t) => dep_hasher.compute_hash(t),
-        };
-
-        if hash != state.live_dependency_hash {
-            tracing::info!(?state.live_dependency_hash, new_hash = ?hash, deleted_count = %deleted.len(), "spec dependencies have changed");
-        }
-
-        Ok(Dependencies {
-            live,
-            deleted,
-            hash,
-        })
-    }
-
-    pub async fn notify_dependents<C: ControlPlane>(
+    pub async fn update_notify_dependents<C: ControlPlane>(
         &mut self,
         state: &ControllerState,
         control_plane: &mut C,

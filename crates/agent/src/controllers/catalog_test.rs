@@ -1,7 +1,7 @@
-use super::{publication_status::PendingPublication, ControlPlane, ControllerState, NextRun};
+use std::collections::BTreeSet;
+
+use super::{dependencies::Dependencies, ControlPlane, ControllerState, NextRun};
 use crate::controllers::publication_status::PublicationStatus;
-use crate::controllers::ControllerErrorExt;
-use anyhow::Context;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -19,28 +19,29 @@ impl TestStatus {
         control_plane: &mut C,
         _model: &models::TestDef,
     ) -> anyhow::Result<Option<NextRun>> {
-        let mut pending_pub = PendingPublication::new();
-        let dependencies = self
-            .publications
-            .resolve_dependencies(state, control_plane)
+        let mut dependencies = Dependencies::resolve(state, control_plane).await?;
+        self.passing = false;
+        dependencies
+            .update(
+                state,
+                control_plane,
+                &mut self.publications,
+                error_on_deleted_dependencies,
+            )
             .await?;
-        if dependencies.hash != state.live_dependency_hash {
-            pending_pub.start_touch(state, dependencies.hash.as_deref());
-            let result = pending_pub
-                .finish(state, &mut self.publications, control_plane)
-                .await
-                .context("failed to execute publication")?;
-            self.passing = result.status.is_success();
-            // return a terminal error if the publication failed
-            result.error_for_status().do_not_retry()?;
-            // TODO(phil): This would be a great place to trigger an alert if the publication failed
-        } else {
-            // We've successfully published against the latest versions of the dependencies
-            self.passing = true;
-        }
-
-        // Don't re-try when tests fail, because fixing them will likely require a change to either
-        // the test itself or one of its dependencies.
+        // We've successfully published against the latest versions of the dependencies
+        self.passing = true;
         Ok(None)
     }
+}
+
+fn error_on_deleted_dependencies(
+    deleted: &BTreeSet<String>,
+) -> anyhow::Result<(String, models::TestDef)> {
+    // This will be considered a retryable because technically the
+    // collection could spring back into existence.
+    anyhow::bail!(
+        "test failed because {} of the collection(s) it depends on have been deleted",
+        deleted.len()
+    )
 }
