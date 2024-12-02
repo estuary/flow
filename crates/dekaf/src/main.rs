@@ -77,11 +77,6 @@ pub struct Cli {
     #[arg(long, env = "ENCRYPTION_SECRET")]
     encryption_secret: String,
 
-    /// The maximum number of connections to a particular upstream kafka broker that can be
-    /// open at any one time. These connections will be pooled and shared between all requests.
-    #[arg(long, env = "BROKER_CONNECTION_POOL_SIZE", default_value = "20")]
-    broker_connection_pool_size: usize,
-
     /// How long to wait for a message before closing an idle connection
     #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     idle_session_timeout: std::time::Duration,
@@ -131,30 +126,14 @@ async fn main() -> anyhow::Result<()> {
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
-        kafka_client: KafkaApiClient::connect(
-            upstream_kafka_host.as_str(),
-            SASLConfig::with_credentials(
-                None,
-                cli.default_broker_username,
-                cli.default_broker_password,
-            )?,
-            cli.broker_connection_pool_size
-        ).await.context(
-            "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
-        )?,
         secret: cli.encryption_secret.to_owned(),
         client_base: flow_client::Client::new(
             DEFAULT_AGENT_URL.to_owned(),
             api_key,
             api_endpoint,
             None,
-        )
+        ),
     });
-
-    tracing::info!(
-        broker_url = upstream_kafka_host,
-        "Successfully authenticated to upstream Kafka broker"
-    );
 
     let mut stop = async {
         tokio::signal::ctrl_c()
@@ -176,6 +155,9 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move { metrics_server_task.await.unwrap() });
 
     let schema_router = dekaf::registry::build_router(app.clone());
+
+    let broker_username = cli.default_broker_username.as_str();
+    let broker_password = cli.default_broker_password.as_str();
     if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
             tls_cfg.certificate_file.clone().unwrap(),
@@ -223,7 +205,21 @@ async fn main() -> anyhow::Result<()> {
                         continue
                     };
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, cli.idle_session_timeout, stop.clone()));
+                    tokio::spawn(
+                        serve(
+                            Session::new(
+                                app.clone(),
+                                cli.encryption_secret.to_owned(),
+                                upstream_kafka_host.to_string(),
+                                broker_username.to_string(),
+                                broker_password.to_string()
+                            ),
+                            socket,
+                            addr,
+                            cli.idle_session_timeout,
+                            stop.clone()
+                        )
+                    );
                 }
                 _ = &mut stop => break,
             }
@@ -244,7 +240,21 @@ async fn main() -> anyhow::Result<()> {
                     };
                     socket.set_nodelay(true)?;
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, cli.idle_session_timeout, stop.clone()));
+                    tokio::spawn(
+                        serve(
+                            Session::new(
+                                app.clone(),
+                                cli.encryption_secret.to_owned(),
+                                upstream_kafka_host.to_string(),
+                                broker_username.to_string(),
+                                broker_password.to_string()
+                            ),
+                            socket,
+                            addr,
+                            cli.idle_session_timeout,
+                            stop.clone()
+                        )
+                    );
                 }
                 _ = &mut stop => break,
             }
