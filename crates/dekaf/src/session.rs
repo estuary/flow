@@ -4,7 +4,7 @@ use crate::{
     read::BatchResult,
     to_downstream_topic_name, to_upstream_topic_name,
     topology::{fetch_all_collection_names, PartitionOffset},
-    Authenticated,
+    Authenticated, KafkaApiClient,
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -42,24 +42,56 @@ enum SessionDataPreviewState {
 
 pub struct Session {
     app: Arc<App>,
+    client: Option<KafkaApiClient>,
     reads: HashMap<(TopicName, i32), (PendingRead, std::time::Instant)>,
     secret: String,
     auth: Option<Authenticated>,
     data_preview_state: SessionDataPreviewState,
-    alloc: bumpalo::Bump,
+    broker_url: String,
+    broker_username: String,
+    broker_password: String,
     pub client_id: Option<String>,
 }
 
 impl Session {
-    pub fn new(app: Arc<App>, secret: String) -> Self {
+    pub fn new(
+        app: Arc<App>,
+        secret: String,
+        broker_url: String,
+        broker_username: String,
+        broker_password: String,
+    ) -> Self {
         Self {
             app,
+            client: None,
+            broker_url,
+            broker_username,
+            broker_password,
             reads: HashMap::new(),
             auth: None,
             secret,
             client_id: None,
-            alloc: Default::default(),
             data_preview_state: SessionDataPreviewState::Unknown,
+        }
+    }
+
+    async fn get_kafka_client(&mut self) -> anyhow::Result<&mut KafkaApiClient> {
+        if let Some(ref mut client) = self.client {
+            Ok(client)
+        } else {
+            self.client.replace(
+                KafkaApiClient::connect(
+                    &self.broker_url,
+                    rsasl::config::SASLConfig::with_credentials(
+                        None,
+                        self.broker_username.clone(),
+                        self.broker_password.clone(),
+                    )?,
+                ).await.context(
+                    "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
+                )?
+            );
+            Ok(self.client.as_mut().expect("guarinteed to exist"))
         }
     }
 
@@ -764,12 +796,6 @@ impl Session {
         req: messages::JoinGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
-        let client = self
-            .app
-            .kafka_client
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-
         let mut mutable_req = req.clone();
         for protocol in mutable_req.protocols.iter_mut() {
             let mut consumer_protocol_subscription_raw = protocol.metadata.clone();
@@ -826,7 +852,11 @@ impl Session {
             protocol.metadata = new_protocol_subscription.into();
         }
 
-        let response = client
+        let response = self
+            .get_kafka_client()
+            .await?
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?
             .send_request(mutable_req.clone(), Some(header))
             .await?;
 
@@ -877,8 +907,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::LeaveGroupResponse> {
         let client = self
-            .app
-            .kafka_client
+            .get_kafka_client()
+            .await?
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
         let response = client.send_request(req, Some(header)).await?;
@@ -892,7 +922,11 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::ListGroupsResponse> {
         // Redpanda seems to randomly disconnect this?
-        let r = self.app.kafka_client.send_request(req, Some(header)).await;
+        let r = self
+            .get_kafka_client()
+            .await?
+            .send_request(req, Some(header))
+            .await;
         match r {
             Ok(mut e) => {
                 if let Some(err) = e.error_code.err() {
@@ -921,12 +955,6 @@ impl Session {
         req: messages::SyncGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::SyncGroupResponse> {
-        let client = self
-            .app
-            .kafka_client
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-
         let mut mutable_req = req.clone();
         for assignment in mutable_req.assignments.iter_mut() {
             let mut consumer_protocol_assignment_raw = assignment.assignment.clone();
@@ -969,7 +997,11 @@ impl Session {
             assignment.assignment = new_protocol_assignment.into();
         }
 
-        let response = client
+        let response = self
+            .get_kafka_client()
+            .await?
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?
             .send_request(mutable_req.clone(), Some(header))
             .await?;
 
@@ -1016,7 +1048,11 @@ impl Session {
         req: messages::DeleteGroupsRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::DeleteGroupsResponse> {
-        return self.app.kafka_client.send_request(req, Some(header)).await;
+        return self
+            .get_kafka_client()
+            .await?
+            .send_request(req, Some(header))
+            .await;
     }
 
     #[instrument(skip_all, fields(group=?req.group_id))]
@@ -1026,8 +1062,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::HeartbeatResponse> {
         let client = self
-            .app
-            .kafka_client
+            .get_kafka_client()
+            .await?
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
         return client.send_request(req, Some(header)).await;
@@ -1046,12 +1082,6 @@ impl Session {
             topic.name = encrypted;
         }
 
-        let client = self
-            .app
-            .kafka_client
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-
         let auth = self
             .auth
             .as_mut()
@@ -1059,6 +1089,12 @@ impl Session {
 
         let deletions = auth.task_config.deletions.to_owned();
         let flow_client = auth.authenticated_client().await?.clone();
+
+        let client = self
+            .get_kafka_client()
+            .await?
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?;
 
         client
             .ensure_topics(
@@ -1132,8 +1168,8 @@ impl Session {
         }
 
         let client = self
-            .app
-            .kafka_client
+            .get_kafka_client()
+            .await?
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
@@ -1157,6 +1193,8 @@ impl Session {
         _req: messages::ApiVersionsRequest,
     ) -> anyhow::Result<messages::ApiVersionsResponse> {
         use kafka_protocol::messages::{api_versions_response::ApiVersion, *};
+
+        let client = self.get_kafka_client().await?;
 
         fn version<T: kafka_protocol::protocol::Message>(api_key: ApiKey) -> ApiVersion {
             ApiVersion::default()
@@ -1189,27 +1227,13 @@ impl Session {
                 .with_api_key(ApiKey::ProduceKey as i16)
                 .with_min_version(3)
                 .with_max_version(9),
-            self.app
-                .kafka_client
-                .supported_versions::<JoinGroupRequest>()?,
-            self.app
-                .kafka_client
-                .supported_versions::<LeaveGroupRequest>()?,
-            self.app
-                .kafka_client
-                .supported_versions::<ListGroupsRequest>()?,
-            self.app
-                .kafka_client
-                .supported_versions::<SyncGroupRequest>()?,
-            self.app
-                .kafka_client
-                .supported_versions::<DeleteGroupsRequest>()?,
-            self.app
-                .kafka_client
-                .supported_versions::<HeartbeatRequest>()?,
-            self.app
-                .kafka_client
-                .supported_versions::<OffsetCommitRequest>()?,
+            client.supported_versions::<JoinGroupRequest>()?,
+            client.supported_versions::<LeaveGroupRequest>()?,
+            client.supported_versions::<ListGroupsRequest>()?,
+            client.supported_versions::<SyncGroupRequest>()?,
+            client.supported_versions::<DeleteGroupsRequest>()?,
+            client.supported_versions::<HeartbeatRequest>()?,
+            client.supported_versions::<OffsetCommitRequest>()?,
             ApiVersion::default()
                 .with_api_key(ApiKey::OffsetFetchKey as i16)
                 .with_min_version(0)
