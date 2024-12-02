@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use super::{dependencies::Dependencies, ControlPlane, ControllerState, NextRun};
+use super::{dependencies::Dependencies, periodic, ControlPlane, ControllerState, NextRun};
 use crate::controllers::publication_status::PublicationStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -21,17 +21,27 @@ impl TestStatus {
     ) -> anyhow::Result<Option<NextRun>> {
         let mut dependencies = Dependencies::resolve(state, control_plane).await?;
         self.passing = false;
-        dependencies
+        if dependencies
             .update(
                 state,
                 control_plane,
                 &mut self.publications,
                 error_on_deleted_dependencies,
             )
-            .await?;
-        // We've successfully published against the latest versions of the dependencies
-        self.passing = true;
-        Ok(None)
+            .await?
+        {
+            // We've successfully published against the latest versions of the dependencies
+            self.passing = true;
+            return Ok(Some(NextRun::immediately()));
+        }
+
+        if periodic::update_periodic_publish(state, &mut self.publications, control_plane).await? {
+            // We've successfully published against the latest versions of the dependencies
+            self.passing = true;
+            return Ok(Some(NextRun::immediately()));
+        }
+
+        Ok(periodic::next_periodic_publish(state))
     }
 }
 

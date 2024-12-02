@@ -5,7 +5,7 @@ use super::{
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::{
-    controllers::publication_status::PublicationStatus,
+    controllers::{periodic, publication_status::PublicationStatus},
     controlplane::ConnectorSpec,
     discovers::{Changed, ResourcePath},
     evolution, publications,
@@ -83,6 +83,10 @@ impl CaptureStatus {
             self.auto_discover = None;
         };
 
+        if periodic::update_periodic_publish(state, &mut self.publications, control_plane).await? {
+            return Ok(Some(NextRun::immediately()));
+        }
+
         self.activation
             .update(state, control_plane)
             .await
@@ -93,8 +97,9 @@ impl CaptureStatus {
             .await
             .context("failed to notify dependents")?;
 
-        let next_run = self.auto_discover.as_ref().and_then(|ad| ad.next_run());
-        Ok(next_run)
+        let ad_next = self.auto_discover.as_ref().and_then(|ad| ad.next_run());
+        let periodic_next = periodic::next_periodic_publish(state);
+        Ok(NextRun::earliest([ad_next, periodic_next]))
     }
 }
 
