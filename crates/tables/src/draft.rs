@@ -129,6 +129,48 @@ impl DraftCatalog {
         };
     }
 
+    pub fn add_any_spec(
+        &mut self,
+        catalog_name: &str,
+        scope: url::Url,
+        expect_pub_id: Option<models::Id>,
+        model: models::AnySpec,
+        is_touch: bool,
+    ) {
+        match model {
+            models::AnySpec::Capture(c) => self.captures.insert(DraftCapture {
+                capture: models::Capture::new(catalog_name),
+                scope,
+                expect_pub_id,
+                model: Some(c),
+                is_touch,
+            }),
+            models::AnySpec::Collection(c) => self.collections.insert(DraftCollection {
+                collection: models::Collection::new(catalog_name),
+                scope,
+                expect_pub_id,
+                model: Some(c),
+                is_touch,
+            }),
+            models::AnySpec::Materialization(m) => {
+                self.materializations.insert(DraftMaterialization {
+                    materialization: models::Materialization::new(catalog_name),
+                    scope,
+                    expect_pub_id,
+                    model: Some(m),
+                    is_touch,
+                })
+            }
+            models::AnySpec::Test(t) => self.tests.insert(DraftTest {
+                test: models::Test::new(catalog_name),
+                scope,
+                expect_pub_id,
+                model: Some(t),
+                is_touch,
+            }),
+        }
+    }
+
     pub fn add_spec(
         &mut self,
         spec_type: models::CatalogType,

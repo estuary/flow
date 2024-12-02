@@ -62,7 +62,7 @@ async fn test_auto_discovers_add_new_bindings() {
     assert!(result.status.is_success());
     assert_eq!(3, result.live_specs.len());
 
-    harness.run_pending_controllers(Some(3)).await;
+    harness.run_pending_controllers(None).await;
 
     // Assert that we've initialized auto-discover state appropriately.
     let capture_state = harness.get_controller_state("marmots/capture").await;
@@ -81,7 +81,6 @@ async fn test_auto_discovers_add_new_bindings() {
         .unwrap_capture()
         .auto_discover
         .is_none());
-    assert!(no_disco_capture_state.next_run.is_none());
 
     let discovered = Discovered {
         bindings: vec![

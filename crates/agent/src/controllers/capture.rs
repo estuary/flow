@@ -1,5 +1,6 @@
 use super::{
     backoff_data_plane_activate,
+    dependencies::Dependencies,
     publication_status::{ActivationStatus, PendingPublication, PublicationInfo},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
@@ -38,47 +39,43 @@ impl CaptureStatus {
         control_plane: &mut C,
         model: &models::CaptureDef,
     ) -> anyhow::Result<Option<NextRun>> {
-        let mut pending_pub = PendingPublication::new();
-        let dependencies = self
-            .publications
-            .resolve_dependencies(state, control_plane)
-            .await?;
-        if dependencies.hash != state.live_dependency_hash {
-            if dependencies.deleted.is_empty() {
-                pending_pub.start_touch(state, dependencies.hash.as_deref());
-            } else {
-                let draft = pending_pub.start_spec_update(
-                    state,
-                    format!("in response to publication of one or more depencencies"),
-                );
-                tracing::debug!(deleted_collections = ?dependencies.deleted, "disabling bindings for collections that have been deleted");
-                let draft_capture = draft
-                    .captures
-                    .get_mut_by_key(&models::Capture::new(&state.catalog_name))
-                    .expect("draft must contain capture");
+        let mut dependencies = Dependencies::resolve(state, control_plane).await?;
+
+        let published = dependencies
+            .update(state, control_plane, &mut self.publications, |deleted| {
+                let mut draft_capture = model.clone();
                 let mut disabled_count = 0;
-                for binding in draft_capture.model.as_mut().unwrap().bindings.iter_mut() {
-                    if dependencies.deleted.contains(binding.target.as_str()) && !binding.disable {
+                for binding in draft_capture.bindings.iter_mut() {
+                    if deleted.contains(binding.target.as_str()) && !binding.disable {
                         disabled_count += 1;
                         binding.disable = true;
                     }
                 }
+
                 let detail = format!(
                     "disabled {disabled_count} binding(s) in response to deleted collections: [{}]",
-                    dependencies.deleted.iter().format(", ")
+                    deleted.iter().format(", ")
                 );
-                pending_pub.update_pending_draft(detail);
-            }
+                Ok((detail, draft_capture))
+            })
+            .await?;
+        tracing::debug!(%published, "dependencies status updated successfully");
+        if published {
+            return Ok(Some(NextRun::immediately()));
         }
 
         if model.auto_discover.is_some() {
             let ad_status = self
                 .auto_discover
                 .get_or_insert_with(AutoDiscoverStatus::default);
-            ad_status
-                .update(state, control_plane, model, &mut pending_pub)
+            let published = ad_status
+                .update(state, model, control_plane, &mut self.publications)
                 .await
                 .context("updating auto-discover")?;
+            tracing::debug!(%published, "auto-discover status updated successfully");
+            if published {
+                return Ok(Some(NextRun::immediately()));
+            }
         } else {
             // Clear auto-discover status to avoid confusion, but only if
             // auto-discover is disabled. We leave the auto-discover status if
@@ -86,48 +83,18 @@ impl CaptureStatus {
             self.auto_discover = None;
         };
 
-        if pending_pub.has_pending() {
-            let mut pub_result = pending_pub
-                .finish(state, &mut self.publications, control_plane)
-                .await
-                .context("failed to execute publish")?;
+        self.activation
+            .update(state, control_plane)
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))?;
 
-            let Self {
-                publications,
-                auto_discover,
-                ..
-            } = self;
-            if let Some(auto_discovers) = auto_discover.as_mut() {
-                pub_result = auto_discovers
-                    .publication_finished(pub_result, publications, state, control_plane, model)
-                    .await?;
-            }
+        self.publications
+            .update_notify_dependents(state, control_plane)
+            .await
+            .context("failed to notify dependents")?;
 
-            pub_result
-                .error_for_status()
-                .with_maybe_retry(backoff_publication_failure(state.failures))?;
-        } else {
-            // Not much point in activating if we just published, since we're going to be
-            // immediately invoked again.
-            self.activation
-                .update(state, control_plane)
-                .await
-                .with_retry(backoff_data_plane_activate(state.failures))?;
-            self.publications
-                .notify_dependents(state, control_plane)
-                .await
-                .context("failed to notify dependents")?;
-        }
-
-        // Finally, determine the time at which we should next attampt an auto-discover, if appropriate
-        if let Some(auto_discover) = self.auto_discover.as_mut() {
-            let maybe_next_run = auto_discover
-                .update_next_run(state, model, control_plane)
-                .await?;
-            Ok(maybe_next_run)
-        } else {
-            Ok(None)
-        }
+        let next_run = self.auto_discover.as_ref().and_then(|ad| ad.next_run());
+        Ok(next_run)
     }
 }
 
@@ -182,11 +149,7 @@ impl AutoDiscoverOutcome {
             && (!self.added.is_empty() || !self.modified.is_empty() || !self.removed.is_empty())
     }
 
-    fn spec_error(
-        ts: DateTime<Utc>,
-        capture_name: &str,
-        error: &anyhow::Error,
-    ) -> AutoDiscoverOutcome {
+    fn error(ts: DateTime<Utc>, capture_name: &str, error: &anyhow::Error) -> AutoDiscoverOutcome {
         let errors = vec![crate::draft::Error {
             catalog_name: capture_name.to_string(),
             detail: error.to_string(),
@@ -237,6 +200,29 @@ impl AutoDiscoverOutcome {
             publish_result: None,
         };
         (outcome, draft)
+    }
+
+    /// Returns true if this represents a successfull auto-discover, meaning
+    /// that the discover itself was successful, and either we were able to
+    /// publish the changes, or there was no publication necessary.
+    fn is_successful(&self) -> bool {
+        self.get_result().is_ok()
+    }
+
+    /// Returns an `Err` if any part of the auto-discover failed. Returns `Ok`
+    /// only if the auto-discover was successful.
+    fn get_result(&self) -> anyhow::Result<()> {
+        if let Some(first_err) = self.errors.get(0) {
+            anyhow::bail!("auto-discover failed: {}", &first_err.detail);
+        }
+        if let Some(pub_result) = self
+            .publish_result
+            .as_ref()
+            .filter(|r| !(r.is_success() || r.is_empty_draft()))
+        {
+            anyhow::bail!("auto-discover publication failed with: {:?}", pub_result)
+        };
+        Ok(())
     }
 }
 
@@ -310,74 +296,58 @@ impl AutoDiscoverStatus {
         Ok(spec)
     }
 
+    /// Performs an auto-discover if one is due, and returns a boolean
+    /// indicating whether a publication was performed. If this returns true,
+    /// then the controller should immediately return and schedule a subsequent
+    /// run.
     async fn update<C: ControlPlane>(
         &mut self,
         state: &ControllerState,
-        control_plane: &mut C,
         model: &models::CaptureDef,
-        pending: &mut PendingPublication,
-    ) -> anyhow::Result<()> {
-        if model.shards.disable {
-            self.next_at = None;
-            return Ok(());
-        }
-        if !self
+        control_plane: &mut C,
+        pub_status: &mut PublicationStatus,
+    ) -> anyhow::Result<bool> {
+        self.update_next_run(state, model, control_plane).await?;
+        if self
             .next_at
-            .is_some_and(|due| control_plane.current_time() >= due)
+            .map(|due| control_plane.current_time() <= due)
+            .unwrap_or(true)
         {
-            // Not due yet.
-            return Ok(());
+            return Ok(false);
         }
 
-        // Time to discover. Start by clearing out any pending publish, since we'll use the outcome
-        // of the discover to determine that.
-        self.pending_publish = None;
-
+        tracing::debug!("starting auto-discover");
         // We'll return the original discover error if it fails
         let result = self
-            .try_auto_discover(state, control_plane, model, pending)
+            .try_auto_discover(state, model, control_plane, pub_status)
             .await;
-        let (outcome, error) = match result {
-            Ok(o) => (o, None),
-            Err(err) => {
-                let outcome = AutoDiscoverOutcome::spec_error(
+
+        // We'll return whether we've actually published anything. If all we did
+        // was run a discover that found no changes, then we may proceed with
+        // other controller actions.
+        let has_changes = match result {
+            Ok(outcome) => {
+                let has_changes = outcome.is_successful() && outcome.has_changes();
+                let result = outcome.get_result();
+                self.record_outcome(outcome);
+                result?; // return an error if the auto-discover failed
+
+                // Auto-discover was successful, so determine the time of the next attempt
+                self.update_next_run(state, model, control_plane).await?;
+                has_changes
+            }
+            Err(error) => {
+                tracing::debug!(?error, "auto-discover failed with error");
+                let outcome = AutoDiscoverOutcome::error(
                     control_plane.current_time(),
                     &state.catalog_name,
-                    &err,
+                    &error,
                 );
-                (outcome, Some(err))
+                self.record_outcome(outcome);
+                return Err(error);
             }
         };
-        if !outcome.errors.is_empty() {
-            let err = error.unwrap_or_else(|| {
-                anyhow::anyhow!("discover failed: {}", &outcome.errors[0].detail)
-            });
-            tracing::info!(error = ?err, "auto-discover failed");
-
-            if let Some(failure) = self.failure.as_mut() {
-                failure.count += 1;
-                failure.last_outcome = outcome;
-            } else {
-                self.failure = Some(AutoDiscoverFailure {
-                    count: 1,
-                    first_ts: control_plane.current_time(),
-                    last_outcome: outcome,
-                });
-            };
-
-            Err(err)
-        } else if outcome.has_changes() {
-            assert!(
-                pending.has_pending(),
-                "pending draft must contain specs to publish"
-            );
-            self.pending_publish = Some(outcome);
-            Ok(())
-        } else {
-            self.failure = None;
-            self.last_success = Some(outcome);
-            Ok(())
-        }
+        Ok(has_changes)
     }
 
     async fn update_next_run<C: ControlPlane>(
@@ -385,24 +355,50 @@ impl AutoDiscoverStatus {
         state: &ControllerState,
         model: &models::CaptureDef,
         control_plane: &mut C,
-    ) -> anyhow::Result<Option<NextRun>> {
+    ) -> anyhow::Result<()> {
         if model.shards.disable {
             self.next_at = None;
-            return Ok(None);
+            return Ok(());
         }
 
-        // If the current `next_at` is still in the future, then don't overwrite it.
-        let next = if let Some(n) = self.next_at.filter(|n| *n > control_plane.current_time()) {
-            n
-        } else {
-            // next_at is none or past, so determine the next auto-discover time
-            let next = self
-                .determine_next_discover_time(state.created_at, model, control_plane)
-                .await?;
+        if self.next_at.is_none()
+            || self.next_at.is_some_and(|n| {
+                self.last_success
+                    .as_ref()
+                    .map(|ls| ls.ts > n)
+                    .unwrap_or(false)
+            })
+        {
+            // `next_at` is `None` or else we've successfully completed a
+            // discover since, so determine the next auto-discover time.
+            // If there's no `connector_tags` row for this capture connector
+            // then we cannot discover, so this is an error.
+            let connector_spec = Self::try_connector_spec(model, control_plane)
+                .await
+                .context("fetching connector spec")?;
+
+            let auto_discover_interval = self
+                .interval
+                .and_then(|i| chrono::Duration::from_std(i).ok())
+                .unwrap_or(connector_spec.auto_discover_interval)
+                .abs();
+
+            let prev = self
+                .last_success
+                .as_ref()
+                .map(|s| s.ts)
+                .unwrap_or(state.created_at);
+
+            let next = prev + auto_discover_interval;
+            tracing::debug!(%next, %auto_discover_interval, "determined new next_at time");
             self.next_at = Some(next);
-            next
-        };
-        Ok(Some(NextRun::after(next).with_jitter_percent(0)))
+        }
+        Ok(())
+    }
+
+    fn next_run(&self) -> Option<NextRun> {
+        self.next_at
+            .map(|n| NextRun::after(n).with_jitter_percent(0))
     }
 
     async fn publication_finished<C: ControlPlane>(
@@ -412,12 +408,8 @@ impl AutoDiscoverStatus {
         state: &ControllerState,
         control_plane: &mut C,
         model: &models::CaptureDef,
-    ) -> anyhow::Result<PublicationResult> {
-        let Some(pending_outcome) = self.pending_publish.as_mut() else {
-            // Nothing to do if we didn't attempt to publish. This just means that the publication
-            // was due to dependency updates, not auto-discover.
-            return Ok(pub_result);
-        };
+        pending_outcome: &mut AutoDiscoverOutcome,
+    ) -> anyhow::Result<()> {
         pending_outcome.publish_result = Some(pub_result.status.clone());
 
         // Did the publication result in incompatible collections, which we should evolve?
@@ -427,7 +419,7 @@ impl AutoDiscoverStatus {
             .unwrap()
             .evolve_incompatible_collections;
 
-        let evolution_failed = if let Some(incompatible_collections) = pub_result
+        if let Some(incompatible_collections) = pub_result
             .status
             .incompatible_collections()
             .filter(|_| evolve_incompatible)
@@ -456,7 +448,6 @@ impl AutoDiscoverStatus {
                         .iter()
                         .map(crate::draft::Error::from_tables_error),
                 );
-                true // evolution failed
             } else {
                 let evolution::EvolutionOutput { draft, actions } = evolution_result;
                 tracing::info!(
@@ -480,59 +471,31 @@ impl AutoDiscoverStatus {
                     .context("publishing evolved collections")?;
                 history.record_result(PublicationInfo::observed(&new_result));
                 pending_outcome.publish_result = Some(new_result.status.clone());
-                pub_result = new_result;
-                false // evolution succeeded
-            }
-        } else {
-            false // no evolution needed
-        };
-
-        let pending_outcome = self.pending_publish.take().unwrap();
-        if !evolution_failed
-            && (pub_result.status.is_success() || pub_result.status.is_empty_draft())
-        {
-            self.failure = None;
-            self.last_success = Some(pending_outcome);
-        } else {
-            if let Some(fail) = self.failure.as_mut() {
-                fail.count += 1;
-                fail.last_outcome = pending_outcome;
-            } else {
-                self.failure = Some(AutoDiscoverFailure {
-                    count: 1,
-                    first_ts: pending_outcome.ts,
-                    last_outcome: pending_outcome,
-                });
             }
         }
 
-        return Ok(pub_result);
+        return Ok(());
     }
 
     async fn try_auto_discover<C: ControlPlane>(
-        &self,
+        &mut self,
         state: &ControllerState,
-        control_plane: &mut C,
         model: &models::CaptureDef,
-        pending: &mut PendingPublication,
+        control_plane: &mut C,
+        pub_status: &mut PublicationStatus,
     ) -> anyhow::Result<AutoDiscoverOutcome> {
         let update_only = !model.auto_discover.as_ref().unwrap().add_new_bindings;
         let capture_name = models::Capture::new(&state.catalog_name);
 
-        // Take the draft out of the pending publication, and put it back in at
-        // the end if everything is successful. This ensures that we don't
-        // clobber other changes that may have already been made to the draft.
-        let mut draft = std::mem::take(&mut pending.draft);
-        if !draft.captures.get_by_key(&capture_name).is_some() {
-            draft.captures.insert(tables::DraftCapture {
-                capture: capture_name.clone(),
-                scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
-                expect_pub_id: Some(state.last_pub_id),
-                model: Some(model.clone()),
-                // start with a touch. The discover merge will set this to false if it actually updates the capture
-                is_touch: true,
-            });
-        }
+        let mut draft = tables::DraftCatalog::default();
+        draft.captures.insert(tables::DraftCapture {
+            capture: capture_name.clone(),
+            scope: tables::synthetic_scope(models::CatalogType::Capture, &capture_name),
+            expect_pub_id: Some(state.last_pub_id),
+            model: Some(model.clone()),
+            // start with a touch. The discover merge will set this to false if it actually updates the capture
+            is_touch: true,
+        });
 
         let mut output = control_plane
             .discover(
@@ -570,15 +533,16 @@ impl AutoDiscoverStatus {
             return Ok(outcome);
         }
 
-        // We must publish the discovered changes
-        let (outcome, draft) =
+        // There are changes to publish
+        let (mut outcome, draft) =
             AutoDiscoverOutcome::from_output(control_plane.current_time(), output);
 
         assert!(
             draft.spec_count() > 0,
-            "draft should have at least one spec since is_unchanged() returned false"
+            "draft should have at least one spec since has_changes() returned true"
         );
 
+        let mut pending = PendingPublication::new();
         let publish_detail = format!(
             "auto-discover changes ({} added, {} modified, {} removed)",
             outcome.added.len(),
@@ -588,58 +552,42 @@ impl AutoDiscoverStatus {
         pending.details.push(publish_detail);
         // Add the draft back into the pending publication, so it will be published.
         pending.draft = draft;
+        let initial_pub_result = pending
+            .finish(state, pub_status, control_plane)
+            .await
+            .context("executing publication")?;
+
+        self.publication_finished(
+            initial_pub_result,
+            pub_status,
+            state,
+            control_plane,
+            model,
+            &mut outcome,
+        )
+        .await?;
+
         Ok(outcome)
     }
 
-    async fn determine_next_discover_time<C: ControlPlane>(
-        &self,
-        spec_created_at: DateTime<Utc>,
-        model: &models::CaptureDef,
-        control_plane: &mut C,
-    ) -> anyhow::Result<DateTime<Utc>> {
-        // If there's no `connector_tags` row for this capture connector then we
-        // cannot discover, so this is an error.
-        let connector_spec = Self::try_connector_spec(model, control_plane)
-            .await
-            .context("fetching connector spec")?;
+    fn record_outcome(&mut self, outcome: AutoDiscoverOutcome) {
+        if outcome.is_successful() {
+            tracing::info!(?outcome, "auto-discover completed successfully");
+            self.failure = None;
+            self.last_success = Some(outcome);
+            return;
+        }
 
-        let auto_discover_interval = self
-            .interval
-            .and_then(|i| chrono::Duration::from_std(i).ok())
-            .unwrap_or(connector_spec.auto_discover_interval)
-            .abs();
-
-        let prev = self
-            .last_success
-            .as_ref()
-            .map(|s| s.ts)
-            .into_iter()
-            .chain(self.failure.as_ref().map(|f| f.last_outcome.ts))
-            .chain(Some(spec_created_at))
-            .max()
-            .unwrap();
-
-        let failures = self.failure.as_ref().map(|f| f.count).unwrap_or(0);
-
-        let delay = match failures {
-            0..3 => auto_discover_interval / 8,
-            3..8 => auto_discover_interval / 2,
-            8.. => auto_discover_interval,
+        tracing::info!(?outcome, "auto-discover failed");
+        if let Some(failure) = self.failure.as_mut() {
+            failure.count += 1;
+            failure.last_outcome = outcome;
+        } else {
+            self.failure = Some(AutoDiscoverFailure {
+                count: 1,
+                first_ts: outcome.ts,
+                last_outcome: outcome,
+            });
         };
-        let backoff = delay * failures as i32;
-
-        let next = prev + auto_discover_interval + backoff;
-        tracing::debug!(%prev, %failures, %backoff, %auto_discover_interval, "determined next auto-discover time");
-        Ok(next)
-    }
-}
-
-fn backoff_publication_failure(prev_failures: i32) -> Option<NextRun> {
-    if prev_failures < 3 {
-        Some(NextRun::after_minutes(prev_failures.max(1) as u32))
-    } else if prev_failures < 10 {
-        Some(NextRun::after_minutes(prev_failures as u32 * 60))
-    } else {
-        None
     }
 }

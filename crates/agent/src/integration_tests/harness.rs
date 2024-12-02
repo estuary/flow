@@ -1,6 +1,6 @@
 pub mod connectors;
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::{
@@ -647,8 +647,9 @@ impl TestHarness {
                 ls.spec_type as "spec_type: agent_sql::CatalogType",
                 ls.dependency_hash as "live_dependency_hash",
                 ls.created_at,
+                ls.updated_at as "live_spec_updated_at",
                 cj.controller_version as "controller_version: i32",
-                cj.updated_at,
+                cj.updated_at as "controller_updated_at",
                 cj.logs_token,
                 cj.status as "status: TextJson<Box<RawValue>>",
                 cj.failures,
@@ -710,6 +711,8 @@ impl TestHarness {
             states.push(state);
             if states.len() == max {
                 break;
+            } else if states.len() > 100 {
+                panic!("run_pending_controllers ran for more than 100 iterations, is there an infinite loop?");
             }
         }
         states

@@ -1,6 +1,7 @@
 pub(crate) mod capture;
 pub(crate) mod catalog_test;
 pub(crate) mod collection;
+pub(crate) mod dependencies;
 mod handler;
 pub(crate) mod materialization;
 pub(crate) mod publication_status;
@@ -41,7 +42,9 @@ pub struct ControllerState {
     /// the actual time of the current run.
     pub next_run: Option<DateTime<Utc>>,
     /// The last update time of the controller.
-    pub updated_at: DateTime<Utc>,
+    pub controller_updated_at: DateTime<Utc>,
+    /// The last update time of the live spec.
+    pub live_spec_updated_at: DateTime<Utc>,
     /// The creation time of the live spec
     pub created_at: DateTime<Utc>,
     /// The number of consecutive failures from previous controller runs. This
@@ -136,7 +139,8 @@ impl ControllerState {
 
         let controller_state = ControllerState {
             next_run: job.controller_next_run,
-            updated_at: job.updated_at,
+            controller_updated_at: job.controller_updated_at,
+            live_spec_updated_at: job.live_spec_updated_at,
             created_at: job.created_at,
             live_spec,
             built_spec,
@@ -242,6 +246,13 @@ impl std::cmp::Ord for NextRun {
 
 impl NextRun {
     const DEFAULT_JITTER: u16 = 20;
+
+    pub fn immediately() -> NextRun {
+        NextRun {
+            after_seconds: 0,
+            jitter_percent: 0,
+        }
+    }
 
     pub fn after_minutes(minutes: u32) -> NextRun {
         NextRun {
