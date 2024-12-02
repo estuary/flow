@@ -34,8 +34,6 @@ pub struct App {
     pub advertise_host: String,
     /// Port which is advertised for Kafka access.
     pub advertise_kafka_port: u16,
-    /// Client used when proxying group management APIs.
-    pub kafka_client: KafkaApiClient,
     /// Secret used to secure Prometheus endpoint
     pub secret: String,
     /// Share a single base client in order to re-use connection pools
