@@ -133,7 +133,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
         crate::timeout(
-            CONNECTOR_TIMEOUT,
+            *CONNECTOR_TIMEOUT,
             Self::drive_unary_response(
                 client.capture(futures::stream::once(async move { request })),
                 logs,
@@ -166,7 +166,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
         crate::timeout(
-            CONNECTOR_TIMEOUT,
+            *CONNECTOR_TIMEOUT,
             Self::drive_unary_response(
                 client.derive(futures::stream::once(async move { request })),
                 logs,
@@ -200,7 +200,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
 
         crate::timeout(
-            CONNECTOR_TIMEOUT,
+            *CONNECTOR_TIMEOUT,
             Self::drive_unary_response(
                 client.materialize(futures::stream::once(async move { request })),
                 logs,
@@ -235,7 +235,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
             .signed_claims(
                 proto_flow::capability::PROXY_CONNECTOR,
                 data_plane_fqdn,
-                CONNECTOR_TIMEOUT * 2,
+                *CONNECTOR_TIMEOUT * 2,
                 hmac_keys,
                 Default::default(),
                 &task.name,
@@ -326,7 +326,15 @@ fn dial_proxy_timeout_msg(data_plane: &tables::DataPlane) -> String {
     )
 }
 
-const CONNECTOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300); // Five minutes.
+static CONNECTOR_TIMEOUT: std::sync::LazyLock<std::time::Duration> =
+    std::sync::LazyLock::new(|| {
+        std::env::var("FLOW_CONNECTOR_TIMEOUT")
+            .map(|timeout| {
+                tracing::info!(%timeout, "using FLOW_CONNECTOR_TIMEOUT from env");
+                humantime::parse_duration(&timeout).expect("invalid FLOW_CONNECTOR_TIMEOUT value")
+            })
+            .unwrap_or(std::time::Duration::from_secs(300)) // Five minutes.
+    });
 const CONNECTOR_TIMEOUT_MSG: &'static str = "Timeout while waiting for the connector's response. Please verify any network configuration and retry.";
 
 /*
