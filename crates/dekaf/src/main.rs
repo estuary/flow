@@ -112,6 +112,11 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     tracing::info!("Starting dekaf");
 
+    // This returns an Err indicating that the default provider is already set
+    // but without this call rustls crashes with the following error:
+    // `no process-level CryptoProvider available -- call CryptoProvider::install_default() before this point`
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
