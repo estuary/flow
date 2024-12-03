@@ -1127,6 +1127,7 @@ impl Session {
             for topic in topics {
                 let encrypted = self.encrypt_topic_name(topic.name.clone());
                 tracing::info!(topic_name = ?topic.name, encrypted_name = ?encrypted, "Fetching offset");
+                topic.name = encrypted;
             }
         }
 
