@@ -44,11 +44,6 @@ async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection>
 
     let root_certs = ROOT_CERT_STORE
         .get_or_try_init(|| async {
-            // This returns an Err indicating that the default provider is already set
-            // but without this call rustls crashes with the following error:
-            // `no process-level CryptoProvider available -- call CryptoProvider::install_default() before this point`
-            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
             let mut certs = rustls::RootCertStore::empty();
             certs.add_parsable_certificates(
                 rustls_native_certs::load_native_certs().expect("failed to load native certs"),
