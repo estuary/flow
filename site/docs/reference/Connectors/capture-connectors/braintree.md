@@ -1,36 +1,38 @@
-
 # Braintree
 
 This connector captures data from Braintree into Flow collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-braintree:dev`](https://ghcr.io/estuary/source-braintree:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-braintree-native:dev`](https://ghcr.io/estuary/source-braintree-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
-The following data resources are supported through the Braintree APIs:
+The connector automatically discovers bindings for the Braintree resources listed below. By default, each resource is mapped to a Flow collection through a separate binding.
 
-* [Customers](https://developer.paypal.com/braintree/docs/reference/request/customer/search)
-* [Discounts](https://developer.paypal.com/braintree/docs/reference/response/discount)
-* [Disputes](https://developer.paypal.com/braintree/docs/reference/request/dispute/search)
-* [Transactions](https://developers.braintreepayments.com/reference/response/transaction/python)
-* [Merchant Accounts](https://developer.paypal.com/braintree/docs/reference/response/merchant-account)
-* [Plans](https://developer.paypal.com/braintree/docs/reference/response/plan)
-* [Subscriptions](https://developer.paypal.com/braintree/docs/reference/response/subscription)
+### Full Refresh Streams
 
-By default, each resource is mapped to a Flow collection through a separate binding.
+* [Add Ons](https://developer.paypal.com/braintree/docs/reference/response/add-on/python)
+* [Discounts](https://developer.paypal.com/braintree/docs/reference/response/discount/python)
+* [Merchant Accounts](https://developer.paypal.com/braintree/docs/reference/response/merchant-account/python)
+* [Plans](https://developer.paypal.com/braintree/docs/reference/response/plan/python)
+
+### Incremental Streams
+
+* [Credit Card Verifications](https://developer.paypal.com/braintree/docs/reference/response/credit-card-verification/python)
+* [Customers](https://developer.paypal.com/braintree/docs/reference/response/customer/python)
+* [Disputes](https://developer.paypal.com/braintree/docs/reference/request/dispute/search/python)
+* [Subscriptions](https://developer.paypal.com/braintree/docs/reference/response/subscription/python)
+* [Transactions](https://developer.paypal.com/braintree/docs/reference/response/transaction/python)
+
+:::tip
+Incremental streams only capture **creates**, not updates, of resources due to Braintree API limitations. To capture updates to these resources, regular backfills are required. Please reach out via [email](mailto:support@estuary.dev) or [Slack](https://go.estuary.dev/slack) to set up and schedule regular backfills.
+:::
 
 ## Prerequisites
 
-To set up the Braintree source connector, you'll need Braintree's:
-
-1. [Public Key](https://developer.paypal.com/braintree/articles/control-panel/important-gateway-credentials#public-key)
-2. [Environment](https://developer.paypal.com/braintree/articles/control-panel/important-gateway-credentials#environment)
-3. [Merchant ID](https://developer.paypal.com/braintree/articles/control-panel/important-gateway-credentials#merchant-id)
-4. [Private Key](https://developer.paypal.com/braintree/articles/control-panel/important-gateway-credentials#private-key)
-
-We recommend creating a restricted, read-only key specifically for Estuary access. This will allow you to control which resources Estuary should be able to access.
+To set up the Braintree source connector, you'll need the following from your Braintree account:
+1. [Merchant ID](https://developer.paypal.com/braintree/articles/control-panel/important-gateway-credentials#merchant-id)
+2. [Public Key](https://developer.paypal.com/braintree/articles/control-panel/important-gateway-credentials#public-key)
+3. [Private Key](https://developer.paypal.com/braintree/articles/control-panel/important-gateway-credentials#private-key)
 
 ## Configuration
 
@@ -43,38 +45,78 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/environment` | Environment | Environment specifies where the data will come from. | string | Required |
-| `/merchant_id` | Merchant ID | The unique identifier for your entire gateway account. | string | Required |
-| `/private_key` | Private Key | Braintree Private Key. | string | Required |
-| `/public_key` | Public Key | Braintree Public Key. | string | Required |
-| `/start_date` | Start Date | UTC date and time in the format 2021-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Default |
+| **`/merchant_id`** | Merchant ID | The unique identifier for your Braintree gateway account. | string | Required |
+| `/start_date` | Start Date | UTC date and time in the format "YYYY-MM-DDTHH:MM:SSZ". Any data before this date will not be replicated. | string | 30 days prior to the current date |
+| **`/credentials/public_key`** | Public Key | Braintree Public Key. | string | Required |
+| **`/credentials/private_key`** | Private Key | Braintree Private Key. | string | Required |
+| `/advanced/is_sandbox` | Sandbox Environment | Set to `true` if the credentials are for a [sandbox](https://developer.paypal.com/braintree/articles/get-started/try-it-out#the-braintree-sandbox) Braintree environment. | boolean | `false` |
+| `/advanced/window_size` | Window Size | The window size in hours to use when fetching data from Braintree. Typically, this is left as the default value unless the connector raises an error stating that the window size needs to be reduced.| integer | 24 |
+
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Resource of your Braintree project from which collections are captured. | string | Required |
-| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| **`/name`** | Data resource | Name of the data resource. | string | Required |
+| `/interval` | Interval | Interval between data syncs | string | PT5M |
 
 ### Sample
 
 ```yaml
-
 captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-braintree:dev
+        image: ghcr.io/estuary/source-braintree-native:dev
         config:
-          environment: Development
-          merchant_id: <id>
-          private_key: <key>
-          public_key: <key>
-          start_date: 2017-01-25T00:00:00Z
+          merchant_id: my_merchant_id
+          start_date: "2024-12-04T00:00:00Z"
+          credentials:
+            public_key: my_public_key
+            private_key: my_private_key
+          advanced:
+            is_sandbox: false
+            window_size: 15
     bindings:
       - resource:
-          stream: customers
-          syncMode: full_refresh
+          name: add_ons
+          interval: PT5M
+        target: ${PREFIX}/add_ons
+      - resource:
+          name: credit_card_verifications
+          interval: PT5M
+        target: ${PREFIX}/credit_card_verifications
+      - resource:
+          name: customers
+          interval: PT5M
         target: ${PREFIX}/customers
+      - resource:
+          name: discounts
+          interval: PT5M
+        target: ${PREFIX}/discounts
+      - resource:
+          name: disputes
+          interval: PT5M
+        target: ${PREFIX}/disputes
+      - resource:
+          name: merchant_accounts
+          interval: PT5M
+        target: ${PREFIX}/merchant_accounts
+      - resource:
+          name: merchant_accounts
+          interval: PT5M
+        target: ${PREFIX}/merchant_accounts
+      - resource:
+          name: plans
+          interval: PT5M
+        target: ${PREFIX}/plans
+      - resource:
+          name: subscriptions
+          interval: PT5M
+        target: ${PREFIX}/subscriptions
+      - resource:
+          name: transactions
+          interval: PT5M
+        target: ${PREFIX}/transactions
       {...}
 ```
