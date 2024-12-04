@@ -84,16 +84,70 @@ impl App {
     }
 }
 
-fn api_v1_router(app: Arc<App>) -> anyhow::Result<axum::Router<Arc<App>>> {
-    let router = axum::Router::new()
-        .route(
+fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
+    aide::gen::on_error(|error| {
+        tracing::error!(?error, "aide gen error");
+    });
+    let mut api = aide::openapi::OpenApi::default();
+    // Routes are defined in groups, with the first group all being
+    // authenticated routes that require a valid authentication token, and the
+    // second group being unauthenticated routes that can be accessed by anyone.
+    let router = aide::axum::ApiRouter::new()
+        .api_route(
             "/status/*catalog_name",
-            get(controller_status::handle_get_status),
+            aide::axum::routing::get(controller_status::handle_get_status),
         )
+        // All routes below this are publicly accessible to anyone, without an authentication token
         .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+        // The openapi json is itself documented as an API route
+        .api_route("/openapi.json", aide::axum::routing::get(serve_docs))
+        // TODO: pick which api docs page we like better
+        // The docs UI is not documented as an API route
+        .route(
+            "/",
+            axum::routing::get(
+                aide::scalar::Scalar::new("/api/v1/openapi.json")
+                    .with_title(API_TITLE)
+                    .axum_handler(),
+            ),
+        )
+        .route(
+            "/redoc",
+            axum::routing::get(
+                aide::redoc::Redoc::new("/api/v1/openapi.json")
+                    .with_title(API_TITLE)
+                    .axum_handler(),
+            ),
+        )
         .with_state(app.clone());
 
-    Ok(router)
+    let router = router.finish_api_with(&mut api, api_docs);
+    router.layer(axum::Extension(Arc::new(api)))
+}
+
+async fn serve_docs(
+    axum::extract::Extension(api): axum::extract::Extension<Arc<aide::openapi::OpenApi>>,
+) -> impl aide::axum::IntoApiResponse {
+    axum::Json(api).into_response()
+}
+
+const API_TITLE: &str = "Flow Control Plane V0 API";
+fn api_docs(api: aide::transform::TransformOpenApi) -> aide::transform::TransformOpenApi {
+    api.title(API_TITLE)
+        .summary("Controlling the control plane")
+        .description("some description here")
+        .security_scheme(
+            "ApiKey",
+            aide::openapi::SecurityScheme::Http {
+                scheme: "bearer".to_string(),
+                bearer_format: Some("JWT".to_string()),
+                description: Some("Estuary authentication token".to_string()),
+                extensions: Default::default(),
+            },
+        )
+        .default_response_with::<axum::Json<ApiError>, _>(|res| {
+            res.example(ApiError::not_found("nothing to see here"))
+        })
 }
 
 /// Build the agent's API router.
@@ -148,7 +202,7 @@ pub fn build_router(
         .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
         .allow_headers(allow_headers);
 
-    let public_api_router = api_v1_router(app.clone())?;
+    let public_api_router = api_v1_router(app.clone());
 
     let schema_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))
@@ -175,7 +229,10 @@ pub fn build_router(
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
         )
         .nest("/api/v1/", public_api_router)
-        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http()
+                .on_failure(tower_http::trace::DefaultOnFailure::new().level(tracing::Level::INFO)),
+        )
         .layer(cors)
         .with_state(app);
 
@@ -288,4 +345,19 @@ fn maybe_rewrite_address(external: bool, address: &str) -> String {
     } else {
         address.to_string()
     }
+}
+
+fn optional_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": ["string", "null"],
+        "format": "date-time",
+    }))
+    .unwrap()
+}
+fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": "string",
+        "format": "date-time",
+    }))
+    .unwrap()
 }

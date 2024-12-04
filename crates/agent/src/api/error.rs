@@ -1,4 +1,5 @@
 use axum::http::StatusCode;
+use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::Rejection;
@@ -19,14 +20,72 @@ impl<E: Into<ApiError> + Sized> ApiErrorExt for E {
 /// An error that can be returned from an API handler, which specifies an HTTP
 /// status code and wraps an `anyhow::Error`. It implements `IntoResponse`,
 /// allowing handlers to return a `Result<Json<T>, ApiError>`.
-#[derive(Debug, thiserror::Error, serde::Serialize)]
+#[derive(
+    Debug, thiserror::Error, serde::Serialize, serde::Deserialize, JsonSchema, aide::OperationIo,
+)]
+#[aide(output)]
 #[error("status: {status}, error: {error}")]
 pub struct ApiError {
-    #[serde(serialize_with = "ser_status")]
+    #[serde(with = "status_serde")]
+    #[schemars(schema_with = "status_serde::schema")]
     status: axum::http::StatusCode,
-    #[serde(serialize_with = "ser_anyhow_error")]
+
+    #[serde(with = "error_serde")]
+    #[schemars(schema_with = "error_serde::schema")]
     #[source]
     error: anyhow::Error,
+}
+
+mod status_serde {
+    use serde::{
+        de::{self, Deserialize, Deserializer},
+        ser::{Serialize, Serializer},
+    };
+
+    pub fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        serde_json::from_value(serde_json::json!({
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599,
+        }))
+        .unwrap()
+    }
+    pub fn serialize<S: Serializer>(
+        status: &axum::http::StatusCode,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        status.as_u16().serialize(s)
+    }
+    pub fn deserialize<'a, D: Deserializer<'a>>(
+        deserializer: D,
+    ) -> Result<axum::http::StatusCode, D::Error> {
+        let int_val = <u16 as Deserialize>::deserialize(deserializer)?;
+        axum::http::StatusCode::from_u16(int_val).map_err(|e| de::Error::custom(e))
+    }
+}
+
+mod error_serde {
+    use serde::{
+        de::{self, Deserialize, Deserializer},
+        ser::{Serialize, Serializer},
+    };
+
+    pub fn schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        serde_json::from_value(serde_json::json!({
+            "type": "string",
+        }))
+        .unwrap()
+    }
+    pub fn serialize<S: Serializer>(error: &anyhow::Error, s: S) -> Result<S::Ok, S::Error> {
+        let err_str = format!("{error:#}"); // alternate renders nested causes
+        s.serialize_str(&err_str)
+    }
+    pub fn deserialize<'a, D: Deserializer<'a>>(
+        deserializer: D,
+    ) -> Result<anyhow::Error, D::Error> {
+        let str_val = <String as Deserialize>::deserialize(deserializer)?;
+        Ok(anyhow::anyhow!(str_val))
+    }
 }
 
 fn ser_status<S: serde::ser::Serializer>(

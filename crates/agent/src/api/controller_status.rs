@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::api::{ApiError, App, ControlClaims};
+use crate::api::{datetime_schema, optional_datetime_schema, ApiError, App, ControlClaims};
 use crate::controllers;
 use axum::extract::{Path, State};
 use axum::{Extension, Json};
@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use models::Id;
 use sqlx::types;
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct StatusResponse {
     /// The name of the live spec
     catalog_name: String,
@@ -29,12 +29,16 @@ pub struct StatusResponse {
     last_build_id: Id,
     /// Time at which the controller is next scheduled to run. Or null if there
     /// is no run scheduled.
+    #[schemars(schema_with = "optional_datetime_schema")]
     controller_next_run: Option<DateTime<Utc>>,
     /// Time of the last publication that affected the live spec.
+    #[schemars(schema_with = "datetime_schema")]
     live_spec_updated_at: DateTime<Utc>,
     /// Time of the last controller run for this spec.
+    #[schemars(schema_with = "datetime_schema")]
     controller_updated_at: DateTime<Utc>,
     /// The controller status json.
+    #[schemars(schema_with = "controller_status_schema")]
     controller_status: sqlx::types::Json<controllers::Status>,
     /// Error from the most recent controller run, or `null` if the run was
     /// successful.
@@ -42,6 +46,10 @@ pub struct StatusResponse {
     /// The number of consecutive failures of the controller. Resets to 0 after
     /// any successful run.
     controller_failures: i32,
+}
+
+fn controller_status_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    <controllers::Status as schemars::JsonSchema>::json_schema(gen)
 }
 
 fn is_false(b: &bool) -> bool {

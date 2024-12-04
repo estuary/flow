@@ -141,6 +141,27 @@ impl Client {
             anyhow::bail!("{status}: {body}");
         }
     }
+
+    pub async fn api_get<Resp>(&self, path: &str) -> anyhow::Result<Resp>
+    where
+        Resp: serde::de::DeserializeOwned,
+    {
+        let mut builder = self.http_client.get(self.agent_endpoint.join(path)?);
+
+        if let Some(token) = &self.user_access_token {
+            builder = builder.bearer_auth(token);
+        }
+
+        let response = self.http_client.execute(builder.build()?).await?;
+        let status = response.status();
+
+        if status.is_success() {
+            Ok(response.json().await?)
+        } else {
+            let body = response.text().await?;
+            anyhow::bail!("{status}: {body}");
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]

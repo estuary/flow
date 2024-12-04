@@ -15,6 +15,7 @@ license = "BSL"
 
 [workspace.dependencies]
 addr = { version = "0.15.4", default-features = false, features = ["std"] }
+aide = { version = "0.13", features = ["axum", "macros", "scalar", "redoc"] }
 anyhow = "1.0"
 async-compression = { version = "0.3", features = [
     "futures-io",
