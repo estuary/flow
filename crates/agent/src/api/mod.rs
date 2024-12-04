@@ -84,6 +84,18 @@ impl App {
     }
 }
 
+fn api_v1_router(app: Arc<App>) -> anyhow::Result<axum::Router<Arc<App>>> {
+    let router = axum::Router::new()
+        .route(
+            "/status/*catalog_name",
+            get(controller_status::handle_get_status),
+        )
+        .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+        .with_state(app.clone());
+
+    Ok(router)
+}
+
 /// Build the agent's API router.
 pub fn build_router(
     id_generator: models::IdGenerator,
@@ -136,6 +148,8 @@ pub fn build_router(
         .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
         .allow_headers(allow_headers);
 
+    let public_api_router = api_v1_router(app.clone())?;
+
     let schema_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))
         .route(
@@ -160,11 +174,7 @@ pub fn build_router(
             post(update_l2_reporting::update_l2_reporting)
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
         )
-        .route(
-            "/api/v1/status/*catalog_name",
-            get(controller_status::handle_get_status)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
-        )
+        .nest("/api/v1/", public_api_router)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(cors)
         .with_state(app);
