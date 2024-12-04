@@ -3,6 +3,19 @@ use serde::Serialize;
 
 use super::Rejection;
 
+pub trait ApiErrorExt {
+    /// Sets the given http response status to use when responding with this error.
+    fn with_status(self, status: axum::http::StatusCode) -> ApiError;
+}
+
+impl<E: Into<ApiError> + Sized> ApiErrorExt for E {
+    fn with_status(self, status: axum::http::StatusCode) -> ApiError {
+        let mut err: ApiError = self.into();
+        err.status = status;
+        err
+    }
+}
+
 /// An error that can be returned from an API handler, which specifies an HTTP
 /// status code and wraps an `anyhow::Error`. It implements `IntoResponse`,
 /// allowing handlers to return a `Result<Json<T>, ApiError>`.
