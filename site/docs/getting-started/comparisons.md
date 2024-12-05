@@ -94,7 +94,7 @@ In either case, the usage of connectors is pretty similar.
 In terms of technical capabilities, Flow can do everything that these tools can and more.
 Both Fivetran and Airbyte both currently have graphical interfaces that make them much easier for
 non-technical users to configure. Flow, too, is focused on empowering non-technical users through its web application.
-At the same time, it Flow offers declarative YAML for configuration, which works excellently in a GitOps workflow.
+At the same time, Flow offers declarative YAML for configuration, which works excellently in a GitOps workflow.
 
 [Flow vs Fivetran feature and pricing breakdown.](https://estuary.dev/vs-fivetran/)
 
