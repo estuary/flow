@@ -10,13 +10,14 @@ This tutorial will show you how to implement a stateless transformation using Ty
 
 ## Setting up your development environment<a id="setting-up-your-development-environment"></a>
 
-In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowtcl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
+In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
 
-Before continuing, sign in to the Estuary Flow dashboard, make sure you enable access to the Wikipedia demo. Using `flowtcl`, quickly verify you are able to view the demo collections used in this guide.
+Before continuing, sign in to the Estuary Flow dashboard, make sure you enable access to the Wikipedia demo. Using `flowctl`, quickly verify you are able to view the demo collections used in this guide.
 
 Execute the below command to display the documents in the `demo/wikipedia/recentchange-sampled` collection:
 
-::note This collection is a 3% sample of the enormous `demo/wikipedia/recentchange` collection which contains millions of documents. Since the purpose of this tutorial is to demonstrate a proof of concept, we avoid publishing a derivation that processes hundreds of gigabytes of data.
+:::note
+This collection is a 3% sample of the enormous `demo/wikipedia/recentchange` collection which contains millions of documents. Since the purpose of this tutorial is to demonstrate a proof of concept, we avoid publishing a derivation that processes hundreds of gigabytes of data.
 :::
 
 ```shell
@@ -201,7 +202,7 @@ If everything went well, you’ll see a bunch of new files that `flowctl` genera
 5 directories, 5 files
 ```
 
-The folder `flow_generated` along with the `deno.json` file are two things you won’t have to modify during this tutorial. If you take a look at file that `flowtcl` generated under `flow_generated/typescript/<your_working_directory>/<your_prefix>/recentchange-filtered-typescript.ts` you can see the types you are able to use in your transformations.
+The folder `flow_generated` along with the `deno.json` file are two things you won’t have to modify during this tutorial. If you take a look at file that `flowctl` generated under `flow_generated/typescript/<your_working_directory>/<your_prefix>/recentchange-filtered-typescript.ts` you can see the types you are able to use in your transformations.
 
 ```typescript
 // Generated for published documents of derived collection Dani/derivation-tutorial/recentchange-filtered-typescript.
