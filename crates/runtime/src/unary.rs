@@ -1,6 +1,6 @@
 use super::{LogHandler, Runtime};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
-use proto_flow::{capture, derive, flow::materialization_spec, materialize};
+use proto_flow::{capture, derive, materialize};
 
 impl<L: LogHandler> Runtime<L> {
     pub async fn unary_capture(
