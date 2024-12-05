@@ -1,0 +1,18 @@
+[package]
+name = "control-plane-api"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_with = { workspace = true }
+serde_json = { workspace = true }
+serde_repr = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true }

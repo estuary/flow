@@ -111,6 +111,7 @@ reqwest = { version = "0.11", default-features = false, features = [
     "json",
     "rustls-tls",
     "stream",
+    "multipart",
 ] }
 rocksdb = { version = "0.22", default-features = false, features = [
     "snappy",
@@ -131,6 +132,12 @@ schemars = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
 serde_yaml = "0.8"
+serde_with = { version = "^3.8", default-features = false, features = [
+    "base64",
+    "std",
+    "macros",
+] }
+serde_repr = "^0.1"
 serde-transcode = "1.1"
 serde-wasm-bindgen = "0.4"
 size = "0.4"
