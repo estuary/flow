@@ -220,21 +220,16 @@ impl Session {
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
-            tokio::time::timeout(
-                Duration::from_secs(10),
-                futures::future::try_join_all(requests.into_iter().map(|topic| async move {
-                    let maybe_collection = Collection::new(
-                        client,
-                        from_downstream_topic_name(topic.name.to_owned().unwrap_or_default())
-                            .as_str(),
-                        deletions,
-                    )
-                    .await?;
-                    Ok((topic.name.unwrap_or_default(), maybe_collection))
-                })),
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Timed out loading metadata {e}"))?;
+            futures::future::try_join_all(requests.into_iter().map(|topic| async move {
+                let maybe_collection = Collection::new(
+                    client,
+                    from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
+                    deletions,
+                )
+                .await?;
+                Ok((topic.name.unwrap_or_default(), maybe_collection))
+            }))
+            .await;
 
         let mut topics = vec![];
 
