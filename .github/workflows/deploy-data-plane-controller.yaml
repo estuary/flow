@@ -2,9 +2,6 @@ name: Deploy data-plane-controller
 
 on:
   workflow_dispatch: {}
-  # TODO(johnny): Remove after merging.
-  push:
-    branches: [johnny/dpc-cd]
 
 env:
   CARGO_INCREMENTAL: 0 # Faster from-scratch builds.

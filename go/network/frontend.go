@@ -382,7 +382,7 @@ func (p *Frontend) serveConnHTTP(user *frontendConn) {
 		} else if req.URL.Path == "/auth-redirect" {
 			completeAuthRedirect(w, req)
 			httpHandledCounter.WithLabelValues(task, port, "CompleteAuth").Inc()
-		} else if err := verifyAuthorization(req, p.verifier, user.resolved.taskName); err == nil {
+		} else if err := verifyAuthorization(req, p.verifier, user.resolved.shardIDPrefix); err == nil {
 			reverse.ServeHTTP(w, req)
 		} else if req.Method == "GET" && strings.Contains(req.Header.Get("accept"), "html") {
 			// Presence of "html" in Accept means this is probably a browser.
