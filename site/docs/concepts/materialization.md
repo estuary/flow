@@ -319,13 +319,13 @@ standard updates only unless otherwise noted in its documentation.
 
 ### Delta updates for every binding in a Materialization
 
-When configuring a materialization, you can set delta updates as the materialziation mechanism
+When configuring a materialization, you can set delta updates as the materialization mechanism
 for every binding. Afterwards, you are able to modify this setting individually for each binding
 for further customization.
 
 :::note
-This functionality is not supported for all Materialization connectors. Consult the individual connector
-documentation for details.
+This functionality is only supported for Materialization connectors that have the `x-delta-updates`
+field implemented. Consult the individual connector documentation for details.
 :::
 
 ## Using `sourceCapture` to synchronize capture and materialization bindings
@@ -355,8 +355,8 @@ This applies to all bindings within that materialization, ensuring a consistent 
 data pipeline.
 
 :::note
-This functionality is not supported for all Materialization connectors. Consult the individual connector
-documentation for details.
+This functionality is only supported for Materialization connectors that have the `x-schema-name`
+field implemented. Consult the individual connector documentation for details.
 :::
 
 ### How It Works
