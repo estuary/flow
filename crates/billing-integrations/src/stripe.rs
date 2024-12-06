@@ -1,6 +1,6 @@
 use anyhow::{bail, Context};
 use chrono::{Duration, ParseError, Utc};
-use futures::{FutureExt, StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::Postgres;
@@ -208,7 +208,7 @@ impl Invoice {
     }
 
     #[tracing::instrument(skip(self, client, db_client), fields(tenant=self.billed_prefix, invoice_type=format!("{:?}",self.invoice_type), subtotal=format!("${:.2}", self.subtotal as f64 / 100.0)))]
-    pub async fn upsert_invoice(
+    async fn upsert_invoice(
         &self,
         client: &stripe::Client,
         db_client: &Pool<Postgres>,
@@ -487,7 +487,8 @@ impl Invoice {
 }
 
 pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
-    let stripe_client = stripe::Client::new(cmd.stripe_api_key.to_owned());
+    let stripe_client = stripe::Client::new(cmd.stripe_api_key.to_owned())
+        .with_strategy(stripe::RequestStrategy::ExponentialBackoff(4));
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&cmd.connection_string)
@@ -619,7 +620,12 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             let db_pool = db_pool.clone();
             async move {
                 let res = response
-                    .upsert_invoice(&client, &db_pool, cmd.recreate_finalized, cmd.charge_type)
+                    .upsert_invoice(
+                        &client,
+                        &db_pool,
+                        cmd.recreate_finalized,
+                        cmd.charge_type,
+                    )
                     .await;
                 match res {
                     Err(err) => {
@@ -628,7 +634,11 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                             tenant = response.billed_prefix,
                             invoice_type = response.invoice_type
                         );
-                        bail!("{}: {err:?}", formatted, err = err);
+                        Err(anyhow::anyhow!(format!(
+                            "{}: {err:#}",
+                            formatted,
+                            err = err
+                        )))
                     }
                     Ok(res) => {
                         tracing::debug!(
@@ -644,36 +654,39 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                             | InvoiceResult::Error => {}
                             // Remove any incorrectly created invoices that are now skipped for whatever reason
                             _ => {
-                                let customer = match get_or_create_customer_for_tenant(
-                                    &client,
-                                    &db_pool,
-                                    response.billed_prefix.to_owned(),
-                                    false,
-                                )
-                                .await?
-                                {
-                                    Some(c) => c,
-                                    None => {
-                                        return Ok((
-                                            res,
-                                            response.subtotal,
-                                            response.billed_prefix.to_owned(),
-                                        ))
-                                    }
-                                };
+                                let task_res: Result<(), anyhow::Error> = async move {
+                                    let customer = match get_or_create_customer_for_tenant(
+                                        &client,
+                                        &db_pool,
+                                        response.billed_prefix.to_owned(),
+                                        false,
+                                    )
+                                    .await?
+                                    {
+                                        Some(c) => c,
+                                        None => return Ok(()),
+                                    };
 
-                                let customer_id = customer.id.to_string();
+                                    let customer_id = customer.id.to_string();
 
-                                if let Some(invoice) =
-                                    response.get_stripe_invoice(&client, &customer_id).await?
-                                {
-                                    if let Some(InvoiceStatus::Draft) = invoice.status {
-                                        tracing::warn!(
-                                            tenant = response.billed_prefix.to_string(),
-                                            "Deleting draft invoice!"
-                                        );
-                                        stripe::Invoice::delete(&client, &invoice.id).await?;
+                                    if let Some(invoice) =
+                                        response.get_stripe_invoice(&client, &customer_id).await?
+                                    {
+                                        if let Some(InvoiceStatus::Draft) = invoice.status {
+                                            tracing::warn!(
+                                                tenant = response.billed_prefix.to_string(),
+                                                "Deleting draft invoice!"
+                                            );
+                                            stripe::Invoice::delete(&client, &invoice.id).await?;
+                                        }
                                     }
+
+                                    Ok(())
+                                }
+                                .await;
+
+                                if let Err(e) = task_res {
+                                    tracing::warn!("Failed to check for or clear potential leaked draft invoices for {}, this is probably not a problem: {e:#}", response.billed_prefix.to_owned());
                                 }
                             }
                         }
@@ -682,16 +695,19 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                 }
             }
             .boxed()
+            .map_err(|e| (e, response.clone()))
         })
         .collect();
 
+    let total = invoice_futures.len();
+
     let collected: HashMap<InvoiceResult, (i64, i32, Vec<(String, i64)>)> =
         futures::stream::iter(invoice_futures)
-            .buffer_unordered(5)
-            .or_else(|err| async move {
+            .buffer_unordered(2)
+            .or_else(|(err, invoice)| async move {
                 if !cmd.fail_fast {
-                    tracing::error!("{}", err.to_string());
-                    Ok((InvoiceResult::Error, 0, "".to_string()))
+                    tracing::error!("[{}]: {err:#}", invoice.billed_prefix);
+                    Ok((InvoiceResult::Error, 0, invoice.billed_prefix))
                 } else {
                     Err(err)
                 }
@@ -699,9 +715,15 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             .try_fold(
                 HashMap::new(),
                 |mut map, (res, subtotal, tenant)| async move {
-                    let (subtotal_sum, count, tenants) = map.entry(res).or_insert((0, 0, vec![]));
+                    let overall_count = map.values().map(|(_, count, _)| *count).sum::<i32>() + 1;
+                    let msg = res.message();
+
+                    let (subtotal_sum, count_for_result_type, tenants) =
+                        map.entry(res).or_insert((0, 0, vec![]));
                     *subtotal_sum += subtotal;
-                    *count += 1;
+                    *count_for_result_type += 1;
+
+                    tracing::info!("[{overall_count}/{total}, {tenant}]: {msg}");
                     tenants.push((tenant, subtotal));
                     Ok(map)
                 },
@@ -716,12 +738,12 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             *subtotal_agg as f64 / 100.0
         );
         let limit = match status {
-            InvoiceResult::Created(_) | InvoiceResult::Updated => 30,
+            InvoiceResult::Created(_) | InvoiceResult::Updated => 9999,
             InvoiceResult::NoDataMoved
             | InvoiceResult::NoFullPipeline
             | InvoiceResult::LessThanMinimum
             | InvoiceResult::FreeTier => 0,
-            _ => 4,
+            _ => 10,
         };
         let sorted_tenants = tenants
             .iter()
