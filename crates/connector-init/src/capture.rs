@@ -24,7 +24,7 @@ impl proto_grpc::capture::connector_server::Connector for Proxy {
                 rpc::new_command(&self.entrypoint),
                 self.codec,
                 request.into_inner().map_ok(|mut request| {
-                    request.internal.clear(); // TODO(johnny): Temporarily remove $internal.
+                    request.internal.clear();
                     request
                 }),
                 ops::stderr_log_handler,

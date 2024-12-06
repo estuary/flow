@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/estuary/flow/go/labels"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/metadata"
 )
@@ -27,21 +29,18 @@ func verifyAuthorization(req *http.Request, verifier pb.Verifier, taskName strin
 			req.Context(),
 			metadata.Pairs("authorization", bearer),
 		),
-		0, // TODO(johnny): Should be pf.Capability_NETWORK_PROXY.
+		pf.Capability_NETWORK_PROXY,
 	)
 	if err != nil {
 		return err
 	}
 	cancel() // We don't use the returned context.
 
-	/* TODO(johnny): Inspect claims once UI is updated to use /authorize/user/task API.
 	if !claims.Selector.Matches(pb.MustLabelSet(
 		labels.TaskName, taskName,
 	)) {
 		return fmt.Errorf("invalid authorization for task %s (%s)", taskName, bearer)
 	}
-	*/
-	_ = claims
 
 	return nil
 }
