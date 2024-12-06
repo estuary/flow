@@ -20,7 +20,6 @@ pub enum Message {
     Preview,
     Refresh,
     Converge,
-    // TODO(johnny): `Destroy` variant for managed tear-down.
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
