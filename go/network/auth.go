@@ -6,13 +6,14 @@ import (
 	"net/http"
 	"net/url"
 
+	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/metadata"
 )
 
 // verifyAuthorization ensures the request has an authorization which
 // is valid for capability NETWORK_PROXY to `taskName`.
-func verifyAuthorization(req *http.Request, verifier pb.Verifier, taskName string) error {
+func verifyAuthorization(req *http.Request, verifier pb.Verifier, shardIDPrefix string) error {
 	var bearer = req.Header.Get("authorization")
 	if bearer != "" {
 		// Pass.
@@ -27,21 +28,29 @@ func verifyAuthorization(req *http.Request, verifier pb.Verifier, taskName strin
 			req.Context(),
 			metadata.Pairs("authorization", bearer),
 		),
-		0, // TODO(johnny): Should be pf.Capability_NETWORK_PROXY.
+		pf.Capability_NETWORK_PROXY,
 	)
 	if err != nil {
 		return err
 	}
 	cancel() // We don't use the returned context.
 
-	/* TODO(johnny): Inspect claims once UI is updated to use /authorize/user/task API.
-	if !claims.Selector.Matches(pb.MustLabelSet(
-		labels.TaskName, taskName,
-	)) {
-		return fmt.Errorf("invalid authorization for task %s (%s)", taskName, bearer)
+	// When we resolved SNI, we stripped the shard ID prefix of its creation
+	// publication ID suffix (like `/0123457890abcdef/`) to ensure the SNI cache
+	// is invariant to a task being deleted and re-created.
+	//
+	// Account for that here by extending `shardIDPrefix` with the creation
+	// ID suffix indicated by `claims`.
+	var suffix string
+	if id := claims.Selector.Include.ValueOf("id"); len(id) > 17 {
+		suffix = id[len(id)-17:] // 16 hex bytes, plus trailing '/'.
 	}
-	*/
-	_ = claims
+
+	if !claims.Selector.Matches(pb.MustLabelSet(
+		"id", shardIDPrefix+suffix,
+	)) {
+		return fmt.Errorf("invalid authorization for task prefix %s (%s)", shardIDPrefix, bearer)
+	}
 
 	return nil
 }
