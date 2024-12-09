@@ -1,5 +1,5 @@
 ---
-source: crates/agent/src/controllers/mod.rs
+source: crates/models/src/status/mod.rs
 expression: schema
 ---
 {
@@ -51,7 +51,9 @@ expression: schema
         "first_ts": {
           "description": "The timestamp of the first failure in the current sequence.",
           "format": "date-time",
-          "type": "string"
+          "type": [
+            "string"
+          ]
         },
         "last_outcome": {
           "$ref": "#/definitions/AutoDiscoverOutcome",
@@ -66,6 +68,7 @@ expression: schema
       "type": "object"
     },
     "AutoDiscoverOutcome": {
+      "description": "The results of an auto-discover attempt",
       "properties": {
         "added": {
           "description": "Bindings that were added to the capture.",
@@ -116,7 +119,9 @@ expression: schema
         "ts": {
           "description": "Time at which the disocver was attempted",
           "format": "date-time",
-          "type": "string"
+          "type": [
+            "string"
+          ]
         }
       },
       "required": [
@@ -160,7 +165,9 @@ expression: schema
           "default": null,
           "description": "Time at which the next auto-discover should be run.",
           "format": "date-time",
-          "type": "string"
+          "type": [
+            "string"
+          ]
         },
         "pending_publish": {
           "anyOf": [
@@ -185,6 +192,7 @@ expression: schema
       "type": "string"
     },
     "DiscoverChange": {
+      "description": "A capture binding that has changed as a result of a discover",
       "properties": {
         "disable": {
           "description": "Whether the capture binding is disabled.",
@@ -210,6 +218,7 @@ expression: schema
       "type": "object"
     },
     "Error": {
+      "description": "A generic error that can be associated with a particular draft spec for a given operation.",
       "properties": {
         "catalog_name": {
           "type": "string"
@@ -295,7 +304,9 @@ expression: schema
         "schema_last_updated": {
           "description": "The time at which the inferred schema was last published. This will only be present if the inferred schema was published at least once.",
           "format": "date-time",
-          "type": "string"
+          "type": [
+            "string"
+          ]
         },
         "schema_md5": {
           "description": "The md5 sum of the inferred schema that was last published. Because the publications handler updates the model instead of the controller, it's technically possible for the published inferred schema to be more recent than the one corresponding to this hash. If that happens, we would expect a subsequent publication on the next controller run, which would update the hash but not actually modify the schema.",
@@ -502,7 +513,9 @@ expression: schema
         "completed": {
           "description": "Time at which the publication was completed",
           "format": "date-time",
-          "type": "string"
+          "type": [
+            "string"
+          ]
         },
         "count": {
           "minimum": 1.0,
@@ -511,7 +524,9 @@ expression: schema
         "created": {
           "description": "Time at which the publication was initiated",
           "format": "date-time",
-          "type": "string"
+          "type": [
+            "string"
+          ]
         },
         "detail": {
           "description": "A brief description of the reason for the publication",
@@ -757,6 +772,20 @@ expression: schema
       },
       "required": [
         "passing",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "enum": [
+            "Uninitialized"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
         "type"
       ],
       "type": "object"

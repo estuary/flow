@@ -1,5 +1,6 @@
 use agent_sql::publications::Row;
 use anyhow::Context;
+use models::draft_error;
 use tracing::info;
 
 use crate::{
@@ -57,7 +58,7 @@ impl Handler for Publisher {
                 }
                 Err(error) => {
                     tracing::warn!(?error, pub_id = %id, "build finished with error");
-                    let errors = vec![draft::Error {
+                    let errors = vec![draft_error::Error {
                         catalog_name: String::new(),
                         scope: None,
                         detail: format!("{error:#}"),

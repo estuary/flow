@@ -6,14 +6,11 @@
 //! can already record any useful information, and the `live_specs` table
 //! already records the last update time of each spec.
 use anyhow::Context;
-use models::ModelDef;
+use models::{status::publications::PublicationStatus, ModelDef};
 
 use crate::ControlPlane;
 
-use super::{
-    publication_status::{PendingPublication, PublicationStatus},
-    ControllerState, NextRun,
-};
+use super::{publication_status::PendingPublication, ControllerState, NextRun};
 
 /// 20 days was chosen because we'd like to have a 30 day retention on our
 /// builds, so this gives us 10 days to notice and correct any problems before

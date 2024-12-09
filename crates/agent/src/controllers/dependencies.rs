@@ -1,14 +1,11 @@
 use std::collections::BTreeSet;
 
 use anyhow::Context;
-use models::{AnySpec, ModelDef};
+use models::{status::publications::PublicationStatus, AnySpec, ModelDef};
 
 use crate::ControlPlane;
 
-use super::{
-    publication_status::{PendingPublication, PublicationStatus},
-    ControllerErrorExt, ControllerState, NextRun,
-};
+use super::{publication_status::PendingPublication, ControllerErrorExt, ControllerState, NextRun};
 
 /// Information about the dependencies of a live spec.
 pub struct Dependencies {

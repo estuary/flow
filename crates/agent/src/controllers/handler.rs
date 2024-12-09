@@ -6,7 +6,7 @@ use crate::{
     DataPlaneConnectors, HandleResult, Handler,
 };
 
-use super::{ControllerState, NextRun, RetryableError, Status};
+use super::{controller_update, ControllerState, NextRun, RetryableError, Status};
 
 use crate::controllers::CONTROLLER_VERSION;
 
@@ -135,5 +135,5 @@ async fn run_controller<C: ControlPlane>(
     next_status: &mut Status,
     control_plane: &mut C,
 ) -> anyhow::Result<Option<NextRun>> {
-    next_status.update(&state, control_plane).await
+    controller_update(next_status, &state, control_plane).await
 }

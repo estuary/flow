@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    controllers::{ControllerState, Status},
+    controllers::ControllerState,
     integration_tests::harness::{
         draft_catalog, mock_inferred_schema, InjectBuildError, TestHarness,
     },
     ControlPlane,
 };
-use models::CatalogType;
+use models::{status::Status, CatalogType};
 use uuid::Uuid;
 
 #[tokio::test]
