@@ -1,5 +1,5 @@
 ---
-source: crates/agent/src/controllers/mod.rs
+source: crates/models/src/status/mod.rs
 expression: "StatusSnapshot { starting: status, json: as_json, parsed: round_tripped, }"
 ---
 StatusSnapshot {

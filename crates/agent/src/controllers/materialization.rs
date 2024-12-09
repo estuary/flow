@@ -1,95 +1,99 @@
 use super::{
     dependencies::Dependencies,
     periodic,
-    publication_status::{ActivationStatus, PendingPublication},
+    publication_status::{self, PendingPublication},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
 use crate::{
-    controllers::publication_status::PublicationStatus,
     publications::{PublicationResult, RejectedField},
     resource_configs::ResourceSpecPointers,
 };
 use anyhow::Context;
 use itertools::Itertools;
-use models::{ModelDef, OnIncompatibleSchemaChange, SourceCapture};
+use models::{
+    status::{
+        materialization::{MaterializationStatus, SourceCaptureStatus},
+        publications::PublicationStatus,
+    },
+    ModelDef, OnIncompatibleSchemaChange, SourceCapture,
+};
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tables::LiveRow;
 
-/// Status of a materialization controller
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
-pub struct MaterializationStatus {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_capture: Option<SourceCaptureStatus>,
-    #[serde(default)]
-    pub publications: PublicationStatus,
-    #[serde(default)]
-    pub activation: ActivationStatus,
-}
-impl MaterializationStatus {
-    pub async fn update<C: ControlPlane>(
-        &mut self,
-        state: &ControllerState,
-        control_plane: &mut C,
-        model: &models::MaterializationDef,
-    ) -> anyhow::Result<Option<NextRun>> {
-        let mut dependencies = Dependencies::resolve(state, control_plane).await?;
+pub async fn update<C: ControlPlane>(
+    status: &mut MaterializationStatus,
+    state: &ControllerState,
+    control_plane: &mut C,
+    model: &models::MaterializationDef,
+) -> anyhow::Result<Option<NextRun>> {
+    let mut dependencies = Dependencies::resolve(state, control_plane).await?;
 
-        // Materializations use a slightly different process for updating based on changes in dependencies,
-        // because we need to handle the schema evolution whenever we publish. The collection schemas could have changed
-        // since the last publish, and we might need to apply `onIncompatibleSchemaChange` actions.
-        let dependency_pub = dependencies
-            .start_update(state, |deleted| {
-                Ok(handle_deleted_dependencies(deleted, model.clone()))
-            })
-            .await?;
-        if dependency_pub.has_pending() {
-            do_publication(&mut self.publications, state, dependency_pub, control_plane).await?;
-            return Ok(Some(NextRun::immediately()));
-        }
-
-        if let Some(model_source_capture) = &model.source_capture {
-            let MaterializationStatus {
-                source_capture,
-                publications,
-                ..
-            } = self;
-            // If the source capture has been deleted, we should have already
-            // removed the models sourceCapture as a part of
-            // `handle_deleted_dependencies`.
-            let Some(capture_model) = dependencies
-                .live
-                .captures
-                .get_by_key(&model_source_capture.capture_name())
-            else {
-                anyhow::bail!("sourceCapture spec was missing from live dependencies");
-            };
-            let source_capture_status = source_capture.get_or_insert_with(Default::default);
-            if source_capture_status
-                .update(publications, state, control_plane, capture_model, model)
-                .await?
-            {
-                // If the sourceCapture update published, then return and schedule another run immediately
-                return Ok(Some(NextRun::immediately()));
-            }
-        } else {
-            self.source_capture.take();
-        }
-
-        let periodic = periodic::start_periodic_publish_update(state, control_plane);
-        if periodic.has_pending() {
-            do_publication(&mut self.publications, state, periodic, control_plane).await?;
-            return Ok(Some(NextRun::immediately()));
-        }
-
-        self.activation.update(state, control_plane).await?;
-
-        // There isn't any call to notify dependents because nothing currently can depend on a materialization.
-
-        Ok(periodic::next_periodic_publish(state))
+    // Materializations use a slightly different process for updating based on changes in dependencies,
+    // because we need to handle the schema evolution whenever we publish. The collection schemas could have changed
+    // since the last publish, and we might need to apply `onIncompatibleSchemaChange` actions.
+    let dependency_pub = dependencies
+        .start_update(state, |deleted| {
+            Ok(handle_deleted_dependencies(deleted, model.clone()))
+        })
+        .await?;
+    if dependency_pub.has_pending() {
+        do_publication(
+            &mut status.publications,
+            state,
+            dependency_pub,
+            control_plane,
+        )
+        .await?;
+        return Ok(Some(NextRun::immediately()));
     }
+
+    if let Some(model_source_capture) = &model.source_capture {
+        let MaterializationStatus {
+            source_capture,
+            publications,
+            ..
+        } = status;
+        // If the source capture has been deleted, we should have already
+        // removed the models sourceCapture as a part of
+        // `handle_deleted_dependencies`.
+        let Some(capture_model) = dependencies
+            .live
+            .captures
+            .get_by_key(&model_source_capture.capture_name())
+        else {
+            anyhow::bail!("sourceCapture spec was missing from live dependencies");
+        };
+        let source_capture_status = source_capture.get_or_insert_with(Default::default);
+        if update_source_capture(
+            source_capture_status,
+            publications,
+            state,
+            control_plane,
+            capture_model,
+            model,
+        )
+        .await?
+        {
+            // If the sourceCapture update published, then return and schedule another run immediately
+            return Ok(Some(NextRun::immediately()));
+        }
+    } else {
+        status.source_capture.take();
+    }
+
+    let periodic = periodic::start_periodic_publish_update(state, control_plane);
+    if periodic.has_pending() {
+        do_publication(&mut status.publications, state, periodic, control_plane).await?;
+        return Ok(Some(NextRun::immediately()));
+    }
+
+    publication_status::update_activation(&mut status.activation, state, control_plane).await?;
+
+    // There isn't any call to notify dependents because nothing currently can depend on a materialization.
+
+    Ok(periodic::next_periodic_publish(state))
 }
 
 /// Publishes, and handles any incompatibleCollections by automatically
@@ -281,97 +285,73 @@ enum Action {
     Removed(Vec<String>),
 }
 
-/// Status information about the `sourceCapture`
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
-pub struct SourceCaptureStatus {
-    /// Whether the materialization bindings are up-to-date with respect to
-    /// the `sourceCapture` bindings. In normal operation, this should always
-    /// be `true`. Otherwise, there will be a controller `error` and the
-    /// publication status will contain details of why the update failed.
-    #[serde(default)]
-    pub up_to_date: bool,
-    /// If `up_to_date` is `false`, then this will contain the set of
-    /// `sourceCapture` collections that need to be added. This is provided
-    /// simply to aid in debugging in case the publication to add the bindings
-    /// fails.
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub add_bindings: BTreeSet<models::Collection>,
-}
+/// Adds bindings to match the sourceCapture if necessary, and returns a boolean indicating
+/// whether the materialization was published. If `true`, then the controller should immediately
+/// return and schedule a subsequent run.
+pub async fn update_source_capture<C: ControlPlane>(
+    status: &mut SourceCaptureStatus,
+    pub_status: &mut PublicationStatus,
+    state: &ControllerState,
+    control_plane: &mut C,
+    live_capture: &tables::LiveCapture,
+    model: &models::MaterializationDef,
+) -> anyhow::Result<bool> {
+    let capture_spec = live_capture.model();
 
-impl SourceCaptureStatus {
-    /// Adds bindings to match the sourceCapture if necessary, and returns a boolean indicating
-    /// whether the materialization was published. If `true`, then the controller should immediately
-    /// return and schedule a subsequent run.
-    pub async fn update<C: ControlPlane>(
-        &mut self,
-        pub_status: &mut PublicationStatus,
-        state: &ControllerState,
-        control_plane: &mut C,
-        live_capture: &tables::LiveCapture,
-        model: &models::MaterializationDef,
-    ) -> anyhow::Result<bool> {
-        let capture_spec = live_capture.model();
-
-        // Record the bindings that we plan to add. This will remain if we
-        // return an error while trying to add them, so that we can see the new
-        // binginds in the status if something goes wrong. If all goes well,
-        // we'll clear this at the end.
-        self.add_bindings = get_bindings_to_add(capture_spec, model);
-        self.up_to_date = self.add_bindings.is_empty();
-        if self.up_to_date {
-            return Ok(false);
-        }
-
-        // We need to update the materialization model to add the bindings. This
-        // requires the `resource_spec_schema` of the connector so that we can
-        // generate valid `resource`s for the new bindings.
-        let models::MaterializationEndpoint::Connector(config) = &model.endpoint else {
-            anyhow::bail!(
-                "unexpected materialization endpoint type, only image connectors are supported"
-            );
-        };
-        let connector_spec = control_plane
-            .get_connector_spec(config.image.clone())
-            .await
-            .context("failed to fetch connector spec")?;
-        let resource_spec_pointers = crate::resource_configs::pointer_for_schema(
-            connector_spec.resource_config_schema.get(),
-        )?;
-
-        // Avoid generating a detail with hundreds of collection names
-        let detail = if self.add_bindings.len() > 10 {
-            format!(
-                "adding {} bindings to match the sourceCapture",
-                self.add_bindings.len()
-            )
-        } else {
-            format!(
-                "adding binding(s) to match the sourceCapture: [{}]",
-                self.add_bindings.iter().join(", ")
-            )
-        };
-
-        let mut new_model = model.clone();
-        update_linked_materialization(
-            model.source_capture.as_ref().unwrap(),
-            resource_spec_pointers,
-            &self.add_bindings,
-            &mut new_model,
-        )?;
-        let pending_pub = PendingPublication::update_model(
-            &state.catalog_name,
-            state.last_pub_id,
-            new_model,
-            detail,
-        );
-        do_publication(pub_status, state, pending_pub, control_plane)
-            .await
-            .context("publishing changes from sourceCapture")?;
-        self.add_bindings.clear();
-        self.up_to_date = true;
-
-        Ok(true)
+    // Record the bindings that we plan to add. This will remain if we
+    // return an error while trying to add them, so that we can see the new
+    // binginds in the status if something goes wrong. If all goes well,
+    // we'll clear this at the end.
+    status.add_bindings = get_bindings_to_add(capture_spec, model);
+    status.up_to_date = status.add_bindings.is_empty();
+    if status.up_to_date {
+        return Ok(false);
     }
+
+    // We need to update the materialization model to add the bindings. This
+    // requires the `resource_spec_schema` of the connector so that we can
+    // generate valid `resource`s for the new bindings.
+    let models::MaterializationEndpoint::Connector(config) = &model.endpoint else {
+        anyhow::bail!(
+            "unexpected materialization endpoint type, only image connectors are supported"
+        );
+    };
+    let connector_spec = control_plane
+        .get_connector_spec(config.image.clone())
+        .await
+        .context("failed to fetch connector spec")?;
+    let resource_spec_pointers =
+        crate::resource_configs::pointer_for_schema(connector_spec.resource_config_schema.get())?;
+
+    // Avoid generating a detail with hundreds of collection names
+    let detail = if status.add_bindings.len() > 10 {
+        format!(
+            "adding {} bindings to match the sourceCapture",
+            status.add_bindings.len()
+        )
+    } else {
+        format!(
+            "adding binding(s) to match the sourceCapture: [{}]",
+            status.add_bindings.iter().join(", ")
+        )
+    };
+
+    let mut new_model = model.clone();
+    update_linked_materialization(
+        model.source_capture.as_ref().unwrap(),
+        resource_spec_pointers,
+        &status.add_bindings,
+        &mut new_model,
+    )?;
+    let pending_pub =
+        PendingPublication::update_model(&state.catalog_name, state.last_pub_id, new_model, detail);
+    do_publication(pub_status, state, pending_pub, control_plane)
+        .await
+        .context("publishing changes from sourceCapture")?;
+    status.add_bindings.clear();
+    status.up_to_date = true;
+
+    Ok(true)
 }
 
 fn get_bindings_to_add(

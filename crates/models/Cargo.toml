@@ -11,7 +11,9 @@ license.workspace = true
 [dependencies]
 # NOTE(johnny): DO NOT add proto-flow or proto-gazette to this crate.
 
+anyhow = { workspace = true }
 caseless = { workspace = true }
+chrono = { workspace = true }
 humantime-serde = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
