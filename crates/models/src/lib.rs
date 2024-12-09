@@ -9,16 +9,21 @@ mod connector;
 mod derivation;
 mod derive_sqlite;
 mod derive_typescript;
+pub mod discovers;
+pub mod draft_error;
+pub mod evolutions;
 mod id;
 mod journals;
 mod labels;
 mod materializations;
+pub mod publications;
 mod raw_value;
 mod references;
 mod schemas;
 mod shards;
 mod source;
 mod source_capture;
+pub mod status;
 mod tests;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
@@ -49,6 +54,11 @@ pub use shards::ShardTemplate;
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceCapture, SourceCaptureDef, SourceCaptureSchemaMode};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
+
+/// Uniquely identifies a resource in an external system that can be either
+/// captured from or materialized into. For example, a `[schema, table]` in
+/// a database.
+pub type ResourcePath = Vec<String>;
 
 /// ModelDef is the common trait of top-level Flow specifications.
 pub trait ModelDef:
@@ -275,6 +285,14 @@ fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
     serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "pattern": "^\\d+(s|m|h)$"
+    }))
+    .unwrap()
+}
+
+fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": ["string"],
+        "format": "date-time",
     }))
     .unwrap()
 }
