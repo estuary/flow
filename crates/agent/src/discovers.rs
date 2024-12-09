@@ -1,8 +1,9 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use crate::proxy_connectors::DiscoverConnectors;
 
 use anyhow::Context;
+use models::discovers::{Changed, Changes};
 use models::split_image_tag;
 use proto_flow::{capture, flow::capture_spec};
 use sqlx::{types::Uuid, PgPool};
@@ -32,23 +33,6 @@ pub struct Discover {
     /// long as they don't conflict with the discover results.
     pub draft: tables::DraftCatalog,
 }
-
-/// Identifies a resource that can be captured from. This is determined by using
-/// the resource path pointers to extract the path from each `resource` spec in
-/// either the capture model or the discovered response.
-pub type ResourcePath = Vec<String>;
-
-/// Represents a capture binding that was added, removed, or modified by a
-/// discover.
-#[derive(Debug, PartialEq, Clone)]
-pub struct Changed {
-    /// The name of the target collection for the binding.
-    pub target: models::Collection,
-    /// Whether the binding is disabled.
-    pub disable: bool,
-}
-/// Represents a set of changes resulting from a discover.
-pub type Changes = BTreeMap<ResourcePath, Changed>;
 
 #[derive(Debug)]
 pub struct DiscoverOutput {

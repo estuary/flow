@@ -147,7 +147,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
                 .draft
                 .errors
                 .iter()
-                .map(draft::Error::from_tables_error)
+                .map(tables::Error::to_draft_error)
                 .collect();
             crate::draft::insert_errors(row.draft_id, draft_errors, txn).await?;
             return Ok((row.id, JobStatus::DiscoverFailed));

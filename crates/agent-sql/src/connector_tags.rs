@@ -3,7 +3,7 @@ use super::{Id, TextJson as Json};
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sqlx::{postgres::types::PgInterval, types::Uuid, FromRow};
+use sqlx::{types::Uuid, FromRow};
 
 /// Row is the dequeued task shape of a tag connector operation. Note that `connector_tags` jobs
 /// are expected to all be `background` jobs, so we don't bother to include that field in this struct.

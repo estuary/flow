@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{draft, logs};
+use super::logs;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use sqlx::types::Uuid;
@@ -9,9 +9,9 @@ use tables::LiveRow;
 pub mod builds;
 mod finalize;
 mod handler;
+mod incompatible_collections;
 mod initialize;
 mod retry;
-mod status;
 
 mod quotas;
 pub mod specs;
@@ -19,10 +19,11 @@ pub mod specs;
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
 pub use self::initialize::{ExpandDraft, Initialize, NoExpansion, UpdateInferredSchemas};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
-pub use self::status::{
-    get_incompatible_collections, AffectedConsumer, IncompatibleCollection, JobStatus, LockFailure,
-    ReCreateReason, RejectedField,
+pub use models::publications::{
+    AffectedConsumer, IncompatibleCollection, JobStatus, LockFailure, ReCreateReason, RejectedField,
 };
+
+use models::draft_error;
 
 /// Represents a desire to publish the given `draft`, along with associated metadata and behavior
 /// for handling draft initialization, build finalizing, and retrying failures.
@@ -118,19 +119,14 @@ impl PublicationResult {
         }
     }
 
-    pub fn draft_errors(&self) -> Vec<draft::Error> {
+    pub fn draft_errors(&self) -> Vec<draft_error::Error> {
         self.draft
             .errors
             .iter()
-            .map(draft::Error::from_tables_error)
-            .chain(self.live.errors.iter().map(draft::Error::from_tables_error))
-            .chain(
-                self.built
-                    .errors
-                    .iter()
-                    .map(draft::Error::from_tables_error),
-            )
-            .chain(self.test_errors.iter().map(draft::Error::from_tables_error))
+            .map(tables::Error::to_draft_error)
+            .chain(self.live.errors.iter().map(tables::Error::to_draft_error))
+            .chain(self.built.errors.iter().map(tables::Error::to_draft_error))
+            .chain(self.test_errors.iter().map(tables::Error::to_draft_error))
             .collect()
     }
 }
@@ -175,7 +171,8 @@ impl UncommittedBuild {
             // get_incompatible_collections returns those that were rejected by materializations,
             // whereas the ones in `incompatible_collections` were rejected due to key or logical
             // parititon changes.
-            let mut naughty_collections = status::get_incompatible_collections(&self.output.built);
+            let mut naughty_collections =
+                incompatible_collections::get_incompatible_collections(&self.output.built);
             naughty_collections.extend(self.incompatible_collections.drain(..));
             JobStatus::build_failed(naughty_collections)
         } else {

@@ -10,17 +10,11 @@ pub(crate) mod publication_status;
 use crate::controlplane::ControlPlane;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use models::{AnySpec, CatalogType, Id};
+use models::{status::Status, AnySpec, CatalogType, Id};
 use proto_flow::{flow, AnyBuiltSpec};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sqlx::types::Uuid;
 use std::fmt::Debug;
-
-use self::{
-    capture::CaptureStatus, catalog_test::TestStatus, collection::CollectionStatus,
-    materialization::MaterializationStatus,
-};
 
 pub use handler::ControllerHandler;
 
@@ -314,19 +308,6 @@ impl NextRun {
     }
 }
 
-/// Represents the internal state of a controller.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
-#[serde(tag = "type")]
-pub enum Status {
-    Capture(CaptureStatus),
-    Collection(CollectionStatus),
-    Materialization(MaterializationStatus),
-    Test(TestStatus),
-    #[schemars(skip)]
-    #[serde(other, untagged)]
-    Uninitialized,
-}
-
 /// Returns a backoff after failing to activate or delete shards/journals in the
 /// data-plane. Failures to do so should be re-tried indefinitely.
 fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
@@ -338,184 +319,68 @@ fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
     NextRun::after_minutes(after_minutes)
 }
 
-impl Status {
-    pub fn json_schema() -> schemars::schema::RootSchema {
-        let settings = schemars::gen::SchemaSettings::draft2019_09();
-        //settings.option_add_null_type = false;
-        //settings.inline_subschemas = true;
-        let generator = schemars::gen::SchemaGenerator::new(settings);
-        generator.into_root_schema_for::<Status>()
-    }
+/// The main logic of a controller run is performed as an update of the status.
+async fn controller_update<C: ControlPlane>(
+    status: &mut Status,
+    state: &ControllerState,
+    control_plane: &mut C,
+) -> anyhow::Result<Option<NextRun>> {
+    let Some(live_spec) = &state.live_spec else {
+        // There's no need to delete tests and nothing depends on them.
+        if let Some(catalog_type) = status.catalog_type().filter(|ct| *ct != CatalogType::Test) {
+            // The live spec has been deleted. Delete the data plane
+            // resources, and then notify dependent controllers, to make
+            // sure that they can respond. The controller job row will be
+            // deleted automatically after we return.
+            crate::timeout(
+                std::time::Duration::from_secs(60),
+                control_plane.data_plane_delete(
+                    state.catalog_name.clone(),
+                    catalog_type,
+                    state.data_plane_id,
+                ),
+                || "Timeout while deleting from data-plane",
+            )
+            .await
+            .context("failed to delete from data-plane")
+            .with_retry(backoff_data_plane_activate(state.failures))?;
 
-    fn catalog_type(&self) -> Option<CatalogType> {
-        match self {
-            Status::Capture(_) => Some(CatalogType::Capture),
-            Status::Collection(_) => Some(CatalogType::Collection),
-            Status::Materialization(_) => Some(CatalogType::Materialization),
-            Status::Test(_) => Some(CatalogType::Test),
-            Status::Uninitialized => None,
-        }
-    }
-
-    /// The main logic of a controller run is performed as an update of the status.
-    async fn update<C: ControlPlane>(
-        &mut self,
-        state: &ControllerState,
-        control_plane: &mut C,
-    ) -> anyhow::Result<Option<NextRun>> {
-        let Some(live_spec) = &state.live_spec else {
-            // There's no need to delete tests and nothing depends on them.
-            if let Some(catalog_type) = self.catalog_type().filter(|ct| *ct != CatalogType::Test) {
-                // The live spec has been deleted. Delete the data plane
-                // resources, and then notify dependent controllers, to make
-                // sure that they can respond. The controller job row will be
-                // deleted automatically after we return.
-                crate::timeout(
-                    std::time::Duration::from_secs(60),
-                    control_plane.data_plane_delete(
-                        state.catalog_name.clone(),
-                        catalog_type,
-                        state.data_plane_id,
-                    ),
-                    || "Timeout while deleting from data-plane",
-                )
+            control_plane
+                .notify_dependents(state.catalog_name.clone())
                 .await
-                .context("failed to delete from data-plane")
-                .with_retry(backoff_data_plane_activate(state.failures))?;
-
-                control_plane
-                    .notify_dependents(state.catalog_name.clone())
-                    .await
-                    .expect("failed to update dependents");
-            } else {
-                tracing::info!("skipping data-plane deletion because there is no spec_type");
-            }
-            return Ok(None);
-        };
-
-        let next_run = match live_spec {
-            AnySpec::Capture(c) => {
-                let capture_status = self.as_capture_mut()?;
-                capture_status.update(state, control_plane, c).await?
-            }
-            AnySpec::Collection(c) => {
-                let collection_status = self.as_collection_mut()?;
-                collection_status.update(state, control_plane, c).await?
-            }
-            AnySpec::Materialization(m) => {
-                let materialization_status = self.as_materialization_mut()?;
-
-                materialization_status
-                    .update(state, control_plane, m)
-                    .await?
-            }
-            AnySpec::Test(t) => {
-                let test_status = self.as_test_mut()?;
-                test_status.update(state, control_plane, t).await?
-            }
-        };
-        tracing::info!(?next_run, "finished controller update");
-        Ok(next_run)
-    }
-
-    pub fn is_uninitialized(&self) -> bool {
-        matches!(self, Status::Uninitialized)
-    }
-
-    fn as_capture_mut(&mut self) -> anyhow::Result<&mut CaptureStatus> {
-        if self.is_uninitialized() {
-            *self = Status::Capture(Default::default());
+                .expect("failed to update dependents");
+        } else {
+            tracing::info!("skipping data-plane deletion because there is no spec_type");
         }
-        match self {
-            Status::Capture(c) => Ok(c),
-            _ => anyhow::bail!("expected capture status"),
-        }
-    }
+        return Ok(None);
+    };
 
-    fn as_collection_mut(&mut self) -> anyhow::Result<&mut CollectionStatus> {
-        if self.is_uninitialized() {
-            *self = Status::Collection(Default::default());
+    let next_run = match live_spec {
+        AnySpec::Capture(c) => {
+            let capture_status = status.as_capture_mut()?;
+            capture::update(capture_status, state, control_plane, c).await?
         }
-        match self {
-            Status::Collection(c) => Ok(c),
-            _ => anyhow::bail!("expected collection status"),
+        AnySpec::Collection(c) => {
+            let collection_status = status.as_collection_mut()?;
+            collection::update(collection_status, state, control_plane, c).await?
         }
-    }
+        AnySpec::Materialization(m) => {
+            let materialization_status = status.as_materialization_mut()?;
 
-    fn as_materialization_mut(&mut self) -> anyhow::Result<&mut MaterializationStatus> {
-        if self.is_uninitialized() {
-            *self = Status::Materialization(Default::default());
+            materialization::update(materialization_status, state, control_plane, m).await?
         }
-        match self {
-            Status::Materialization(m) => Ok(m),
-            _ => anyhow::bail!("expected materialization status"),
+        AnySpec::Test(t) => {
+            let test_status = status.as_test_mut()?;
+            catalog_test::update(test_status, state, control_plane, t).await?
         }
-    }
-
-    fn as_test_mut(&mut self) -> anyhow::Result<&mut TestStatus> {
-        if self.is_uninitialized() {
-            *self = Status::Test(Default::default());
-        }
-        match self {
-            Status::Test(t) => Ok(t),
-            _ => anyhow::bail!("expected test status"),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn unwrap_capture(&self) -> &CaptureStatus {
-        match self {
-            Status::Capture(c) => c,
-            _ => panic!("expected capture status"),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn unwrap_collection(&self) -> &CollectionStatus {
-        match self {
-            Status::Collection(c) => c,
-            _ => panic!("expected collection status"),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn unwrap_materialization(&self) -> &MaterializationStatus {
-        match self {
-            Status::Materialization(m) => m,
-            _ => panic!("expected materialization status"),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn unwrap_test(&self) -> &TestStatus {
-        match self {
-            Status::Test(t) => t,
-            _ => panic!("expected test status"),
-        }
-    }
-}
-
-fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
-        "type": "string",
-        "format": "date-time",
-    }))
-    .unwrap()
+    };
+    tracing::info!(?next_run, "finished controller update");
+    Ok(next_run)
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::{BTreeSet, VecDeque};
-
-    use chrono::TimeZone;
-
     use super::*;
-    use crate::controllers::materialization::SourceCaptureStatus;
-    use crate::controllers::publication_status::{
-        ActivationStatus, PublicationInfo, PublicationStatus,
-    };
-    use crate::draft::Error;
-    use crate::publications::{AffectedConsumer, IncompatibleCollection, JobStatus, RejectedField};
 
     #[test]
     fn test_next_run_after() {
@@ -543,81 +408,5 @@ mod test {
         let next = NextRun::after(then).with_jitter_percent(0).compute_time();
         let diff = next - then;
         assert_eq!(0, diff.abs().num_seconds());
-    }
-
-    #[test]
-    fn test_status_round_trip_serde() {
-        let mut add_bindings = BTreeSet::new();
-        add_bindings.insert(models::Collection::new("snails/shells"));
-
-        let pub_status = PublicationInfo {
-            id: Id::new([4, 3, 2, 1, 1, 2, 3, 4]),
-            created: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
-            completed: Some(Utc.with_ymd_and_hms(2024, 5, 30, 9, 10, 11).unwrap()),
-            detail: Some("some detail".to_string()),
-            result: Some(JobStatus::build_failed(vec![IncompatibleCollection {
-                collection: "snails/water".to_string(),
-                requires_recreation: Vec::new(),
-                affected_materializations: vec![AffectedConsumer {
-                    name: "snails/materialize".to_string(),
-                    fields: vec![RejectedField {
-                        field: "a_field".to_string(),
-                        reason: "do not like".to_string(),
-                    }],
-                    resource_path: vec!["water".to_string()],
-                }],
-            }])),
-            errors: vec![Error {
-                catalog_name: "snails/shells".to_string(),
-                scope: Some("flow://materializations/snails/shells".to_string()),
-                detail: "a_field simply cannot be tolerated".to_string(),
-            }],
-            count: 1,
-            is_touch: false,
-        };
-        let mut history = VecDeque::new();
-        history.push_front(pub_status);
-
-        let status = Status::Materialization(MaterializationStatus {
-            activation: ActivationStatus {
-                last_activated: Id::new([1, 2, 3, 4, 4, 3, 2, 1]),
-            },
-            source_capture: Some(SourceCaptureStatus {
-                up_to_date: false,
-                add_bindings,
-            }),
-            publications: PublicationStatus {
-                max_observed_pub_id: Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
-                history,
-                dependency_hash: Some("abc12345".to_string()),
-            },
-        });
-
-        let as_json = serde_json::to_string_pretty(&status).expect("failed to serialize status");
-        let round_tripped: Status =
-            serde_json::from_str(&as_json).expect("failed to deserialize status");
-
-        #[derive(Debug)]
-        #[allow(unused)]
-        struct StatusSnapshot {
-            starting: Status,
-            json: String,
-            parsed: Status,
-        }
-
-        insta::assert_debug_snapshot!(
-            "materialization-status-round-trip",
-            StatusSnapshot {
-                starting: status,
-                json: as_json,
-                parsed: round_tripped,
-            }
-        );
-    }
-
-    #[test]
-    fn test_status_json_schema() {
-        let schema = serde_json::to_value(Status::json_schema()).unwrap();
-        insta::assert_json_snapshot!(schema);
     }
 }

@@ -1,8 +1,8 @@
 use crate::{
-    controllers::capture::DiscoverChange,
     integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
     publications,
 };
+use models::status::capture::DiscoverChange;
 use proto_flow::capture::response::{discovered::Binding, Discovered};
 use serde_json::json;
 

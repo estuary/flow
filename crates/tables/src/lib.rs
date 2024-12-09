@@ -363,6 +363,20 @@ tables!(
     }
 );
 
+impl Error {
+    pub fn to_draft_error(&self) -> models::draft_error::Error {
+        let catalog_name = parse_synthetic_scope(&self.scope)
+            .map(|(_, name)| name)
+            .unwrap_or_default();
+        models::draft_error::Error {
+            catalog_name,
+            scope: Some(self.scope.to_string()),
+            // use alternate to print chained contexts
+            detail: format!("{:#}", self.error),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct GrantRef<'a> {
     subject_role: &'a str,

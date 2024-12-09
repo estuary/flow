@@ -1,7 +1,7 @@
 use crate::discovers::Changed;
 
-use super::{Changes, ResourcePath};
 use anyhow::Context;
+use models::{discovers::Changes, ResourcePath};
 use proto_flow::capture::{self, response::discovered};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

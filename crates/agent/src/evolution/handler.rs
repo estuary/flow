@@ -133,7 +133,7 @@ pub async fn process_row(
             .draft
             .errors
             .iter()
-            .map(crate::draft::Error::from_tables_error)
+            .map(tables::Error::to_draft_error)
             .collect::<Vec<_>>();
         crate::draft::insert_errors(draft_id, errors, txn).await?;
         let error = output.draft.errors.iter().map(|e| &e.error).join(", ");
