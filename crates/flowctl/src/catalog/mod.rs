@@ -1,6 +1,7 @@
 mod delete;
 mod publish;
 mod pull_specs;
+mod status;
 mod test;
 
 use crate::{
@@ -75,6 +76,15 @@ pub enum Command {
     /// Once in your draft, use `draft develop` and `draft author` to
     /// develop and author updates to the specification.
     Draft(Draft),
+
+    /// Print status information for a given task or collection (beta).
+    ///
+    /// Note: This command is still in beta and the output is likely to change in the future.
+    ///
+    /// The status shows the current state of the live spec, as known to the
+    /// control plane. This does not yet include _shard_ status from the data
+    /// plane, so not all failures will be visible here.
+    Status(status::Status),
 }
 
 /// Common selection criteria based on the spec name.
@@ -216,6 +226,7 @@ impl Catalog {
             Command::Test(source) => test::do_test(ctx, source).await,
             Command::History(history) => do_history(ctx, history).await,
             Command::Draft(draft) => do_draft(ctx, draft).await,
+            Command::Status(status) => status::do_controller_status(ctx, status).await,
         }
     }
 }
