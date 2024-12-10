@@ -15,6 +15,14 @@ license = "BSL"
 
 [workspace.dependencies]
 addr = { version = "0.15.4", default-features = false, features = ["std"] }
+aide = { version = "0.13", features = [
+    "axum",
+    "macros",
+    "scalar",
+    "redoc",
+    "axum-extra",
+    "axum-extra-query",
+] }
 anyhow = "1.0"
 async-compression = { version = "0.3", features = [
     "futures-io",
@@ -227,10 +235,11 @@ pbjson-build = "0.7"
 prost-build = "0.13"
 tonic-build = "0.12"
 
-warp = "0.3.3"                                                # TODO(johnny) remove me in favor of axum
+warp = "0.3.3" # TODO(johnny) remove me in favor of axum
+# Used for the agent http server
 axum = { version = "0.7", features = ["macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-extra = { version = "0.9", features = ["typed-header", "query"] }
 
 [profile.release]
 incremental = true

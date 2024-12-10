@@ -1,47 +1,7 @@
-use crate::publications::LockFailure;
-
 use super::Id;
 use agent_sql::{drafts as drafts_sql, CatalogType};
 use anyhow::Context;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
-pub struct Error {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub catalog_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
-    pub detail: String,
-}
-
-impl Error {
-    pub fn from_tables_error(err: &tables::Error) -> Self {
-        let catalog_name = tables::parse_synthetic_scope(&err.scope)
-            .map(|(_, name)| name)
-            .unwrap_or_default();
-        Error {
-            catalog_name,
-            scope: Some(err.scope.to_string()),
-            // use alternate to print chained contexts
-            detail: format!("{:#}", err.error),
-        }
-    }
-}
-
-impl From<LockFailure> for Error {
-    fn from(err: LockFailure) -> Self {
-        let detail = format!(
-            "the expectPubId of spec {:?} {:?} did not match that of the live spec {:?}",
-            err.catalog_name, err.expected, err.actual
-        );
-        Error {
-            catalog_name: err.catalog_name,
-            detail,
-            scope: None,
-        }
-    }
-}
+use models::draft_error::Error;
 
 pub async fn load_draft(
     draft_id: Id,
