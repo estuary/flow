@@ -13,8 +13,7 @@ Universal Analytics is supported by a [separate connector](./google-analytics.md
 It’s available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-data-api:dev`](https://ghcr.io/estuary/source-google-analytics-data-api:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
-You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-analytics-data-api),
-but keep in mind that the two versions may be significantly different.
+
 
 ## Supported data resources
 
