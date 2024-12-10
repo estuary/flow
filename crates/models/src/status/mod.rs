@@ -4,9 +4,50 @@ pub mod collection;
 pub mod materialization;
 pub mod publications;
 
-use crate::CatalogType;
+use crate::{datetime_schema, is_false, option_datetime_schema, CatalogType, Id};
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+/// Response type for the status endpoint
+#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct StatusResponse {
+    /// The name of the live spec
+    pub catalog_name: String,
+    /// The id of the live spec
+    pub live_spec_id: Id,
+    /// The type of the live spec
+    pub spec_type: Option<CatalogType>,
+    /// Whether the shards are disabled. Only pertinent to tasks. Omitted if false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disabled: bool,
+    /// The id of the last successful publication that modified the spec.
+    pub last_pub_id: Id,
+    /// The id of the last successful publication of the spec, regardless of
+    /// whether the spec was modified. This value can be compared against the
+    /// value of `/controller_status/activations/last_activated` in order to
+    /// determine whether the most recent build has been activated in the data
+    /// plane.
+    pub last_build_id: Id,
+    /// Time at which the controller is next scheduled to run. Or null if there
+    /// is no run scheduled.
+    #[schemars(schema_with = "option_datetime_schema")]
+    pub controller_next_run: Option<DateTime<Utc>>,
+    /// Time of the last publication that affected the live spec.
+    #[schemars(schema_with = "datetime_schema")]
+    pub live_spec_updated_at: DateTime<Utc>,
+    /// Time of the last controller run for this spec.
+    #[schemars(schema_with = "datetime_schema")]
+    pub controller_updated_at: DateTime<Utc>,
+    /// The controller status json.
+    pub status: Status,
+    /// Error from the most recent controller run, or `null` if the run was
+    /// successful.
+    pub controller_error: Option<String>,
+    /// The number of consecutive failures of the controller. Resets to 0 after
+    /// any successful run.
+    pub controller_failures: i32,
+}
 
 /// Represents the internal state of a controller.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -16,20 +57,14 @@ pub enum Status {
     Collection(collection::CollectionStatus),
     Materialization(materialization::MaterializationStatus),
     Test(catalog_test::TestStatus),
-    #[schemars(skip)]
     #[serde(other, untagged)]
     Uninitialized,
 }
 
-impl Status {
-    pub fn json_schema() -> schemars::schema::RootSchema {
-        let settings = schemars::gen::SchemaSettings::draft2019_09();
-        //settings.option_add_null_type = false;
-        //settings.inline_subschemas = true;
-        let generator = schemars::gen::SchemaGenerator::new(settings);
-        generator.into_root_schema_for::<Status>()
-    }
+// Status types are serialized as plain json columns.
+crate::sqlx_json::sqlx_json!(Status);
 
+impl Status {
     pub fn catalog_type(&self) -> Option<CatalogType> {
         match self {
             Status::Capture(_) => Some(CatalogType::Capture),
@@ -200,7 +235,10 @@ mod test {
 
     #[test]
     fn test_status_json_schema() {
-        let schema = serde_json::to_value(Status::json_schema()).unwrap();
+        let settings = schemars::gen::SchemaSettings::draft2019_09();
+        let generator = schemars::gen::SchemaGenerator::new(settings);
+        let schema_obj = generator.into_root_schema_for::<Status>();
+        let schema = serde_json::to_value(&schema_obj).unwrap();
         insta::assert_json_snapshot!(schema);
     }
 }
