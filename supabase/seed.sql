@@ -11,30 +11,8 @@ insert into auth.users (id, email) values
   ('44444444-4444-4444-4444-444444444444', 'dave@example.com')
 ;
 
--- Tweak auth.users to conform with what a local Supabase install creates
--- if you perform the email "Sign Up" flow. In development mode it
--- doesn't actually send an email, and immediately creates a record like this:
-update auth.users set
-  "role" = 'authenticated',
-  aud = 'authenticated',
-  confirmation_token = '',
-  created_at = now(),
-  email_change = '',
-  email_change_confirm_status = 0,
-  email_change_token_new = '',
-  email_confirmed_at = now(),
-  encrypted_password = '$2a$10$vQCyRoGamfEBXOR05iNgseK.ukEUPV52W1B95Qt6Tb3kN4N32odji', -- "password"
-  instance_id = '00000000-0000-0000-0000-000000000000',
-  is_super_admin = false,
-  last_sign_in_at = now(),
-  raw_app_meta_data = '{"provider": "email", "providers": ["email"]}',
-  raw_user_meta_data = '{}',
-  recovery_token = '',
-  updated_at = now()
-;
-
 -- Public directive which allows a new user to provision a new tenant.
-insert into directives (catalog_prefix, spec, token) values
+insert into public.directives (catalog_prefix, spec, token) values
   ('ops/', '{"type":"clickToAccept"}', 'd4a37dd7-1bf5-40e3-b715-60c4edd0f6dc'),
   ('ops/', '{"type":"betaOnboard"}', '453e00cd-e12a-4ce5-b12d-3837aa385751'),
   ('ops/', '{"type":"acceptDemoTenant"}', '14c0beec-422f-4e95-94f1-567107b26840');
@@ -43,12 +21,12 @@ insert into directives (catalog_prefix, spec, token) values
 with accounts_root_user as (
   select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
 )
-insert into applied_directives (directive_id, user_id, user_claims)
+insert into public.applied_directives (directive_id, user_id, user_claims)
   select d.id, a.accounts_id, '{"requestedTenant":"ops.us-central1.v1"}'
-    from directives d, accounts_root_user a
+    from public.directives d, accounts_root_user a
     where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
 
-insert into role_grants (subject_role, object_role, capability) values
+insert into public.role_grants (subject_role, object_role, capability) values
   -- L1 roll-ups can read task logs & stats.
   ('ops/rollups/L1/', 'ops/tasks/', 'read'),
   -- L1 roll-ups tasks can write to themselves.
@@ -60,7 +38,7 @@ insert into role_grants (subject_role, object_role, capability) values
   ;
 
 -- Ops collections are directed to estuary-flow-poc and not estuary-trial for $reasons.
-insert into storage_mappings (catalog_prefix, spec) values
+insert into public.storage_mappings (catalog_prefix, spec) values
   ('ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc", "prefix": "collection-data/"}]}'),
   ('recovery/ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc"}]}'),
   -- For access within local stack contexts:
@@ -69,7 +47,7 @@ insert into storage_mappings (catalog_prefix, spec) values
   ;
 
 -- Give support@estuary.dev the admin role for `ops/` and `ops.us-central1.v1/` management.
-insert into user_grants (user_id, object_role, capability) values
+insert into public.user_grants (user_id, object_role, capability) values
   -- TODO: estuary_support/ is currently required for control-plane automation.
   -- We should instead explicitly check for `system_user_id`.
   ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'estuary_support/', 'admin'),
@@ -83,40 +61,51 @@ insert into user_grants (user_id, object_role, capability) values
 -- production connectors, because each is pulled onto your dev machine.
 do $$
 declare
-  connector_id flowid;
+  connector_id public.flowid;
 begin
 
-  insert into connectors (image_name, title, short_description, logo_url, external_url) values (
+  insert into public.connectors (image_name, title, short_description, logo_url, external_url, recommended) values (
     'ghcr.io/estuary/source-hello-world',
     json_build_object('en-US','Hello World'),
     json_build_object('en-US','A flood of greetings'),
     json_build_object('en-US','https://www.estuary.dev/wp-content/uploads/2022/05/Group-4-300x300.png'),
-    'https://estuary.dev'
+    'https://estuary.dev',
+    true
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
+  insert into public.connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
-  insert into connectors (image_name, title, short_description, logo_url, external_url) values (
+  insert into public.connectors (image_name, title, short_description, logo_url, external_url, recommended) values (
     'ghcr.io/estuary/source-postgres',
     json_build_object('en-US','PostgreSQL'),
     json_build_object('en-US','Capture PostgreSQL tables into collections'),
     json_build_object('en-US','https://www.postgresql.org/media/img/about/press/elephant.png'),
-    'https://postgresql.org'
+    'https://postgresql.org',
+    true
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
+  insert into public.connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
-  insert into connectors (image_name, title, short_description, logo_url, external_url) values (
+  insert into public.connectors (image_name, title, short_description, logo_url, external_url, recommended) values (
     'ghcr.io/estuary/materialize-postgres',
     json_build_object('en-US','PostgreSQL'),
     json_build_object('en-US','Materialize collections into PostgreSQL'),
     json_build_object('en-US','https://www.postgresql.org/media/img/about/press/elephant.png'),
-    'https://postgresql.org'
+    'https://postgresql.org',
+    true
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
+  insert into public.connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
 end;
 $$ language plpgsql;
+
+-- TODO(johnny): Support deprecated gateway_auth_token() RPC to be removed:
+insert into internal.gateway_auth_keys (secret_key, detail) values (
+  'supersecret', 'Used for development only. This value will be changed manually when deployed to production.'
+);
+insert into internal.gateway_endpoints (name, url, detail) values (
+  'local', 'https://localhost:28318/', 'Used for development only. This value will be changed manually when deployed to production.'
+);
 
 commit;

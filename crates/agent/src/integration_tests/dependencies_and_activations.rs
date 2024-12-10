@@ -1,8 +1,11 @@
 use std::collections::BTreeSet;
 
-use super::harness::{self, draft_catalog, TestHarness};
 use crate::{
-    controllers::ControllerState, integration_tests::harness::mock_inferred_schema, ControlPlane,
+    controllers::ControllerState,
+    integration_tests::harness::{
+        draft_catalog, mock_inferred_schema, InjectBuildError, TestHarness,
+    },
+    ControlPlane,
 };
 use models::CatalogType;
 use uuid::Uuid;
@@ -75,7 +78,7 @@ async fn test_dependencies_and_controllers() {
                 "sourceCapture": "owls/capture",
                 "endpoint": {
                     "connector": {
-                        "image": "ghcr.io/estuary/materialize-postgres:dev",
+                        "image": "materialize/test:test",
                         "config": {}
                     }
                 },
@@ -108,14 +111,13 @@ async fn test_dependencies_and_controllers() {
         }
     }));
 
-    let first_pub_id = harness.control_plane().next_pub_id();
     let result = harness
         .control_plane()
         .publish(
-            first_pub_id,
             Some(format!("initial publication")),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("initial publish failed");
@@ -181,20 +183,18 @@ async fn test_dependencies_and_controllers() {
         is_touch: false,
     });
 
-    let next_pub = harness.control_plane().next_pub_id();
     let result = harness
         .control_plane()
         .publish(
-            next_pub,
             Some("test publication of owls/hoots".to_string()),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("publication failed");
     assert_eq!(1, result.draft.spec_count());
     assert!(result.status.is_success());
-    assert_eq!(next_pub, result.pub_id);
 
     // Simulate a failed call to activate the collection in the data plane
     harness.control_plane().fail_next_activation("owls/hoots");
@@ -294,14 +294,13 @@ async fn test_dependencies_and_controllers() {
         model: Some(live_hoots.model.clone()),
         is_touch: false,
     });
-    let pub_id = harness.control_plane().next_pub_id();
     harness
         .control_plane()
         .publish(
-            pub_id,
             Some("3rd pub of hoots".to_string()),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("publication must succeed");
@@ -350,20 +349,19 @@ async fn test_dependencies_and_controllers() {
     // notified after the deletion
     let mut draft = tables::DraftCatalog::default();
     draft.delete("owls/hoots", CatalogType::Collection, None);
-    let del_pub_id = harness.control_plane().next_pub_id();
     let del_result = harness
         .control_plane()
         .publish(
-            del_pub_id,
             Some("delete owls/hoots".to_string()),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("failed to publish collection deletion");
     assert!(del_result.status.is_success());
     harness
-        .assert_live_spec_soft_deleted("owls/hoots", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/hoots", del_result.pub_id)
         .await;
 
     // All the controllers ought to run now. The collection controller should run first and notfiy
@@ -396,7 +394,7 @@ async fn test_dependencies_and_controllers() {
     assert!(capture_model.bindings[0].disable);
     assert_eq!(0, capture_state.failures);
     assert_eq!(
-        Some("in response to publication of one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]"),
+        Some("in response to deletion one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]"),
         capture_state
             .current_status
             .unwrap_capture()
@@ -420,7 +418,7 @@ async fn test_dependencies_and_controllers() {
         .unwrap();
     assert!(derivation_model.transforms[0].disable);
     assert_eq!(
-        Some("in response to publication of one or more depencencies, disabled 1 transform(s) in response to deleted collections: [owls/hoots]"),
+        Some("in response to deletion one or more depencencies, disabled 1 transform(s) in response to deleted collections: [owls/hoots]"),
         derivation_state
             .current_status
             .unwrap_collection()
@@ -445,7 +443,7 @@ async fn test_dependencies_and_controllers() {
     // deleted, again in response to the publication of the source capture, and again in response
     // to the publication of the derivation (both of which also published in response to the hoots
     // deletion).
-    let expected = "in response to publication of one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]";
+    let expected = "in response to deletion one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]";
     let history = &materialization_state
         .current_status
         .unwrap_materialization()
@@ -462,37 +460,41 @@ async fn test_dependencies_and_controllers() {
     let test_state = harness.get_controller_state("owls/test-test").await;
     let test_status = test_state.current_status.unwrap_test();
     assert!(!test_status.passing);
-    assert!(!test_status.publications.history[0].is_success());
-    let err = &test_status.publications.history[0].errors[0];
-    assert_eq!("collection owls/hoots, referenced by this test step, is not defined; did you mean owls/nests defined at flow://collection/owls/nests ?", err.detail);
+
+    let actual_error = test_state
+        .error
+        .expect("expected controller error to be Some");
+    assert_eq!(
+        "updating model in response to deleted dependencies: test failed because 1 of the collection(s) it depends on have been deleted",
+        &actual_error
+    );
 
     // Delete the capture, and expect the materialization to respond by removing the `sourceCapture`
     let mut draft = tables::DraftCatalog::default();
     draft.delete("owls/capture", CatalogType::Capture, None);
-    let del_pub_id = harness.control_plane().next_pub_id();
     let result = harness
         .control_plane()
         .publish(
-            del_pub_id,
             Some("deleting capture".to_string()),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("failed to publish");
     assert!(result.status.is_success());
     harness
-        .assert_live_spec_soft_deleted("owls/capture", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/capture", result.pub_id)
         .await;
 
     harness.control_plane().fail_next_build(
         "owls/materialize",
-        BuildFailure {
-            catalog_name: "owls/materialize",
-            catalog_type: CatalogType::Materialization,
-        },
+        InjectBuildError::new(
+            tables::synthetic_scope("materialization", "owls/materialize"),
+            anyhow::anyhow!("simulated build failure"),
+        ),
     );
-
+    harness.control_plane().reset_activations();
     let runs = harness.run_pending_controllers(None).await;
     assert_controllers_ran(&["owls/capture", "owls/materialize"], runs);
 
@@ -540,26 +542,25 @@ async fn test_dependencies_and_controllers() {
     draft.delete("owls/nests", CatalogType::Collection, None);
     draft.delete("owls/test-test", CatalogType::Test, None);
 
-    let del_pub_id = harness.control_plane().next_pub_id();
     let del_result = harness
         .control_plane()
         .publish(
-            del_pub_id,
             Some("delete owls/ stuff".to_string()),
             Uuid::new_v4(),
             draft,
+            Some("ops/dp/public/test".to_string()),
         )
         .await
         .expect("failed to publish deletions");
     assert!(del_result.status.is_success());
     harness
-        .assert_live_spec_soft_deleted("owls/materialize", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/materialize", del_result.pub_id)
         .await;
     harness
-        .assert_live_spec_soft_deleted("owls/nests", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/nests", del_result.pub_id)
         .await;
     harness
-        .assert_live_spec_soft_deleted("owls/test-test", del_pub_id)
+        .assert_live_spec_soft_deleted("owls/test-test", del_result.pub_id)
         .await;
 
     let runs = harness.run_pending_controllers(None).await;
@@ -575,20 +576,6 @@ async fn test_dependencies_and_controllers() {
     harness
         .assert_live_spec_hard_deleted("owls/test-test")
         .await;
-}
-
-#[derive(Debug)]
-struct BuildFailure {
-    catalog_name: &'static str,
-    catalog_type: CatalogType,
-}
-impl harness::FailBuild for BuildFailure {
-    fn modify(&mut self, result: &mut crate::publications::UncommittedBuild) {
-        result.output.built.errors.insert(tables::Error {
-            scope: tables::synthetic_scope(self.catalog_type, self.catalog_name),
-            error: anyhow::anyhow!("simulated build failure"),
-        });
-    }
 }
 
 fn assert_controllers_ran(expected: &[&str], actual: Vec<ControllerState>) {

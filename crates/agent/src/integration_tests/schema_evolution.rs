@@ -147,8 +147,21 @@ async fn test_schema_evolution() {
     assert!(initial_result.status.is_success());
     harness.run_pending_controllers(None).await;
 
-    // Assert that the pasture collection has had the inferred schema placeholder added
+    // Assert that the pasture collection has had the inferred schema placeholder added in both
+    // the model and the built spec.
     let pasture_state = harness.get_controller_state("goats/pasture").await;
+    let pasture_model = pasture_state
+        .live_spec
+        .as_ref()
+        .unwrap()
+        .as_collection()
+        .unwrap();
+    assert!(pasture_model
+        .read_schema
+        .as_ref()
+        .unwrap()
+        .get()
+        .contains("inferredSchemaIsNotAvailable"));
     let pasture_spec = unwrap_built_collection(&pasture_state);
     assert!(pasture_spec
         .read_schema_json
@@ -373,147 +386,6 @@ async fn test_schema_evolution() {
     assert!(mixed_state.error.is_none());
 
     insta::assert_yaml_snapshot!("after-materializeMixed-retry", mixed_state.live_spec);
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn test_collection_key_changes() {
-    let mut harness = TestHarness::init("test_dependencies_and_controllers").await;
-
-    let user_id = harness.setup_tenant("camels").await;
-    let draft = draft_catalog(serde_json::json!({
-        "collections": {
-            "camels/water": {
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "id1": { "type": "string" },
-                        "id2": { "type": "string" }
-                    },
-                    "required": ["id1", "id2"]
-                },
-                "key": ["/id1"]
-            },
-        },
-        // A capture is necessary, otherwise the collection would get pruned
-        "captures": {
-            "camels/capture": {
-                "endpoint": {
-                    "connector": {
-                        "image": "source/test:test",
-                        "config": {}
-                    }
-                },
-                "bindings": [
-                    {
-                        "resource": { "thing": "water" },
-                        "target": "camels/water"
-                    },
-                ]
-            },
-        }
-    }));
-
-    let initial_result = harness
-        .user_publication(user_id, "initial publication", draft)
-        .await;
-    assert!(initial_result.status.is_success());
-    harness.run_pending_controllers(None).await;
-
-    // Simulate a user-initiated change to partitions, and expect a job status with
-    // incompatible_collections that need re-created.
-    let partition_change_draft = draft_catalog(serde_json::json!({
-        "collections": {
-            "camels/water": {
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "id1": { "type": "string" },
-                        "id2": { "type": "string" }
-                    },
-                    "required": ["id1", "id2"]
-                },
-                "key": ["/id1"],
-                "projections": {
-                    "naughty": {
-                        "location": "/id2",
-                        "partition": true
-                    }
-                }
-            },
-        },
-    }));
-    let update_result = harness
-        .user_publication(user_id, "update partitions", partition_change_draft)
-        .await;
-    insta::assert_debug_snapshot!(update_result.status, @r###"
-    BuildFailed {
-        incompatible_collections: [
-            IncompatibleCollection {
-                collection: "camels/water",
-                requires_recreation: [
-                    PartitionChange,
-                ],
-                affected_materializations: [],
-            },
-        ],
-        evolution_id: None,
-    }
-    "###);
-
-    // Simulate an auto-discover publication that changes the key, and expect that
-    // there's an evolution created. This scenario could continue, but is being cut
-    // short because of imminent changes to auto-discovers.
-    let key_change_draft = draft_catalog(serde_json::json!({
-        "collections": {
-            "camels/water": {
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "id1": { "type": "string" },
-                        "id2": { "type": "string" }
-                    },
-                    "required": ["id1", "id2"]
-                },
-                "key": ["/id2"]
-            },
-        },
-    }));
-    let update_result = harness
-        .auto_discover_publication(key_change_draft, true)
-        .await;
-    let JobStatus::BuildFailed {
-        incompatible_collections,
-        evolution_id,
-    } = &update_result.status
-    else {
-        panic!("expected buildFailed, got: {:?}", update_result.status);
-    };
-
-    insta::assert_debug_snapshot!(incompatible_collections, @r###"
-    [
-        IncompatibleCollection {
-            collection: "camels/water",
-            requires_recreation: [
-                KeyChange,
-            ],
-            affected_materializations: [],
-        },
-    ]
-    "###);
-    let Some(evolution_id) = evolution_id else {
-        panic!("expected an evolution was created, but no id present");
-    };
-    let evo = sqlx::query!(
-        r##"select auto_publish, background from evolutions where id = $1"##,
-        agent_sql::Id::from(*evolution_id) as agent_sql::Id
-    )
-    .fetch_one(&harness.pool)
-    .await
-    .unwrap();
-
-    assert!(evo.auto_publish);
-    assert!(evo.background);
 }
 
 #[derive(Debug)]

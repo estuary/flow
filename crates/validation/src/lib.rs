@@ -74,7 +74,6 @@ pub async fn validate(
         default_plane_id,
         &draft.collections,
         &live.collections,
-        &live.inferred_schemas,
         &live.storage_mappings,
         &mut errors,
     );
@@ -230,8 +229,9 @@ fn walk_transition<'a, D, L, B>(
         models::Id,               // Assigned data-plane.
         models::Id,               // Live publication ID.
         models::Id,               // Live last build ID.
-        Option<&'a L::BuiltSpec>, // Live spec.
-        bool,                     // Is this a touch operation
+        Option<&'a L::ModelDef>,  // Live model.
+        Option<&'a L::BuiltSpec>, // Live built spec.
+        bool,                     // Is this a touch operation?
     ),
     // Result::Err is a completed BuiltRow for this specification.
     B,
@@ -268,13 +268,11 @@ where
             ))
         }
         EOB::Right(draft) => {
-            let last_pub_id = models::Id::zero(); // Not published.
-
-            if let Some(expect) = draft.expect_pub_id() {
-                if expect != last_pub_id {
+            if let Some(expect_id) = draft.expect_pub_id() {
+                if expect_id != models::Id::zero() {
                     Error::ExpectPubIdNotMatched {
-                        expect_id: expect,
-                        actual_id: last_pub_id,
+                        expect_id,
+                        actual_id: models::Id::zero(),
                     }
                     .push(Scope::new(draft.scope()), errors);
                 }
@@ -297,11 +295,12 @@ where
                     draft.catalog_name(),
                     draft.scope(),
                     model,
-                    models::Id::zero(), // No control-plane ID.
+                    models::Id::zero(), // Has no control-plane ID.
                     default_plane_id,   // Assign default data-plane.
-                    last_pub_id,        // Not published (zero).
-                    last_pub_id,        // Not published (zero).
-                    None,               // No live spec.
+                    models::Id::zero(), // Never published.
+                    models::Id::zero(), // Never built.
+                    None,               // Has no live model.
+                    None,               // Has no live built spec.
                     false,              // !is_touch
                 )),
                 None => {
@@ -327,9 +326,9 @@ where
         }
         EOB::Both(live, draft) => {
             match draft.expect_pub_id() {
-                Some(expect) if expect != live.last_pub_id() => {
+                Some(expect_id) if expect_id != live.last_pub_id() => {
                     Error::ExpectPubIdNotMatched {
-                        expect_id: expect,
+                        expect_id,
                         actual_id: live.last_pub_id(),
                     }
                     .push(Scope::new(draft.scope()), errors);
@@ -388,6 +387,7 @@ where
                     live.data_plane_id(),
                     live.last_pub_id(),
                     live.last_build_id(),
+                    Some(live.model()),
                     Some(live.spec()),
                     draft.is_touch(),
                 )),
@@ -502,7 +502,7 @@ mod test {
         )
         .unwrap();
         assert!(errors.is_empty());
-        assert!(result.8); // is_touch
+        assert!(result.9); // is_touch
         assert_eq!(last_pub_id, result.5);
         assert_eq!(last_build_id, result.6);
 

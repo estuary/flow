@@ -12,3 +12,4 @@ functionality enables integrations with the Kafka ecosystem.
 - [SingleStore](/reference/Connectors/dekaf/dekaf-singlestore)
 - [Imply](/reference/Connectors/dekaf/dekaf-imply)
 - [Bytewax](/reference/Connectors/dekaf/dekaf-bytewax)
+- [Clickhouse](/reference/Connectors/dekaf/dekaf-clickhouse)

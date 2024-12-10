@@ -75,6 +75,7 @@ pub trait SqlTableObj {
 }
 
 /// Table is a collection of Rows.
+#[derive(Clone)]
 pub struct Table<R: Row>(Vec<R>);
 
 impl<R: Row> Table<R> {
@@ -165,6 +166,14 @@ impl<R: Row> Table<R> {
     {
         itertools::merge_join_by(self.iter_mut(), it, |l, (rk, _rv)| l.cmp_key(rk.borrow()))
             .filter_map(join)
+    }
+
+    /// Removes and returns the element with the given key.
+    pub fn remove_by_key(&mut self, key: &R::Key) -> Option<R> {
+        match self.0.binary_search_by(|r| r.cmp_key(key)) {
+            Ok(index) => Some(self.0.remove(index)),
+            Err(_) => None,
+        }
     }
 
     pub fn get_by_key(&self, key: &R::Key) -> Option<&R> {

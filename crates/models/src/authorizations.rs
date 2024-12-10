@@ -1,3 +1,4 @@
+use std::{cmp::max, fmt};
 use validator::Validate;
 
 /// ControlClaims are claims encoded within control-plane access tokens.
@@ -9,6 +10,15 @@ pub struct ControlClaims {
     pub email: Option<String>,
     pub iat: u64,
     pub exp: u64,
+}
+
+impl ControlClaims {
+    pub fn time_remaining(&self) -> time::Duration {
+        let now = time::OffsetDateTime::now_utc();
+        let exp = time::OffsetDateTime::from_unix_timestamp(self.exp as i64).unwrap();
+
+        max(exp - now, time::Duration::ZERO)
+    }
 }
 
 // Data-plane claims are represented by proto_gazette::Claims,
@@ -137,4 +147,23 @@ pub struct UserTaskAuthorization {
     /// # Prefix of task Shard IDs.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub shard_id_prefix: String,
+}
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DekafAuthResponse {
+    /// # Control plane access token with the requested role
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub token: String,
+    // Name of the journal that contains the logs for the specified task
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ops_logs_journal: String,
+    // Name of the journal that contains the stats for the specified task
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ops_stats_journal: String,
+    // Spec of the task
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_spec: Option<crate::materializations::MaterializationDef>,
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if token is not set.
+    pub retry_millis: u64,
 }

@@ -687,6 +687,21 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("endpoint")
+                                .push_prop("dekaf")
+                                .push_prop("config"),
+                            config,
+                        )
+                        .await
+                    }
+                    .boxed(),
+                );
+            }
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {

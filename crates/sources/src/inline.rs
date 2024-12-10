@@ -266,6 +266,17 @@ fn inline_materialization(
                 resources,
             )
         }
+        models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => {
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("dekaf")
+                    .push_prop("config"),
+                config,
+                imports,
+                resources,
+            )
+        }
     }
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()

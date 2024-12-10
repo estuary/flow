@@ -456,6 +456,23 @@
         }
       }
     },
+    "DekafConfig": {
+      "description": "Dekaf service configuration",
+      "type": "object",
+      "required": [
+        "config",
+        "variant"
+      ],
+      "properties": {
+        "config": {
+          "title": "Dekaf endpoint config."
+        },
+        "variant": {
+          "title": "Dekaf variant type",
+          "type": "string"
+        }
+      }
+    },
     "Derivation": {
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
@@ -880,7 +897,7 @@
         },
         "sourceCapture": {
           "title": "Automatically materialize new bindings from a named capture",
-          "$ref": "#/definitions/Capture"
+          "$ref": "#/definitions/SourceCapture"
         }
       },
       "additionalProperties": false
@@ -910,6 +927,19 @@
           "properties": {
             "local": {
               "$ref": "#/definitions/LocalConfig"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "A Dekaf connection",
+          "type": "object",
+          "required": [
+            "dekaf"
+          ],
+          "properties": {
+            "dekaf": {
+              "$ref": "#/definitions/DekafConfig"
             }
           },
           "additionalProperties": false
@@ -1210,6 +1240,56 @@
         },
         {
           "$ref": "#/definitions/Collection"
+        }
+      ]
+    },
+    "SourceCapture": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Capture"
+        },
+        {
+          "$ref": "#/definitions/SourceCaptureDef"
+        }
+      ]
+    },
+    "SourceCaptureDef": {
+      "description": "SourceCaptureDef specifies configuration for source captures",
+      "type": "object",
+      "required": [
+        "capture"
+      ],
+      "properties": {
+        "capture": {
+          "description": "Capture name",
+          "$ref": "#/definitions/Capture"
+        },
+        "deltaUpdates": {
+          "description": "When adding new bindings from a source capture to a materialization, should the new bindings be marked as delta updates",
+          "type": "boolean"
+        },
+        "targetSchema": {
+          "description": "When adding new bindings from a source capture to a materialization, how should the schema of the materialization binding be set",
+          "$ref": "#/definitions/SourceCaptureSchemaMode"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SourceCaptureSchemaMode": {
+      "oneOf": [
+        {
+          "description": "Leave the materialization binding's schema field empty, therefore falling back to the default schema of the materialization",
+          "type": "string",
+          "enum": [
+            "leaveEmpty"
+          ]
+        },
+        {
+          "description": "Use the 2nd-to-last component of the collection name as the schema of the materialization binding",
+          "type": "string",
+          "enum": [
+            "fromSourceName"
+          ]
         }
       ]
     },

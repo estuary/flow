@@ -20,8 +20,7 @@ The Webhooks connector is available for use in the Flow web application. To lear
 | Property           | Title          | Description                              | Type   | Required/Default       |
 |--------------------|----------------|------------------------------------------|--------|------------------------|
 | **`/address`**     | Address        | The URL of the endpoint to send data to. | string | Required               |
-| **`/method`**      | HTTP Method    | HTTP method to use (e.g., `POST` or `PUT`). | string | default: `POST` |
-| **`/headers`**     | Headers        | Additional headers to include in the HTTP request. | object |               |
+| **`/headers/customHeaders`**     | Headers        | Array of additional headers to include in the HTTP request. | object |               |
 
 ### Bindings
 
@@ -41,8 +40,10 @@ endpoint:
     image: ghcr.io/estuary/materialize-webhook:v1
     config:
       address: http://192.168.1.100:3000/
-      method: POST
       headers:
-        Content-Type: application/json
-        Authorization: Bearer <your_token>
+        customHeaders:
+          - name:  my-header
+            value: my-value
+          - name:  another-header
+            value: another-value
 ```

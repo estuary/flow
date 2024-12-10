@@ -102,6 +102,8 @@ pub async fn start(
         // The entrypoint into a connector is always flow-connector-init,
         // which will delegate to the actual entrypoint of the connector.
         "--entrypoint=/flow-connector-init".to_string(),
+        // Disable logging of connector containers.
+        "--log-driver=none".to_string(),
         // Mount the flow-connector-init binary and `docker inspect` output.
         format!(
             "--mount=type=bind,source={},target=/flow-connector-init",
@@ -225,6 +227,7 @@ pub async fn start(
     let channel = tonic::transport::Endpoint::new(init_address.clone())
         .expect("formatting endpoint address")
         .connect_timeout(std::time::Duration::from_secs(5))
+        .http2_keep_alive_interval(std::time::Duration::from_secs(5))
         .connect()
         .await
         .with_context(|| {

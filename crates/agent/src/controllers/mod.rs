@@ -1,9 +1,11 @@
-mod capture;
-mod catalog_test;
-mod collection;
+pub(crate) mod capture;
+pub(crate) mod catalog_test;
+pub(crate) mod collection;
+pub(crate) mod dependencies;
 mod handler;
-mod materialization;
-mod publication_status;
+pub(crate) mod materialization;
+pub(crate) mod periodic;
+pub(crate) mod publication_status;
 
 use crate::controlplane::ControlPlane;
 use anyhow::Context;
@@ -41,7 +43,11 @@ pub struct ControllerState {
     /// the actual time of the current run.
     pub next_run: Option<DateTime<Utc>>,
     /// The last update time of the controller.
-    pub updated_at: DateTime<Utc>,
+    pub controller_updated_at: DateTime<Utc>,
+    /// The last update time of the live spec.
+    pub live_spec_updated_at: DateTime<Utc>,
+    /// The creation time of the live spec
+    pub created_at: DateTime<Utc>,
     /// The number of consecutive failures from previous controller runs. This
     /// gets reset to 0 after any successful controller run.
     pub failures: i32,
@@ -63,8 +69,10 @@ pub struct ControllerState {
     /// The current `status` of the controller, which represents the before
     /// state during an update. This is just informational.
     pub current_status: Status,
-    /// ID of the data plane in which this specification lives.
+    /// ID of the data plane in which this specification lives. May be zero for tests.
     pub data_plane_id: Id,
+    /// Name of the data plane in which this specification lives. May be `None` for tests.
+    pub data_plane_name: Option<String>,
     /// The `dependency_hash` of the `live_specs` row, used to determine whether any
     /// dependencies have had their models changed.
     pub live_dependency_hash: Option<String>,
@@ -132,7 +140,9 @@ impl ControllerState {
 
         let controller_state = ControllerState {
             next_run: job.controller_next_run,
-            updated_at: job.updated_at,
+            controller_updated_at: job.controller_updated_at,
+            live_spec_updated_at: job.live_spec_updated_at,
+            created_at: job.created_at,
             live_spec,
             built_spec,
             failures: job.failures,
@@ -144,6 +154,7 @@ impl ControllerState {
             controller_version: job.controller_version,
             current_status: status,
             data_plane_id: job.data_plane_id.into(),
+            data_plane_name: job.data_plane_name.clone(),
             live_dependency_hash: job.live_dependency_hash.clone(),
         };
         Ok(controller_state)
@@ -237,6 +248,13 @@ impl std::cmp::Ord for NextRun {
 impl NextRun {
     const DEFAULT_JITTER: u16 = 20;
 
+    pub fn immediately() -> NextRun {
+        NextRun {
+            after_seconds: 0,
+            jitter_percent: 0,
+        }
+    }
+
     pub fn after_minutes(minutes: u32) -> NextRun {
         NextRun {
             after_seconds: minutes * 60,
@@ -251,18 +269,48 @@ impl NextRun {
         }
     }
 
+    pub fn after(approx_when: DateTime<Utc>) -> NextRun {
+        let now = Utc::now();
+        let delta = approx_when - now;
+        // _Teeechnically_ this could be negative, but we'll just treat that as "run now"
+        let after_seconds = delta.max(chrono::TimeDelta::zero()).num_seconds() as u32;
+        NextRun {
+            after_seconds,
+            jitter_percent: NextRun::DEFAULT_JITTER,
+        }
+    }
+
     /// Returns an absolute time at which the next run should become due.
     /// Uses only millisecond precision to ensure that the timestamp can be losslessly
     /// round-tripped through postgres.
     pub fn compute_time(&self) -> DateTime<Utc> {
         use rand::Rng;
 
+        if self.after_seconds == 0 {
+            return Utc::now();
+        }
         let delta_millis = self.after_seconds as i64 * 1000;
-        let jitter_mul = self.jitter_percent as f64 / 100.0;
-        let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
-        let jitter_add = rand::thread_rng().gen_range(0..jitter_max);
+        let jitter_add = if self.jitter_percent > 0 {
+            let jitter_mul = self.jitter_percent as f64 / 100.0;
+            let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
+            rand::thread_rng().gen_range(0..jitter_max)
+        } else {
+            0
+        };
         let dur = chrono::TimeDelta::milliseconds(delta_millis + jitter_add);
         Utc::now() + dur
+    }
+
+    pub fn earliest(runs: impl IntoIterator<Item = Option<NextRun>>) -> Option<NextRun> {
+        let mut min = None;
+        for run in runs {
+            match (min, run) {
+                (Some(m), Some(r)) if r < m => min = run,
+                (None, _) => min = run,
+                _ => { /* pass */ }
+            }
+        }
+        min
     }
 }
 
@@ -322,16 +370,19 @@ impl Status {
                 // resources, and then notify dependent controllers, to make
                 // sure that they can respond. The controller job row will be
                 // deleted automatically after we return.
-                control_plane
-                    .data_plane_delete(
+                crate::timeout(
+                    std::time::Duration::from_secs(60),
+                    control_plane.data_plane_delete(
                         state.catalog_name.clone(),
                         catalog_type,
                         state.data_plane_id,
-                    )
-                    .await
-                    .context("deleting from data-plane")
-                    .with_retry(backoff_data_plane_activate(state.failures))?;
-                tracing::info!("deleted from data-plane");
+                    ),
+                    || "Timeout while deleting from data-plane",
+                )
+                .await
+                .context("failed to delete from data-plane")
+                .with_retry(backoff_data_plane_activate(state.failures))?;
+
                 control_plane
                     .notify_dependents(state.catalog_name.clone())
                     .await
@@ -467,6 +518,34 @@ mod test {
     use crate::publications::{AffectedConsumer, IncompatibleCollection, JobStatus, RejectedField};
 
     #[test]
+    fn test_next_run_after() {
+        // Test with zero, to make sure that it doesn't panic.
+        let sub = NextRun::after_minutes(0)
+            .with_jitter_percent(20)
+            .compute_time();
+        let now = Utc::now();
+        assert!(now.signed_duration_since(sub).abs() < chrono::TimeDelta::milliseconds(10));
+
+        let next = NextRun::after(now);
+        assert_eq!(0, next.after_seconds);
+        assert!(
+            next.with_jitter_percent(0)
+                .compute_time()
+                .signed_duration_since(now)
+                .abs()
+                < chrono::TimeDelta::milliseconds(10)
+        );
+    }
+
+    #[test]
+    fn test_next_run_no_jitter() {
+        let then = Utc::now() + chrono::Duration::seconds(60);
+        let next = NextRun::after(then).with_jitter_percent(0).compute_time();
+        let diff = next - then;
+        assert_eq!(0, diff.abs().num_seconds());
+    }
+
+    #[test]
     fn test_status_round_trip_serde() {
         let mut add_bindings = BTreeSet::new();
         add_bindings.insert(models::Collection::new("snails/shells"));
@@ -485,6 +564,7 @@ mod test {
                         field: "a_field".to_string(),
                         reason: "do not like".to_string(),
                     }],
+                    resource_path: vec!["water".to_string()],
                 }],
             }])),
             errors: vec![Error {

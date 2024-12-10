@@ -248,7 +248,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     // Load into LiveCatalog::live_materializations.
     for (materialization, mock) in &mock_calls.live_materializations {
         let model = models::MaterializationDef {
-            bindings: Vec::new(),
+            bindings: mock.bindings.clone(),
             endpoint: models::MaterializationEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
             shards: models::ShardTemplate::default(),
@@ -305,11 +305,6 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             built_spec,
             None,
         );
-    }
-    // Load into LiveCatalog::inferred_schemas.
-    for (collection, schema) in &mock_calls.inferred_schemas {
-        live.inferred_schemas
-            .insert_row(collection, schema, "feedbeef".to_string());
     }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
@@ -416,6 +411,8 @@ struct MockLiveMaterialization {
     last_pub_id: models::Id,
     #[serde(default)]
     last_build_id: Option<models::Id>,
+    #[serde(default)]
+    bindings: Vec<models::MaterializationBinding>,
 }
 
 #[derive(serde::Deserialize)]
@@ -448,8 +445,6 @@ struct MockDriverCalls {
     // Live catalog mocks:
     #[serde(default)]
     data_planes: BTreeMap<models::Id, MockDataPlane>,
-    #[serde(default)]
-    inferred_schemas: BTreeMap<models::Collection, models::Schema>,
     #[serde(default)]
     live_captures: BTreeMap<models::Capture, MockLiveCapture>,
     #[serde(default)]

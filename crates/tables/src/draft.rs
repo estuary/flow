@@ -21,6 +21,18 @@ pub struct DraftCatalog {
 }
 
 impl DraftCatalog {
+    /// Returns a copy of the draft catalog that includes only the specs.
+    /// Any `errors`, `fetches`, `imports` or `resources` will be omitted.
+    pub fn clone_specs(&self) -> Self {
+        DraftCatalog {
+            captures: self.captures.clone(),
+            collections: self.collections.clone(),
+            materializations: self.materializations.clone(),
+            tests: self.tests.clone(),
+            ..Default::default()
+        }
+    }
+
     pub fn spec_count(&self) -> usize {
         self.all_spec_names().count()
     }
@@ -59,7 +71,7 @@ impl DraftCatalog {
                 for target in model.targets() {
                     out.push(target);
                 }
-                if let Some(cap) = model.materialization_source_capture() {
+                if let Some(cap) = model.materialization_source_capture_name() {
                     out.push(cap.as_str());
                 }
             }
@@ -115,6 +127,48 @@ impl DraftCatalog {
                 is_touch: false,
             }),
         };
+    }
+
+    pub fn add_any_spec(
+        &mut self,
+        catalog_name: &str,
+        scope: url::Url,
+        expect_pub_id: Option<models::Id>,
+        model: models::AnySpec,
+        is_touch: bool,
+    ) {
+        match model {
+            models::AnySpec::Capture(c) => self.captures.insert(DraftCapture {
+                capture: models::Capture::new(catalog_name),
+                scope,
+                expect_pub_id,
+                model: Some(c),
+                is_touch,
+            }),
+            models::AnySpec::Collection(c) => self.collections.insert(DraftCollection {
+                collection: models::Collection::new(catalog_name),
+                scope,
+                expect_pub_id,
+                model: Some(c),
+                is_touch,
+            }),
+            models::AnySpec::Materialization(m) => {
+                self.materializations.insert(DraftMaterialization {
+                    materialization: models::Materialization::new(catalog_name),
+                    scope,
+                    expect_pub_id,
+                    model: Some(m),
+                    is_touch,
+                })
+            }
+            models::AnySpec::Test(t) => self.tests.insert(DraftTest {
+                test: models::Test::new(catalog_name),
+                scope,
+                expect_pub_id,
+                model: Some(t),
+                is_touch,
+            }),
+        }
     }
 
     pub fn add_spec(
@@ -207,6 +261,55 @@ impl DraftCatalog {
         }
 
         Ok(())
+    }
+
+    /// Adds the given live catalog to this draft. All live specs are added with
+    /// `is_touch` set to `true`.
+    pub fn add_live(&mut self, live: crate::LiveCatalog) {
+        for capture in live.captures {
+            let scope = crate::synthetic_scope(models::CatalogType::Capture, &capture.capture);
+            self.captures.insert(DraftCapture {
+                capture: capture.capture,
+                scope,
+                expect_pub_id: Some(capture.last_pub_id),
+                model: Some(capture.model),
+                is_touch: true,
+            });
+        }
+        for collection in live.collections {
+            let scope =
+                crate::synthetic_scope(models::CatalogType::Collection, &collection.collection);
+            self.collections.insert(DraftCollection {
+                collection: collection.collection,
+                scope,
+                expect_pub_id: Some(collection.last_pub_id),
+                model: Some(collection.model),
+                is_touch: true,
+            });
+        }
+        for materialization in live.materializations {
+            let scope = crate::synthetic_scope(
+                models::CatalogType::Materialization,
+                &materialization.materialization,
+            );
+            self.materializations.insert(DraftMaterialization {
+                materialization: materialization.materialization,
+                scope,
+                expect_pub_id: Some(materialization.last_pub_id),
+                model: Some(materialization.model),
+                is_touch: true,
+            });
+        }
+        for test in live.tests {
+            let scope = crate::synthetic_scope(models::CatalogType::Test, &test.test);
+            self.tests.insert(DraftTest {
+                test: test.test,
+                scope,
+                expect_pub_id: Some(test.last_pub_id),
+                model: Some(test.model),
+                is_touch: true,
+            });
+        }
     }
 }
 
@@ -394,8 +497,10 @@ pub trait DraftRow: crate::Row {
     fn expect_pub_id(&self) -> Option<models::Id>;
     /// Model of this specification.
     fn model(&self) -> Option<&Self::ModelDef>;
-    /// Whether this represents a touch operation. If true, then `model` must be `None`.
+    /// Whether this represents a touch operation.
     fn is_touch(&self) -> bool;
+
+    fn spec_type(&self) -> models::CatalogType;
 }
 
 impl DraftRow for crate::DraftCapture {
@@ -449,6 +554,9 @@ impl DraftRow for crate::DraftCapture {
     }
     fn is_touch(&self) -> bool {
         self.is_touch
+    }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Capture
     }
 }
 
@@ -504,6 +612,9 @@ impl DraftRow for crate::DraftCollection {
     fn is_touch(&self) -> bool {
         self.is_touch
     }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Collection
+    }
 }
 
 impl DraftRow for crate::DraftMaterialization {
@@ -558,6 +669,9 @@ impl DraftRow for crate::DraftMaterialization {
     fn is_touch(&self) -> bool {
         self.is_touch
     }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Materialization
+    }
 }
 
 impl DraftRow for crate::DraftTest {
@@ -611,5 +725,8 @@ impl DraftRow for crate::DraftTest {
     }
     fn is_touch(&self) -> bool {
         self.is_touch
+    }
+    fn spec_type(&self) -> models::CatalogType {
+        models::CatalogType::Test
     }
 }

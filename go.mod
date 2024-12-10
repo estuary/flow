@@ -21,9 +21,9 @@ require (
 	github.com/prometheus/client_golang v1.11.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.9.0
-	go.etcd.io/etcd/api/v3 v3.5.0
-	go.etcd.io/etcd/client/v3 v3.5.0
-	go.gazette.dev/core v0.99.1-0.20240924143102-73afb3095208
+	go.etcd.io/etcd/api/v3 v3.5.17
+	go.etcd.io/etcd/client/v3 v3.5.17
+	go.gazette.dev/core v0.100.0
 	golang.org/x/net v0.26.0
 	google.golang.org/api v0.126.0
 	google.golang.org/grpc v1.65.0
@@ -84,7 +84,7 @@ require (
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.5.0 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect

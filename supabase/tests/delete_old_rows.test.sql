@@ -10,9 +10,9 @@ declare
 begin
 
   insert into auth.users(id, email) values (test_user_id, 'test@test.test');
-  insert into connectors (id, image_name, title, short_description, logo_url, external_url) values
+  insert into connectors (id, image_name, title, short_description, logo_url, external_url, recommended) values
     ('33:33:33:33:33:33:33:97', 'captureImage', '{"en-US":"a title"}', '{"en-US":"a desc"}',
-      '{"en-US":"a logo"}', 'http://foo.test');
+      '{"en-US":"a logo"}', 'http://foo.test', true);
   insert into connector_tags (id, connector_id, image_tag) values
     (test_connector_tag_id, '33:33:33:33:33:33:33:97', ':v0');
 

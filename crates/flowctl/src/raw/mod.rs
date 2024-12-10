@@ -63,6 +63,8 @@ pub enum Command {
     JsonSchema,
     /// Read stats collection documents
     Stats(Stats),
+    /// Stream logs associated with the given bearer token.
+    BearerLogs(BearerLogs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -173,6 +175,35 @@ impl Stats {
     }
 }
 
+#[derive(clap::Args, Debug)]
+pub struct BearerLogs {
+    /// Bearer logs token.
+    #[clap(long)]
+    pub token: uuid::Uuid,
+    /// Start reading from this far in the past.
+    #[clap(long, default_value = "1h")]
+    pub since: Option<humantime::Duration>,
+}
+
+impl BearerLogs {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+        let bound = match self.since {
+            None => None,
+            Some(since) => {
+                let since: std::time::Duration = since.into();
+                Some(crate::Timestamp::from_unix_timestamp(
+                    (std::time::SystemTime::now() - since)
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64,
+                )?)
+            }
+        };
+
+        crate::poll::stream_logs(&ctx.client, &self.token.to_string(), bound).await
+    }
+}
+
 impl Advanced {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
@@ -193,6 +224,7 @@ impl Advanced {
                 Ok(serde_json::to_writer_pretty(std::io::stdout(), &schema)?)
             }
             Command::Stats(stats) => stats.run(ctx).await,
+            Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
         }
     }
 }

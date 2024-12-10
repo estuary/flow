@@ -2,7 +2,7 @@ use super::{LockFailure, UncommittedBuild};
 use agent_sql::publications::{LiveRevision, LiveSpecUpdate};
 use agent_sql::Capability;
 use anyhow::Context;
-use models::{split_image_tag, Id, ModelDef};
+use models::{split_image_tag, Id, ModelDef, SourceCapture, SourceCaptureSchemaMode};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -63,7 +63,7 @@ async fn update_live_spec_flows<B: tables::BuiltRow>(
 
     let reads_from = model.reads_from();
     let writes_to = model.writes_to();
-    let source_capture = model.materialization_source_capture();
+    let source_capture = model.materialization_source_capture_name();
 
     agent_sql::publications::insert_live_spec_flows(
         built.control_id().into(),
@@ -298,6 +298,63 @@ async fn update_live_specs(
     }
 
     Ok(lock_failures)
+}
+
+pub async fn check_source_capture_annotations(
+    draft: &tables::DraftCatalog,
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<tables::Errors> {
+    let mut errors = tables::Errors::default();
+
+    for materialization in draft.materializations.iter() {
+        let Some(model) = materialization.model() else {
+            continue;
+        };
+        let Some(image) = model.connector_image() else {
+            continue;
+        };
+        let (image_name, image_tag) = split_image_tag(image);
+
+        let Some(source_capture) = &model.source_capture else {
+            continue;
+        };
+
+        // SourceCaptures require a connector_tags row in any case. To avoid an error down the line
+        // in the controller we validate that here. This should only happen for test connector
+        // tags, hence the technical error message
+        let Some(connector_spec) =
+            agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await?
+        else {
+            errors.insert(tables::Error {
+                scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                error: anyhow::anyhow!("materializations with a sourceCapture only work for known connector tags. {image} is not known to the control plane"),
+            });
+            continue;
+        };
+        if let SourceCapture::Configured(source_capture_def) = source_capture {
+            let resource_config_schema = connector_spec.resource_config_schema;
+            let resource_spec_pointers =
+                crate::resource_configs::pointer_for_schema(resource_config_schema.0.get())?;
+
+            if source_capture_def.delta_updates && resource_spec_pointers.x_delta_updates.is_none()
+            {
+                errors.insert(tables::Error {
+                    scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                    error: anyhow::anyhow!("sourceCapture.deltaUpdates set but the connector '{image_name}' does not support delta updates"),
+                });
+            }
+
+            if source_capture_def.target_schema == SourceCaptureSchemaMode::FromSourceName
+                && resource_spec_pointers.x_schema_name.is_none()
+            {
+                errors.insert(tables::Error {
+                    scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                    error: anyhow::anyhow!("sourceCapture.targetSchema set but the connector '{image_name}' does not support resource schemas"),
+                });
+            }
+        }
+    }
+    Ok(errors)
 }
 
 pub async fn check_connector_images(
@@ -607,6 +664,7 @@ pub async fn resolve_live_specs(
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     default_data_plane_name: &str,
+    verify_user_authz: bool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -657,7 +715,7 @@ pub async fn resolve_live_specs(
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
             // If the spec is included in the draft, then the user must have admin capability to it.
-            if !matches!(spec_row.user_capability, Some(Capability::Admin)) {
+            if verify_user_authz && !matches!(spec_row.user_capability, Some(Capability::Admin)) {
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -668,6 +726,7 @@ pub async fn resolve_live_specs(
                 // of referenced collections.
                 continue;
             }
+            // Spec authz must always be checked, even if we're not checking user authz
             for source in reads_from {
                 if !spec_row.spec_capabilities.iter().any(|c| {
                     source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read
@@ -870,52 +929,17 @@ fn spec_meta(
     panic!("draft is missing spec for '{catalog_name}'");
 }
 
-pub async fn load_draft(
-    draft_id: Id,
-    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-) -> anyhow::Result<tables::DraftCatalog> {
-    let rows = agent_sql::drafts::fetch_draft_specs(draft_id.into(), db).await?;
-    let mut draft = tables::DraftCatalog::default();
-
-    for row in rows {
-        let Some(spec_type) = row.spec_type.map(Into::into) else {
-            let scope = tables::synthetic_scope("deletion", &row.catalog_name);
-            draft.errors.push(tables::Error {
-                scope,
-                error: anyhow::anyhow!(
-                    "draft contains a deletion of {:?}, but no such live spec exists",
-                    row.catalog_name
-                ),
-            });
-            continue;
-        };
-        let scope = tables::synthetic_scope(spec_type, &row.catalog_name);
-
-        if let Err(err) = draft.add_spec(
-            spec_type,
-            &row.catalog_name,
-            scope,
-            row.expect_pub_id.map(Into::into),
-            row.spec.as_deref().map(|j| &**j),
-            false, // !is_touch
-        ) {
-            draft.errors.push(err);
-        }
-    }
-    Ok(draft)
-}
-
 // add_built_specs_to_draft_specs adds the built spec and validated response to the draft_specs row
 // for all tasks included in build_output if they are in the list of specifications which are
 // changing in this publication per the list of spec_rows.
 pub async fn add_built_specs_to_draft_specs(
     draft_id: agent_sql::Id,
-    build_output: &build::Output,
+    build_output: &tables::Validations,
     db: &sqlx::PgPool,
 ) -> Result<(), sqlx::Error> {
     // Possible optimization, which I'm not doing right now: collect vecs of all the
     // prepared statement parameters and update all draft specs in a single query.
-    for collection in build_output.built.built_collections.iter() {
+    for collection in build_output.built_collections.iter() {
         if !collection.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,
@@ -928,7 +952,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for capture in build_output.built.built_captures.iter() {
+    for capture in build_output.built_captures.iter() {
         if !capture.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,
@@ -941,7 +965,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for materialization in build_output.built.built_materializations.iter() {
+    for materialization in build_output.built_materializations.iter() {
         if !materialization.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,
@@ -954,7 +978,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for test in build_output.built.built_tests.iter() {
+    for test in build_output.built_tests.iter() {
         if !test.is_delete() {
             agent_sql::drafts::add_built_spec(
                 draft_id,

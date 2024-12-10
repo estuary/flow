@@ -1,62 +1,61 @@
 ---
 source: crates/agent/src/discovers/specs.rs
-expression: json!(out)
+expression: path_merge_out
 ---
-[
-  {
-    "autoDiscover": {
-      "addNewBindings": true,
-      "evolveIncompatibleCollections": true
-    },
-    "bindings": [
-      {
-        "resource": {
-          "stream": "foo"
+(
+    [
+        Binding {
+            target: Collection(
+                "acmeCo/my/foo",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"foo"},
+                ),
+            ),
+            collection_key: [
+                "/foo-key",
+            ],
+            resource_path: [
+                "foo",
+            ],
+            disable: false,
         },
-        "target": "acmeCo/my/foo"
-      },
-      {
-        "disable": true,
-        "resource": {
-          "stream": "bar"
+        Binding {
+            target: Collection(
+                "acmeCo/my/bar",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"bar"},
+                ),
+            ),
+            collection_key: [
+                "/bar-key",
+            ],
+            resource_path: [
+                "bar",
+            ],
+            disable: true,
         },
-        "target": "acmeCo/my/bar"
-      }
     ],
-    "endpoint": {
-      "connector": {
-        "config": {
-          "discovered": 1
+    {
+        [
+            "bar",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/my/bar",
+            ),
+            disable: true,
         },
-        "image": "new/image"
-      }
-    }
-  },
-  [
-    {
-      "documentSchema": {
-        "const": "foo"
-      },
-      "key": [
-        "/foo-key"
-      ],
-      "recommendedName": "foo",
-      "resourceConfig": {
-        "stream": "foo"
-      }
+        [
+            "foo",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/my/foo",
+            ),
+            disable: false,
+        },
     },
-    {
-      "disable": true,
-      "documentSchema": {
-        "const": "bar"
-      },
-      "key": [
-        "/bar-key"
-      ],
-      "recommendedName": "bar",
-      "resourceConfig": {
-        "stream": "bar"
-      }
-    }
-  ]
-]
+    {},
+)

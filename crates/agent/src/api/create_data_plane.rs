@@ -1,3 +1,5 @@
+use crate::publications::{DoNotRetry, DraftPublication, NoExpansion, PruneUnboundCollections};
+
 use super::App;
 use anyhow::Context;
 use std::sync::Arc;
@@ -45,16 +47,13 @@ pub struct Request {
 pub struct Response {}
 
 #[tracing::instrument(
-    skip(pg_pool, publisher, id_generator),
+    skip(pg_pool, publisher),
     ret,
     err(level = tracing::Level::WARN),
 )]
 async fn do_create_data_plane(
     App {
-        pg_pool,
-        publisher,
-        id_generator,
-        ..
+        pg_pool, publisher, ..
     }: &App,
     super::ControlClaims { sub: user_id, .. }: super::ControlClaims,
     Request {
@@ -73,19 +72,24 @@ async fn do_create_data_plane(
         anyhow::bail!("authenticated user is not an admin of the 'ops/' tenant");
     }
 
-    let (data_plane_fqdn, base_name) = match &private {
+    let (data_plane_fqdn, base_name, pulumi_stack) = match &private {
         None => (
-            format!("{name}.dp.estuary-data.com"),
-            format!("public/{name}"),
+            format!("{name}.dp.estuary-data.com"), // 'aws-eu-west-1-c1.dp.estuary-data.com'
+            format!("public/{name}"),              // 'public/aws-eu-west-1-c1'
+            format!("public-{name}"),              // 'public-aws-eu-west-1-c1'
         ),
         Some(prefix) => {
             let base_name = format!("private/{prefix}{name}");
             (
+                // '9e571ae54b74e18.dp.estuary-data.com'
                 format!(
                     "{:x}.dp.estuary-data.com",
                     xxhash_rust::xxh3::xxh3_64(base_name.as_bytes()),
                 ),
+                // 'private/AcmeCo/aws-eu-west-1-c1'
                 base_name,
+                // 'private-AcmeCo-aws-eu-west-2-c3'
+                format!("private-{}-{name}", prefix.trim_end_matches("/")),
             )
         }
     };
@@ -94,8 +98,8 @@ async fn do_create_data_plane(
     let data_plane_name = format!("ops/dp/{base_name}");
     let ops_l1_inferred_name = format!("ops/rollups/L1/{base_name}/inferred-schemas");
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
-    let ops_l2_inferred_transform = format!("{data_plane_fqdn}");
-    let ops_l2_stats_transform = format!("{data_plane_fqdn}");
+    let ops_l2_inferred_transform = format!("from.{data_plane_fqdn}");
+    let ops_l2_stats_transform = format!("from.{data_plane_fqdn}");
     let ops_logs_name = format!("ops/tasks/{base_name}/logs");
     let ops_stats_name = format!("ops/tasks/{base_name}/stats");
 
@@ -148,9 +152,10 @@ async fn do_create_data_plane(
             broker_address,
             reactor_address,
             hmac_keys,
-            enable_l2
+            enable_l2,
+            pulumi_stack
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
         )
         on conflict (data_plane_name) do update set
             broker_address = $9,
@@ -173,6 +178,7 @@ async fn do_create_data_plane(
         reactor_address,
         hmac_keys.as_slice(),
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
+        pulumi_stack,
     )
     .fetch_one(pg_pool)
     .await?;
@@ -184,30 +190,24 @@ async fn do_create_data_plane(
     let draft: tables::DraftCatalog = serde_json::from_str::<models::Catalog>(&draft_str)
         .unwrap()
         .into();
-
-    let pub_id = id_generator.lock().unwrap().next();
-    let built = publisher
-        .build(
-            user_id,
-            pub_id,
-            Some(format!("publication for data-plane {base_name}")),
-            draft,
-            insert.logs_token,
-            &data_plane_name,
-        )
-        .await?;
-
-    if built.has_errors() {
-        for err in built.output.errors() {
-            tracing::error!(scope=%err.scope, err=format!("{:#}", err.error), "data-plane-template build error")
-        }
-        anyhow::bail!("data-plane-template build failed");
-    }
-
-    _ = publisher
-        .commit(built)
+    let publication = DraftPublication {
+        user_id,
+        logs_token: insert.logs_token,
+        draft,
+        dry_run: false,
+        detail: Some(format!("publication for data-plane {base_name}")),
+        // We've already validated that the user can admin `ops/`, so further authZ checks are
+        // unnecessary.
+        verify_user_authz: false,
+        default_data_plane_name: Some(data_plane_name.clone()),
+        initialize: NoExpansion,
+        finalize: PruneUnboundCollections,
+        retry: DoNotRetry,
+    };
+    publisher
+        .publish(publication)
         .await
-        .context("committing publication")?
+        .context("publishing ops catalog")?
         .error_for_status()?;
 
     tracing::info!(

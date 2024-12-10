@@ -20,8 +20,8 @@ async fn test_finding_forbidden_connectors() {
           ('bb00000000000000', 'testConnectors/Allowed', '{}'::json, 'capture', 'allowed_image', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
         ),
         p2 as (
-            insert into connectors (external_url, image_name, title, short_description, logo_url) values
-                ('http://example.com', 'allowed_image', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json)
+            insert into connectors (external_url, image_name, title, short_description, logo_url, recommended) values
+                ('http://example.com', 'allowed_image', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, false)
         )
         select 1;
         "#,

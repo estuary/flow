@@ -48,12 +48,7 @@ impl<'a> Display for CreateTable<'a> {
         write!(
             f,
             "CREATE {} TABLE {} {} ({}) {} {};",
-            self.table.r#type,
-            if_not_exists,
-            table_name,
-            self.table.schema,
-            indices,
-            self.extra,
+            self.table.r#type, if_not_exists, table_name, self.table.schema, indices, self.extra,
         )
     }
 }
@@ -93,7 +88,7 @@ impl<'a> Display for InsertFromTable<'a> {
 
         write!(
             f,
-            "INSERT INTO {} ({}) SELECT {} FROM {} WHERE source_file_name IN (?) AND ((SELECT count(*) FROM {} WHERE source_file_name IN (?)) < 1);",
+            "INSERT INTO {} ({}) SELECT {} FROM {} WHERE $source_file_name IN (?) AND ((SELECT count(*) FROM {} WHERE $source_file_name IN (?)) < 1);",
             destination_name, column_list, column_list, source_name,
             destination_name
         )
@@ -235,7 +230,7 @@ mod tests {
                 source_name: "source-test"
             }
             .to_string(),
-            "INSERT INTO \"destination-test\" (str,\"Int\") SELECT str,\"Int\" FROM \"source-test\" WHERE source_file_name IN (?) AND ((SELECT count(*) FROM \"destination-test\" WHERE source_file_name IN (?)) < 1);"
+            "INSERT INTO \"destination-test\" (str,\"Int\") SELECT str,\"Int\" FROM \"source-test\" WHERE $source_file_name IN (?) AND ((SELECT count(*) FROM \"destination-test\" WHERE $source_file_name IN (?)) < 1);"
         );
     }
 }

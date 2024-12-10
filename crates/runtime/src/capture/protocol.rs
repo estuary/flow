@@ -66,9 +66,12 @@ pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Res
     } else if request.validate.is_some() {
         verify("connector", "Validated").fail(response)
     } else if let (Some(apply), Some(applied)) = (&request.apply, &response.applied) {
-        if !applied.action_description.is_empty() {
+        // Action descriptions can sometimes be _very_ long and overflow the maximum ops log line.
+        let action = crate::truncate_chars(&applied.action_description, 1 << 18);
+
+        if !action.is_empty() {
             tracing::info!(
-                action = applied.action_description,
+                action,
                 last_version = apply.last_version,
                 version = apply.version,
                 "capture was applied"
@@ -360,15 +363,23 @@ pub fn recv_connector_captured(
     task: &Task,
     txn: &mut Transaction,
 ) -> anyhow::Result<()> {
-    let response::Captured { binding, doc_json } = captured;
+    let response::Captured {
+        binding: binding_index,
+        doc_json,
+    } = captured;
 
     let (memtable, alloc, mut doc) = accumulator
         .doc_bytes_to_heap_node(doc_json.as_bytes())
-        .context("couldn't parse captured document as JSON")?;
+        .with_context(|| {
+            format!(
+                "couldn't parse captured document as JSON (target {})",
+                task.bindings[binding_index as usize].collection_name
+            )
+        })?;
 
     let uuid_ptr = &task
         .bindings
-        .get(binding as usize)
+        .get(binding_index as usize)
         .with_context(|| "invalid captured binding {binding}")?
         .document_uuid_ptr;
 
@@ -377,9 +388,9 @@ pub fn recv_connector_captured(
             *node = doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
         }
     }
-    memtable.add(binding, doc, false)?;
+    memtable.add(binding_index, doc, false)?;
 
-    let stats = txn.stats.entry(binding).or_default();
+    let stats = txn.stats.entry(binding_index).or_default();
     stats.0.docs_total += 1;
     stats.0.bytes_total += doc_json.len() as u64;
 

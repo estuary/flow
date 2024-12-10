@@ -14,22 +14,22 @@ aes-siv = { workspace = true }
 allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
-flowctl = { path = "../flowctl" }
+flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 labels = { path = "../labels" }
+models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 simd-doc = { path = "../simd-doc" }
-
 anyhow = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
 axum-server = { workspace = true }
 base64 = { workspace = true }
+humantime = { workspace = true }
+bumpalo = { workspace = true }
 bytes = { workspace = true }
-# TODO(jshearer): Upgrade every other usage of clap to v4 and change this to:
-# clap = { workspace = true }
 clap = { workspace = true }
 crypto-common = { workspace = true }
 deadpool = { workspace = true }
@@ -38,10 +38,11 @@ hex = { workspace = true }
 hexdump = { workspace = true }
 itertools = { workspace = true }
 kafka-protocol = { workspace = true }
+lazy_static = { workspace = true }
 lz4_flex = { workspace = true }
 md5 = { workspace = true }
 metrics = { workspace = true }
-metrics-prometheus = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 percent-encoding = { workspace = true }
 postgrest = { workspace = true }
 prometheus = { workspace = true }
@@ -51,6 +52,7 @@ rsasl = { workspace = true }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }
+schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 socket2 = { workspace = true }

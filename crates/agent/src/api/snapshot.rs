@@ -37,6 +37,7 @@ pub struct SnapshotCollection {
 }
 // SnapshotTask is the state of a live task which influences authorization.
 // It's indexed on `shard_template_id`.
+#[derive(Debug)]
 pub struct SnapshotTask {
     // Template shard ID which prefixes all shard IDs of the task.
     pub shard_template_id: String,

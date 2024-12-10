@@ -1,7 +1,9 @@
+use crate::connector::DeletionMode;
 use anyhow::Context;
-use futures::{StreamExt, TryStreamExt};
+use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
 use proto_flow::flow;
+use std::time::Duration;
 
 /// Fetch the names of all collections which the current user may read.
 /// Each is mapped into a kafka topic.
@@ -17,7 +19,7 @@ pub async fn fetch_all_collection_names(
         .eq("spec_type", "collection")
         .select("catalog_name");
 
-    let items = flowctl::pagination::into_items::<Row>(rows_builder)
+    let items = flow_client::pagination::into_items::<Row>(rows_builder)
         .map(|res| res.map(|Row { catalog_name }| catalog_name))
         .try_collect()
         .await
@@ -48,13 +50,22 @@ pub struct Partition {
     pub route: broker::Route,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
+pub struct PartitionOffset {
+    pub fragment_start: i64,
+    pub offset: i64,
+    pub mod_time: i64,
+}
+
 impl Collection {
     /// Build a Collection by fetching its spec, a authenticated data-plane access token, and its partitions.
     pub async fn new(
-        client: &postgrest::Postgrest,
+        client: &flow_client::Client,
         collection: &str,
+        deletion_mode: DeletionMode,
     ) -> anyhow::Result<Option<Self>> {
         let not_before = uuid::Clock::default();
+        let pg_client = client.pg_client();
 
         // Build a journal client and use it to fetch partitions while concurrently
         // fetching the collection's metadata from the control plane.
@@ -64,7 +75,7 @@ impl Collection {
             Ok((journal_client, partitions))
         };
         let (spec, client_partitions): (anyhow::Result<_>, anyhow::Result<_>) =
-            futures::join!(Self::fetch_spec(&client, collection), client_partitions);
+            futures::join!(Self::fetch_spec(&pg_client, collection), client_partitions);
 
         let Some(spec) = spec? else { return Ok(None) };
         let (journal_client, partitions) = client_partitions?;
@@ -78,7 +89,16 @@ impl Collection {
         } else {
             &spec.read_schema_json
         };
-        let (key_schema, value_schema) = avro::json_schema_to_avro(json_schema, &key_ptr)?;
+
+        let json_schema = doc::validation::build_bundle(json_schema)?;
+        let validator = doc::Validator::new(json_schema)?;
+        let mut shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
+        if matches!(deletion_mode, DeletionMode::CDC) {
+            shape.widen(&serde_json::json!({"_meta":{"is_deleted":1}}));
+        }
+
+        let (key_schema, value_schema) = avro::shape_to_avro(shape, &key_ptr);
 
         tracing::debug!(
             collection,
@@ -153,7 +173,11 @@ impl Collection {
             }),
             ..Default::default()
         };
-        let response = journal_client.list(request).await?;
+        let response = journal_client
+            .list(request)
+            .await
+            .context(format!("fetching partitions for {collection}"))?;
+
         let mut partitions = Vec::with_capacity(response.journals.len());
 
         for journal in response.journals {
@@ -179,7 +203,7 @@ impl Collection {
         &self,
         partition_index: usize,
         timestamp_millis: i64,
-    ) -> anyhow::Result<Option<(i64, i64)>> {
+    ) -> anyhow::Result<Option<PartitionOffset>> {
         let Some(partition) = self.partitions.get(partition_index) else {
             return Ok(None);
         };
@@ -206,71 +230,49 @@ impl Collection {
         };
         let response = self.journal_client.list_fragments(request).await?;
 
-        let (offset, mod_time) = match response.fragments.get(0) {
+        let offset_data = match response.fragments.get(0) {
             Some(broker::fragments_response::Fragment {
                 spec: Some(spec), ..
             }) => {
                 if timestamp_millis == -1 {
-                    // Subtract one to reflect the largest fetch-able offset of the fragment.
-                    (spec.end - 1, spec.mod_time)
+                    PartitionOffset {
+                        fragment_start: spec.begin,
+                        // Subtract one to reflect the largest fetch-able offset of the fragment.
+                        offset: spec.end - 1,
+                        mod_time: spec.mod_time,
+                    }
                 } else {
-                    (spec.begin, spec.mod_time)
+                    PartitionOffset {
+                        fragment_start: spec.begin,
+                        offset: spec.begin,
+                        mod_time: spec.mod_time,
+                    }
                 }
             }
-            _ => (0, 0),
+            _ => PartitionOffset::default(),
         };
 
         tracing::debug!(
             collection = self.spec.name,
-            mod_time,
-            offset,
+            ?offset_data,
             partition_index,
             timestamp_millis,
             "fetched offset"
         );
 
-        Ok(Some((offset, mod_time)))
+        Ok(Some(offset_data))
     }
 
     /// Build a journal client by resolving the collections data-plane gateway and an access token.
     async fn build_journal_client(
-        client: &postgrest::Postgrest,
+        client: &flow_client::Client,
         collection: &str,
     ) -> anyhow::Result<journal::Client> {
-        let body = serde_json::json!({
-            "prefixes": [collection],
-        })
-        .to_string();
-
-        #[derive(serde::Deserialize)]
-        struct Auth {
-            token: String,
-            gateway_url: String,
-        }
-
-        let [auth]: [Auth; 1] = client
-            .rpc("gateway_auth_token", body)
-            .build()
-            .send()
+        let (_, journal_client) = flow_client::fetch_collection_authorization(client, collection)
             .await
-            .and_then(|r| r.error_for_status())
-            .context("requesting data plane gateway auth token")?
-            .json()
-            .await?;
+            .context(format!("building journal client for {collection}"))?;
 
-        tracing::debug!(
-            collection,
-            gateway = auth.gateway_url,
-            "fetched data-plane token"
-        );
-
-        let mut metadata = gazette::Metadata::default();
-        metadata.bearer_token(&auth.token)?;
-
-        let router = gazette::Router::new("dekaf");
-        let client = journal::Client::new(auth.gateway_url, metadata, router);
-
-        Ok(client)
+        Ok(journal_client)
     }
 
     async fn registered_schema_id(

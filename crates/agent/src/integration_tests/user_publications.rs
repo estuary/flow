@@ -45,7 +45,7 @@ async fn test_user_publications() {
                 "sourceCapture": "cats/capture",
                 "endpoint": {
                     "connector": {
-                        "image": "ghcr.io/estuary/materialize-postgres:dev",
+                        "image": "materialize/test:test",
                         "config": {}
                     }
                 },
@@ -180,7 +180,7 @@ async fn test_user_publications() {
         .await;
     assert!(dog_result.status.is_success());
     assert_publication_excluded(
-        dog_result.publication_id,
+        dog_result.pub_id.unwrap(),
         &["cats/noms", "cats/capture", "cats/materialize"],
         &mut harness,
     )
@@ -232,13 +232,13 @@ async fn test_user_publications() {
         .await;
     assert!(result.status.is_success());
     // only noms should have been modified by the publication
-    assert_publication_included(result.publication_id, &["cats/noms"], &mut harness).await;
+    assert_publication_included(result.pub_id.unwrap(), &["cats/noms"], &mut harness).await;
     // Assert that the drafted specs were properly expanded, and that the expanded specs
     // were only touched.
     harness
         .assert_specs_touched_since(&starting_expanded_specs)
         .await;
-    assert_publication_excluded(result.publication_id, &["dogs/materialize"], &mut harness).await;
+    assert_publication_excluded(result.pub_id.unwrap(), &["dogs/materialize"], &mut harness).await;
 
     harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(
@@ -261,7 +261,7 @@ async fn test_user_publications() {
         .await;
     assert!(del_result.status.is_success());
     assert_publication_excluded(
-        del_result.publication_id,
+        del_result.pub_id.unwrap(),
         &["dogs/materialize"],
         &mut harness,
     )

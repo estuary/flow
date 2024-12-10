@@ -7,7 +7,7 @@ use kafka_protocol::{
 use tracing::instrument;
 
 mod topology;
-use topology::{fetch_all_collection_names, Collection, Partition};
+use topology::{Collection, Partition};
 
 mod read;
 use read::Read;
@@ -15,110 +15,123 @@ use read::Read;
 mod session;
 pub use session::Session;
 
+pub mod connector;
+pub mod metrics_server;
 pub mod registry;
-pub mod metrics;
 
 mod api_client;
 pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
-use itertools::Itertools;
+use connector::{DekafConfig, DeletionMode};
+use flow_client::client::{refresh_authorizations, RefreshToken};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
-use serde_json::de;
+use std::time::SystemTime;
 
 pub struct App {
-    /// Anonymous API client for the Estuary control plane.
-    pub anon_client: postgrest::Postgrest,
     /// Hostname which is advertised for Kafka access.
     pub advertise_host: String,
     /// Port which is advertised for Kafka access.
     pub advertise_kafka_port: u16,
-    /// Client used when proxying group management APIs.
-    pub kafka_client: KafkaApiClient,
     /// Secret used to secure Prometheus endpoint
     pub secret: String,
+    /// Share a single base client in order to re-use connection pools
+    pub client_base: flow_client::Client,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigOptions {
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
+#[serde(deny_unknown_fields)]
+pub struct DeprecatedConfigOptions {
     #[serde(default = "bool::<false>")]
     pub strict_topic_names: bool,
+    #[serde(default)]
+    pub deletions: DeletionMode,
 }
 
 pub struct Authenticated {
-    client: postgrest::Postgrest,
-    user_config: ConfigOptions,
-    claims: JwtClaims,
+    client: flow_client::Client,
+    refresh_token: RefreshToken,
+    access_token: String,
+    task_config: DekafConfig,
+    claims: models::authorizations::ControlClaims,
 }
 
-#[derive(Deserialize)]
-struct JwtClaims {
-    /// Unix timestamp in seconds when this token will expire
-    exp: u64,
-    /// ID of the user that owns this token
-    sub: String,
+impl Authenticated {
+    pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
+        let (access, refresh) = refresh_authorizations(
+            &self.client,
+            Some(self.access_token.to_owned()),
+            Some(self.refresh_token.to_owned()),
+        )
+        .await?;
+
+        if access != self.access_token {
+            self.access_token = access.clone();
+            self.refresh_token = refresh;
+
+            self.client = self
+                .client
+                .clone()
+                .with_user_access_token(Some(access))
+                .with_fresh_gazette_client();
+        }
+
+        Ok(&self.client)
+    }
 }
 
 impl App {
     #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
     async fn authenticate(&self, username: &str, password: &str) -> anyhow::Result<Authenticated> {
-        let username_str = if username.contains("{") {
-            username.to_string()
+        let username = if let Ok(decoded) = decode_safe_name(username.to_string()) {
+            decoded
         } else {
-            decode_safe_name(username.to_string()).context("failed to decode username")?
+            username.to_string()
         };
-        let config: ConfigOptions = serde_json::from_str(&username_str)
-            .context("failed to parse username as a JSON object")?;
 
-        #[derive(serde::Deserialize)]
-        struct RefreshToken {
-            id: String,
-            secret: String,
-        }
-        let RefreshToken {
-            id: refresh_token_id,
-            secret,
-        } = serde_json::from_slice(&base64::decode(password).context("password is not base64")?)
-            .context("failed to decode refresh token from password")?;
+        let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
+        let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
 
-        tracing::info!(refresh_token_id, "authenticating refresh token");
+        let (access, refresh) =
+            refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
 
-        #[derive(serde::Deserialize)]
-        struct AccessToken {
-            access_token: String,
-        }
-        let AccessToken { access_token } = self
-            .anon_client
-            .rpc(
-                "generate_access_token",
-                serde_json::json!({"refresh_token_id": refresh_token_id, "secret": secret})
-                    .to_string(),
-            )
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("generating access token")?
-            .json()
-            .await?;
-
-        let authenticated_client = self
-            .anon_client
+        let client = self
+            .client_base
             .clone()
-            .insert_header("Authorization", format!("Bearer {access_token}"));
+            .with_user_access_token(Some(access.clone()))
+            .with_fresh_gazette_client();
 
-        let claims = base64::decode(access_token.split(".").collect_vec()[1])
-            .map_err(anyhow::Error::from)
-            .and_then(|decoded| {
-                de::from_slice::<JwtClaims>(&decoded[..]).map_err(anyhow::Error::from)
+        let claims = flow_client::client::client_claims(&client)?;
+
+        if models::Materialization::regex().is_match(username.as_ref())
+            && !username.starts_with("{")
+        {
+            Ok(Authenticated {
+                client,
+                access_token: access,
+                refresh_token: refresh,
+                task_config: todo!("Fetch and unseal task config"),
+                claims,
             })
-            .context("Failed to parse access token claims")?;
+        } else if username.contains("{") {
+            let config: DeprecatedConfigOptions = serde_json::from_str(&username)
+                .context("failed to parse username as a JSON object")?;
 
-        Ok(Authenticated {
-            client: authenticated_client,
-            user_config: config,
-            claims,
-        })
+            Ok(Authenticated {
+                client,
+                task_config: DekafConfig {
+                    strict_topic_names: config.strict_topic_names,
+                    deletions: config.deletions,
+                    token: "".to_string(),
+                },
+                access_token: access,
+                refresh_token: refresh,
+                claims,
+            })
+        } else {
+            anyhow::bail!("Invalid username or password")
+        }
     }
 }
 
@@ -178,13 +191,14 @@ async fn handle_api(
     frame: bytes::BytesMut,
     out: &mut bytes::BytesMut,
 ) -> anyhow::Result<()> {
-    tracing::trace!("Handling request");
+    let start_time = SystemTime::now();
     use messages::*;
     let ret = match api_key {
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(frame, version)?;
             tracing::debug!(client_id=?header.client_id, "Got client ID!");
+            session.client_id = header.client_id.clone().map(|id| id.to_string());
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
         ApiKey::SaslHandshakeKey => {
@@ -321,7 +335,10 @@ async fn handle_api(
         */
         _ => anyhow::bail!("unsupported request type {api_key:?}"),
     };
-    tracing::trace!("Response sent");
+    let handle_duration = SystemTime::now().duration_since(start_time)?;
+
+    metrics::histogram!("dekaf_api_call_time", "api_key" => format!("{:?}",api_key))
+        .record(handle_duration.as_secs_f32() as f64);
 
     ret
 }

@@ -66,6 +66,8 @@ mod test {
         test_derivations,
         test_deletions,
         test_endpoints_captures_materializations,
+        test_dekaf_good,
+        test_dekaf_invalid,
         test_schema_with_anchors,
         test_schema_with_inline,
         test_schema_with_nested_ids,

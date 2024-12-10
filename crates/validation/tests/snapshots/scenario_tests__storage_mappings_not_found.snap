@@ -24,12 +24,8 @@ expression: errors
         error: could not map collection testing/int-string into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred,
-        error: could not map collection testing/int-string-inferred into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
-        error: could not map collection testing/int-string-inferred-not-found into a storage mapping; did you mean TestinG/ defined at flow://storageMapping/TestinG/?,
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
+        error: could not map collection testing/int-string-ref-write-schema into a storage mapping; did you mean not-matched/ defined at flow://storageMapping/not-matched/?,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw,

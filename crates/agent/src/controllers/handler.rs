@@ -3,14 +3,14 @@ use anyhow::Context;
 
 use crate::{
     controlplane::{ControlPlane, PGControlPlane},
-    HandleResult, Handler,
+    DataPlaneConnectors, HandleResult, Handler,
 };
 
 use super::{ControllerState, NextRun, RetryableError, Status};
 
 use crate::controllers::CONTROLLER_VERSION;
 
-pub struct ControllerHandler<C: ControlPlane = PGControlPlane> {
+pub struct ControllerHandler<C: ControlPlane = PGControlPlane<DataPlaneConnectors>> {
     control_plane: C,
 }
 
@@ -125,9 +125,11 @@ impl Handler for ControllerHandler {
 #[tracing::instrument(err(level = tracing::Level::WARN), skip(state, next_status, control_plane), fields(
     catalog_name = %state.catalog_name,
     enqueued_at = ?state.next_run,
-    last_update = %state.updated_at,
+    last_update = %state.controller_updated_at,
     last_pub_id = %state.last_pub_id,
-    last_build_id = %state.last_build_id))]
+    last_build_id = %state.last_build_id,
+    data_plane_id = %state.data_plane_id,
+))]
 async fn run_controller<C: ControlPlane>(
     state: &ControllerState,
     next_status: &mut Status,

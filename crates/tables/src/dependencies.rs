@@ -81,7 +81,7 @@ impl<'a> Dependencies<'a> {
             deps.push(target.as_str());
         }
 
-        let maybe_source_cap = model.materialization_source_capture();
+        let maybe_source_cap = model.materialization_source_capture_name();
         if let Some(source_cap) = maybe_source_cap.as_ref() {
             deps.push(source_cap.as_str());
         }

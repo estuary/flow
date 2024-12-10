@@ -1,11 +1,9 @@
 use std::fmt::Debug;
 
-use anyhow::Context;
 use clap::Parser;
 
 mod auth;
 mod catalog;
-mod client;
 mod collection;
 mod config;
 mod draft;
@@ -13,12 +11,13 @@ mod generate;
 mod local_specs;
 mod ops;
 mod output;
-pub mod pagination;
 mod poll;
 mod preview;
 mod raw;
 
-use client::Client;
+use flow_client::client::refresh_authorizations;
+pub(crate) use flow_client::client::Client;
+pub(crate) use flow_client::{api_exec, api_exec_paginated};
 use output::{Output, OutputType};
 use poll::poll_while_queued;
 
@@ -135,66 +134,31 @@ impl Cli {
         let mut config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
 
-        // If the configured access token has expired then remove it before continuing.
-        if let Some(token) = &config.user_access_token {
-            let claims: models::authorizations::ControlClaims =
-                parse_jwt_claims(token).context("failed to parse control-plane access token")?;
+        let anon_client: flow_client::Client = config.build_anon_client();
 
-            let now = time::OffsetDateTime::now_utc();
-            let exp = time::OffsetDateTime::from_unix_timestamp(claims.exp as i64).unwrap();
+        let client = match refresh_authorizations(
+            &anon_client,
+            config.user_access_token.to_owned(),
+            config.user_refresh_token.to_owned(),
+        )
+        .await
+        {
+            Ok((access, refresh)) => {
+                // Make sure to store refreshed tokens back in Config so they get written back to disk
+                config.user_access_token = Some(access.to_owned());
+                config.user_refresh_token = Some(refresh.to_owned());
 
-            if now + std::time::Duration::from_secs(60) > exp {
-                tracing::info!(expired=%exp, "removing expired user access token from configuration");
-                config.user_access_token = None;
+                anon_client.with_user_access_token(Some(access))
             }
-        }
-
-        if config.user_access_token.is_some() && config.user_refresh_token.is_some() {
-            // Authorization is current: nothing to do.
-        } else if config.user_access_token.is_some() {
-            // We have an access token but no refresh token. Create one.
-            let refresh_token = api_exec::<config::RefreshToken>(
-                Client::new(&config).rpc(
-                    "create_refresh_token",
-                    serde_json::json!({"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"})
-                        .to_string(),
-                ),
-            )
-            .await?;
-
-            config.user_refresh_token = Some(refresh_token);
-
-            tracing::info!("created new refresh token");
-        } else if let Some(config::RefreshToken { id, secret }) = &config.user_refresh_token {
-            // We have a refresh token but no access token. Generate one.
-
-            #[derive(serde::Deserialize)]
-            struct Response {
-                access_token: String,
-                refresh_token: Option<config::RefreshToken>, // Set iff the token was single-use.
+            Err(err) => {
+                tracing::debug!(?err, "Error refreshing credentials");
+                tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
+                anon_client
             }
-            let Response {
-                access_token,
-                refresh_token: next_refresh_token,
-            } = api_exec::<Response>(Client::new(&config).rpc(
-                "generate_access_token",
-                serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
-            ))
-            .await
-            .context("failed to obtain access token")?;
-
-            if next_refresh_token.is_some() {
-                config.user_refresh_token = next_refresh_token;
-            }
-            config.user_access_token = Some(access_token);
-
-            tracing::info!("generated a new access token");
-        } else {
-            tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
-        }
+        };
 
         let mut context = CliContext {
-            client: Client::new(&config),
+            client,
             config,
             output,
         };
@@ -214,42 +178,6 @@ impl Cli {
 
         Ok(())
     }
-}
-
-// api_exec runs a PostgREST request, debug-logs its request, and turns non-success status into an anyhow::Error.
-async fn api_exec<T>(b: postgrest::Builder) -> anyhow::Result<T>
-where
-    for<'de> T: serde::Deserialize<'de>,
-{
-    let req = b.build();
-    tracing::debug!(?req, "built request to execute");
-
-    let resp = req.send().await?;
-    let status = resp.status();
-
-    if status.is_success() {
-        let body: models::RawValue = resp.json().await?;
-        tracing::trace!(body = ?::ops::DebugJson(&body), status = %status, "got successful response");
-        let t: T = serde_json::from_str(body.get()).context("deserializing response body")?;
-        Ok(t)
-    } else {
-        let body = resp.text().await?;
-        anyhow::bail!("{status}: {body}");
-    }
-}
-
-/// Execute a [`postgrest::Builder`] request returning multiple rows. Unlike [`api_exec`]
-/// which is limited to however many rows Postgrest is configured to return in a single response,
-/// this will issue as many paginated requests as necessary to fetch every row.
-async fn api_exec_paginated<T>(b: postgrest::Builder) -> anyhow::Result<Vec<T>>
-where
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
-{
-    use futures::TryStreamExt;
-
-    let pages = pagination::into_items(b).try_collect().await?;
-
-    Ok(pages)
 }
 
 // new_table builds a comfy_table with UTF8 styling.
@@ -291,13 +219,4 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
         email = email.unwrap_or_default(),
         id = id.map(|id| id.to_string()).unwrap_or_default(),
     )
-}
-
-fn parse_jwt_claims<T: serde::de::DeserializeOwned>(token: &str) -> anyhow::Result<T> {
-    let claims = token
-        .split('.')
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("malformed token"))?;
-    let claims = base64::decode_config(claims, base64::URL_SAFE_NO_PAD)?;
-    anyhow::Result::Ok(serde_json::from_slice(&claims)?)
 }

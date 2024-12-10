@@ -1,20 +1,30 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+pub mod connectors;
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
 use crate::{
     controllers::{ControllerHandler, ControllerState},
     controlplane::ConnectorSpec,
-    publications::{self, PublicationResult, Publisher, UncommittedBuild},
-    ControlPlane, HandleResult, Handler, PGControlPlane,
+    discovers::{self, DiscoverHandler, DiscoverOutput},
+    evolution,
+    publications::{
+        self, DefaultRetryPolicy, DraftPublication, PublicationResult, Publisher, UncommittedBuild,
+        UpdateInferredSchemas,
+    },
+    ControlPlane, Handler, PGControlPlane,
 };
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
-use models::CatalogType;
+use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use serde::Deserialize;
 use serde_json::{value::RawValue, Value};
 use sqlx::types::Uuid;
 use tables::DraftRow;
 use tempfile::tempdir;
+
+use self::connectors::MockDiscoverConnectors;
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
@@ -36,10 +46,61 @@ pub struct LiveSpec {
 
 #[derive(Debug)]
 pub struct ScenarioResult {
-    pub publication_id: models::Id,
+    pub publication_row_id: Id,
+    /// The pub_id of a successfully committed publication, which will match with
+    /// the `live_specs.last_pub_id` and `publication_specs.pub_id`. Will be None if
+    /// the publication failed.
+    pub pub_id: Option<Id>,
     pub status: publications::JobStatus,
     pub errors: Vec<(String, String)>,
     pub live_specs: Vec<LiveSpec>,
+}
+
+pub struct UserDiscoverResult {
+    pub job_status: discovers::handler::JobStatus,
+    pub draft: tables::DraftCatalog,
+    pub errors: Vec<(String, String)>,
+}
+
+impl UserDiscoverResult {
+    async fn load(discover_id: Id, db: &sqlx::PgPool) -> UserDiscoverResult {
+        let discover = sqlx::query!(
+            r#"select
+                draft_id as "draft_id: Id",
+                job_status as "job_status: TextJson<discovers::handler::JobStatus>"
+            from discovers
+            where id = $1;"#,
+            discover_id as Id,
+        )
+        .fetch_one(db)
+        .await
+        .expect("failed to query discover");
+
+        let draft = crate::draft::load_draft(discover.draft_id, db)
+            .await
+            .unwrap();
+
+        let errors = load_draft_errors(discover.draft_id, db).await;
+
+        UserDiscoverResult {
+            job_status: discover.job_status.0,
+            draft,
+            errors,
+        }
+    }
+}
+
+async fn load_draft_errors(draft_id: Id, db: &sqlx::PgPool) -> Vec<(String, String)> {
+    sqlx::query!(
+        r#"select scope, detail from draft_errors where draft_id = $1;"#,
+        draft_id as Id
+    )
+    .fetch_all(db)
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|de| (de.scope, de.detail))
+    .collect::<Vec<(String, String)>>()
 }
 
 /// Facilitates writing integration tests.
@@ -55,6 +116,7 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub controllers: ControllerHandler<TestControlPlane>,
+    pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
 }
 
 impl TestHarness {
@@ -88,6 +150,8 @@ impl TestHarness {
         });
 
         let id_gen = models::IdGenerator::new(1);
+        let mock_connectors = connectors::MockDiscoverConnectors::default();
+        let discover_handler = DiscoverHandler::new(mock_connectors);
 
         let publisher = Publisher::new(
             "/not/a/real/bin/dir",
@@ -103,6 +167,7 @@ impl TestHarness {
             system_user_id,
             publisher.clone(),
             id_gen.clone(),
+            discover_handler.clone(),
         );
         let controllers = ControllerHandler::new(TestControlPlane::new(control_plane));
         let mut harness = Self {
@@ -111,6 +176,7 @@ impl TestHarness {
             publisher,
             controllers,
             builds_root,
+            discover_handler,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -120,14 +186,14 @@ impl TestHarness {
     async fn setup_test_connectors(&mut self) {
         sqlx::query!(r##"
             with source_image as (
-                insert into connectors (external_url, image_name, title, short_description, logo_url)
-                values ('http://test.test/', 'source/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}')
+                insert into connectors (external_url, image_name, title, short_description, logo_url, recommended)
+                values ('http://test.test/', 'source/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}', false)
                 on conflict(image_name) do update set title = excluded.title
                 returning id
             ),
             materialize_image as (
-                insert into connectors (external_url, image_name, title, short_description, logo_url)
-                values ('http://test.test/', 'materialize/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}')
+                insert into connectors (external_url, image_name, title, short_description, logo_url, recommended)
+                values ('http://test.test/', 'materialize/test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}', false)
                 on conflict(image_name) do update set title = excluded.title
                 returning id
             ),
@@ -168,7 +234,28 @@ impl TestHarness {
                     'materialization',
                     'http://test.test/',
                     '{"type": "object"}',
-                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}}}',
+                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string", "x-schema-name": true}, "delta": {"type": "boolean", "x-delta-updates": true}}}',
+                    '{/id}',
+                    '{"type": "success"}'
+                ) on conflict do nothing
+            ),
+            materialize_tag_no_annotations as (
+                insert into connector_tags (
+                    connector_id,
+                    image_tag,
+                    protocol,
+                    documentation_url,
+                    endpoint_spec_schema,
+                    resource_spec_schema,
+                    resource_path_pointers,
+                    job_status
+                ) values (
+                    (select id from materialize_image),
+                    ':test-no-annotation',
+                    'materialization',
+                    'http://test.test/',
+                    '{"type": "object"}',
+                    '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}, "schema": {"type": "string"}, "delta": {"type": "boolean"}}}',
                     '{/id}',
                     '{"type": "success"}'
                 ) on conflict do nothing
@@ -424,14 +511,14 @@ impl TestHarness {
             let rows = sqlx::query!(
                 r#"select
                 ls.catalog_name,
-                ps.pub_id as "pub_id: agent_sql::Id"
+                ps.pub_id as "pub_id: Id"
                 from live_specs ls
                 join publication_specs ps on ls.id = ps.live_spec_id
                 where ls.catalog_name = $1
                 and ps.pub_id > $2
                 order by ls.catalog_name;"#,
                 spec.catalog_name.as_str(),
-                agent_sql::Id::from(expect_last_pub) as agent_sql::Id,
+                Id::from(expect_last_pub) as Id,
             )
             .fetch_all(&self.pool)
             .await
@@ -460,7 +547,7 @@ impl TestHarness {
     pub async fn assert_live_spec_hard_deleted(&mut self, name: &str) {
         let rows = sqlx::query!(
             r#"select
-            id as "id: agent_sql::Id",
+            id as "id: Id",
             spec as "spec: agent_sql::TextJson<Box<RawValue>>",
             spec_type as "spec_type: agent_sql::CatalogType"
             from live_specs where catalog_name = $1;"#,
@@ -485,12 +572,12 @@ impl TestHarness {
         );
     }
 
-    pub async fn assert_live_spec_soft_deleted(&mut self, name: &str, last_pub_id: models::Id) {
+    pub async fn assert_live_spec_soft_deleted(&mut self, name: &str, last_pub_id: Id) {
         let row = sqlx::query!(
             r#"
             select
-                id as "id: agent_sql::Id",
-                last_pub_id as "last_pub_id: agent_sql::Id",
+                id as "id: Id",
+                last_pub_id as "last_pub_id: Id",
                 spec_type as "spec_type?: agent_sql::CatalogType",
                 spec as "spec: agent_sql::TextJson<Box<RawValue>>",
                 reads_from as "reads_from: Vec<String>",
@@ -530,30 +617,48 @@ impl TestHarness {
         assert_eq!(0, live_specs.spec_count());
     }
 
+    pub async fn set_auto_discover_due(&mut self, capture: &str) {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query!(
+            r#"update controller_jobs
+            set status = jsonb_set(status::jsonb, '{auto_discover, next_at}', to_jsonb($2::text), true)::json
+            where live_spec_id = (select id from live_specs where catalog_name = $1)
+            returning 1 as "must_exist: bool";"#,
+            capture,
+            now
+        ).fetch_one(&self.pool)
+        .await
+        .expect("failed to set auto-discover next_at");
+    }
+
     /// Returns a `ControllerState` representing the given live spec and
     /// controller status from the perspective of a controller.
     pub async fn get_controller_state(&mut self, name: &str) -> ControllerState {
         let job = sqlx::query_as!(
             agent_sql::controllers::ControllerJob,
             r#"select
-                ls.id as "live_spec_id: agent_sql::Id",
+                ls.id as "live_spec_id: Id",
                 ls.catalog_name as "catalog_name!: String",
                 ls.controller_next_run,
-                ls.last_pub_id as "last_pub_id: agent_sql::Id",
-                ls.last_build_id as "last_build_id: agent_sql::Id",
+                ls.last_pub_id as "last_pub_id: Id",
+                ls.last_build_id as "last_build_id: Id",
                 ls.spec as "live_spec: TextJson<Box<RawValue>>",
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
                 ls.spec_type as "spec_type: agent_sql::CatalogType",
                 ls.dependency_hash as "live_dependency_hash",
+                ls.created_at,
+                ls.updated_at as "live_spec_updated_at",
                 cj.controller_version as "controller_version: i32",
-                cj.updated_at,
+                cj.updated_at as "controller_updated_at",
                 cj.logs_token,
                 cj.status as "status: TextJson<Box<RawValue>>",
                 cj.failures,
                 cj.error,
-                ls.data_plane_id as "data_plane_id: agent_sql::Id"
+                ls.data_plane_id as "data_plane_id: Id",
+                dp.data_plane_name as "data_plane_name?: String"
             from live_specs ls
             join controller_jobs cj on ls.id = cj.live_spec_id
+            left outer join data_planes dp on ls.data_plane_id = dp.id
             where ls.catalog_name = $1;"#,
             name
         )
@@ -606,9 +711,73 @@ impl TestHarness {
             states.push(state);
             if states.len() == max {
                 break;
+            } else if states.len() > 100 {
+                panic!("run_pending_controllers ran for more than 100 iterations, is there an infinite loop?");
             }
         }
         states
+    }
+
+    pub async fn user_discover(
+        &mut self,
+        image_name: &str,
+        image_tag: &str,
+        capture_name: &str,
+        draft_id: Id,
+        endpoint_config: &str, // TODO: different type?
+        update_only: bool,
+        mock_discover_resp: connectors::MockDiscover,
+    ) -> UserDiscoverResult {
+        let connector_tag = sqlx::query!(
+            r##"select ct.id as "id: Id"
+            from connectors c
+            join connector_tags ct on c.id = ct.connector_id
+            where c.image_name = $1
+            and ct.image_tag = $2;"##,
+            image_name,
+            image_tag
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("querying for connector_tags id");
+
+        let config_json = TextJson(models::RawValue::from_str(endpoint_config).unwrap());
+        let disco_id = sqlx::query!(
+            r##"insert into discovers (
+                capture_name,
+                connector_tag_id,
+                draft_id,
+                endpoint_config,
+                update_only,
+                data_plane_name
+            ) values ($1, $2, $3, $4, $5, 'ops/dp/public/test')
+            returning id as "id: Id";"##,
+            capture_name as &str,
+            connector_tag.id as Id,
+            draft_id as Id,
+            config_json as TextJson<models::RawValue>,
+            update_only
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+
+        self.discover_handler
+            .connectors
+            .mock_discover(capture_name, mock_discover_resp);
+
+        let result = self
+            .discover_handler
+            .handle(&self.pool, false)
+            .await
+            .expect("discover handler failed");
+        assert_eq!(
+            crate::HandleResult::HadJob,
+            result,
+            "expected discovers handler to handle a job"
+        );
+
+        UserDiscoverResult::load(disco_id.id, &self.pool).await
     }
 
     /// Performs a publication as if it were initiated by `flowctl` or the UI,
@@ -619,24 +788,18 @@ impl TestHarness {
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, draft, false, false)
+        self.async_publication(user_id, detail, Either::L(draft), false, false)
             .await
     }
 
-    pub async fn auto_discover_publication(
+    pub async fn create_user_publication(
         &mut self,
-        draft: tables::DraftCatalog,
-        auto_evolve: bool,
+        user_id: Uuid,
+        draft_id: Id,
+        detail: impl Into<String>,
     ) -> ScenarioResult {
-        let system_user = self.control_plane().inner.system_user_id;
-        self.async_publication(
-            system_user,
-            "test auto-discover publication",
-            draft,
-            auto_evolve,
-            true,
-        )
-        .await
+        self.async_publication(user_id, detail, Either::R(draft_id), false, false)
+            .await
     }
 
     /// Runs a publication by inserting into the `publications` table and
@@ -647,12 +810,15 @@ impl TestHarness {
         &mut self,
         user_id: Uuid,
         detail: impl Into<String>,
-        draft: tables::DraftCatalog,
+        draft: Either<tables::DraftCatalog, Id>,
         auto_evolve: bool,
         background: bool,
     ) -> ScenarioResult {
         let detail = detail.into();
-        let draft_id = self.create_draft(user_id, detail.clone(), draft).await;
+        let draft_id = match draft {
+            Either::L(catalog) => self.create_draft(user_id, detail.clone(), catalog).await,
+            Either::R(id) => id,
+        };
         let mut txn = self
             .pool
             .begin()
@@ -679,7 +845,7 @@ impl TestHarness {
             .expect("publications handler failed");
 
         assert_eq!(
-            HandleResult::HadJob,
+            crate::HandleResult::HadJob,
             handler_result,
             "expected publications handler to have a job"
         );
@@ -688,9 +854,7 @@ impl TestHarness {
         pub_result
     }
 
-    async fn get_publication_result(&mut self, publication_id: models::Id) -> ScenarioResult {
-        let pub_id: agent_sql::Id = publication_id.into();
-
+    async fn get_publication_result(&mut self, publication_row_id: Id) -> ScenarioResult {
         let specs = sqlx::query_as!(
             LiveSpec,
             r#"
@@ -701,10 +865,11 @@ impl TestHarness {
                                writes_to,
                                spec,
                                spec_type as "spec_type: String"
-                        from live_specs
-                        where live_specs.last_pub_id = $1::flowid
-                        order by live_specs.catalog_name;"#,
-            pub_id as agent_sql::Id
+                        from publications p
+                        join live_specs ls on p.pub_id = ls.last_pub_id
+                        where p.id = $1::flowid
+                        order by ls.catalog_name;"#,
+            publication_row_id as Id
         )
         .fetch_all(&self.pool)
         .await
@@ -713,27 +878,20 @@ impl TestHarness {
         let result = sqlx::query!(
             r#"
             select job_status as "job_status: agent_sql::TextJson<publications::JobStatus>",
-            draft_id as "draft_id: agent_sql::Id"
+            draft_id as "draft_id: Id",
+            pub_id as "pub_id: Id"
             from publications where id = $1"#,
-            pub_id as agent_sql::Id
+            publication_row_id as Id
         )
         .fetch_one(&self.pool)
         .await
         .expect("failed to fetch publication");
 
-        let errors = sqlx::query!(
-            r#"select scope, detail from draft_errors where draft_id = $1;"#,
-            result.draft_id as agent_sql::Id
-        )
-        .fetch_all(&self.pool)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|de| (de.scope, de.detail))
-        .collect::<Vec<(String, String)>>();
+        let errors = load_draft_errors(result.draft_id, &self.pool).await;
 
         ScenarioResult {
-            publication_id,
+            publication_row_id,
+            pub_id: result.pub_id,
             status: result.job_status.0,
             errors,
             live_specs: specs,
@@ -745,7 +903,7 @@ impl TestHarness {
         user_id: Uuid,
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
-    ) -> agent_sql::Id {
+    ) -> Id {
         use agent_sql::drafts as drafts_sql;
         let detail = detail.into();
 
@@ -756,7 +914,7 @@ impl TestHarness {
             .expect("failed to start transaction");
 
         let draft_id = sqlx::query!(
-            r#"insert into drafts (user_id, detail) values ($1, $2) returning id as "id: agent_sql::Id";"#,
+            r#"insert into drafts (user_id, detail) values ($1, $2) returning id as "id: Id";"#,
             user_id,
             detail.as_str()
         )
@@ -891,22 +1049,64 @@ pub trait FailBuild: std::fmt::Debug + Send + 'static {
     fn modify(&mut self, result: &mut UncommittedBuild);
 }
 
+#[derive(Debug)]
+pub struct InjectBuildError(Option<tables::Error>);
+impl InjectBuildError {
+    pub fn new(scope: url::Url, err: impl Into<anyhow::Error>) -> InjectBuildError {
+        InjectBuildError(Some(tables::Error {
+            scope,
+            error: err.into(),
+        }))
+    }
+}
+impl FailBuild for InjectBuildError {
+    fn modify(&mut self, result: &mut UncommittedBuild) {
+        result.output.built.errors.insert(self.0.take().unwrap());
+    }
+}
+
 /// A wrapper around `PGControlPlane` that has a few basic capbilities for verifying
 /// activation calls and simulating failures of activations and publications.
 pub struct TestControlPlane {
-    inner: PGControlPlane,
+    inner: PGControlPlane<MockDiscoverConnectors>,
     activations: Vec<Activation>,
     fail_activations: BTreeSet<String>,
-    build_failures: BTreeMap<String, VecDeque<Box<dyn FailBuild>>>,
+    build_failures: InjectBuildFailures,
+}
+
+/// A `Finalize` that can inject build failures in order to test failure scenarios.
+/// `FailBuild`s are applied based on matching catalog names in the publication.
+#[derive(Clone)]
+struct InjectBuildFailures(Arc<Mutex<BTreeMap<String, VecDeque<Box<dyn FailBuild>>>>>);
+impl crate::publications::FinalizeBuild for InjectBuildFailures {
+    fn finalize(&self, build: &mut UncommittedBuild) -> anyhow::Result<()> {
+        let mut build_failures = self.0.lock().unwrap();
+        for (catalog_name, modifications) in build_failures.iter_mut() {
+            if !build
+                .output
+                .built
+                .all_spec_names()
+                .any(|name| name == catalog_name.as_str())
+            {
+                continue;
+            }
+            if let Some(mut failure) = modifications.pop_front() {
+                // log just to make it easier to debug tests
+                tracing::info!(publication_id = %build.publication_id, %catalog_name, ?failure, "modifing test publication");
+                failure.modify(build);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TestControlPlane {
-    fn new(inner: PGControlPlane) -> Self {
+    fn new(inner: PGControlPlane<MockDiscoverConnectors>) -> Self {
         Self {
             inner,
             activations: Vec::new(),
             fail_activations: BTreeSet::new(),
-            build_failures: BTreeMap::new(),
+            build_failures: InjectBuildFailures(Arc::new(Mutex::new(BTreeMap::new()))),
         }
     }
 
@@ -959,10 +1159,8 @@ impl TestControlPlane {
     where
         F: FailBuild,
     {
-        let modifications = self
-            .build_failures
-            .entry(catalog_name.to_string())
-            .or_default();
+        let mut build_failures = self.build_failures.0.lock().unwrap();
+        let modifications = build_failures.entry(catalog_name.to_string()).or_default();
         modifications.push_back(Box::new(modify));
     }
 }
@@ -989,61 +1187,56 @@ impl ControlPlane for TestControlPlane {
         self.inner.current_time()
     }
 
-    /// Tests use a custom publish loop, so that failures can be injected into
-    /// the build. This is admittedly a little gross, but at least it's pretty
-    /// simple. And I'm hopeful that a better factoring of the `Publisher` will
-    /// one day allow this to be replaced with something less bespoke.
+    async fn evolve_collections(
+        &mut self,
+        draft: tables::DraftCatalog,
+        collections: Vec<evolution::EvolveRequest>,
+    ) -> anyhow::Result<evolution::EvolutionOutput> {
+        self.inner.evolve_collections(draft, collections).await
+    }
+
+    async fn discover(
+        &mut self,
+        capture_name: models::Capture,
+        draft: tables::DraftCatalog,
+        update_only: bool,
+        logs_token: Uuid,
+        data_plane_id: models::Id,
+    ) -> anyhow::Result<DiscoverOutput> {
+        self.inner
+            .discover(capture_name, draft, update_only, logs_token, data_plane_id)
+            .await
+    }
+
     async fn publish(
         &mut self,
-        publication_id: models::Id,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
+        data_plane_name: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
-        let mut result = self
-            .inner
-            .publications_handler
-            .build(
-                self.inner.system_user_id,
-                publication_id,
-                detail,
-                draft,
-                logs_token,
-                "ops/dp/public/test",
-            )
-            .await?;
+        let finalize = self.build_failures.clone();
+        let publication = DraftPublication {
+            user_id: self.inner.system_user_id,
+            detail,
+            draft,
+            logs_token,
+            dry_run: false,
+            default_data_plane_name: data_plane_name,
+            verify_user_authz: false,
+            initialize: UpdateInferredSchemas,
+            finalize,
+            retry: DefaultRetryPolicy,
+        };
 
-        for (catalog_name, modifications) in self.build_failures.iter_mut() {
-            if !result
-                .output
-                .built
-                .all_spec_names()
-                .any(|name| name == catalog_name.as_str())
-            {
-                continue;
-            }
-            if let Some(mut failure) = modifications.pop_front() {
-                // log just to make it easier to debug tests
-                tracing::info!(%publication_id, %catalog_name, ?failure, "modifing test publication");
-                failure.modify(&mut result);
-            }
-        }
-        if result.has_errors() {
-            Ok(result.build_failed())
-        } else {
-            self.inner.publications_handler.commit(result).await
-        }
-    }
-
-    fn next_pub_id(&mut self) -> models::Id {
-        self.inner.next_pub_id()
+        self.inner.publications_handler.publish(publication).await
     }
 
     async fn data_plane_activate(
         &mut self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
-        _data_plane_id: models::Id,
+        _data_plane_id: Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
@@ -1066,7 +1259,7 @@ impl ControlPlane for TestControlPlane {
         &mut self,
         catalog_name: String,
         catalog_type: CatalogType,
-        _data_plane_id: models::Id,
+        _data_plane_id: Id,
     ) -> anyhow::Result<()> {
         if self.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
@@ -1078,4 +1271,9 @@ impl ControlPlane for TestControlPlane {
         });
         Ok(())
     }
+}
+
+enum Either<L, R> {
+    L(L),
+    R(R),
 }

@@ -77,33 +77,40 @@ impl Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Dial a gRPC endpoint with opinionated defaults and
+/// Lazily dial a gRPC endpoint with opinionated defaults and
 /// support for TLS and Unix Domain Sockets.
-pub async fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
+pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
     use std::time::Duration;
 
     let ep = tonic::transport::Endpoint::from_shared(endpoint.to_string())
         .map_err(|_err| Error::InvalidEndpoint(endpoint.to_string()))?
+        // Note this connect_timeout accounts only for TCP connection time and
+        // does not apply to time required for TLS or HTTP/2 transport start,
+        // which can block indefinitely if the server is bound but not listening.
         .connect_timeout(Duration::from_secs(5))
-        .keep_alive_timeout(Duration::from_secs(120))
-        .keep_alive_while_idle(true)
+        // HTTP/2 keep-alive sends a PING frame every interval to confirm the
+        // health of the end-to-end HTTP/2 transport. The duration was selected
+        // to be compatible with the default grpc server setting of 5 minutes
+        // for `GRPC_ARG_HTTP2_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS`. If we
+        // send pings more frequently than that, then the server may close the
+        // connection unexpectedly.
+        // See: https://github.com/grpc/grpc/blob/master/doc/keepalive.md
+        .http2_keep_alive_interval(std::time::Duration::from_secs(301))
         .tls_config(
             tonic::transport::ClientTlsConfig::new()
                 .with_native_roots()
                 .assume_http2(true),
         )?;
 
-    let channel = match ep.uri().scheme_str() {
-        Some("unix") => {
-            ep.connect_with_connector(tower::util::service_fn(|uri: tonic::transport::Uri| {
-                connect_unix(uri)
-            }))
-            .await?
-        }
-        Some("https" | "http") => ep.connect().await?,
+    let channel =
+        match ep.uri().scheme_str() {
+            Some("unix") => ep.connect_with_connector_lazy(tower::util::service_fn(
+                |uri: tonic::transport::Uri| connect_unix(uri),
+            )),
+            Some("https" | "http") => ep.connect_lazy(),
 
-        _ => return Err(Error::InvalidEndpoint(endpoint.to_string())),
-    };
+            _ => return Err(Error::InvalidEndpoint(endpoint.to_string())),
+        };
 
     Ok(channel)
 }

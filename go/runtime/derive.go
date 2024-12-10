@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -23,9 +24,10 @@ import (
 // Derive is a top-level Application which implements the derivation workflow.
 type Derive struct {
 	*taskReader[*pf.CollectionSpec]
-	client pd.Connector_DeriveClient
-	sqlite *store_sqlite.Store
-	watch  *client.WatchedList
+	client      pd.Connector_DeriveClient
+	sqlite      *store_sqlite.Store
+	watch       *client.WatchedList
+	watchCancel context.CancelFunc
 }
 
 var _ Application = (*Derive)(nil)
@@ -50,9 +52,11 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 			base.drop()
 			return nil, fmt.Errorf("building SQLite backing store: %w", err)
 		} else if err = sqlite.Open(""); err != nil {
+			sqlite.Destroy()
 			base.drop()
 			return nil, fmt.Errorf("opening SQLite backing store: %w", err)
 		} else if err = sqlite.SQLiteDB.Close(); err != nil {
+			sqlite.Destroy()
 			base.drop()
 			return nil, fmt.Errorf("closing SQLite DB in preparation for opening it again: %w", err)
 		}
@@ -83,9 +87,14 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err 
 		return pf.Checkpoint{}, err
 	}
 
-	// Note the prior watch is cancelled with the prior term context.
+	var watchCtx context.Context
+	if d.watchCancel != nil {
+		d.watchCancel() // Cancel watch of previous term.
+	}
+	watchCtx, d.watchCancel = context.WithCancel(shard.Context())
+
 	d.watch = client.NewWatchedList(
-		d.term.ctx,
+		watchCtx,
 		shard.JournalClient(),
 		flow.CollectionWatchRequest(d.term.taskSpec),
 		nil,

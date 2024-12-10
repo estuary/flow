@@ -40,7 +40,7 @@ You can take a look into each via the data preview window on the Collections pag
 
 ![Orders collection](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//orders_sheet_collection_b99f3c9c84/orders_sheet_collection_b99f3c9c84.png)
 
-In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowtcl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
+In order to implement transformations through [derivations](https://docs.estuary.dev/concepts/#derivations), you’ll need to set up your development environment. You’ll need a text editor and [flowctl](https://docs.estuary.dev/concepts/flowctl/), the CLI-tool for Flow installed on your machine. Check out the [docs page](https://docs.estuary.dev/concepts/flowctl/#installation-and-setup) on installation instructions.
 
 To verify that you’re able to access Flow via `flowctl`, see if you can execute these commands successfully to view documents in your collections.
 
@@ -216,7 +216,7 @@ This command will create a few new files in your current working directory.
 5 directories, 5 files
 ```
 
-The folder `flow_generated` along with the `deno.json` file are two things you won’t have to modify during this tutorial. If you take a look at file that `flowtcl` generated under `flow_generated/typescript/<your_working_directory>/<your_prefix>/customers_with_orders.ts` you can see the types you are able to use in your transformations.
+The folder `flow_generated` along with the `deno.json` file are two things you won’t have to modify during this tutorial. If you take a look at file that `flowctl` generated under `flow_generated/typescript/<your_working_directory>/<your_prefix>/customers_with_orders.ts` you can see the types you are able to use in your transformations.
 
 ```typescript
 // Generated for published documents of derived collection customers_with_orders.

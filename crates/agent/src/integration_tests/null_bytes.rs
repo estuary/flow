@@ -1,7 +1,5 @@
 use super::harness::{draft_catalog, md5_hash, TestHarness};
-use crate::{controllers::ControllerState, publications::JobStatus, ControlPlane};
-use agent_sql::Capability;
-use models::{CatalogType, Id};
+use crate::publications::JobStatus;
 use tables::InferredSchema;
 
 #[tokio::test]
@@ -88,7 +86,7 @@ async fn test_specs_with_null_bytes() {
     [
         (
             "",
-            "committing publication: a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
+            "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
         ),
     ]
     "###);
@@ -130,7 +128,7 @@ async fn test_specs_with_null_bytes() {
         Error {
             catalog_name: "",
             scope: None,
-            detail: "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
+            detail: "publish error: a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
         },
     ]
     "###);

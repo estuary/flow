@@ -498,6 +498,18 @@ fn indirect_materialization(
             resources,
             threshold,
         ),
+        models::MaterializationEndpoint::Dekaf(models::DekafConfig { config, .. }) => indirect_dom(
+            Scope::new(scope)
+                .push_prop("endpoint")
+                .push_prop("dekaf")
+                .push_prop("config"),
+            config,
+            ContentType::Config,
+            format!("{base}.config"),
+            imports,
+            resources,
+            threshold,
+        ),
     }
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()

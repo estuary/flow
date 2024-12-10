@@ -12,7 +12,7 @@ pub enum Error {
     Url(#[from] url::ParseError),
     #[error("schema index")]
     SchemaIndex(#[from] json::schema::index::Error),
-    #[error("failed to parse JSON document")]
+    #[error("failed to parse JSON document: {0:?}")]
     Json(std::io::Error),
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },

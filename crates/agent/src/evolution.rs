@@ -1,17 +1,45 @@
-use super::{draft, HandleResult, Handler, Id};
-use agent_sql::{
-    evolutions::{Row, SpecRow},
-    Capability,
-};
-use anyhow::Context;
+use agent_sql::Capability;
 use itertools::Itertools;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use sqlx::PgPool;
+use std::collections::BTreeSet;
 
-#[cfg(test)]
-mod test;
+mod handler;
 
-pub struct EvolutionHandler;
+pub use handler::EvolutionHandler;
+
+#[derive(Debug)]
+pub struct Evolution {
+    /// Draft into which the results of the evolution will be merged.
+    pub draft: tables::DraftCatalog,
+    /// Specifies which collections to evolve and how.
+    pub requests: Vec<EvolveRequest>,
+    /// The id of the user to act as. This is used to determine the permissions
+    /// to specs, in case `require_user_can_admin` is `true`.
+    pub user_id: uuid::Uuid,
+    /// If `true`, then the evolution will not affect any captures or
+    /// materializations that the user does not have `admin` capability to.
+    /// Otherwise, user permissions will not limit which specs are affected.
+    /// This should generally be set to `true` for user-initiated evolutions,
+    /// and `false` for evolutions that are undertaken by our background
+    /// automations.
+    pub require_user_can_admin: bool,
+}
+
+#[derive(Debug)]
+pub struct EvolutionOutput {
+    /// The draft containing the results of the evolution.
+    pub draft: tables::DraftCatalog,
+    /// Summary of the actions that were taken, and which specs were affected.
+    pub actions: Vec<EvolvedCollection>,
+}
+
+impl EvolutionOutput {
+    pub fn is_success(&self) -> bool {
+        self.draft.errors.is_empty()
+    }
+}
 
 /// Rust struct corresponding to each array element of the `collections` JSON
 /// input of an `evolutions` row.
@@ -31,20 +59,54 @@ pub struct EvolveRequest {
     pub materializations: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum JobStatus {
-    EvolutionFailed {
-        error: String,
-    },
-    Success {
-        evolved_collections: Vec<EvolvedCollection>,
-        publication_id: Option<Id>,
-    },
-    Queued,
+impl EvolveRequest {
+    pub fn of(collection_name: impl Into<String>) -> EvolveRequest {
+        EvolveRequest {
+            current_name: collection_name.into(),
+            new_name: None,
+            materializations: Vec::new(),
+        }
+    }
+
+    pub fn with_new_name(mut self, new_name: impl Into<String>) -> Self {
+        self.new_name = Some(new_name.into());
+        self
+    }
+
+    pub fn with_version_increment(self) -> Self {
+        let new_name = crate::next_name(&self.current_name);
+        self.with_new_name(new_name)
+    }
+
+    pub fn with_materializations(self, names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let materializations = names.into_iter().map(|n| n.into()).collect();
+        Self {
+            materializations,
+            ..self
+        }
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            models::Collection::regex().is_match(&self.current_name),
+            "current_name '{}' is invalid",
+            self.current_name
+        );
+        if let Some(new_name) = &self.new_name {
+            anyhow::ensure!(
+                new_name != &self.current_name,
+                "if new_name is provided, it must be different from current_name"
+            );
+            anyhow::ensure!(
+                models::Collection::regex().is_match(new_name),
+                "requested collection name '{new_name}' is invalid"
+            );
+        }
+        Ok(())
+    }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, JsonSchema)]
 pub struct EvolvedCollection {
     /// Original name of the collection
     pub old_name: String,
@@ -56,365 +118,152 @@ pub struct EvolvedCollection {
     pub updated_captures: Vec<String>,
 }
 
-fn error_status(err: impl Into<String>) -> anyhow::Result<JobStatus> {
-    Ok(JobStatus::EvolutionFailed { error: err.into() })
-}
-
-#[async_trait::async_trait]
-impl Handler for EvolutionHandler {
-    async fn handle(
-        &mut self,
-        pg_pool: &sqlx::PgPool,
-        allow_background: bool,
-    ) -> anyhow::Result<HandleResult> {
-        loop {
-            let mut txn = pg_pool.begin().await?;
-
-            let Some(row) = agent_sql::evolutions::dequeue(&mut txn, allow_background).await?
-            else {
-                return Ok(HandleResult::NoJobs);
-            };
-
-            let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-            let id: Id = row.id;
-            let process_result = process_row(row, &mut txn).await;
-            let job_status = match process_result {
-                Ok(s) => s,
-                Err(err) if crate::is_acquire_lock_error(&err) => {
-                    tracing::info!(%id, %time_queued, "cannot acquire all row locks for evolution (will retry)");
-                    // Since we failed to acquire a necessary row lock, wait a short
-                    // while and then try again.
-                    txn.rollback().await?;
-                    // The sleep is really just so we don't spam the DB in a busy
-                    // loop.  I arrived at these values via the very scientific 😉
-                    // process of reproducing failures using a couple of different
-                    // values and squinting at the logs in my terminal. In
-                    // practice, it's common for another agent process to pick up
-                    // the job while this one is sleeping, which is why I didn't
-                    // see a need for jitter. All agents process the job queue in
-                    // the same order, so the next time any agent polls the
-                    // handler, it should get this same job, since we've released
-                    // the lock on the job row. Evolutions jobs will fail _quite_
-                    // quickly in this scenario, hence the full second.
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    continue;
-                }
-                Err(other_err) => return Err(other_err),
-            };
-            let status = serde_json::to_value(job_status)?;
-            tracing::info!(%id, %time_queued, %status, "evolution finished");
-            agent_sql::evolutions::resolve(id, &status, &mut txn).await?;
-            txn.commit().await?;
-
-            return Ok(HandleResult::HadJob);
-        }
-    }
-
-    fn table_name(&self) -> &'static str {
-        "evolutions"
-    }
-}
-
-#[tracing::instrument(err, skip_all, fields(?row.id, ?row.draft_id, %row.background))]
-async fn process_row(
-    row: Row,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<JobStatus> {
-    let Row {
-        draft_id,
+#[tracing::instrument(skip_all, fields(user_id = %evolution.user_id))]
+pub async fn evolve(evolution: Evolution, db: &PgPool) -> anyhow::Result<EvolutionOutput> {
+    let Evolution {
+        mut draft,
+        requests,
         user_id,
-        collections,
-        ..
-    } = row;
-    let collections_requests: Vec<EvolveRequest> =
-        serde_json::from_str(collections.get()).context("invalid 'collections' input")?;
-
-    if collections_requests.is_empty() {
-        return error_status("evolution collections parameter is empty");
-    }
-
-    let collection_names: Vec<String> = collections_requests
-        .iter()
-        .map(|r| r.current_name.clone())
-        .collect();
-    // We're expecting to have a spec_row for each collection that's evolving,
-    // regardless of whether it's in the draft. We should also have a row for
-    // every spec that's in the draft, so that we can mutate the drafted version
-    // instead of the live version if we need to update the bindings.
-    let spec_rows: Vec<SpecRow> =
-        agent_sql::evolutions::resolve_specs(user_id, draft_id, collection_names, txn).await?;
-
-    if let Err(err) = validate_evolving_collections(&spec_rows, &collections_requests) {
-        return error_status(err);
-    }
-
-    // Get the live_spec.id of each collection that's requested to be evolved.
-    let seed_ids = collections_requests
-        .iter()
-        .filter_map(|req| {
-            spec_rows
-                .iter()
-                .find(|r| r.catalog_name == req.current_name)
-                .and_then(|r| r.live_spec_id)
-        })
-        .collect::<Vec<Id>>();
-
-    // Fetch all of the live_specs that directly read from or write to any of these collections.
-    let expanded_rows = agent_sql::publications::resolve_expanded_rows(user_id, seed_ids, txn)
-        .await
-        .context("expanding specifications")?;
-
-    // Build up catalog of all the possibly affected entities, for easy lookups.
-    // Note that we put `expanded_rows` first so that `spec_rows` will overwrite
-    // them, so that the resulting catalog will include the drafted specs, if
-    // present, and otherwise the `live_specs` version.
-    let mut before_catalog = models::Catalog::default();
-    let errors = draft::extend_catalog(
-        &mut before_catalog,
-        expanded_rows.iter().filter_map(|row| {
-            if row.user_capability == Some(Capability::Admin) {
-                Some((
-                    row.live_type,
-                    row.catalog_name.as_str(),
-                    row.live_spec.0.as_ref(),
-                ))
-            } else {
-                tracing::info!(catalog_name=%row.catalog_name, user_capability=?row.user_capability, "filtering out expanded live_spec because the user does not have admin capability for it");
-                None
-            }
-        }),
-    );
-    if !errors.is_empty() {
-        anyhow::bail!("unexpected errors from extended live specs: {errors:?}");
-    }
-
-    let errors = draft::extend_catalog(
-        &mut before_catalog,
-        spec_rows.iter().filter_map(|r| {
-            r.spec_type.map(|t| {
-                (
-                    t,
-                    r.catalog_name.as_str(),
-                    r.spec.as_ref().unwrap().0.as_ref(),
-                )
-            })
-        }),
-    );
-    if !errors.is_empty() {
-        anyhow::bail!("unexpected errors from drafted specs: {errors:?}");
-    }
-
-    let mut new_catalog = models::Catalog::default();
-    let mut changed_collections = Vec::new();
-    for req in collections_requests.iter() {
-        let specific_materializations = req
-            .materializations
-            .iter()
-            .map(|m| m.as_str())
-            .collect::<BTreeSet<_>>();
-        let result = evolve_collection(
-            &mut new_catalog,
-            &before_catalog,
-            req.current_name.as_str(),
-            req.new_name.as_deref(),
-            &specific_materializations,
-        );
-        match result {
-            Ok(summary) => {
-                changed_collections.push(summary);
-            }
-            Err(err) => {
-                return error_status(err.to_string());
-            }
+        require_user_can_admin,
+    } = evolution;
+    for req in requests.iter() {
+        if let Err(error) = req.validate() {
+            let scope = tables::synthetic_scope(models::CatalogType::Collection, &req.current_name);
+            draft.errors.insert(tables::Error {
+                scope,
+                error: error.context("validating evolution request"),
+            });
         }
     }
-
-    tracing::info!(changes=?changed_collections, "evolved catalog");
-
-    // Determine the value of `expect_pub_id` to use for each draft spec.
-    // For existing draft specs that already have an `expect_pub_id`, we'll
-    // use that value exactly. Otherwise, we'll use the `last_pub_id` from the live spec.
-    let mut expect_pub_ids = BTreeMap::new();
-    for row in expanded_rows.iter() {
-        expect_pub_ids.insert(row.catalog_name.as_str(), row.last_pub_id);
-    }
-    for row in spec_rows.iter() {
-        // It's possible for spec rows to have neither of these values, since
-        // they may include drafted specs that are new and unaffected by this
-        // evolution
-        if let Some(id) = row.expect_pub_id.or(row.last_pub_id) {
-            expect_pub_ids.insert(row.catalog_name.as_str(), id);
-        }
+    if !draft.errors.is_empty() {
+        return Ok(EvolutionOutput {
+            draft,
+            actions: Vec::new(),
+        });
     }
 
-    draft::upsert_specs(draft_id, new_catalog, &expect_pub_ids, txn)
-        .await
-        .context("inserting draft specs")?;
-
-    // Remove any of the old collection versions from the draft if we've created
-    // new versions of them. The old draft specs are likely to be rejected
-    // during publication due to having incompatible changes, so removing
-    // them is likely necessary in order to allow publication to proceed after
-    // evolution. We only remove specs that have been re-added with new names.
-    // It's possible that there is no draft spec to delete, even if we're re-creating
-    // the collection, if the collection spec wasn't in the draft to begin with.
-    for prev_name in changed_collections
+    // Fetch collections matching either the current or the new name. This
+    // ensures that we can preserve the existing spec in case the `new_name`
+    // names a collection that already exists.
+    let mut fetch_collections = requests
         .iter()
-        .filter(|c| c.old_name != c.new_name)
-        .map(|c| c.old_name.as_str())
-    {
-        let delete_id = spec_rows
-            .iter()
-            .find(|r| r.catalog_name == prev_name)
-            .and_then(|r| r.draft_spec_id);
-        if let Some(draft_spec_id) = delete_id {
-            agent_sql::drafts::delete_spec(draft_spec_id, txn).await?;
-        }
+        .flat_map(|r| std::iter::once(r.current_name.clone()).chain(r.new_name.clone().into_iter()))
+        .collect::<BTreeSet<_>>();
+    for r in draft.collections.iter() {
+        fetch_collections.remove(r.collection.as_str());
     }
-
-    // Create a publication of the draft, if desired.
-    let publication_id = if row.auto_publish {
-        let detail = format!(
-            "system created publication as a result of evolution: {}",
-            row.id
-        );
-        // So that we don't create an infinite loop in case there's continued errors.
-        let auto_evolve = false;
-        let id = agent_sql::publications::create(
-            txn,
-            row.user_id,
-            row.draft_id,
-            auto_evolve,
-            detail,
-            row.background,
-            String::new(), // New data-plane assignments are never required for evolutions.
-        )
-        .await?;
-        Some(id)
+    let fetch_collections = fetch_collections.into_iter().collect::<Vec<_>>();
+    let capability_filter = if require_user_can_admin {
+        Some(Capability::Admin)
     } else {
         None
     };
-    Ok(JobStatus::Success {
-        evolved_collections: changed_collections,
-        publication_id,
-    })
-}
+    let live_collections =
+        crate::live_specs::get_live_specs(user_id, &fetch_collections, capability_filter, db)
+            .await?;
 
-fn validate_evolving_collections(
-    spec_rows: &Vec<SpecRow>,
-    reqs: &[EvolveRequest],
-) -> Result<(), String> {
-    let collection_name_regex = models::Collection::regex();
-    let mut seen = BTreeSet::new();
-    for req in reqs {
-        // Make sure there's only one request per collection
-        let old_name = req.current_name.as_str();
-        if !seen.insert(old_name) {
-            return Err(format!("duplicate request for collection '{old_name}'"));
-        }
+    draft.add_live(live_collections);
 
-        if req.new_name.is_some() && !req.materializations.is_empty() {
-            return Err(format!("cannot specify both materializations and new_name"));
-        }
+    let collection_names = requests
+        .iter()
+        .map(|r| r.current_name.as_str())
+        .collect::<Vec<_>>();
+    let exclude_names = draft.all_spec_names().collect::<Vec<_>>();
+    let expanded_live = crate::live_specs::get_connected_live_specs(
+        user_id,
+        &collection_names,
+        &exclude_names,
+        capability_filter,
+        db,
+    )
+    .await?;
+    draft.add_live(expanded_live);
 
-        // ensure that there's a corresponding spec row for each evolving collection
-        let spec_row = spec_rows
-            .iter()
-            .find(|r| r.catalog_name == req.current_name)
-            .ok_or_else(|| {
-                format!(
-                    "the collection '{}' does not exist or you do not have access to it",
-                    req.current_name
-                )
-            })?;
-        // This validation isn't technically necessary. Nothing will break if we re-create a collection
-        // that only exists in the draft. But it seems likely to be unintentional, so probably good to
-        // error out here.
-        if spec_row.live_spec_id.is_none() {
-            return Err(format!(
-                "cannot evolve collection '{old_name}' because it has never been published"
-            ));
-        }
-
-        // Validate that the new collection name is a valid catalog name.
-        // This results in a better error message, since an invalid name could
-        // otherwise result in a database error due to a constraint violation.
-        if let Some(new_name) = req.new_name.as_deref() {
-            if !collection_name_regex.is_match(new_name) {
-                return Err(format!("requested collection name '{new_name}' is invalid"));
+    let mut actions = Vec::new();
+    for req in requests.iter() {
+        match evolve_collection(&mut draft, req) {
+            Ok(action) => {
+                actions.push(action);
+            }
+            Err(error) => {
+                let scope =
+                    tables::synthetic_scope(models::CatalogType::Collection, &req.current_name);
+                draft.errors.insert(tables::Error { scope, error });
             }
         }
-
-        // Validate that the collection has not already been deleted, because we need the spec if
-        // we're re-creating the collection (and it's non-sensical to increment backfill counters
-        // for deleted collections).
-        if spec_row.spec.is_none() {
-            // Was the live_spec deleted already, or is the deletion still pending in the draft?
-            let in_draft = spec_row
-                .draft_spec_id
-                .map(|_| " in the draft")
-                .unwrap_or_default();
-            return Err(format!(
-                "cannot evolve collection '{old_name}' which was already deleted{in_draft}"
-            ));
-        }
     }
-
-    Ok(())
+    Ok(EvolutionOutput { draft, actions })
 }
 
-#[tracing::instrument(skip(new_catalog, prev_catalog))]
+#[tracing::instrument(err, skip_all, fields(current_name = %req.current_name, new_name = ?req.new_name))]
 fn evolve_collection(
-    new_catalog: &mut models::Catalog,
-    prev_catalog: &models::Catalog,
-    old_collection_name: &str,
-    new_collection_name: Option<&str>,
-    specific_materializations: &BTreeSet<&str>,
+    draft: &mut tables::DraftCatalog,
+    req: &EvolveRequest,
 ) -> anyhow::Result<EvolvedCollection> {
-    let old_collection = models::Collection::new(old_collection_name);
+    let EvolveRequest {
+        current_name,
+        new_name,
+        materializations,
+    } = req;
 
     // We only re-create collections if explicitly requested.
-    let (re_create_collection, new_name) = match new_collection_name {
+    let (re_create_collection, new_name) = match new_name.as_ref() {
         Some(n) => (true, n.to_owned()),
-        None => (false, old_collection_name.to_owned()),
+        None => (false, current_name.clone()),
     };
-    let new_name = models::Collection::new(new_name);
+    let old_collection = models::Collection::new(current_name);
+    let new_collection = models::Collection::new(new_name);
 
-    if re_create_collection {
-        // We also validate this when we validate the request
-        assert!(
-            specific_materializations.is_empty(),
+    // Add the new collection to the draft if needed. It's possible for the draft to already contain
+    // a collection with this name, and we'll skip adding a new one in that case, in order to preserve
+    // any changes that the user has potentially made in the draft.
+    if re_create_collection && draft.collections.get_by_key(&new_collection).is_none() {
+        anyhow::ensure!(
+            materializations.is_empty(),
             "specific_materializations argument must be empty if collection is being re-created"
         );
-        let Some(collection_spec) = prev_catalog.collections.get(&old_collection) else {
-            panic!("prev_catalog does not contain a collection named '{old_collection_name}'");
+        let Some(drafted) = draft.collections.get_by_key(&old_collection) else {
+            anyhow::bail!("missing spec for collection '{current_name}'");
         };
+        anyhow::ensure!(
+            drafted.model.is_some(),
+            "draft catalog contained a deletion for collection '{current_name}'"
+        );
 
-        new_catalog
-            .collections
-            .insert(new_name.clone(), collection_spec.clone());
+        let new_row = tables::DraftCollection {
+            scope: drafted.scope.clone(),
+            collection: new_collection.clone(),
+            model: drafted.model.clone(),
+            expect_pub_id: Some(models::Id::zero()), // brand new collection
+            is_touch: false,
+        };
+        draft.collections.insert(new_row);
+    }
+
+    // If re-creating the collection, remove the old one from the draft.
+    if re_create_collection {
+        let _ = draft.collections.remove_by_key(&old_collection);
     }
 
     let mut updated_materializations = Vec::new();
 
-    for (mat_name, mat_spec) in prev_catalog
+    for (materialization, draft_model, is_touch) in draft
         .materializations
-        .iter()
-        .filter(|m| has_mat_binding(m.1, &old_collection))
+        .iter_mut()
+        .filter_map(|m| with_mat_binding(&old_collection, m))
     {
-        if !specific_materializations.is_empty()
-            && !specific_materializations.contains(mat_name.as_str())
+        if !materializations.is_empty()
+            && !materializations
+                .iter()
+                .any(|m| m == materialization.as_str())
         {
-            tracing::debug!(materialization = %mat_name, "skipping materialization because it was not requested to be updated");
+            tracing::debug!(%materialization, "skipping materialization because it was not requested to be updated");
             continue;
         }
-        updated_materializations.push(mat_name.as_str().to_owned());
-        let new_spec = new_catalog
-            .materializations
-            .entry(mat_name.clone())
-            .or_insert_with(|| mat_spec.clone());
 
-        for binding in new_spec
+        *is_touch = false; // we're updating the materialization, so ensure it's not a touch.
+        updated_materializations.push(materialization.to_string());
+        for binding in draft_model
             .bindings
             .iter_mut()
             .filter(|b| b.source.collection() == &old_collection)
@@ -423,15 +272,12 @@ fn evolve_collection(
             // We do this even for disabled bindings, so that the spec is up to date
             // with the latest changes to the rest of the catalog.
             if re_create_collection {
-                binding
-                    .source
-                    .set_collection(models::Collection::new(new_name.clone()));
+                binding.source.set_collection(new_collection.clone());
             }
 
             // Don't update resources for disabled bindings.
             if binding.disable {
-                tracing::debug!(materialization = %mat_name,
-                    "skipping materialization because the binding is disabled");
+                tracing::debug!(%materialization, "skipping materialization because the binding is disabled");
                 continue;
             }
 
@@ -443,36 +289,35 @@ fn evolve_collection(
             binding.backfill += 1;
         }
     }
+
     // If specific materializations were requested to be updated, ensure that
     // we were actually able to update all of the given materializations.
-    if !specific_materializations.is_empty()
-        && specific_materializations.len() != updated_materializations.len()
-    {
+    if !materializations.is_empty() && materializations.len() != updated_materializations.len() {
         let actual = updated_materializations
             .iter()
             .map(|u| u.as_str())
             .collect::<BTreeSet<_>>();
-        let diff = specific_materializations.difference(&actual).format(", ");
-        anyhow::bail!("requested to update the materialization(s) [{diff}], but no such materializations were found that source from the collection '{old_collection_name}'");
+        let diff = materializations
+            .iter()
+            .filter(|m| !actual.contains(m.as_str()))
+            .format(", ");
+        anyhow::bail!("requested to update the materialization(s) [{diff}], but no such materializations were found that source from the collection '{old_collection}'");
     }
 
     let mut updated_captures = Vec::new();
     // We don't need to update any captures if the collection isn't being re-created.
     if re_create_collection {
-        for (cap_name, cap_spec) in prev_catalog
+        for (capture, draft_model, is_touch) in draft
             .captures
-            .iter()
-            .filter(|c| has_cap_binding(c.1, &old_collection))
+            .iter_mut()
+            .filter_map(|c| with_cap_binding(&old_collection, c))
         {
-            updated_captures.push(cap_name.as_str().to_owned());
-            let new_spec = new_catalog
-                .captures
-                .entry(cap_name.clone())
-                .or_insert_with(|| cap_spec.clone());
+            updated_captures.push(capture.to_string());
+            *is_touch = false; // we're updating the capture, so ensure it's not a touch.
 
-            for binding in new_spec.bindings.iter_mut() {
+            for binding in draft_model.bindings.iter_mut() {
                 if &binding.target == &old_collection {
-                    binding.target = new_name.clone();
+                    binding.target = new_collection.clone();
                     // When re-creating collections, it's quite likely that
                     // users will also want to trigger a new backfill. Unlike
                     // materializations, capture connectors will only backfill
@@ -484,22 +329,68 @@ fn evolve_collection(
         }
     }
 
-    tracing::debug!(?updated_materializations, ?updated_captures, %re_create_collection, %new_name, old_name=%old_collection_name, "evolved collection in draft");
+    // If we're re-creating the collection, then there's no requirement to have
+    // updated any captures or materializations. But if we're _not_ re-creating
+    // the collection and we still haven't updated any captures or
+    // materializations, then consider this an error.
+    if !re_create_collection && updated_captures.is_empty() && updated_materializations.is_empty() {
+        anyhow::bail!("nothing to update for collection '{old_collection}'");
+    }
+
+    tracing::debug!(?updated_materializations, ?updated_captures, %re_create_collection, %new_collection, %old_collection, "evolved collection in draft");
 
     Ok(EvolvedCollection {
         old_name: old_collection.into(),
-        new_name: new_name.into(),
+        new_name: new_collection.into(),
         updated_materializations,
         updated_captures,
     })
 }
 
-fn has_cap_binding(spec: &models::CaptureDef, collection: &models::Collection) -> bool {
-    spec.bindings.iter().any(|b| &b.target == collection)
+fn with_cap_binding<'a, 'b>(
+    collection: &'a models::Collection,
+    drafted: &'b mut tables::DraftCapture,
+) -> Option<(
+    &'b models::Capture,
+    &'b mut models::CaptureDef,
+    &'b mut bool,
+)> {
+    let tables::DraftCapture {
+        ref capture,
+        ref mut model,
+        ref mut is_touch,
+        ..
+    } = drafted;
+    let model = model.as_mut()?;
+    if model.bindings.iter().any(|b| &b.target == collection) {
+        Some((capture, model, is_touch))
+    } else {
+        None
+    }
 }
 
-fn has_mat_binding(spec: &models::MaterializationDef, collection: &models::Collection) -> bool {
-    spec.bindings
+fn with_mat_binding<'a, 'b>(
+    collection: &'a models::Collection,
+    drafted: &'b mut tables::DraftMaterialization,
+) -> Option<(
+    &'b models::Materialization,
+    &'b mut models::MaterializationDef,
+    &'b mut bool,
+)> {
+    let tables::DraftMaterialization {
+        ref materialization,
+        ref mut model,
+        ref mut is_touch,
+        ..
+    } = drafted;
+    let model = model.as_mut()?;
+    if model
+        .bindings
         .iter()
         .any(|b| b.source.collection() == collection)
+    {
+        Some((materialization, model, is_touch))
+    } else {
+        None
+    }
 }

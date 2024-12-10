@@ -1,0 +1,58 @@
+name: Deploy agent-api
+
+on:
+  workflow_dispatch: {}
+
+env:
+  CARGO_INCREMENTAL: 0 # Faster from-scratch builds.
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      # Permissions required of the Github token in order for
+      # federated identity and authorization to work.
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: true
+
+      - uses: supabase/setup-cli@v1
+      - run: supabase start
+
+      - name: Build `agent`
+        run: cargo build --release -p agent
+
+      - run: mv target/release/agent crates/agent/
+
+      - name: Authenticate with GCP Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          service_account: cd-github-actions@estuary-control.iam.gserviceaccount.com
+          workload_identity_provider: projects/1084703453822/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider
+
+      - name: Update Cloud Run service `agent-api`
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: agent-api
+          project_id: estuary-control
+          region: us-central1
+          source: crates/agent/
+          timeout: 10m
+
+          env_vars: |-
+            BUILDS_ROOT=gs://estuary-control/builds/
+            DATABASE_CA=/etc/db-ca.crt
+            DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
+            NO_COLOR=1
+
+          secrets: |-
+            PGPASSWORD=POSTGRES_PASSWORD:latest
+            CONTROL_PLANE_DB_CA_CERT=CONTROL_PLANE_DB_CA_CERT:latest
+
+          env_vars_update_strategy: overwrite
+          secrets_update_strategy: overwrite

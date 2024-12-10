@@ -1,14 +1,16 @@
-use agent_sql::{publications::Row, Capability};
+use agent_sql::publications::Row;
 use anyhow::Context;
 use tracing::info;
 
 use crate::{
     draft,
-    publications::{specs, JobStatus, PublicationResult, Publisher},
+    publications::{
+        initialize::UpdateInferredSchemas, specs, DefaultRetryPolicy, DraftPublication,
+        ExpandDraft, IncompatibleCollection, JobStatus, PruneUnboundCollections, PublicationResult,
+        Publisher,
+    },
     HandleResult, Handler,
 };
-
-use super::IncompatibleCollection;
 
 #[async_trait::async_trait]
 impl Handler for Publisher {
@@ -38,10 +40,20 @@ impl Handler for Publisher {
 
             let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
 
-            let (status, draft_errors) = match self.process(row).await {
+            let (status, draft_errors, final_pub_id) = match self.process(row).await {
                 Ok(result) => {
+                    if dry_run {
+                        specs::add_built_specs_to_draft_specs(draft_id, &result.built, &self.db)
+                            .await
+                            .context("adding built specs to draft")?;
+                    }
                     let errors = result.draft_errors();
-                    (result.status, errors)
+                    let final_id = if result.status.is_success() {
+                        Some(result.pub_id)
+                    } else {
+                        None
+                    };
+                    (result.status, errors, final_id)
                 }
                 Err(error) => {
                     tracing::warn!(?error, pub_id = %id, "build finished with error");
@@ -50,14 +62,14 @@ impl Handler for Publisher {
                         scope: None,
                         detail: format!("{error:#}"),
                     }];
-                    (JobStatus::PublishFailed, errors)
+                    (JobStatus::PublishFailed, errors, None)
                 }
             };
 
             draft::insert_errors(draft_id, draft_errors, &mut txn).await?;
 
-            info!(%id, %time_queued, %background, ?status, "build finished");
-            agent_sql::publications::resolve(id, &status, &mut txn).await?;
+            info!(%id, %time_queued, %background, ?status, "publication finished");
+            agent_sql::publications::resolve(id, &status, final_pub_id, &mut txn).await?;
 
             txn.commit().await?;
 
@@ -77,147 +89,46 @@ impl Handler for Publisher {
 }
 
 impl Publisher {
+    #[tracing::instrument(skip_all, fields(
+        pub_row_id = %row.pub_id,
+        %row.draft_id,
+        %row.dry_run,
+        %row.user_id,
+        %row.background,
+    ))]
     pub async fn process(&mut self, row: Row) -> anyhow::Result<PublicationResult> {
         info!(
-            %row.pub_id,
-            %row.created_at,
-            %row.draft_id,
-            %row.dry_run,
             %row.logs_token,
+            %row.created_at,
             %row.updated_at,
-            %row.user_id,
-            %row.background,
             %row.data_plane_name,
             "processing publication",
         );
-
-        let mut attempt = 0;
-        loop {
-            attempt += 1;
-            let draft = specs::load_draft(row.draft_id.into(), &self.db).await?;
-            tracing::debug!(
-                %attempt,
-                n_drafted = draft.all_spec_names().count(),
-                errors = draft.errors.len(),
-                //spec_names = ?all_drafted_specs,
-                "resolved draft specifications"
-            );
-            if !draft.errors.is_empty() {
-                return Ok(PublicationResult::new(
-                    row.pub_id.into(),
-                    row.user_id,
-                    row.detail,
-                    row.updated_at,
-                    build::Output {
-                        draft,
-                        ..Default::default()
-                    },
-                    tables::Errors::default(),
-                    JobStatus::BuildFailed {
-                        incompatible_collections: Vec::new(),
-                        evolution_id: None,
-                    },
-                ));
-            }
-            let mut result = self.try_process(&row, draft).await?;
-
-            // If this is a result of a build failure, then we may need to create an evolutions job in response.
-            if let JobStatus::BuildFailed {
-                incompatible_collections,
-                evolution_id,
-            } = &mut result.status
-            {
-                if !incompatible_collections.is_empty() && row.auto_evolve {
-                    let collections = to_evolutions_collections(&incompatible_collections);
-                    let detail = format!(
-                        "system created in response to failed publication: {}",
-                        row.pub_id
-                    );
-                    let next_job = agent_sql::evolutions::create(
-                        &self.db,
-                        row.user_id,
-                        row.draft_id,
-                        collections,
-                        true, // auto_publish
-                        detail,
-                    )
-                    .await
-                    .context("creating evolutions job")?;
-                    *evolution_id = Some(next_job.into());
-                }
-            }
-
-            // Has there been an optimistic locking failure?
-            let JobStatus::BuildIdLockFailure { failures } = &result.status else {
-                return Ok(result); // All other statuses are terminal.
-            };
-            if attempt == Publisher::MAX_OPTIMISTIC_LOCKING_RETRIES {
-                tracing::error!(%attempt, ?failures, "giving up after maximum number of optimistic locking retries");
-                return Ok(result);
-            } else {
-                // TODO: increment a prometheus counter of lock failures
-                tracing::info!(%attempt, ?failures, "retrying after optimistic locking failure");
-            }
+        if row.background {
+            // Terminal error: background publications are no longer supported.
+            return Ok(PublicationResult::new(
+                row.pub_id,
+                row.user_id,
+                row.detail,
+                row.updated_at,
+                build::Output::default(),
+                tables::Errors::default(),
+                JobStatus::DeprecatedBackground,
+                0,
+            ));
         }
-    }
 
-    #[tracing::instrument(err, skip_all, fields(id=%row.pub_id, user_id=%row.user_id, updated_at=%row.updated_at))]
-    pub async fn try_process(
-        &mut self,
-        row: &Row,
-        mut draft: tables::DraftCatalog,
-    ) -> anyhow::Result<PublicationResult> {
-        // Expand the set of drafted specs to include any tasks that read from or write to any of
-        // the published collections. We do this so that validation can catch any inconsistencies
-        // or failed tests that may be introduced by the publication.
-        let drafted_collections = draft
-            .collections
-            .iter()
-            .map(|d| d.collection.as_str())
-            .collect::<Vec<_>>();
-        let all_drafted_specs = draft.all_spec_names().collect::<Vec<_>>();
-        let expanded_rows = agent_sql::live_specs::fetch_expanded_live_specs(
-            row.user_id,
-            &drafted_collections,
-            &all_drafted_specs,
-            &self.db,
-        )
-        .await?;
-        let mut expanded_names = Vec::with_capacity(expanded_rows.len());
-        for exp in expanded_rows {
-            if !exp
-                .user_capability
-                .map(|c| c == Capability::Admin)
-                .unwrap_or(false)
-            {
-                // Skip specs that the user doesn't have permission to change, as it would just
-                // cause errors during the build.
-                continue;
-            }
-            let Some(spec_type) = exp.spec_type.map(Into::into) else {
-                anyhow::bail!("missing spec_type for expanded row: {:?}", exp.catalog_name);
-            };
-            let Some(model_json) = &exp.spec else {
-                anyhow::bail!("missing spec for expanded row: {:?}", exp.catalog_name);
-            };
-            let scope = tables::synthetic_scope(spec_type, &exp.catalog_name);
-            if let Err(e) = draft.add_spec(
-                spec_type,
-                &exp.catalog_name,
-                scope,
-                Some(exp.last_pub_id.into()),
-                Some(&model_json),
-                true, // is_touch
-            ) {
-                draft.errors.push(e);
-            }
-            expanded_names.push(exp.catalog_name);
-        }
+        let draft = crate::draft::load_draft(row.draft_id.into(), &self.db).await?;
+        tracing::debug!(
+            n_drafted = draft.all_spec_names().count(),
+            errors = draft.errors.len(),
+            "resolved draft specifications"
+        );
         if !draft.errors.is_empty() {
             return Ok(PublicationResult::new(
                 row.pub_id.into(),
                 row.user_id,
-                row.detail.clone(),
+                row.detail,
                 row.updated_at,
                 build::Output {
                     draft,
@@ -228,39 +139,55 @@ impl Publisher {
                     incompatible_collections: Vec::new(),
                     evolution_id: None,
                 },
+                0, //retry_count
             ));
         }
-        tracing::debug!(
-            n_expanded = expanded_names.len(),
-            ?expanded_names,
-            "expanded draft"
-        );
 
-        let built = self
-            .build(
-                row.user_id,
-                row.pub_id.into(),
-                row.detail.clone(),
-                draft,
-                row.logs_token,
-                &row.data_plane_name,
-            )
-            .await?;
-        if built.has_errors() {
-            return Ok(built.build_failed());
-        }
-
-        if row.dry_run {
-            // Add built specs to the draft for dry runs after rolling back other changes that do
-            // not apply to dry runs.
-            specs::add_built_specs_to_draft_specs(row.draft_id, &built.output, &self.db)
-                .await
-                .context("adding built specs to draft")?;
-
-            return Ok(built.into_result(chrono::Utc::now(), JobStatus::Success));
+        let publication_op = DraftPublication {
+            user_id: row.user_id,
+            logs_token: row.logs_token,
+            dry_run: row.dry_run,
+            detail: row.detail.clone(),
+            draft,
+            verify_user_authz: true,
+            default_data_plane_name: Some(row.data_plane_name.clone()).filter(|s| !s.is_empty()),
+            initialize: (
+                UpdateInferredSchemas,
+                ExpandDraft {
+                    filter_user_has_admin: true,
+                },
+            ),
+            finalize: PruneUnboundCollections,
+            retry: DefaultRetryPolicy,
         };
+        let mut result = self.publish(publication_op).await?;
 
-        self.commit(built).await.context("committing publication")
+        // If this is a result of a build failure, then we may need to create an evolutions job in response.
+        if let JobStatus::BuildFailed {
+            incompatible_collections,
+            evolution_id,
+        } = &mut result.status
+        {
+            if !incompatible_collections.is_empty() && row.auto_evolve {
+                let collections = to_evolutions_collections(&incompatible_collections);
+                let detail = format!(
+                    "system created in response to failed publication: {}",
+                    row.pub_id
+                );
+                let next_job = agent_sql::evolutions::create(
+                    &self.db,
+                    row.user_id,
+                    row.draft_id,
+                    collections,
+                    true, // auto_publish
+                    detail,
+                )
+                .await
+                .context("creating evolutions job")?;
+                *evolution_id = Some(next_job.into());
+            }
+        }
+        Ok(result)
     }
 }
 

@@ -50,20 +50,12 @@ test://example/int-string:
           location: /bit
           partition: true
 
-    testing/int-string-inferred:
+    testing/int-string-ref-write-schema:
       writeSchema: test://example/int-string.schema
       readSchema:
-        allOf:
-          - { $ref: flow://write-schema }
-          - { $ref: flow://inferred-schema }
-      key: [/int]
-
-    testing/int-string-inferred-not-found:
-      writeSchema: test://example/int-string.schema
-      readSchema:
-        allOf:
-          - { $ref: flow://write-schema }
-          - { $ref: flow://inferred-schema }
+        $ref: flow://write-schema
+        properties:
+          addedProp: { type: string }
       key: [/int]
 
 test://example/int-string-captures:
@@ -218,7 +210,7 @@ test://example/int-halve:
         Extra: /extra
       journals:
         fragments:
-          length: 11223344
+          length: 100
           flushInterval: 15m
       derive:
         using:
@@ -394,16 +386,6 @@ driver:
       bindings:
         - resourcePath: [schema, table]
       networkPorts: *networkPortsFixture
-
-  inferredSchemas:
-    testing/int-string-inferred:
-      type: object
-      properties:
-        # Novel property which is only inferred.
-        inferred-field: { const: 42 }
-        # Property is merged with projection from the write-schema.
-        str:
-          maxLength: 8675309
 
   storageMappings:
     testing/:

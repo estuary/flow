@@ -1,55 +1,73 @@
 ---
 source: crates/agent/src/discovers/specs.rs
-expression: json!(out)
+expression: out
 ---
-[
-  {
-    "bindings": [
-      {
-        "resource": {
-          "modified": 1,
-          "stream": "foo"
+(
+    [
+        Binding {
+            target: Collection(
+                "acmeCo/renamed",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    {"const":"discovered"},
+                ),
+            ),
+            collection_key: [],
+            resource_path: [
+                "foo",
+            ],
+            disable: false,
         },
-        "target": "acmeCo/renamed"
-      },
-      {
-        "disable": true,
-        "resource": {
-          "modified": "yup",
-          "stream": "disabled"
+        Binding {
+            target: Collection(
+                "acmeCo/barName",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            collection_key: [],
+            resource_path: [
+                "bar",
+            ],
+            disable: true,
         },
-        "target": "test/collection/disabled"
-      }
+        Binding {
+            target: Collection(
+                "test/collection/disabled",
+            ),
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            collection_key: [],
+            resource_path: [
+                "disabled",
+            ],
+            disable: true,
+        },
     ],
-    "endpoint": {
-      "connector": {
-        "config": {
-          "discovered": 1
+    {
+        [
+            "bar",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/barName",
+            ),
+            disable: true,
         },
-        "image": "new/image"
-      }
-    },
-    "interval": "34s",
-    "shards": {
-      "maxTxnDuration": "12s"
-    }
-  },
-  [
-    {
-      "documentSchema": {
-        "const": "discovered"
-      },
-      "recommendedName": "suggested",
-      "resourceConfig": {
-        "stream": "foo"
-      }
     },
     {
-      "documentSchema": false,
-      "recommendedName": "other",
-      "resourceConfig": {
-        "stream": "disabled"
-      }
-    }
-  ]
-]
+        [
+            "removed",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/discarded",
+            ),
+            disable: false,
+        },
+    },
+)

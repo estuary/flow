@@ -5,6 +5,9 @@ use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{KafkaApiClient, Session};
+use flow_client::{
+    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+};
 use futures::{FutureExt, TryStreamExt};
 use rsasl::config::SASLConfig;
 use rustls::pki_types::CertificateDer;
@@ -14,8 +17,9 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::io::{split, AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
 #[derive(Debug, Parser, serde::Serialize)]
@@ -24,14 +28,14 @@ pub struct Cli {
     /// Endpoint of the Estuary API to use.
     #[arg(
         long,
-        default_value = MANAGED_API_ENDPOINT,
+        default_value = DEFAULT_PG_URL.as_str(),
         env = "API_ENDPOINT"
     )]
-    api_endpoint: String,
+    api_endpoint: Url,
     /// Public (anon) API key to use during authentication to the Estuary API.
     #[arg(
         long,
-        default_value = MANAGED_API_KEY,
+        default_value = DEFAULT_PG_PUBLIC_TOKEN,
         env = "API_KEY"
     )]
     api_key: String,
@@ -73,6 +77,10 @@ pub struct Cli {
     #[arg(long, env = "ENCRYPTION_SECRET")]
     encryption_secret: String,
 
+    /// How long to wait for a message before closing an idle connection
+    #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
+    idle_session_timeout: std::time::Duration,
+
     #[command(flatten)]
     tls: Option<TlsArgs>,
 }
@@ -101,15 +109,17 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    metrics_prometheus::install();
-
     let cli = Cli::parse();
     tracing::info!("Starting dekaf");
 
-    let (api_endpoint, api_token) = if cli.local {
-        (LOCAL_API_ENDPOINT, LOCAL_API_KEY)
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .unwrap();
+
+    let (api_endpoint, api_key) = if cli.local {
+        (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
-        (cli.api_endpoint.as_str(), cli.api_key.as_str())
+        (cli.api_endpoint, cli.api_key)
     };
 
     let upstream_kafka_host = format!(
@@ -118,26 +128,16 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let app = Arc::new(dekaf::App {
-        anon_client: postgrest::Postgrest::new(api_endpoint).insert_header("apikey", api_token),
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
-        kafka_client: KafkaApiClient::connect(
-            upstream_kafka_host.as_str(),
-            SASLConfig::with_credentials(
-                None,
-                cli.default_broker_username,
-                cli.default_broker_password,
-            )?,
-        ).await.context(
-            "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
-        )?,
-        secret: cli.encryption_secret.to_owned()
+        secret: cli.encryption_secret.to_owned(),
+        client_base: flow_client::Client::new(
+            DEFAULT_AGENT_URL.to_owned(),
+            api_key,
+            api_endpoint,
+            None,
+        ),
     });
-
-    tracing::info!(
-        broker_url = upstream_kafka_host,
-        "Successfully authenticated to upstream Kafka broker"
-    );
 
     let mut stop = async {
         tokio::signal::ctrl_c()
@@ -153,12 +153,15 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to bind server port")?;
 
-    let metrics_router = dekaf::metrics::build_router(app.clone());
+    let metrics_router = dekaf::metrics_server::build_router();
     let metrics_server_task =
         axum_server::bind(metrics_addr).serve(metrics_router.into_make_service());
     tokio::spawn(async move { metrics_server_task.await.unwrap() });
 
     let schema_router = dekaf::registry::build_router(app.clone());
+
+    let broker_username = cli.default_broker_username.as_str();
+    let broker_password = cli.default_broker_password.as_str();
     if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
             tls_cfg.certificate_file.clone().unwrap(),
@@ -206,7 +209,21 @@ async fn main() -> anyhow::Result<()> {
                         continue
                     };
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
+                    tokio::spawn(
+                        serve(
+                            Session::new(
+                                app.clone(),
+                                cli.encryption_secret.to_owned(),
+                                upstream_kafka_host.to_string(),
+                                broker_username.to_string(),
+                                broker_password.to_string()
+                            ),
+                            socket,
+                            addr,
+                            cli.idle_session_timeout,
+                            stop.clone()
+                        )
+                    );
                 }
                 _ = &mut stop => break,
             }
@@ -227,7 +244,21 @@ async fn main() -> anyhow::Result<()> {
                     };
                     socket.set_nodelay(true)?;
 
-                    tokio::spawn(serve(Session::new(app.clone(), cli.encryption_secret.to_owned()), socket, addr, stop.clone()));
+                    tokio::spawn(
+                        serve(
+                            Session::new(
+                                app.clone(),
+                                cli.encryption_secret.to_owned(),
+                                upstream_kafka_host.to_string(),
+                                broker_username.to_string(),
+                                broker_password.to_string()
+                            ),
+                            socket,
+                            addr,
+                            cli.idle_session_timeout,
+                            stop.clone()
+                        )
+                    );
                 }
                 _ = &mut stop => break,
             }
@@ -242,46 +273,50 @@ async fn serve<S>(
     mut session: Session,
     socket: S,
     addr: std::net::SocketAddr,
+    idle_timeout: std::time::Duration,
     _stop: impl futures::Future<Output = ()>, // TODO(johnny): stop.
 ) -> anyhow::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     tracing::info!("accepted client connection");
-    metrics::gauge!("total_connections").increment(1);
+
+    let (r, mut w) = tokio::io::split(socket);
+    let mut r = tokio_util::codec::FramedRead::new(
+        r,
+        tokio_util::codec::LengthDelimitedCodec::builder()
+            .big_endian()
+            .length_field_length(4)
+            .max_frame_length(1 << 27) // 128 MiB
+            .new_codec(),
+    );
+    let mut out = bytes::BytesMut::new();
+    let mut raw_sasl_auth = false;
+
+    metrics::gauge!("dekaf_total_connections").increment(1);
+
     let result = async {
-        let (r, mut w) = split(socket);
+        loop {
+            let Some(frame) = tokio::time::timeout(idle_timeout, r.try_next())
+                .await
+                .context("timeout waiting for next session request")?
+                .context("failed to read next session request")?
+            else {
+                return Ok(());
+            };
 
-        let mut r = tokio_util::codec::FramedRead::new(
-            r,
-            tokio_util::codec::LengthDelimitedCodec::builder()
-                .big_endian()
-                .length_field_length(4)
-                .max_frame_length(1 << 27) // 128 MiB
-                .new_codec(),
-        );
+            dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
+                .await?;
 
-        let mut out = bytes::BytesMut::new();
-        let mut raw_sasl_auth = false;
-        while let Some(frame) = r.try_next().await? {
-            if let err @ Err(_) =
-                dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
-                    .await
-            {
-                // Close the connection on error
-                w.shutdown().await?;
-                return err;
-            }
             () = w.write_all(&mut out).await?;
             out.clear();
         }
-
-        Ok(())
     }
     .await;
 
-    metrics::gauge!("total_connections").decrement(1);
+    metrics::gauge!("dekaf_total_connections").decrement(1);
 
+    w.shutdown().await?;
     result
 }
 
@@ -320,9 +355,3 @@ fn validate_certificate_name(
     }
     return Ok(false);
 }
-
-const MANAGED_API_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
-const MANAGED_API_ENDPOINT: &str = "https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1";
-
-const LOCAL_API_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
-const LOCAL_API_ENDPOINT: &str = "http://127.0.0.1:5431/rest/v1";

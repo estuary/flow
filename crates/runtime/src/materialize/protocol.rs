@@ -63,9 +63,12 @@ pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Res
     } else if request.validate.is_some() {
         verify("connector", "Validated").fail(response)
     } else if let (Some(apply), Some(applied)) = (&request.apply, &response.applied) {
-        if !applied.action_description.is_empty() {
+        // Action descriptions can sometimes be _very_ long and overflow the maximum ops log line.
+        let action = crate::truncate_chars(&applied.action_description, 1 << 18);
+
+        if !action.is_empty() {
             tracing::info!(
-                action = applied.action_description,
+                action,
                 last_version = apply.last_version,
                 version = apply.version,
                 "materialization was applied"
@@ -209,10 +212,14 @@ pub fn recv_client_load_or_flush(
         }) => {
             let binding = &task.bindings[binding_index as usize];
 
-            let (memtable, _alloc, doc) =
-                accumulator
-                    .doc_bytes_to_heap_node(doc_json.as_bytes())
-                    .context("couldn't parse materialized document as JSON")?;
+            let (memtable, _alloc, doc) = accumulator
+                .doc_bytes_to_heap_node(doc_json.as_bytes())
+                .with_context(|| {
+                format!(
+                    "couldn't parse source document as JSON (source {})",
+                    binding.collection_name
+                )
+            })?;
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
@@ -282,6 +289,7 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
     saw_acknowledged: &mut bool,
     saw_flush: &mut bool,
     saw_flushed: &mut bool,
+    task: &Task,
     txn: &mut Transaction,
     wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<Option<Response>> {
@@ -294,9 +302,16 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
                 }),
             ..
         }) => {
+            let binding = &task.bindings[binding_index as usize];
+
             let (memtable, _alloc, doc) = accumulator
                 .doc_bytes_to_heap_node(doc_json.as_bytes())
-                .context("couldn't parse loaded document as JSON")?;
+                .with_context(|| {
+                format!(
+                    "couldn't parse loaded document as JSON (source {})",
+                    binding.collection_name
+                )
+            })?;
 
             memtable.add(binding_index, doc, true)?;
 

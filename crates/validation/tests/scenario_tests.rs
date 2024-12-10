@@ -517,6 +517,56 @@ fn test_materialization_constraints_on_excluded_fields() {
     insta::assert_debug_snapshot!(outcome);
 }
 
+/// Tests a scenario where a collection spec contains an incomplete
+/// `flow://write-schema` definition. This has been observed with users using
+/// flowctl, and resulted in a super confusing error message. This now asserts
+/// that an inlined write schema definition should always get overwritten by the
+/// actual write schema, assuming it's actually referenced.
+#[test]
+fn test_collection_inlined_write_schema_overwrite() {
+    let outcome = common::run(
+        r##"
+        test://example/catalog.yaml:
+          collections:
+            testing/with/writeSchema/ref:
+              writeSchema:
+                type: object
+                properties:
+                  id: { type: string }
+                required: [id]
+              readSchema:
+                $defs:
+                  'flow://write-schema':
+                    type: object
+                    properties:
+                      id:
+                        const: "this def should be overwritten prior to validation"
+                allOf:
+                  - $ref: flow://write-schema
+                  - $ref: flow://inferred-schema
+              key: [ /id ]
+        driver:
+          dataPlanes:
+            "1d:1d:1d:1d:1d:1d:1d:1d":
+              default: true
+        "##,
+        "{}",
+    );
+
+    // If we failed to overwrite the write schema def, then validation would
+    // fail because the inlined def does not contain the `$id` property.
+    assert!(
+        outcome.errors.is_empty(),
+        "expected no errors, got: {:?}",
+        outcome.errors
+    );
+    assert!(
+        outcome.errors_draft.is_empty(),
+        "expected no draft errors, got: {:?}",
+        outcome.errors_draft
+    );
+}
+
 #[test]
 fn test_schema_fragment_not_found() {
     let errors = common::run_errors(

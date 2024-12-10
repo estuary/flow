@@ -1,5 +1,5 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name, Authenticated};
+use crate::{from_downstream_topic_name, to_downstream_topic_name, topology, Authenticated};
 use anyhow::Context;
 use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
@@ -36,18 +36,18 @@ async fn all_subjects(
     wrap(async move {
         let Authenticated {
             client,
-            user_config,
+            task_config,
             ..
         } = app.authenticate(auth.username(), auth.password()).await?;
 
-        super::fetch_all_collection_names(&client)
+        topology::fetch_all_collection_names(&client.pg_client())
             .await
             .context("failed to list collections from the control plane")
             .map(|collections| {
                 collections
                     .into_iter()
                     .map(|name| {
-                        if user_config.strict_topic_names {
+                        if task_config.strict_topic_names {
                             to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
                                 .to_string()
                         } else {
@@ -73,8 +73,11 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let Authenticated { client, .. } =
-            app.authenticate(auth.username(), auth.password()).await?;
+        let Authenticated {
+            client,
+            task_config,
+            ..
+        } = app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
@@ -89,13 +92,14 @@ async fn get_subject_latest(
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
             ))),
+            task_config.deletions,
         )
         .await
         .context("failed to fetch collection metadata")?
         .with_context(|| format!("collection {collection} does not exist"))?;
 
         let (key_id, value_id) = collection
-            .registered_schema_ids(&client)
+            .registered_schema_ids(&client.pg_client())
             .await
             .context("failed to resolve registered Avro schemas")?;
 

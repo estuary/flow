@@ -25,12 +25,155 @@ expression: schema
         },
         "name": {
           "type": "string"
+        },
+        "resource_path": {
+          "description": "Identifies the specific binding that is affected. This can be used to differentiate in cases there are multiple bindings with the same source.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
         "fields",
         "name"
       ],
+      "type": "object"
+    },
+    "AutoDiscoverFailure": {
+      "properties": {
+        "count": {
+          "description": "The number of consecutive failures that have been observed.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "first_ts": {
+          "description": "The timestamp of the first failure in the current sequence.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "last_outcome": {
+          "$ref": "#/definitions/AutoDiscoverOutcome",
+          "description": "The discover outcome corresponding to the most recent failure. This will be updated with the results of each retry until an auto-discover succeeds."
+        }
+      },
+      "required": [
+        "count",
+        "first_ts",
+        "last_outcome"
+      ],
+      "type": "object"
+    },
+    "AutoDiscoverOutcome": {
+      "properties": {
+        "added": {
+          "description": "Bindings that were added to the capture.",
+          "items": {
+            "$ref": "#/definitions/DiscoverChange"
+          },
+          "type": "array"
+        },
+        "errors": {
+          "description": "Errors that occurred during the discovery or evolution process.",
+          "items": {
+            "$ref": "#/definitions/Error"
+          },
+          "type": "array"
+        },
+        "modified": {
+          "description": "Bindings that were modified, either to change the schema or the collection key.",
+          "items": {
+            "$ref": "#/definitions/DiscoverChange"
+          },
+          "type": "array"
+        },
+        "publish_result": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/JobStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The result of publishing the discovered changes, if a publication was attempted."
+        },
+        "re_created_collections": {
+          "description": "Collections that were re-created due to the collection key having changed.",
+          "items": {
+            "$ref": "#/definitions/EvolvedCollection"
+          },
+          "type": "array"
+        },
+        "removed": {
+          "description": "Bindings that were removed because they no longer appear in the source system.",
+          "items": {
+            "$ref": "#/definitions/DiscoverChange"
+          },
+          "type": "array"
+        },
+        "ts": {
+          "description": "Time at which the disocver was attempted",
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts"
+      ],
+      "type": "object"
+    },
+    "AutoDiscoverStatus": {
+      "properties": {
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoDiscoverFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "If auto-discovery has failed, this will include information about that failure. This field is cleared as soon as a successful auto-discover is run."
+        },
+        "interval": {
+          "description": "The interval at which auto-discovery is run. This is normally unset, which uses the default interval.",
+          "pattern": "^\\d+(s|m|h)$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_success": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoDiscoverOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The outcome of the last _successful_ auto-discover. If `failure` is set, then that will typically be more recent than `last_success`."
+        },
+        "next_at": {
+          "default": null,
+          "description": "Time at which the next auto-discover should be run.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "pending_publish": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoDiscoverOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The outcome of the a recent discover, which is about to be published. This will typically only be observed if the publication failed for some reason."
+        }
+      },
       "type": "object"
     },
     "Collection": {
@@ -40,6 +183,31 @@ expression: schema
       ],
       "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$",
       "type": "string"
+    },
+    "DiscoverChange": {
+      "properties": {
+        "disable": {
+          "description": "Whether the capture binding is disabled.",
+          "type": "boolean"
+        },
+        "resource_path": {
+          "description": "Identifies the resource in the source system that this change pertains to.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "target": {
+          "$ref": "#/definitions/Collection",
+          "description": "The target collection of the capture binding that was changed."
+        }
+      },
+      "required": [
+        "disable",
+        "resource_path",
+        "target"
+      ],
+      "type": "object"
     },
     "Error": {
       "properties": {
@@ -58,6 +226,39 @@ expression: schema
       },
       "required": [
         "detail"
+      ],
+      "type": "object"
+    },
+    "EvolvedCollection": {
+      "properties": {
+        "new_name": {
+          "description": "The new name of the collection, which may be the same as the original name if only materialization bindings were updated",
+          "type": "string"
+        },
+        "old_name": {
+          "description": "Original name of the collection",
+          "type": "string"
+        },
+        "updated_captures": {
+          "description": "The names of any captures that were updated as a result of evolving this collection",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "updated_materializations": {
+          "description": "The names of any materializations that were updated as a result of evolving this collection",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "new_name",
+        "old_name",
+        "updated_captures",
+        "updated_materializations"
       ],
       "type": "object"
     },
@@ -97,7 +298,7 @@ expression: schema
           "type": "string"
         },
         "schema_md5": {
-          "description": "The md5 sum of the inferred schema that was last published",
+          "description": "The md5 sum of the inferred schema that was last published. Because the publications handler updates the model instead of the controller, it's technically possible for the published inferred schema to be more recent than the one corresponding to this hash. If that happens, we would expect a subsequent publication on the next controller run, which would update the hash but not actually modify the schema.",
           "type": [
             "string",
             "null"
@@ -243,6 +444,21 @@ expression: schema
             "type": {
               "enum": [
                 "buildIdLockFailure"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The publication used the deprecated background flag, which is no longer supported.",
+          "properties": {
+            "type": {
+              "enum": [
+                "deprecatedBackground"
               ],
               "type": "string"
             }
@@ -406,6 +622,7 @@ expression: schema
           "uniqueItems": true
         },
         "up_to_date": {
+          "default": false,
           "description": "Whether the materialization bindings are up-to-date with respect to the `sourceCapture` bindings. In normal operation, this should always be `true`. Otherwise, there will be a controller `error` and the publication status will contain details of why the update failed.",
           "type": "boolean"
         }
@@ -421,6 +638,16 @@ expression: schema
         "activation": {
           "$ref": "#/definitions/ActivationStatus",
           "default": {}
+        },
+        "auto_discover": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoDiscoverStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "publications": {
           "$ref": "#/definitions/PublicationStatus",

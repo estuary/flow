@@ -4,9 +4,9 @@
 
 This Flow connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of Flow collections into Firebolt `FACT` or `DIMENSION` tables.
 
-To interface between Flow and Firebolt, the connector uses Firebolt's method for [loading data](https://docs.firebolt.io/loading-data/loading-data.html):
+To interface between Flow and Firebolt, the connector uses Firebolt's method for [loading data](https://docs.firebolt.io/Guides/loading-data/loading-data.html):
 First, it stores data as JSON documents in an S3 bucket.
-It then references the S3 bucket to create a [Firebolt _external table_](https://docs.firebolt.io/loading-data/working-with-external-tables.html),
+It then references the S3 bucket to create a [Firebolt _external table_](https://docs.firebolt.io/Guides/loading-data/working-with-external-tables.html),
 which acts as a SQL interface between the JSON documents and the destination table in Firebolt.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-firebolt:dev`](https://ghcr.io/estuary/materialize-firebolt:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
@@ -15,11 +15,9 @@ It is available for use in the Flow web application. For local development or op
 
 To use this connector, you'll need:
 
-* A Firebolt database with at least one [engine](https://docs.firebolt.io/working-with-engines/)
-  * The engine must be started before creating the materialization.
-  * It's important that the engine stays up throughout the lifetime of the materialization. To ensure this is the case, select Edit Engine on your engine. In the engine settings, set **Auto-stop engine after** to **Always On**.
+* A Firebolt database with at least one [engine](https://docs.firebolt.io/Overview/engine-fundamentals.html#firebolt-engines)
 * An S3 bucket where JSON documents will be stored prior to loading
-  * The bucket must be in a [supported AWS region](https://docs.firebolt.io/general-reference/available-regions.html) matching your Firebolt database.
+  * The bucket must be in a [supported AWS region](https://docs.firebolt.io/Reference/available-regions.html) matching your Firebolt database.
   * The bucket may be public, or may be accessible by an IAM user. To configure your IAM user, see the [steps below](#setup).
 * At least one Flow [collection](../../../concepts/collections.md)
 
@@ -33,7 +31,7 @@ To use this connector, you'll need:
 
 For non-public buckets, you'll need to configure access in AWS IAM.
 
-1. Follow the [Firebolt documentation](https://docs.firebolt.io/loading-data/configuring-aws-role-to-access-amazon-s3.html) to set up an IAM policy and role, and add it to the external table definition.
+1. Follow the [Firebolt documentation](https://docs.firebolt.io/Guides/loading-data/creating-access-keys-aws.html) to set up an IAM policy and role, and add it to the external table definition.
 
 2. Create a new [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html#id_users_create_console). During setup:
 
@@ -60,11 +58,12 @@ Use the below properties to configure a Firebolt materialization, which will dir
 | `/aws_region` | AWS region | AWS region the bucket is in. | string |  |
 | `/aws_secret_key` | AWS secret access key | AWS secret key for accessing the S3 bucket. | string |  |
 | **`/database`** | Database | Name of the Firebolt database. | string | Required |
-| **`/engine_url`** | Engine URL | Engine URL of the Firebolt database, in the format: `<engine-name>.<organization>.<region>.app.firebolt.io`. | string | Required |
-| **`/password`** | Password | Firebolt password. | string | Required |
+| **`/engine_name`** | Engine Name | Name of the Firebolt engine to run your queries. | string | Required |
+| **`/client_secret`** | Client Secret | Secret of your Firebolt service account. | string | Required |
 | **`/s3_bucket`** | S3 bucket | Name of S3 bucket where the intermediate files for external table will be stored. | string | Required |
 | `/s3_prefix` | S3 prefix | A prefix for files stored in the bucket. | string |  |
-| **`/username`** | Username | Firebolt username. | string | Required |
+| **`/client_id`** | Client ID | ID of your Firebolt service account. | string | Required |
+| **`/account_name`** | Account Name | Name of your [account](https://docs.firebolt.io/Overview/organizations-accounts.html) within your Firebolt organization. | string | Required |
 
 
 #### Bindings
@@ -83,11 +82,12 @@ materializations:
         connector:
           config:
             database: my-db
-            engine_url: my-db-my-engine-name.my-organization.us-east-1.app.firebolt.io
-            password: secret
+            engine_name: my-engine-name
+            client_secret: secret
             # For public S3 buckets, only the bucket name is required
             s3_bucket: my-bucket
-            username: firebolt-user
+            client_id: firebolt-user
+            account_name: my-account
           # Path to the latest version of the connector, provided as a Docker image
           image: ghcr.io/estuary/materialize-firebolt:dev
 	# If you have multiple collections you need to materialize, add a binding for each one

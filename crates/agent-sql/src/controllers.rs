@@ -16,12 +16,15 @@ pub struct ControllerJob {
     pub spec_type: Option<CatalogType>,
     pub controller_next_run: Option<DateTime<Utc>>,
     pub controller_version: i32,
-    pub updated_at: DateTime<Utc>,
+    pub controller_updated_at: DateTime<Utc>,
+    pub live_spec_updated_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
     pub logs_token: Uuid,
     pub status: TextJson<Box<RawValue>>,
     pub failures: i32,
     pub error: Option<String>,
     pub data_plane_id: Id,
+    pub data_plane_name: Option<String>,
     pub live_dependency_hash: Option<String>,
 }
 
@@ -46,15 +49,19 @@ pub async fn dequeue(
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.spec_type as "spec_type: CatalogType",
             ls.dependency_hash as "live_dependency_hash",
+            ls.created_at,
+            ls.updated_at as "live_spec_updated_at",
             cj.controller_version as "controller_version: i32",
-            cj.updated_at,
+            cj.updated_at as "controller_updated_at",
             cj.logs_token,
             cj.status as "status: TextJson<Box<RawValue>>",
             cj.failures,
             cj.error,
-            ls.data_plane_id as "data_plane_id: Id"
+            ls.data_plane_id as "data_plane_id: Id",
+            dp.data_plane_name as "data_plane_name?: String"
         from live_specs ls
         join controller_jobs cj on ls.id = cj.live_spec_id
+        left outer join data_planes dp on ls.data_plane_id = dp.id
         where
             -- This condition is required in order to for this query to use the sparse index
             ls.controller_next_run is not null

@@ -5,24 +5,12 @@ use crate::{
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use models::{AnySpec, Id, ModelDef};
+use models::Id;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 
 use super::{backoff_data_plane_activate, ControllerState};
-
-/// Information about the dependencies of a live spec.
-pub struct Dependencies {
-    /// Dependencies that have not been deleted (but might have been updated).
-    /// The `last_pub_id` of each spec can be used to determine whether the dependent needs to
-    /// be published.
-    pub live: tables::LiveCatalog,
-    /// Dependencies that have been deleted. If this is non-empty, then the dependent needs to be
-    /// published.
-    pub deleted: BTreeSet<String>,
-    pub hash: Option<String>,
-}
 
 /// Status of the activation of the task in the data-plane
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -43,6 +31,7 @@ impl Default for ActivationStatus {
 }
 
 impl ActivationStatus {
+    /// Activates the spec in the data plane if necessary.
     pub async fn update<C: ControlPlane>(
         &mut self,
         state: &ControllerState,
@@ -51,11 +40,16 @@ impl ActivationStatus {
         if state.last_build_id > self.last_activated {
             let name = state.catalog_name.clone();
             let built_spec = state.built_spec.as_ref().expect("built_spec must be Some");
-            control_plane
-                .data_plane_activate(name, built_spec, state.data_plane_id)
-                .await
-                .with_retry(backoff_data_plane_activate(state.failures))
-                .context("failed to activate")?;
+
+            crate::timeout(
+                std::time::Duration::from_secs(60),
+                control_plane.data_plane_activate(name, built_spec, state.data_plane_id),
+                || "Timeout while activating into data-plane",
+            )
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))
+            .context("failed to activate into data-plane")?;
+
             tracing::debug!(last_activated = %state.last_build_id, "activated");
             self.last_activated = state.last_build_id;
         }
@@ -123,7 +117,6 @@ fn is_touch_pub(draft: &tables::DraftCatalog) -> bool {
 
 impl PublicationInfo {
     pub fn is_success(&self) -> bool {
-        // TODO: should EmptyDraft be considered successful?
         self.result.as_ref().is_some_and(|s| s.is_success())
     }
 
@@ -141,10 +134,29 @@ impl PublicationInfo {
         }
     }
 
+    /// Tries to reduce `other` into `self` if the two should be combined in the
+    /// history. If `other` cannot be reduced into `self`, then it is returned
+    /// unmodified.
+    ///
+    /// Combining events in the history is a way to cram more information into a
+    /// smaller summary, and it helps avoid having repeated publications (like
+    /// touch publications, which can number in the hundreds) quickly push out
+    /// relevant prior events. But it's important that we _only_ combine
+    /// publication entries in the specific cases where we know it won't cause
+    /// confusion. Two publications should be combined in the history only if
+    /// their final `job_status`es are identical (e.g. both `{"type":
+    /// "buildFailed"}`). And then only in one of these cases:
+    /// - they are both touch publications
+    /// - If they are both _unsuccessful_ non-touch publications (i.e. we never
+    ///   combine successful publications that have modified the spec)
     fn try_reduce(&mut self, other: PublicationInfo) -> Option<PublicationInfo> {
-        if !self.is_touch || !other.is_touch || self.result != other.result {
+        if (self.is_touch != other.is_touch)
+            || (self.result != other.result)
+            || (!self.is_touch && self.is_success())
+        {
             return Some(other);
         }
+        self.id = other.id;
         self.count += other.count;
         self.completed = other.completed;
         self.errors = other.errors;
@@ -179,17 +191,34 @@ impl PendingPublication {
         }
     }
 
+    pub fn of(details: Vec<String>, draft: tables::DraftCatalog) -> PendingPublication {
+        PendingPublication { details, draft }
+    }
+
     pub fn has_pending(&self) -> bool {
         self.draft.spec_count() > 0
     }
 
-    pub fn start_touch(&mut self, state: &ControllerState, new_dependency_hash: Option<&str>) {
-        tracing::info!("starting touch");
-        let new_hash = new_dependency_hash.unwrap_or("None");
-        let old_hash = state.live_dependency_hash.as_deref().unwrap_or("None");
-        self.details.push(format!(
-            "in response to change in dependencies, prev hash: {old_hash}, new hash: {new_hash}"
-        ));
+    pub fn update_model<M: Into<models::AnySpec>>(
+        name: &str,
+        last_pub_id: Id,
+        model: M,
+        detail: impl Into<String>,
+    ) -> PendingPublication {
+        let mut pending = PendingPublication::new();
+        pending.details.push(detail.into());
+        let model: models::AnySpec = model.into();
+        let scope = tables::synthetic_scope(model.catalog_type(), name);
+        pending
+            .draft
+            .add_any_spec(name, scope, Some(last_pub_id), model, false);
+        pending
+    }
+
+    pub fn start_touch(&mut self, state: &ControllerState, detail: impl Into<String>) {
+        let detail = detail.into();
+        tracing::debug!(%detail, "starting touch");
+        self.details.push(detail);
         let model = state
             .live_spec
             .as_ref()
@@ -247,17 +276,17 @@ impl PendingPublication {
         control_plane: &mut C,
     ) -> anyhow::Result<PublicationResult> {
         let is_touch = is_touch_pub(&self.draft);
-        let pub_id = if is_touch {
-            state.last_pub_id
-        } else {
-            control_plane.next_pub_id()
-        };
         let PendingPublication { draft, details } =
             std::mem::replace(self, PendingPublication::new());
 
         let detail = details.join(", ");
         let result = control_plane
-            .publish(pub_id, Some(detail), state.logs_token, draft)
+            .publish(
+                Some(detail),
+                state.logs_token,
+                draft,
+                state.data_plane_name.clone(),
+            )
             .await;
         match result.as_ref() {
             Ok(r) => {
@@ -267,16 +296,16 @@ impl PendingPublication {
                         .notify_dependents(state.catalog_name.clone())
                         .await
                         .context("notifying dependents after successful publication")?;
-                    status.max_observed_pub_id = pub_id;
+                    status.max_observed_pub_id = r.pub_id;
                 }
             }
             Err(err) => {
                 let info = PublicationInfo {
-                    id: pub_id,
+                    id: models::Id::zero(),
                     completed: Some(control_plane.current_time()),
                     detail: Some(details.join(", ")),
                     errors: vec![crate::draft::Error {
-                        detail: format!("{err:#}"),
+                        detail: format!("publish error: {err:#}"),
                         ..Default::default()
                     }],
                     created: None,
@@ -331,49 +360,7 @@ impl Default for PublicationStatus {
 impl PublicationStatus {
     const MAX_HISTORY: usize = 5;
 
-    pub async fn resolve_dependencies<C: ControlPlane>(
-        &mut self,
-        state: &ControllerState,
-        control_plane: &mut C,
-    ) -> anyhow::Result<Dependencies> {
-        let Some(model) = state.live_spec.as_ref() else {
-            // The spec is being deleted, and thus has no dependencies
-            return Ok(Dependencies {
-                live: Default::default(),
-                deleted: Default::default(),
-                hash: None,
-            });
-        };
-        let all_deps = model.all_dependencies();
-        let live = control_plane
-            .get_live_specs(all_deps.clone())
-            .await
-            .context("fetching live_specs dependencies")?;
-        let mut deleted = all_deps;
-        for name in live.all_spec_names() {
-            deleted.remove(name);
-        }
-
-        let dep_hasher = tables::Dependencies::from_live(&live);
-        let hash = match model {
-            AnySpec::Capture(c) => dep_hasher.compute_hash(c),
-            AnySpec::Collection(c) => dep_hasher.compute_hash(c),
-            AnySpec::Materialization(m) => dep_hasher.compute_hash(m),
-            AnySpec::Test(t) => dep_hasher.compute_hash(t),
-        };
-
-        if hash != state.live_dependency_hash {
-            tracing::info!(?state.live_dependency_hash, new_hash = ?hash, deleted_count = %deleted.len(), "spec dependencies have changed");
-        }
-
-        Ok(Dependencies {
-            live,
-            deleted,
-            hash,
-        })
-    }
-
-    pub async fn notify_dependents<C: ControlPlane>(
+    pub async fn update_notify_dependents<C: ControlPlane>(
         &mut self,
         state: &ControllerState,
         control_plane: &mut C,
@@ -387,9 +374,11 @@ impl PublicationStatus {
         Ok(())
     }
 
-    // TODO: fold touch publication into history
     pub fn record_result(&mut self, publication: PublicationInfo) {
         tracing::info!(pub_id = ?publication.id, status = ?publication.result, "controller finished publication");
+        for err in publication.errors.iter() {
+            tracing::debug!(?err, "publication error");
+        }
         let maybe_new_entry = if let Some(last_entry) = self.history.front_mut() {
             last_entry.try_reduce(publication)
         } else {
@@ -401,5 +390,143 @@ impl PublicationStatus {
                 self.history.pop_back();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[test]
+    fn test_publication_history_folding() {
+        let touch_success = PublicationInfo {
+            id: models::Id::new([1, 1, 1, 1, 1, 1, 1, 1]),
+            created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+            completed: Some("2024-11-22T17:01:01Z".parse().unwrap()),
+            detail: Some("touch success".to_string()),
+            result: Some(publications::JobStatus::Success),
+            errors: Vec::new(),
+            is_touch: true,
+            count: 1,
+        };
+
+        // Sucessful touch publications should be combined
+        let other_touch_success = PublicationInfo {
+            id: models::Id::new([2, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-11-22T22:22:22Z".parse().unwrap()),
+            created: Some("2024-11-11T11:00:00Z".parse().unwrap()),
+            detail: Some("other touch success".to_string()),
+            ..touch_success.clone()
+        };
+        let mut reduced = touch_success.clone();
+        assert!(reduced.try_reduce(other_touch_success).is_none());
+        assert_eq!(
+            reduced,
+            PublicationInfo {
+                id: models::Id::new([2, 1, 1, 1, 1, 1, 1, 1]),
+                completed: Some("2024-11-22T22:22:22Z".parse().unwrap()),
+                created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+                detail: Some("other touch success".to_string()),
+                result: Some(publications::JobStatus::Success),
+                errors: Vec::new(),
+                is_touch: true,
+                count: 2,
+            }
+        );
+
+        let reg_success = PublicationInfo {
+            id: models::Id::new([3, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-11-23T23:33:33Z".parse().unwrap()),
+            created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+            detail: Some("non-touch success".to_string()),
+            result: Some(publications::JobStatus::Success),
+            errors: Vec::new(),
+            is_touch: false,
+            count: 1,
+        };
+        // Touch success and regular success should not be combined
+        let mut touch_subject = touch_success.clone();
+        assert!(touch_subject.try_reduce(reg_success.clone()).is_some());
+
+        // Successful non-touch publications should never be combined because we
+        // want to preserve the history of modifications to the model.
+        let mut reg_subject = reg_success.clone();
+        assert!(reg_subject
+            .try_reduce(PublicationInfo {
+                id: models::Id::new([4, 1, 1, 1, 1, 1, 1, 1]),
+                ..reg_success.clone()
+            })
+            .is_some(),);
+
+        let reg_fail = PublicationInfo {
+            id: models::Id::new([5, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-12-01T01:55:55Z".parse().unwrap()),
+            created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+            detail: Some("reg failure".to_string()),
+            result: Some(publications::JobStatus::BuildFailed {
+                incompatible_collections: Vec::new(),
+                evolution_id: None,
+            }),
+            errors: vec![crate::draft::Error {
+                catalog_name: "acmeCo/fail-thing".to_string(),
+                scope: None,
+                detail: "schmeetail".to_string(),
+            }],
+            is_touch: false,
+            count: 1,
+        };
+
+        // A publication with the same unsuccessful status should be combined,
+        // and the detail and error should be that of the most recent
+        // publication.
+        let same_reg_fail = PublicationInfo {
+            id: models::Id::new([5, 1, 1, 1, 1, 1, 1, 1]),
+            completed: Some("2024-12-01T01:55:55Z".parse().unwrap()),
+            detail: Some("same but different reg failure".to_string()),
+            errors: vec![crate::draft::Error {
+                catalog_name: "acmeCo/fail-thing".to_string(),
+                scope: None,
+                detail: "a different error".to_string(),
+            }],
+            ..reg_fail.clone()
+        };
+        let mut reduced = reg_fail.clone();
+        assert!(reduced.try_reduce(same_reg_fail.clone()).is_none());
+        assert_eq!(
+            reduced,
+            PublicationInfo {
+                id: models::Id::new([5, 1, 1, 1, 1, 1, 1, 1]),
+                completed: Some("2024-12-01T01:55:55Z".parse().unwrap()),
+                created: Some("2024-11-11T11:11:11Z".parse().unwrap()),
+                detail: Some("same but different reg failure".to_string()),
+                errors: vec![crate::draft::Error {
+                    catalog_name: "acmeCo/fail-thing".to_string(),
+                    scope: None,
+                    detail: "a different error".to_string(),
+                }],
+                result: Some(publications::JobStatus::BuildFailed {
+                    incompatible_collections: Vec::new(),
+                    evolution_id: None
+                }),
+                is_touch: false,
+                count: 2,
+            }
+        );
+
+        // A publication with a different status should not be combined
+        let diff_reg_fail = PublicationInfo {
+            result: Some(publications::JobStatus::BuildFailed {
+                incompatible_collections: vec![publications::IncompatibleCollection {
+                    collection: "acmeCo/anvils".to_string(),
+                    requires_recreation: Vec::new(),
+                    affected_materializations: Vec::new(),
+                }],
+                evolution_id: None,
+            }),
+            ..same_reg_fail.clone()
+        };
+        let mut reg_subject = reg_fail.clone();
+        assert!(reg_subject.try_reduce(diff_reg_fail).is_some());
     }
 }

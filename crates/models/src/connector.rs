@@ -17,6 +17,15 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
     }
 }
 
+/// Dekaf service configuration
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
+pub struct DekafConfig {
+    /// # Dekaf variant type
+    pub variant: String,
+    /// # Dekaf endpoint config.
+    pub config: RawValue,
+}
+
 /// Connector image and configuration specification.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct ConnectorConfig {

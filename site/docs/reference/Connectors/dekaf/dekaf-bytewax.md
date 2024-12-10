@@ -27,7 +27,7 @@ high-throughput, low-latency data processing tasks.
    from bytewax.window import TumblingWindowConfig, SystemClockConfig
 
    # Estuary Flow Dekaf configuration
-   KAFKA_BOOTSTRAP_SERVERS = "dekaf.estuary.dev:9092"
+   KAFKA_BOOTSTRAP_SERVERS = "dekaf.estuary-data.com:9092"
    KAFKA_TOPIC = "/full/nameof/your/collection"
 
    # Parse incoming messages

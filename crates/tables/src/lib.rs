@@ -68,7 +68,7 @@ tables!(
         val md5: String,
     }
 
-    table DataPlanes (row DataPlane, sql "data_planes") {
+    table DataPlanes (row #[derive(Clone)] DataPlane, sql "data_planes") {
         // Control-plane identifier for this data-plane.
         key control_id: models::Id,
         // Name of this data-plane under the catalog namespace.
@@ -109,7 +109,7 @@ tables!(
         val capability: models::Capability,
     }
 
-    table DraftCaptures (row DraftCapture, sql "draft_captures") {
+    table DraftCaptures (row #[derive(Clone)] DraftCapture, sql "draft_captures") {
         // Catalog name of this capture.
         key capture: models::Capture,
         // Scope of the draft capture.
@@ -124,7 +124,7 @@ tables!(
         val is_touch: bool,
     }
 
-    table DraftCollections (row DraftCollection, sql "draft_collections") {
+    table DraftCollections (row #[derive(Clone)] DraftCollection, sql "draft_collections") {
         // Catalog name of this collection.
         key collection: models::Collection,
         // Scope of the draft collection.
@@ -139,7 +139,7 @@ tables!(
         val is_touch: bool,
     }
 
-    table DraftMaterializations (row DraftMaterialization, sql "draft_materializations") {
+    table DraftMaterializations (row #[derive(Clone)] DraftMaterialization, sql "draft_materializations") {
         // Catalog name of this materialization.
         key materialization: models::Materialization,
         // Scope of the draft materialization.
@@ -154,7 +154,7 @@ tables!(
         val is_touch: bool,
     }
 
-    table DraftTests (row DraftTest, sql "draft_tests") {
+    table DraftTests (row #[derive(Clone)] DraftTest, sql "draft_tests") {
         // Catalog name of the test.
         key test: models::Test,
         // Scope of the draft test.

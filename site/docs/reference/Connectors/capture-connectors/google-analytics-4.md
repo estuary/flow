@@ -14,6 +14,7 @@ It’s available for use in the Flow web application. For local development or o
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 
+
 ## Supported data resources
 
 The following data resources are supported:

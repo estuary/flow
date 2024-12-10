@@ -1,9 +1,9 @@
-use models::Id;
+use models::{CatalogType, Id};
 use uuid::Uuid;
 
 use crate::{
-    integration_tests::harness::{draft_catalog, TestHarness},
-    publications::{JobStatus, LockFailure},
+    integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
+    publications::{DefaultRetryPolicy, JobStatus, LockFailure, RetryPolicy},
     ControlPlane,
 };
 
@@ -23,7 +23,7 @@ async fn test_publication_optimistic_locking_failures() {
             "mice/also-new": minimal_capture(Some(Id::new([8, 7, 6, 5, 4, 3, 2, 1])), &["mice/does-not-exist"]),
         }
     }));
-    let naughty_pub_id = harness.control_plane().next_pub_id();
+    let naughty_pub_id = Id::new([8; 8]);
     // If a user explicitly sets `expectPubId` in the model, then a mismatch gets returned as a
     // build error, before we even try to commit.
     let result = harness
@@ -35,6 +35,8 @@ async fn test_publication_optimistic_locking_failures() {
             wrong_expect_pub_ids,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("build failed");
@@ -51,6 +53,10 @@ async fn test_publication_optimistic_locking_failures() {
             )
         ],
         errors);
+    assert!(
+        !DefaultRetryPolicy.retry(&result.build_failed()),
+        "expectPubId mismatch should be terminal"
+    );
 
     // Simulate a race between two publications of this initial draft, and assert that only one
     // of them can successfully commit.
@@ -65,7 +71,7 @@ async fn test_publication_optimistic_locking_failures() {
         }
     });
 
-    let will_fail_pub = harness.control_plane().next_pub_id();
+    let will_fail_pub = Id::new([9; 8]);
     let will_fail_build = harness
         .publisher
         .build(
@@ -75,11 +81,13 @@ async fn test_publication_optimistic_locking_failures() {
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("build a failed");
 
-    let will_commit_pub = harness.control_plane().next_pub_id();
+    let will_commit_pub = Id::new([10; 8]);
     let will_commit_build = harness
         .publisher
         .build(
@@ -89,6 +97,8 @@ async fn test_publication_optimistic_locking_failures() {
             draft_catalog(initial_catalog.clone()),
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("build b failed");
@@ -114,11 +124,15 @@ async fn test_publication_optimistic_locking_failures() {
         ],
         &expect_fail_result.status,
     );
+    assert!(
+        DefaultRetryPolicy.retry(&expect_fail_result),
+        "build_id lock failure should be retryable"
+    );
 
     // Now simulate raced publications of cheese and seeds, wich each publication having "expanded"
     // to include the capture.
     let expect_current_build_id = will_commit_build_id;
-    let will_fail_pub_id = harness.control_plane().next_pub_id();
+    let will_fail_pub_id = Id::new([11; 8]);
     let cheese_draft = draft_catalog(serde_json::json!({
         "collections": {
             "mice/cheese": minimal_collection(None),
@@ -136,12 +150,14 @@ async fn test_publication_optimistic_locking_failures() {
             cheese_draft,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("cheese build failed");
     assert!(!will_fail_build.has_errors());
 
-    let will_commit_pub = harness.control_plane().next_pub_id();
+    let will_commit_pub = Id::new([12; 8]);
     let will_commit_draft = draft_catalog(serde_json::json!({
         "collections": {
             "mice/seeds": minimal_collection(None),
@@ -159,6 +175,8 @@ async fn test_publication_optimistic_locking_failures() {
             will_commit_draft,
             Uuid::new_v4(),
             "ops/dp/public/test",
+            true,
+            0,
         )
         .await
         .expect("seeds build failed");
@@ -198,6 +216,46 @@ async fn test_publication_optimistic_locking_failures() {
         )],
         &expect_fail_result.status,
     );
+
+    // Assert that PublicationSuperseded and BuildSuperseded errors get retried
+    let capture_draft = draft_catalog(serde_json::json!({
+        "captures": {
+            "mice/capture": minimal_capture(None, &["mice/cheese", "mice/seeds"]),
+        }
+    }));
+    harness.control_plane().fail_next_build(
+        "mice/capture",
+        InjectBuildError::new(
+            tables::synthetic_scope(CatalogType::Capture, "mice/capture"),
+            validation::Error::BuildSuperseded {
+                build_id: Id::zero(),
+                larger_id: Id::zero(),
+            },
+        ),
+    );
+    harness.control_plane().fail_next_build(
+        "mice/capture",
+        InjectBuildError::new(
+            tables::synthetic_scope(CatalogType::Capture, "mice/capture"),
+            validation::Error::PublicationSuperseded {
+                last_pub_id: Id::zero(),
+                pub_id: Id::zero(),
+            },
+        ),
+    );
+    let result = harness
+        .control_plane()
+        .publish(
+            Some("test retry Superseded errors".to_string()),
+            Uuid::new_v4(),
+            capture_draft.clone_specs(),
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    assert_eq!(2, result.retry_count);
 }
 
 async fn assert_last_pub_build(

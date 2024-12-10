@@ -7,7 +7,6 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 license.workspace = true
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -16,6 +15,7 @@ agent-sql = { path = "../agent-sql" }
 allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
 build = { path = "../build" }
+dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -41,13 +41,16 @@ clap = { workspace = true }
 colored_json = { workspace = true }       # Used to render ops::Logs for UI.
 derivative = { workspace = true }
 futures = { workspace = true }
+humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
 jsonwebtoken = { workspace = true }
 lazy_static = { workspace = true }
+log = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -68,6 +71,6 @@ xxhash-rust = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 md5 = { workspace = true }
-tokio = { workspace = true }
 serial_test = { workspace = true }
+tokio = { workspace = true }
 uuid = { workspace = true }

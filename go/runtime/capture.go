@@ -30,6 +30,7 @@ type Capture struct {
 	restarts     message.Clock         // Increments for each restart.
 	transactions message.Clock         // Increments for each transaction.
 	watches      []*client.WatchedList // Watches of binding journals.
+	watchCancel  context.CancelFunc    // Canceler of watches.
 }
 
 var _ Application = (*Capture)(nil)
@@ -71,12 +72,17 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err
 		return pf.Checkpoint{}, err
 	}
 
-	// Note that prior watches are cancelled with the prior term context.
+	var watchCtx context.Context
 	c.watches = c.watches[:0] // Truncate.
+
+	if c.watchCancel != nil {
+		c.watchCancel() // Cancel watches of previous term.
+	}
+	watchCtx, c.watchCancel = context.WithCancel(shard.Context())
 
 	for _, binding := range c.term.taskSpec.Bindings {
 		c.watches = append(c.watches, client.NewWatchedList(
-			c.term.ctx,
+			watchCtx,
 			shard.JournalClient(),
 			flow.CollectionWatchRequest(&binding.Collection),
 			nil,
@@ -224,7 +230,7 @@ func pollLoop(
 		case op = <-pollCh:
 		}
 
-		// Wait for the prior commit's OpFuture to resolve succesfully.
+		// Wait for the prior commit's OpFuture to resolve successfully.
 		if err := op.Err(); err != nil {
 			return err
 		}

@@ -1,24 +1,28 @@
-use super::{fetch_all_collection_names, App, Collection, Read};
+use super::{App, Collection, Read};
 use crate::{
-    from_downstream_topic_name, from_upstream_topic_name, to_downstream_topic_name,
-    to_upstream_topic_name, Authenticated, ConfigOptions,
+    from_downstream_topic_name, from_upstream_topic_name,
+    read::BatchResult,
+    to_downstream_topic_name, to_upstream_topic_name,
+    topology::{fetch_all_collection_names, PartitionOffset},
+    Authenticated, KafkaApiClient,
 };
-use anyhow::Context;
-use bytes::{BufMut, BytesMut};
+use anyhow::{bail, Context};
+use bytes::{BufMut, Bytes, BytesMut};
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
-    indexmap::IndexMap,
     messages::{
         self,
-        metadata_response::{MetadataResponsePartition, MetadataResponseTopic},
+        metadata_response::{
+            MetadataResponseBroker, MetadataResponsePartition, MetadataResponseTopic,
+        },
         ConsumerProtocolAssignment, ConsumerProtocolSubscription, ListGroupsResponse,
         RequestHeader, TopicName,
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
-use std::sync::Arc;
+use std::{cmp::max, sync::Arc, time::Duration};
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tracing::instrument;
@@ -26,29 +30,68 @@ use tracing::instrument;
 struct PendingRead {
     offset: i64,          // Journal offset to be completed by this PendingRead.
     last_write_head: i64, // Most-recent observed journal write head.
-    handle: tokio::task::JoinHandle<anyhow::Result<(Read, bytes::Bytes)>>,
+    handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
+}
+
+#[derive(Clone, Debug)]
+enum SessionDataPreviewState {
+    Unknown,
+    NotDataPreview,
+    DataPreview(HashMap<(TopicName, i32), PartitionOffset>),
 }
 
 pub struct Session {
     app: Arc<App>,
-    client: postgrest::Postgrest,
-    reads: HashMap<(TopicName, i32), PendingRead>,
-    /// ID of the authenticated user
-    user_id: Option<String>,
-    config: Option<ConfigOptions>,
+    client: Option<KafkaApiClient>,
+    reads: HashMap<(TopicName, i32), (PendingRead, std::time::Instant)>,
     secret: String,
+    auth: Option<Authenticated>,
+    data_preview_state: SessionDataPreviewState,
+    broker_url: String,
+    broker_username: String,
+    broker_password: String,
+    pub client_id: Option<String>,
 }
 
 impl Session {
-    pub fn new(app: Arc<App>, secret: String) -> Self {
-        let client = app.anon_client.clone();
+    pub fn new(
+        app: Arc<App>,
+        secret: String,
+        broker_url: String,
+        broker_username: String,
+        broker_password: String,
+    ) -> Self {
         Self {
             app,
-            client,
+            client: None,
+            broker_url,
+            broker_username,
+            broker_password,
             reads: HashMap::new(),
-            user_id: None,
-            config: None,
+            auth: None,
             secret,
+            client_id: None,
+            data_preview_state: SessionDataPreviewState::Unknown,
+        }
+    }
+
+    async fn get_kafka_client(&mut self) -> anyhow::Result<&mut KafkaApiClient> {
+        if let Some(ref mut client) = self.client {
+            Ok(client)
+        } else {
+            self.client.replace(
+                KafkaApiClient::connect(
+                    &self.broker_url,
+                    rsasl::config::SASLConfig::with_credentials(
+                        None,
+                        self.broker_username.clone(),
+                        self.broker_password.clone(),
+                    )?,
+                ).await.context(
+                    "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
+                )?
+            );
+            Ok(self.client.as_mut().expect("guarinteed to exist"))
         }
     }
 
@@ -82,14 +125,9 @@ impl Session {
         let password = it.next().context("expected SASL passwd")??;
 
         let response = match self.app.authenticate(authcid, password).await {
-            Ok(Authenticated {
-                client,
-                user_config,
-                claims,
-            }) => {
-                self.client = client;
-                self.config.replace(user_config);
-                self.user_id.replace(claims.sub);
+            Ok(auth) => {
+                let claims = auth.claims.clone();
+                self.auth.replace(auth);
 
                 let mut response = messages::SaslAuthenticateResponse::default();
                 response.session_lifetime_ms = (1000
@@ -125,13 +163,10 @@ impl Session {
         }?;
 
         // We only ever advertise a single logical broker.
-        let mut brokers = kafka_protocol::indexmap::IndexMap::new();
-        brokers.insert(
-            messages::BrokerId(1),
-            messages::metadata_response::MetadataResponseBroker::default()
-                .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
-                .with_port(self.app.advertise_kafka_port as i32),
-        );
+        let brokers = vec![MetadataResponseBroker::default()
+            .with_node_id(messages::BrokerId(1))
+            .with_host(StrBytes::from_string(self.app.advertise_host.clone()))
+            .with_port(self.app.advertise_kafka_port as i32)];
 
         Ok(messages::MetadataResponse::default()
             .with_brokers(brokers)
@@ -141,24 +176,29 @@ impl Session {
     }
 
     // Lists all read-able collections as Kafka topics. Omits partition metadata.
-    async fn metadata_all_topics(
-        &mut self,
-    ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
-        let collections = fetch_all_collection_names(&self.client).await?;
+    async fn metadata_all_topics(&mut self) -> anyhow::Result<Vec<MetadataResponseTopic>> {
+        let collections = fetch_all_collection_names(
+            &self
+                .auth
+                .as_mut()
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?
+                .authenticated_client()
+                .await?
+                .pg_client(),
+        )
+        .await?;
 
         tracing::debug!(collections=?ops::DebugJson(&collections), "fetched all collections");
 
         let topics = collections
             .into_iter()
             .map(|name| {
-                (
-                    self.encode_topic_name(name),
-                    MetadataResponseTopic::default()
-                        .with_is_internal(false)
-                        .with_partitions(vec![MetadataResponsePartition::default()
-                            .with_partition_index(0)
-                            .with_leader_id(0.into())]),
-                )
+                MetadataResponseTopic::default()
+                    .with_name(Some(self.encode_topic_name(name)))
+                    .with_is_internal(false)
+                    .with_partitions(vec![MetadataResponsePartition::default()
+                        .with_partition_index(0)
+                        .with_leader_id(0.into())])
             })
             .collect();
 
@@ -169,8 +209,14 @@ impl Session {
     async fn metadata_select_topics(
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
-    ) -> anyhow::Result<IndexMap<TopicName, MetadataResponseTopic>> {
-        let client = &self.client;
+    ) -> anyhow::Result<Vec<MetadataResponseTopic>> {
+        let auth = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let client = auth.authenticated_client().await?;
 
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
@@ -178,19 +224,20 @@ impl Session {
                 let maybe_collection = Collection::new(
                     client,
                     from_downstream_topic_name(topic.name.to_owned().unwrap_or_default()).as_str(),
+                    deletions,
                 )
                 .await?;
                 Ok((topic.name.unwrap_or_default(), maybe_collection))
             }))
             .await;
 
-        let mut topics = IndexMap::new();
+        let mut topics = vec![];
 
         for (name, maybe_collection) in collections? {
             let Some(collection) = maybe_collection else {
-                topics.insert(
-                    self.encode_topic_name(name.to_string()),
+                topics.push(
                     MetadataResponseTopic::default()
+                        .with_name(Some(self.encode_topic_name(name.to_string())))
                         .with_error_code(ResponseError::UnknownTopicOrPartition.code()),
                 );
                 continue;
@@ -209,9 +256,9 @@ impl Session {
                 })
                 .collect();
 
-            topics.insert(
-                name,
+            topics.push(
                 MetadataResponseTopic::default()
+                    .with_name(Some(name))
                     .with_is_internal(false)
                     .with_partitions(partitions),
             );
@@ -247,15 +294,22 @@ impl Session {
         &mut self,
         request: messages::ListOffsetsRequest,
     ) -> anyhow::Result<messages::ListOffsetsResponse> {
-        let client = &self.client;
+        let auth = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let client = auth.authenticated_client().await?;
 
         // Concurrently fetch Collection instances and offsets for all requested topics and partitions.
-        // Map each "topic" into Vec<(Partition Index, Option<(Journal Offset, Timestamp))>.
-        let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<(i64, i64)>)>)>> =
+        // Map each "topic" into Vec<(Partition Index, Option<PartitionOffset>.
+        let collections: anyhow::Result<Vec<(TopicName, Vec<(i32, Option<PartitionOffset>)>)>> =
             futures::future::try_join_all(request.topics.into_iter().map(|topic| async move {
                 let maybe_collection = Collection::new(
                     client,
                     from_downstream_topic_name(topic.name.clone()).as_str(),
+                    deletions,
                 )
                 .await?;
 
@@ -304,7 +358,12 @@ impl Session {
                 let partitions = offsets
                     .into_iter()
                     .map(|(partition_index, maybe_offset)| {
-                        let Some((offset, timestamp)) = maybe_offset else {
+                        let Some(PartitionOffset {
+                            offset,
+                            mod_time: timestamp,
+                            ..
+                        }) = maybe_offset
+                        else {
                             return ListOffsetsPartitionResponse::default()
                                 .with_partition_index(partition_index)
                                 .with_error_code(ResponseError::UnknownTopicOrPartition.code());
@@ -327,6 +386,12 @@ impl Session {
     }
 
     /// Fetch records from select "partitions" (journals) and "topics" (collections).
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            max_wait_ms=request.max_wait_ms
+        )
+    )]
     pub async fn fetch(
         &mut self,
         request: messages::FetchRequest,
@@ -342,10 +407,19 @@ impl Session {
             ..
         } = request;
 
-        let client = &self.client;
-        let timeout = tokio::time::sleep(std::time::Duration::from_millis(max_wait_ms as u64));
-        let timeout = futures::future::maybe_done(timeout);
-        tokio::pin!(timeout);
+        let (mut client, config) = {
+            let auth = self
+                .auth
+                .as_mut()
+                .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+            (
+                auth.authenticated_client().await?.clone(),
+                auth.task_config.to_owned(),
+            )
+        };
+
+        let timeout = std::time::Duration::from_millis(max_wait_ms as u64);
 
         // Start reads for all partitions which aren't already pending.
         for topic_request in &topic_requests {
@@ -353,13 +427,101 @@ impl Session {
 
             for partition_request in &topic_request.partitions {
                 key.1 = partition_request.partition;
-
                 let fetch_offset = partition_request.fetch_offset;
 
-                if matches!(self.reads.get(&key), Some(pending) if pending.offset == fetch_offset) {
-                    continue; // Common case: fetch is at the pending offset.
+                let data_preview_params: Option<PartitionOffset> = match self
+                    .data_preview_state
+                    .to_owned()
+                {
+                    // On the first Fetch call, check to see whether it is considered a data-preview
+                    // fetch or not. If so, flag the whole session as being tainted, and also keep track
+                    // of the neccesary offset data in order to serve the rewritten data preview responses.
+                    SessionDataPreviewState::Unknown => {
+                        if let Some(state) = self
+                            .is_fetch_data_preview(key.0.to_string(), key.1, fetch_offset)
+                            .await?
+                        {
+                            let mut data_preview_state = HashMap::new();
+                            data_preview_state.insert(key.to_owned(), state);
+                            self.data_preview_state =
+                                SessionDataPreviewState::DataPreview(data_preview_state);
+                            Some(state)
+                        } else {
+                            self.data_preview_state = SessionDataPreviewState::NotDataPreview;
+                            None
+                        }
+                    }
+                    // If the first Fetch request in a session was not considered for data preview,
+                    // then skip all further checks in order to avoid slowing down fetches.
+                    SessionDataPreviewState::NotDataPreview => None,
+                    SessionDataPreviewState::DataPreview(mut state) => {
+                        match state.entry(key.to_owned()) {
+                            // If a session is marked as being used for data preview, and this Fetch request
+                            // is for a topic/partition that we've already loaded the offsets for, re-use them
+                            // so long as the request is still a data preview request. If not, bail out
+                            Entry::Occupied(entry) => {
+                                let data_preview_state = entry.get();
+                                if fetch_offset >= data_preview_state.offset
+                                    || data_preview_state.offset - fetch_offset > 12
+                                {
+                                    bail!("Session was used for fetching preview data, cannot be used for fetching non-preview data.")
+                                }
+                                Some(data_preview_state.to_owned())
+                            }
+                            // Otherwise, load the offsets for this new topic/partition, and also ensure that this is
+                            // still a data-preview request. If not, bail out.
+                            Entry::Vacant(entry) => {
+                                if let Some(state) = self
+                                    .is_fetch_data_preview(key.0.to_string(), key.1, fetch_offset)
+                                    .await?
+                                {
+                                    entry.insert(state);
+                                    Some(state)
+                                } else {
+                                    bail!("Session was used for fetching preview data, cannot be used for fetching non-preview data.")
+                                }
+                            }
+                        }
+                    }
+                };
+
+                match self.reads.get(&key) {
+                    Some((_, started_at))
+                        if started_at.elapsed() > std::time::Duration::from_secs(60 * 5) =>
+                    {
+                        metrics::counter!(
+                            "dekaf_fetch_requests",
+                            "topic_name" => key.0.to_string(),
+                            "partition_index" => key.1.to_string(),
+                            "state" => "read_expired"
+                        )
+                        .increment(1);
+                        tracing::debug!(lifetime=?started_at.elapsed(), topic_name=?key.0,partition_index=?key.1, "Restarting expired Read");
+                        self.reads.remove(&key);
+                        client = client.with_fresh_gazette_client();
+                    }
+                    Some(_) => {
+                        metrics::counter!(
+                            "dekaf_fetch_requests",
+                            "topic_name" => key.0.to_string(),
+                            "partition_index" => key.1.to_string(),
+                            "state" => "read_pending"
+                        )
+                        .increment(1);
+                        continue; // Common case: fetch is at the pending offset.
+                    }
+                    _ => {}
                 }
-                let Some(collection) = Collection::new(client, &key.0).await? else {
+
+                let Some(collection) = Collection::new(&client, &key.0, config.deletions).await?
+                else {
+                    metrics::counter!(
+                        "dekaf_fetch_requests",
+                        "topic_name" => key.0.to_string(),
+                        "partition_index" => key.1.to_string(),
+                        "state" => "collection_not_found"
+                    )
+                    .increment(1);
                     tracing::debug!(collection = ?&key.0, "Collection doesn't exist!");
                     continue; // Collection doesn't exist.
                 };
@@ -367,26 +529,85 @@ impl Session {
                     .partitions
                     .get(partition_request.partition as usize)
                 else {
+                    metrics::counter!(
+                        "dekaf_fetch_requests",
+                        "topic_name" => key.0.to_string(),
+                        "partition_index" => key.1.to_string(),
+                        "state" => "partition_not_found"
+                    )
+                    .increment(1);
                     tracing::debug!(collection = ?&key.0, partition=partition_request.partition, "Partition doesn't exist!");
                     continue; // Partition doesn't exist.
                 };
-                let (key_schema_id, value_schema_id) =
-                    collection.registered_schema_ids(&client).await?;
-
-                let read = Read::new(
-                    collection.journal_client.clone(),
-                    &collection,
-                    partition,
-                    fetch_offset,
-                    key_schema_id,
-                    value_schema_id,
-                );
+                let (key_schema_id, value_schema_id) = collection
+                    .registered_schema_ids(&client.pg_client())
+                    .await?;
                 let pending = PendingRead {
                     offset: fetch_offset,
                     last_write_head: fetch_offset,
-                    handle: tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
-                    ),
+                    handle: tokio_util::task::AbortOnDropHandle::new(match data_preview_params {
+                        // Startree: 0, Tinybird: 12
+                        Some(PartitionOffset {
+                            fragment_start,
+                            offset: latest_offset,
+                            ..
+                        }) if latest_offset - fetch_offset <= 12 => {
+                            let diff = latest_offset - fetch_offset;
+                            metrics::counter!(
+                                "dekaf_fetch_requests",
+                                "topic_name" => key.0.to_string(),
+                                "partition_index" => key.1.to_string(),
+                                "state" => "new_data_preview_read"
+                            )
+                            .increment(1);
+                            tokio::spawn(
+                                Read::new(
+                                    collection.journal_client.clone(),
+                                    &collection,
+                                    partition,
+                                    fragment_start,
+                                    key_schema_id,
+                                    value_schema_id,
+                                    Some(partition_request.fetch_offset - 1),
+                                    config.deletions,
+                                )
+                                .next_batch(
+                                    // Have to read at least 2 docs, as the very last doc
+                                    // will probably be a control document and will be
+                                    // ignored by the consumer, looking like 0 docs were read
+                                    crate::read::ReadTarget::Docs(max(diff as usize, 2)),
+                                    std::time::Instant::now() + timeout,
+                                ),
+                            )
+                        }
+                        _ => {
+                            metrics::counter!(
+                                "dekaf_fetch_requests",
+                                "topic_name" => key.0.to_string(),
+                                "partition_index" => key.1.to_string(),
+                                "state" => "new_regular_read"
+                            )
+                            .increment(1);
+                            tokio::spawn(
+                                Read::new(
+                                    collection.journal_client.clone(),
+                                    &collection,
+                                    partition,
+                                    fetch_offset,
+                                    key_schema_id,
+                                    value_schema_id,
+                                    None,
+                                    config.deletions,
+                                )
+                                .next_batch(
+                                    crate::read::ReadTarget::Bytes(
+                                        partition_request.partition_max_bytes as usize,
+                                    ),
+                                    std::time::Instant::now() + timeout,
+                                ),
+                            )
+                        }
+                    }),
                 };
 
                 tracing::info!(
@@ -397,12 +618,16 @@ impl Session {
                     "started read",
                 );
 
-                if let Some(old) = self.reads.insert(key.clone(), pending) {
+                if let Some((old, started_at)) = self
+                    .reads
+                    .insert(key.clone(), (pending, std::time::Instant::now()))
+                {
                     tracing::warn!(
                         topic = topic_request.topic.as_str(),
                         partition = partition_request.partition,
                         old_offset = old.offset,
                         new_offset = fetch_offset,
+                        read_lifetime = ?started_at.elapsed(),
                         "discarding pending read due to offset jump",
                     );
                 }
@@ -419,7 +644,7 @@ impl Session {
             for partition_request in &topic_request.partitions {
                 key.1 = partition_request.partition;
 
-                let Some(pending) = self.reads.get_mut(&key) else {
+                let Some((pending, _)) = self.reads.get_mut(&key) else {
                     partition_responses.push(
                         PartitionData::default()
                             .with_partition_index(partition_request.partition)
@@ -428,28 +653,53 @@ impl Session {
                     continue;
                 };
 
-                let batch = if let Some((read, batch)) = tokio::select! {
-                    biased; // Prefer to complete a pending read.
-                    read  = &mut pending.handle => Some(read??),
-                    _ = &mut timeout => None,
-                } {
-                    pending.offset = read.offset;
-                    pending.last_write_head = read.last_write_head;
-                    pending.handle = tokio::spawn(
-                        read.next_batch(partition_request.partition_max_bytes as usize),
-                    );
-                    batch
-                } else {
-                    bytes::Bytes::new()
+                let (read, batch) = (&mut pending.handle).await??;
+
+                let batch = match batch {
+                    BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
+                    BatchResult::TimeoutExceededBeforeTarget(b) => Some(b),
+                    BatchResult::TimeoutNoData => None,
                 };
 
-                partition_responses.push(
-                    PartitionData::default()
-                        .with_partition_index(partition_request.partition)
-                        .with_records(Some(batch))
-                        .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
-                        .with_last_stable_offset(pending.last_write_head),
-                );
+                let mut partition_data = PartitionData::default()
+                    .with_partition_index(partition_request.partition)
+                    // `kafka-protocol` encodes None here using a length of -1, but librdkafka client library
+                    // complains with: `Protocol parse failure for Fetch v11 ... invalid MessageSetSize -1`
+                    // An empty Bytes will get encoded with a length of 0, which works fine.
+                    .with_records(batch.or(Some(Bytes::new())).to_owned());
+
+                match &self.data_preview_state {
+                    SessionDataPreviewState::Unknown => {
+                        unreachable!("Must have already determined data-preview status of session")
+                    }
+                    SessionDataPreviewState::NotDataPreview => {
+                        pending.offset = read.offset;
+                        pending.last_write_head = read.last_write_head;
+                        pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
+                            read.next_batch(
+                                crate::read::ReadTarget::Bytes(
+                                    partition_request.partition_max_bytes as usize,
+                                ),
+                                std::time::Instant::now() + timeout,
+                            ),
+                        ));
+
+                        partition_data = partition_data
+                            .with_high_watermark(pending.last_write_head) // Map to kafka cursor.
+                            .with_last_stable_offset(pending.last_write_head);
+                    }
+                    SessionDataPreviewState::DataPreview(data_preview_states) => {
+                        let data_preview_state = data_preview_states
+                            .get(&key)
+                            .expect("should be able to find data preview state by this point");
+                        partition_data = partition_data
+                            .with_high_watermark(data_preview_state.offset) // Map to kafka cursor.
+                            .with_last_stable_offset(data_preview_state.offset);
+                        self.reads.remove(&key);
+                    }
+                }
+
+                partition_responses.push(partition_data);
             }
 
             topic_responses.push(
@@ -516,21 +766,18 @@ impl Session {
         let responses = req
             .topic_data
             .into_iter()
-            .map(|(k, v)| {
-                (
-                    k,
-                    TopicProduceResponse::default().with_partition_responses(
-                        v.partition_data
-                            .into_iter()
-                            .map(|part| {
-                                PartitionProduceResponse::default()
-                                    .with_index(part.index)
-                                    .with_error_code(
-                                        kafka_protocol::error::ResponseError::InvalidRequest.code(),
-                                    )
-                            })
-                            .collect(),
-                    ),
+            .map(|v| {
+                TopicProduceResponse::default().with_partition_responses(
+                    v.partition_data
+                        .into_iter()
+                        .map(|part| {
+                            PartitionProduceResponse::default()
+                                .with_index(part.index)
+                                .with_error_code(
+                                    kafka_protocol::error::ResponseError::InvalidRequest.code(),
+                                )
+                        })
+                        .collect(),
                 )
             })
             .collect();
@@ -544,14 +791,8 @@ impl Session {
         req: messages::JoinGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::JoinGroupResponse> {
-        let client = self
-            .app
-            .kafka_client
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-
         let mut mutable_req = req.clone();
-        for (_, protocol) in mutable_req.protocols.iter_mut() {
+        for protocol in mutable_req.protocols.iter_mut() {
             let mut consumer_protocol_subscription_raw = protocol.metadata.clone();
 
             let consumer_protocol_subscription_version = consumer_protocol_subscription_raw
@@ -589,7 +830,11 @@ impl Session {
             consumer_protocol_subscription_msg
                 .topics
                 .iter_mut()
-                .for_each(|topic| *topic = self.encrypt_topic_name(topic.to_owned().into()).into());
+                .for_each(|topic| {
+                    let transformed = self.encrypt_topic_name(topic.to_owned().into()).into();
+                    tracing::info!(topic_name = ?topic, encrypted_name=?transformed, "Joining group");
+                    *topic = transformed;
+                });
 
             let mut new_protocol_subscription = BytesMut::new();
 
@@ -602,7 +847,11 @@ impl Session {
             protocol.metadata = new_protocol_subscription.into();
         }
 
-        let response = client
+        let response = self
+            .get_kafka_client()
+            .await?
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?
             .send_request(mutable_req.clone(), Some(header))
             .await?;
 
@@ -653,8 +902,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::LeaveGroupResponse> {
         let client = self
-            .app
-            .kafka_client
+            .get_kafka_client()
+            .await?
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
         let response = client.send_request(req, Some(header)).await?;
@@ -668,7 +917,11 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::ListGroupsResponse> {
         // Redpanda seems to randomly disconnect this?
-        let r = self.app.kafka_client.send_request(req, Some(header)).await;
+        let r = self
+            .get_kafka_client()
+            .await?
+            .send_request(req, Some(header))
+            .await;
         match r {
             Ok(mut e) => {
                 if let Some(err) = e.error_code.err() {
@@ -697,12 +950,6 @@ impl Session {
         req: messages::SyncGroupRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::SyncGroupResponse> {
-        let client = self
-            .app
-            .kafka_client
-            .connect_to_group_coordinator(req.group_id.as_str())
-            .await?;
-
         let mut mutable_req = req.clone();
         for assignment in mutable_req.assignments.iter_mut() {
             let mut consumer_protocol_assignment_raw = assignment.assignment.clone();
@@ -728,7 +975,11 @@ impl Session {
             consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
                 .assigned_partitions
                 .into_iter()
-                .map(|(name, item)| (self.encrypt_topic_name(name.to_owned().into()).into(), item))
+                .map(|part| {
+                    let transformed_topic = self.encrypt_topic_name(part.topic.to_owned());
+                    tracing::info!(topic_name = ?part.topic, encrypted_name=?transformed_topic, "Syncing group");
+                    part.with_topic(transformed_topic)
+                })
                 .collect();
 
             let mut new_protocol_assignment = BytesMut::new();
@@ -741,7 +992,11 @@ impl Session {
             assignment.assignment = new_protocol_assignment.into();
         }
 
-        let response = client
+        let response = self
+            .get_kafka_client()
+            .await?
+            .connect_to_group_coordinator(req.group_id.as_str())
+            .await?
             .send_request(mutable_req.clone(), Some(header))
             .await?;
 
@@ -764,7 +1019,10 @@ impl Session {
         consumer_protocol_assignment_msg.assigned_partitions = consumer_protocol_assignment_msg
             .assigned_partitions
             .into_iter()
-            .map(|(name, item)| (self.decrypt_topic_name(name.to_owned().into()).into(), item))
+            .map(|part| {
+                let transformed_topic = self.decrypt_topic_name(part.topic.to_owned());
+                part.with_topic(transformed_topic)
+            })
             .collect();
 
         let mut new_protocol_assignment = BytesMut::new();
@@ -785,7 +1043,11 @@ impl Session {
         req: messages::DeleteGroupsRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::DeleteGroupsResponse> {
-        return self.app.kafka_client.send_request(req, Some(header)).await;
+        return self
+            .get_kafka_client()
+            .await?
+            .send_request(req, Some(header))
+            .await;
     }
 
     #[instrument(skip_all, fields(group=?req.group_id))]
@@ -795,8 +1057,8 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::HeartbeatResponse> {
         let client = self
-            .app
-            .kafka_client
+            .get_kafka_client()
+            .await?
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
         return client.send_request(req, Some(header)).await;
@@ -810,12 +1072,22 @@ impl Session {
     ) -> anyhow::Result<messages::OffsetCommitResponse> {
         let mut mutated_req = req.clone();
         for topic in &mut mutated_req.topics {
-            topic.name = self.encrypt_topic_name(topic.name.clone())
+            let encrypted = self.encrypt_topic_name(topic.name.clone());
+            tracing::info!(topic_name = ?topic.name, encrypted_name=?encrypted, "Committing offset");
+            topic.name = encrypted;
         }
 
+        let auth = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let flow_client = auth.authenticated_client().await?.clone();
+
         let client = self
-            .app
-            .kafka_client
+            .get_kafka_client()
+            .await?
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
@@ -833,6 +1105,43 @@ impl Session {
 
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned());
+
+            let collection_partitions =
+                Collection::new(&flow_client, topic.name.as_str(), deletions)
+                    .await?
+                    .context(format!("unable to look up partitions for {:?}", topic.name))?
+                    .partitions;
+
+            for partition in &topic.partitions {
+                if let Some(error) = partition.error_code.err() {
+                    tracing::warn!(topic=?topic.name,partition=partition.partition_index,?error,"Got error from upstream Kafka when trying to commit offsets");
+                } else {
+                    let journal_name = collection_partitions
+                        .get(partition.partition_index as usize)
+                        .context(format!(
+                            "unable to find partition {} in collection {:?}",
+                            partition.partition_index, topic.name
+                        ))?
+                        .spec
+                        .name
+                        .to_owned();
+
+                    let committed_offset = req
+                        .topics
+                        .iter()
+                        .find(|req_topic| req_topic.name == topic.name)
+                        .context(format!("unable to find topic in request {:?}", topic.name))?
+                        .partitions
+                        .get(partition.partition_index as usize)
+                        .context(format!(
+                            "unable to find partition {}",
+                            partition.partition_index
+                        ))?
+                        .committed_offset;
+
+                    metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name).set(committed_offset as f64);
+                }
+            }
         }
 
         Ok(resp)
@@ -847,13 +1156,15 @@ impl Session {
         let mut mutated_req = req.clone();
         if let Some(ref mut topics) = mutated_req.topics {
             for topic in topics {
-                topic.name = self.encrypt_topic_name(topic.name.clone())
+                let encrypted = self.encrypt_topic_name(topic.name.clone());
+                tracing::info!(topic_name = ?topic.name, encrypted_name = ?encrypted, "Fetching offset");
+                topic.name = encrypted;
             }
         }
 
         let client = self
-            .app
-            .kafka_client
+            .get_kafka_client()
+            .await?
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
@@ -878,132 +1189,58 @@ impl Session {
     ) -> anyhow::Result<messages::ApiVersionsResponse> {
         use kafka_protocol::messages::{api_versions_response::ApiVersion, *};
 
-        fn version<T: kafka_protocol::protocol::Message>() -> ApiVersion {
-            let mut v = ApiVersion::default();
-            v.max_version = T::VERSIONS.max;
-            v.min_version = T::VERSIONS.min;
-            v
-        }
-        let mut res = ApiVersionsResponse::default();
+        let client = self.get_kafka_client().await?;
 
-        res.api_keys.insert(
-            ApiKey::ApiVersionsKey as i16,
-            version::<ApiVersionsRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::SaslHandshakeKey as i16,
-            version::<SaslHandshakeRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::SaslAuthenticateKey as i16,
-            version::<SaslAuthenticateRequest>(),
-        );
-        res.api_keys
-            .insert(ApiKey::MetadataKey as i16, version::<MetadataRequest>());
-        res.api_keys.insert(
-            ApiKey::FindCoordinatorKey as i16,
+        fn version<T: kafka_protocol::protocol::Message>(api_key: ApiKey) -> ApiVersion {
             ApiVersion::default()
+                .with_api_key(api_key as i16)
+                .with_max_version(T::VERSIONS.max)
+                .with_min_version(T::VERSIONS.min)
+        }
+        let res = ApiVersionsResponse::default().with_api_keys(vec![
+            version::<ApiVersionsRequest>(ApiKey::ApiVersionsKey),
+            version::<SaslHandshakeRequest>(ApiKey::SaslHandshakeKey),
+            version::<SaslAuthenticateRequest>(ApiKey::SaslAuthenticateKey),
+            version::<MetadataRequest>(ApiKey::MetadataKey),
+            ApiVersion::default()
+                .with_api_key(ApiKey::FindCoordinatorKey as i16)
                 .with_min_version(0)
                 .with_max_version(2),
-        );
-        res.api_keys.insert(
-            ApiKey::ListOffsetsKey as i16,
-            version::<ListOffsetsRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::FetchKey as i16,
+            version::<ListOffsetsRequest>(ApiKey::ListOffsetsKey),
             ApiVersion::default()
+                .with_api_key(ApiKey::FetchKey as i16)
                 // This is another non-obvious requirement in librdkafka. If we advertise <4 as a minimum here, some clients'
                 // fetch requests will sit in a tight loop erroring over and over. This feels like a bug... but it's probably
                 // just the consequence of convergent development, where some implicit requirement got encoded both in the client
                 // and server without being explicitly documented anywhere.
                 .with_min_version(4)
-                // I don't understand why, but some kafka clients don't seem to be able to send flexver fetch requests correctly
-                // For example, `kcat` sends an empty topic name when >= v12. I'm 99% sure there's more to this however.
-                .with_max_version(11),
-        );
-
-        // Needed by `kaf`.
-        res.api_keys.insert(
-            ApiKey::DescribeConfigsKey as i16,
-            version::<DescribeConfigsRequest>(),
-        );
-
-        res.api_keys.insert(
-            ApiKey::ProduceKey as i16,
+                // Version >= 13 did away with topic names in favor of unique topic UUIDs, so we need to stick below that.
+                .with_max_version(12),
+            // Needed by `kaf`.
+            version::<DescribeConfigsRequest>(ApiKey::DescribeConfigsKey),
             ApiVersion::default()
+                .with_api_key(ApiKey::ProduceKey as i16)
                 .with_min_version(3)
                 .with_max_version(9),
-        );
-
-        res.api_keys.insert(
-            ApiKey::JoinGroupKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<JoinGroupRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::LeaveGroupKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<LeaveGroupRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::ListGroupsKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<ListGroupsRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::SyncGroupKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<SyncGroupRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::DeleteGroupsKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<DeleteGroupsRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::HeartbeatKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<HeartbeatRequest>()?,
-        );
-
-        res.api_keys.insert(
-            ApiKey::OffsetCommitKey as i16,
-            self.app
-                .kafka_client
-                .supported_versions::<OffsetCommitRequest>()?,
-        );
-        res.api_keys.insert(
-            ApiKey::OffsetFetchKey as i16,
+            client.supported_versions::<JoinGroupRequest>()?,
+            client.supported_versions::<LeaveGroupRequest>()?,
+            client.supported_versions::<ListGroupsRequest>()?,
+            client.supported_versions::<SyncGroupRequest>()?,
+            client.supported_versions::<DeleteGroupsRequest>()?,
+            client.supported_versions::<HeartbeatRequest>()?,
+            client.supported_versions::<OffsetCommitRequest>()?,
             ApiVersion::default()
+                .with_api_key(ApiKey::OffsetFetchKey as i16)
                 .with_min_version(0)
                 .with_max_version(7),
-        );
+        ]);
 
         // UNIMPLEMENTED:
         /*
-        res.api_keys.insert(
-            ApiKey::LeaderAndIsrKey as i16,
-            version::<LeaderAndIsrRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::StopReplicaKey as i16,
-            version::<StopReplicaRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::CreateTopicsKey as i16,
-            version::<CreateTopicsRequest>(),
-        );
-        res.api_keys.insert(
-            ApiKey::DeleteTopicsKey as i16,
-            version::<DeleteTopicsRequest>(),
-        );
+            ApiKey::LeaderAndIsrKey,
+            ApiKey::StopReplicaKey,
+            ApiKey::CreateTopicsKey,
+            ApiKey::DeleteTopicsKey,
         */
 
         Ok(res)
@@ -1013,27 +1250,94 @@ impl Session {
         to_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.user_id.clone().expect("User ID should exist"),
+            self.auth
+                .as_ref()
+                .expect("Must be authenticated")
+                .claims
+                .sub
+                .to_string(),
         )
     }
     fn decrypt_topic_name(&self, name: TopicName) -> TopicName {
         from_upstream_topic_name(
             name,
             self.secret.to_owned(),
-            self.user_id.clone().expect("User ID should exist"),
+            self.auth
+                .as_ref()
+                .expect("Must be authenticated")
+                .claims
+                .sub
+                .to_string(),
         )
     }
 
     fn encode_topic_name(&self, name: String) -> TopicName {
         if self
-            .config
+            .auth
             .as_ref()
-            .expect("should have config already")
+            .expect("Must be authenticated")
+            .task_config
             .strict_topic_names
         {
             to_downstream_topic_name(TopicName(StrBytes::from_string(name)))
         } else {
             TopicName(StrBytes::from_string(name))
+        }
+    }
+
+    /// If the fetched offset is within a fixed number of offsets from the end of the journal,
+    /// return Some with a PartitionOffset containing the beginning and end of the latest fragment.
+    #[tracing::instrument(skip(self))]
+    async fn is_fetch_data_preview(
+        &mut self,
+        collection_name: String,
+        partition: i32,
+        fetch_offset: i64,
+    ) -> anyhow::Result<Option<PartitionOffset>> {
+        let auth = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let deletions = auth.task_config.deletions.to_owned();
+        let client = auth.authenticated_client().await?;
+
+        tracing::debug!(
+            "Loading latest offset for this partition to check if session is data-preview"
+        );
+        let collection = Collection::new(&client, collection_name.as_str(), deletions)
+            .await?
+            .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
+
+        if let Some(
+            partition_offset @ PartitionOffset {
+                offset: latest_offset,
+                ..
+            },
+        ) = collection
+            .fetch_partition_offset(partition as usize, -1)
+            .await?
+        {
+            // If fetch_offset is >= latest_offset, this is a caught-up consumer
+            // polling for new documents, not a data preview request.
+            if fetch_offset < latest_offset && latest_offset - fetch_offset < 13 {
+                tracing::info!(
+                    latest_offset,
+                    diff = latest_offset - fetch_offset,
+                    "Marking session as data-preview"
+                );
+                Ok(Some(partition_offset))
+            } else {
+                tracing::debug!(
+                    fetch_offset,
+                    latest_offset,
+                    diff = latest_offset - fetch_offset,
+                    "Marking session as non-data-preview"
+                );
+                Ok(None)
+            }
+        } else {
+            Ok(None)
         }
     }
 }

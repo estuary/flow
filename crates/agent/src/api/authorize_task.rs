@@ -13,6 +13,18 @@ pub async fn authorize_task(
     super::wrap(async move { do_authorize_task(&app, &request).await }).await
 }
 
+/// Authorizes some set of actions to be performed on a particular collection by way of a task.
+/// This checks that:
+///     * The request is `iss`ued by an actor in a particular data plane
+///         * Validated by checking the request signature against the HMACs for the `iss`uer data-plane
+///     * The request is on behalf of a `sub`ject task running in that data plane
+///         * The subject task is identified by its `shard_template_id`, not just its name.
+///     * The request is to perform some `cap`abilities on a particular collection
+///         * The collection is identified by its `journal_template_name`, not just its name.
+///         * The target collection is specified as a label selector for the label `name`
+///     * The request's subject is granted those capabilities on that collection by
+///       the control-plane
+///     * The requested collection may be in a different data plane than the issuer.
 #[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
 async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
     let jsonwebtoken::TokenData { header, mut claims }: jsonwebtoken::TokenData<
@@ -47,16 +59,28 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
     claims.cap &= !proto_flow::capability::AUTHORIZE;
 
     // Validate and match the requested capabilities to a corresponding role.
+    // NOTE: Because we pass through the claims after validating them here,
+    // we need to explicitly enumerate and exactly match every case, as just
+    // checking that the requested capability contains a particular grant isn't enough.
+    // For example, we wouldn't want to allow a request for `REPLICATE` just
+    // because it also requests `READ`.
     let required_role = match claims.cap {
-        proto_gazette::capability::LIST | proto_gazette::capability::READ => {
+        cap if (cap == proto_gazette::capability::LIST)
+            || (cap == proto_gazette::capability::READ)
+            || (cap == (proto_gazette::capability::LIST | proto_gazette::capability::READ)) =>
+        {
             models::Capability::Read
         }
-        proto_gazette::capability::APPLY | proto_gazette::capability::APPEND => {
+        // We're intentionally rejecting requests for both APPLY and APPEND, as those two
+        // grants authorize wildly different capabilities, and no sane logic should
+        // need both at the same time. So as a sanity check/defense-in-depth measure
+        // we won't grant you a token that has both, even if we technically could.
+        cap if (cap == proto_gazette::capability::APPLY)
+            || (cap == proto_gazette::capability::APPEND) =>
+        {
             models::Capability::Write
         }
-        cap => {
-            anyhow::bail!("capability {cap} cannot be authorized by this service");
-        }
+        cap => anyhow::bail!("capability {cap} cannot be authorized by this service"),
     };
 
     match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
@@ -91,19 +115,21 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
 }
 
 fn evaluate_authorization(
-    Snapshot {
-        collections,
-        data_planes,
-        role_grants,
-        tasks,
-        ..
-    }: &Snapshot,
+    snapshot: &Snapshot,
     shard_id: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
 ) -> anyhow::Result<(jsonwebtoken::EncodingKey, String, String)> {
+    let Snapshot {
+        collections,
+        data_planes,
+        role_grants,
+        tasks,
+        ..
+    } = snapshot;
+
     // Map `claims.sub`, a Shard ID, into its task.
     let task = tasks
         .binary_search_by(|task| {

@@ -1,17 +1,27 @@
 use anyhow::{anyhow, bail, Context};
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
+use gazette::broker;
 use kafka_protocol::{
     error::ParseResponseErrorCode,
-    messages,
+    messages::{self, ApiKey},
     protocol::{self, Decodable, Encodable, Request},
 };
 use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
-use std::{boxed::Box, collections::HashMap, fmt::Debug, io, time::Duration};
+use rustls::RootCertStore;
+use std::{
+    boxed::Box,
+    cell::Cell,
+    collections::HashMap,
+    fmt::Debug,
+    io,
+    time::{Duration, SystemTime},
+};
 use std::{io::BufWriter, pin::Pin, sync::Arc};
+use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio_rustls::rustls;
-use tokio_util::codec;
+use tokio_util::{codec, task::AbortOnDropHandle};
 use tracing::instrument;
 use url::Url;
 
@@ -24,22 +34,26 @@ type BoxedKafkaConnection = Pin<
     >,
 >;
 
+static ROOT_CERT_STORE: OnceCell<Arc<RootCertStore>> = OnceCell::const_new();
+
 #[tracing::instrument(skip_all)]
 async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection> {
     // Establish a TCP connection to the Kafka broker
 
     let parsed_url = Url::parse(broker_url)?;
 
-    // This returns an Err indicating that the default provider is already set
-    // but without this call rustls crashes with the following error:
-    // `no process-level CryptoProvider available -- call CryptoProvider::install_default() before this point`
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
-    let mut root_cert_store = rustls::RootCertStore::empty();
-    root_cert_store.add_parsable_certificates(rustls_native_certs::load_native_certs()?);
+    let root_certs = ROOT_CERT_STORE
+        .get_or_try_init(|| async {
+            let mut certs = rustls::RootCertStore::empty();
+            certs.add_parsable_certificates(
+                rustls_native_certs::load_native_certs().expect("failed to load native certs"),
+            );
+            Ok::<Arc<RootCertStore>, anyhow::Error>(Arc::new(certs))
+        })
+        .await?;
 
     let tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_cert_store)
+        .with_root_certificates(root_certs.to_owned())
         .with_no_client_auth();
 
     let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
@@ -80,14 +94,12 @@ async fn async_connect(broker_url: &str) -> anyhow::Result<BoxedKafkaConnection>
 }
 
 #[tracing::instrument(skip_all)]
-async fn get_supported_sasl_mechanisms(
-    params: &KafkaConnectionParams,
-) -> anyhow::Result<Vec<String>> {
+async fn get_supported_sasl_mechanisms(broker_url: &str) -> anyhow::Result<Vec<String>> {
     // In order to pick the best method to use, we need to know the options supported by the server.
     // `SaslHandshakeResponse` contains this list, but you have to send a `SaslHandshakeRequest` to get it,
     // and if you send an invalid mechanism, Kafka will close the connection. So we need to open a throw-away
     // connection and send an invalid `SaslHandshakeRequest` all in order to discover the supported mechanisms.
-    let mut new_conn = async_connect(&params.broker_url)
+    let mut new_conn = async_connect(broker_url)
         .await
         .map_err(|e| io::Error::other(e))?;
 
@@ -175,11 +187,12 @@ async fn send_request<Req: protocol::Request + Debug>(
 #[tracing::instrument(skip_all)]
 async fn sasl_auth(
     conn: &mut BoxedKafkaConnection,
-    args: &KafkaConnectionParams,
+    broker_url: &str,
+    sasl_config: Arc<SASLConfig>,
 ) -> anyhow::Result<()> {
-    let sasl = SASLClient::new(args.sasl_config.clone());
+    let sasl = SASLClient::new(sasl_config.clone());
 
-    let mechanisms = get_supported_sasl_mechanisms(args).await?;
+    let mechanisms = get_supported_sasl_mechanisms(broker_url).await?;
 
     let offered_mechanisms = mechanisms
         .iter()
@@ -239,119 +252,82 @@ async fn sasl_auth(
     Ok(())
 }
 
-#[derive(Clone)]
-struct KafkaConnectionParams {
-    broker_url: String,
-    sasl_config: Arc<SASLConfig>,
+async fn get_versions(
+    conn: &mut BoxedKafkaConnection,
+) -> anyhow::Result<messages::ApiVersionsResponse> {
+    let versions = send_request(
+        conn,
+        messages::ApiVersionsRequest::default()
+            .with_client_software_name(protocol::StrBytes::from_static_str("Dekaf"))
+            .with_client_software_version(protocol::StrBytes::from_static_str("1.0")),
+        None,
+    )
+    .await?;
+    match versions.error_code.err() {
+        None => {}
+        Some(e) => bail!("Error connecting to broker: {e}"),
+    };
+
+    Ok(versions)
 }
-
-impl deadpool::managed::Manager for KafkaConnectionParams {
-    type Type = BoxedKafkaConnection;
-    type Error = anyhow::Error;
-
-    async fn create(&self) -> Result<BoxedKafkaConnection, anyhow::Error> {
-        tracing::debug!("Attempting to establish a new connection!");
-        let mut conn = async_connect(&self.broker_url).await?;
-        tracing::debug!("Authenticating opened connection");
-        sasl_auth(&mut conn, self).await?;
-        tracing::debug!("Finished authenticating opened connection");
-        Ok(conn)
-    }
-
-    async fn recycle(
-        &self,
-        _: &mut BoxedKafkaConnection,
-        _: &deadpool::managed::Metrics,
-    ) -> deadpool::managed::RecycleResult<anyhow::Error> {
-        Ok(())
-    }
-}
-
-type Pool = deadpool::managed::Pool<KafkaConnectionParams>;
 
 /// Exposes a low level Kafka wire protocol client. Used when we need to
 /// make API calls at the wire protocol level, as opposed to higher-level producer/consumer
 /// APIs that Kafka client libraries usually expose. Currently used to serve
 /// the group management protocol requests by proxying to a real Kafka broker.
-#[derive(Clone)]
 pub struct KafkaApiClient {
     /// A raw IO stream to the Kafka broker.
-    pool: Pool,
+    conn: BoxedKafkaConnection,
     url: String,
     sasl_config: Arc<SASLConfig>,
     versions: messages::ApiVersionsResponse,
-    // Maintain a mapping of broker URI to API Client.
-    // The same map should be shared between all clients
-    // and should be propagated to newly created clients
-    // when a new broker address is encounted.
-    clients: Arc<RwLock<HashMap<String, KafkaApiClient>>>,
+    // Sometimes we need to connect to a particular broker, be it the coordinator
+    // for a particular group, or the cluster controller for whatever reason.
+    // Rather than opening/closing a new connection for every request, let's
+    // keep around a map of these connections that live as long as we do.
+    // It's important that these child connections not outlive the parent,
+    // as otherwise we won't be able to propagate disconnects correctly.
+    clients: HashMap<String, KafkaApiClient>,
 }
 
 impl KafkaApiClient {
     /// Returns a [`KafkaApiClient`] for the given broker URL.
     /// If a client for that broker already exists, return it
     /// rather than creating a new one.
-    pub async fn connect_to(&self, broker_url: &str) -> anyhow::Result<Self> {
+    pub async fn connect_to(&mut self, broker_url: &str) -> anyhow::Result<&mut Self> {
         if broker_url.eq(self.url.as_str()) {
-            return Ok(self.to_owned());
+            return Ok(self);
         }
 
-        if let Some(client) = self.clients.read().await.get(broker_url) {
-            return Ok(client.clone());
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            self.clients.entry(broker_url.to_string())
+        {
+            let new_client = Self::connect(broker_url, self.sasl_config.clone()).await?;
+
+            entry.insert(new_client);
         }
 
-        let mut clients = self.clients.clone().write_owned().await;
-
-        // It's possible that between the check above and when we successfully acquired the write lock
-        // someone else already acquired the write lock and created/stored this new client
-        if let Some(client) = clients.get(broker_url) {
-            return Ok(client.clone());
-        }
-
-        let new_client = Self::connect(broker_url, self.sasl_config.clone()).await?;
-
-        clients.insert(broker_url.to_owned(), new_client.clone());
-
-        Ok(new_client)
+        Ok(self
+            .clients
+            .get_mut(broker_url)
+            .expect("guarinteed to be present"))
     }
 
     #[instrument(name = "api_client_connect", skip(sasl_config))]
     pub async fn connect(broker_url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
-        let pool = Pool::builder(KafkaConnectionParams {
-            broker_url: broker_url.to_owned(),
-            sasl_config: sasl_config.clone(),
-        })
-        .build()?;
+        tracing::debug!("Attempting to establish a new connection!");
+        let mut conn = async_connect(broker_url).await?;
+        tracing::debug!("Authenticating opened connection");
+        sasl_auth(&mut conn, broker_url, sasl_config.clone()).await?;
 
-        let mut conn = match pool.get().await {
-            Ok(c) => c,
-            Err(deadpool::managed::PoolError::Backend(e)) => return Err(e),
-            Err(e) => {
-                anyhow::bail!(e)
-            }
-        };
-
-        let versions = send_request(
-            conn.as_mut(),
-            messages::ApiVersionsRequest::default()
-                .with_client_software_name(protocol::StrBytes::from_static_str("Dekaf"))
-                .with_client_software_version(protocol::StrBytes::from_static_str("1.0")),
-            None,
-        )
-        .await?;
-        match versions.error_code.err() {
-            None => {}
-            Some(e) => bail!("Error connecting to broker: {e}"),
-        };
-        tracing::debug!(versions=?versions,"Got supported versions");
-        drop(conn);
+        let versions = get_versions(&mut conn).await?;
 
         Ok(Self {
-            pool,
+            conn,
             url: broker_url.to_string(),
-            sasl_config: sasl_config,
+            sasl_config,
             versions,
-            clients: Arc::new(RwLock::new(HashMap::new())),
+            clients: HashMap::new(),
         })
     }
 
@@ -361,24 +337,27 @@ impl KafkaApiClient {
     /// allows only a single in-flight request per connection in order to guarantee this ordering.
     /// https://kafka.apache.org/protocol.html
     pub async fn send_request<Req: protocol::Request + Debug>(
-        &self,
+        &mut self,
         req: Req,
         header: Option<messages::RequestHeader>,
     ) -> anyhow::Result<Req::Response> {
-        // TODO: This could be optimized by pipelining.
-        let mut conn = match self.pool.get().await {
-            Ok(c) => c,
-            Err(deadpool::managed::PoolError::Backend(e)) => return Err(e),
-            Err(e) => {
-                anyhow::bail!(e)
-            }
-        };
+        let start_time = SystemTime::now();
 
-        send_request(conn.as_mut(), req, header).await
+        metrics::histogram!("dekaf_pool_wait_time", "upstream_broker" => self.url.to_owned())
+            .record(SystemTime::now().duration_since(start_time)?);
+
+        let api_key = ApiKey::try_from(Req::KEY).expect("should be valid api key");
+
+        let start_time = SystemTime::now();
+        let resp = send_request(&mut self.conn, req, header).await;
+        metrics::histogram!("dekaf_request_time", "api_key" => format!("{:?}",api_key), "upstream_broker" => self.url.to_owned())
+            .record(SystemTime::now().duration_since(start_time)?);
+
+        resp
     }
 
     #[instrument(skip(self))]
-    pub async fn connect_to_group_coordinator(&self, key: &str) -> anyhow::Result<KafkaApiClient> {
+    pub async fn connect_to_group_coordinator(&mut self, key: &str) -> anyhow::Result<&mut Self> {
         let req = messages::FindCoordinatorRequest::default()
             .with_key(protocol::StrBytes::from_string(key.to_string()))
             // https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/FindCoordinatorRequest.java#L119
@@ -405,7 +384,7 @@ impl KafkaApiClient {
         let coord_url = format!("tcp://{}:{}", coord_host.to_string(), coord_port);
 
         Ok(if coord_host.len() == 0 && coord_port == -1 {
-            self.to_owned()
+            self
         } else {
             self.connect_to(&coord_url).await?
         })
@@ -421,13 +400,14 @@ impl KafkaApiClient {
     /// > replicas and for performing administrative tasks like reassigning partitions.
     /// https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Controller+Internals
     #[instrument(skip(self))]
-    pub async fn connect_to_controller(&self) -> anyhow::Result<KafkaApiClient> {
+    pub async fn connect_to_controller(&mut self) -> anyhow::Result<&mut Self> {
         let req = messages::MetadataRequest::default();
         let resp = self.send_request(req, None).await?;
 
         let controller = resp
             .brokers
-            .get(&resp.controller_id)
+            .iter()
+            .find(|broker| broker.node_id == resp.controller_id)
             .context("Failed to find controller")?;
 
         let controller_url = format!("tcp://{}:{}", controller.host.to_string(), controller.port);
@@ -443,14 +423,18 @@ impl KafkaApiClient {
         let version = self
             .versions
             .api_keys
-            .get(&api_key)
+            .iter()
+            .find(|version| version.api_key == api_key)
             .context(format!("Unknown API key {api_key}"))?;
 
         Ok(version.to_owned())
     }
 
     #[instrument(skip_all)]
-    pub async fn ensure_topics(&self, topic_names: Vec<messages::TopicName>) -> anyhow::Result<()> {
+    pub async fn ensure_topics(
+        &mut self,
+        topic_names: Vec<messages::TopicName>,
+    ) -> anyhow::Result<()> {
         let req = messages::MetadataRequest::default()
             .with_topics(Some(
                 topic_names
@@ -467,18 +451,20 @@ impl KafkaApiClient {
         let resp = coord.send_request(req, None).await?;
         tracing::debug!(metadata=?resp, "Got metadata response");
 
-        if resp
-            .topics
-            .iter()
-            .all(|(name, topic)| topic_names.contains(&name) && topic.error_code == 0)
-        {
+        if resp.topics.iter().all(|topic| {
+            topic
+                .name
+                .as_ref()
+                .map(|topic_name| topic_names.contains(topic_name) && topic.error_code == 0)
+                .unwrap_or(false)
+        }) {
             return Ok(());
         } else {
-            let mut topics_map = kafka_protocol::indexmap::IndexMap::new();
+            let mut topics_map = vec![];
             for topic_name in topic_names.into_iter() {
-                topics_map.insert(
-                    topic_name,
+                topics_map.push(
                     messages::create_topics_request::CreatableTopic::default()
+                        .with_name(topic_name)
                         .with_replication_factor(2)
                         .with_num_partitions(-1),
                 );
@@ -487,11 +473,11 @@ impl KafkaApiClient {
             let create_resp = coord.send_request(create_req, None).await?;
             tracing::debug!(create_response=?create_resp, "Got create response");
 
-            for (name, topic) in create_resp.topics {
+            for topic in create_resp.topics {
                 if topic.error_code > 0 {
                     let err = kafka_protocol::ResponseError::try_from_code(topic.error_code);
                     tracing::warn!(
-                        topic = name.to_string(),
+                        topic = topic.name.to_string(),
                         error = ?err,
                         message = topic.error_message.map(|m|m.to_string()),
                         "Failed to create topic"

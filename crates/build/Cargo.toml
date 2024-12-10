@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
+dekaf = { path = "../dekaf" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }

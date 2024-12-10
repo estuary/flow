@@ -24,12 +24,8 @@ expression: errors
         error: testing/int-string doesn't have an assigned data-plane, and no default data-plane is available,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred,
-        error: testing/int-string-inferred doesn't have an assigned data-plane, and no default data-plane is available,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
-        error: testing/int-string-inferred-not-found doesn't have an assigned data-plane, and no default data-plane is available,
+        scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema,
+        error: testing/int-string-ref-write-schema doesn't have an assigned data-plane, and no default data-plane is available,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw,

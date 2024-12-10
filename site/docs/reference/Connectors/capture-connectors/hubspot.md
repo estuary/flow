@@ -125,4 +125,4 @@ captures:
 Your configuration will have many more bindings representing all supported [resources](#supported-data-resources)
 in your Hubspot account.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../concepts/captures.md)

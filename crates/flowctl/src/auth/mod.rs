@@ -1,6 +1,7 @@
 mod roles;
 
 use anyhow::Context;
+use flow_client::client::refresh_authorizations;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -64,7 +65,20 @@ impl Auth {
                 Ok(())
             }
             Command::Roles(roles) => roles.run(ctx).await,
-        }
+        }?;
+
+        // Ensure that any changes to the credentials fully propagate
+        // i.e if an access token is changed, we also need to make sure
+        // to generate and store an updated refresh token.
+        let (access_token, refresh_token) = refresh_authorizations(
+            &ctx.client,
+            ctx.config.user_access_token.to_owned(),
+            ctx.config.user_refresh_token.to_owned(),
+        )
+        .await?;
+        ctx.config.user_access_token = Some(access_token);
+        ctx.config.user_refresh_token = Some(refresh_token);
+        Ok(())
     }
 }
 

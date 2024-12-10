@@ -2,6 +2,7 @@
 
 #include "simdjson.h"
 #include "rust/cxx.h"
+#include <bit>
 
 using namespace simdjson;
 
@@ -454,7 +455,7 @@ void parse_node(const Allocator &alloc, dom::element_type typ, dom::element elem
 class Parser
 {
 public:
-    Parser(size_t capacity) : parser(capacity){};
+    Parser(size_t capacity) : parser(capacity) {};
     void parse(const rust::Slice<const uint8_t> input, int64_t offset, const Allocator &alloc, HeapNode &node, Parsed &output);
     void transcode(const rust::Slice<const uint8_t> input, Transcoded &output);
 
@@ -478,7 +479,13 @@ inline void Parser::parse(const rust::Slice<const uint8_t> input, int64_t offset
     {
         dom::element elem = *it;
         parse_node(alloc, elem.type(), elem, node);
-        ++it; // Step to next document.
+
+        ++it; // Step to the next document and verify trailing newline.
+        if (input.data()[it.current_index() - 1] != '\n')
+        {
+            throw std::out_of_range("missing trailing newline");
+        }
+
         complete(output, node, offset + static_cast<int64_t>(it.current_index()));
     }
 
@@ -511,7 +518,12 @@ inline void Parser::transcode(const rust::Slice<const uint8_t> input, Transcoded
         dom::element elem = *it;
         pnode root = transcode_node(buf, elem.type(), elem);
         place_array(buf, &root, 1);
-        ++it; // Step to next document.
+
+        ++it; // Step to the next document and verify trailing newline.
+        if (input.data()[it.current_index() - 1] != '\n')
+        {
+            throw std::out_of_range("missing trailing newline");
+        }
 
         // Update and re-write header now that we know the next offset and length.
         header.u32.l = static_cast<uint32_t>(it.current_index());

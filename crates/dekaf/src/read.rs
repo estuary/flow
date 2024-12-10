@@ -1,13 +1,17 @@
 use super::{Collection, Partition};
-use anyhow::bail;
+use crate::connector::DeletionMode;
+use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::AsNode;
+use doc::{heap::ArchivedNode, AsNode, HeapNode, OwnedArchivedNode};
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
-use kafka_protocol::records::Compression;
+use kafka_protocol::{
+    protocol::StrBytes,
+    records::{Compression, TimestampType},
+};
+use lazy_static::lazy_static;
 use lz4_flex::frame::BlockMode;
-use std::time::Duration;
 
 pub struct Read {
     /// Journal offset to be served by this Read.
@@ -28,6 +32,32 @@ pub struct Read {
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
+
+    // Offset before which no documents should be emitted
+    offset_start: i64,
+
+    deletes: DeletionMode,
+
+    pub(crate) rewrite_offsets_from: Option<i64>,
+}
+
+pub enum BatchResult {
+    /// Read some docs, stopped reading because reached target bytes
+    TargetExceededBeforeTimeout(bytes::Bytes),
+    /// Read some docs, stopped reading because reached timeout
+    TimeoutExceededBeforeTarget(bytes::Bytes),
+    /// Read no docs, stopped reading because reached timeout
+    TimeoutNoData,
+}
+
+#[derive(Copy, Clone)]
+pub enum ReadTarget {
+    Bytes(usize),
+    Docs(usize),
+}
+
+lazy_static! {
+    static ref DELETION_INDICATOR_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/is_deleted");
 }
 
 impl Read {
@@ -38,6 +68,8 @@ impl Read {
         offset: i64,
         key_schema_id: u32,
         value_schema_id: u32,
+        rewrite_offsets_from: Option<i64>,
+        deletes: DeletionMode,
     ) -> Self {
         let (not_before_sec, _) = collection.not_before.to_unix();
 
@@ -70,14 +102,23 @@ impl Read {
             value_schema_id,
 
             journal_name: partition.spec.name.clone(),
+            rewrite_offsets_from,
+            deletes,
+            offset_start: offset,
         }
     }
 
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
-    pub async fn next_batch(mut self, target_bytes: usize) -> anyhow::Result<(Self, bytes::Bytes)> {
+    pub async fn next_batch(
+        mut self,
+        target: ReadTarget,
+        timeout: std::time::Instant,
+    ) -> anyhow::Result<(Self, BatchResult)> {
         use kafka_protocol::records::{
-            Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
+            Compression, Record, RecordBatchEncoder, RecordEncodeOptions,
         };
+
+        let mut alloc = bumpalo::Bump::new();
 
         let mut records: Vec<Record> = Vec::new();
         let mut records_bytes: usize = 0;
@@ -90,15 +131,25 @@ impl Read {
         let mut has_had_parsing_error = false;
         let mut transient_errors = 0;
 
-        while records_bytes < target_bytes {
+        let timeout = tokio::time::sleep_until(timeout.into());
+        let timeout = futures::future::maybe_done(timeout);
+        tokio::pin!(timeout);
+
+        let mut did_timeout = false;
+
+        while match target {
+            ReadTarget::Bytes(target_bytes) => records_bytes < target_bytes,
+            ReadTarget::Docs(target_docs) => records.len() < target_docs,
+        } {
             let read = match tokio::select! {
                 biased; // Attempt to read before yielding.
 
                 read = self.stream.next() => read,
 
-                () = std::future::ready(()), if records_bytes != 0 => {
-                    break; // Yield if we have records and the stream isn't ready.
-                }
+                _ = &mut timeout => {
+                    did_timeout = true;
+                    break; // Yield if we reach a timeout
+                },
             } {
                 None => bail!("blocking gazette client read never returns EOF"),
                 Some(resp) => match resp {
@@ -122,7 +173,9 @@ impl Read {
                         transient_errors = transient_errors + 1;
 
                         tracing::warn!(error = ?err, "Retrying transient read error");
-                        let delay = Duration::from_millis(rand::thread_rng().gen_range(300..2000));
+                        let delay = std::time::Duration::from_millis(
+                            rand::thread_rng().gen_range(300..2000),
+                        );
                         tokio::time::sleep(delay).await;
                         // We can retry transient errors just by continuing to poll the stream
                         continue;
@@ -148,6 +201,12 @@ impl Read {
                 }
                 ReadJsonLine::Doc { root, next_offset } => (root, next_offset),
             };
+
+            if next_offset < self.offset_start {
+                continue;
+            }
+
+            let mut record_bytes: usize = 0;
 
             let Some(doc::ArchivedNode::String(uuid)) = self.uuid_ptr.query(root.get()) else {
                 let serialized_doc = root.get().to_debug_json_value();
@@ -183,44 +242,60 @@ impl Read {
                 //      ControlMessageKey => Version ControlMessageType
                 //          Version => int16
                 //          ControlMessageType => int16
-                // Skip control messages with version != 0:
-                // if (ctrl_data.Version != 0) {
-                //      rd_kafka_buf_skip_to(rkbuf, message_end);
-                //      return RD_KAFKA_RESP_ERR_NO_ERROR; /* Continue with next msg */
-                // }
+                // Control messages with version > 0 are entirely ignored:
                 // https://github.com/confluentinc/librdkafka/blob/master/src/rdkafka_msgset_reader.c#L777-L824
+                // But, we don't want our message to be entirely ignored,
+                // we just don't want it to be returned to the client.
+                // If we send a valid version 0 control message, with an
+                // invalid message type (not 0 or 1), that should do what we want:
+                // https://github.com/confluentinc/librdkafka/blob/master/src/rdkafka_msgset_reader.c#L882-L902
 
                 // Control Message keys are always 4 bytes:
-                // Version: Any value != 0: i16
-                buf.put_i16(9999);
-                // ControlMessageType: unused: i16
-                buf.put_i16(9999);
-                records_bytes += 4;
+                // Version: 0i16
+                buf.put_i16(0);
+                // ControlMessageType: != 0 or 1 i16
+                buf.put_i16(-1);
+                record_bytes += buf.len();
                 Some(buf.split().freeze())
             } else {
                 tmp.push(0);
                 tmp.extend(self.key_schema_id.to_be_bytes());
                 () = avro::encode_key(&mut tmp, &self.key_schema, root.get(), &self.key_ptr)?;
 
-                records_bytes += tmp.len();
+                record_bytes += tmp.len();
                 buf.extend_from_slice(&tmp);
                 tmp.clear();
                 Some(buf.split().freeze())
             };
 
             // Encode the value.
-            let value = if is_control || is_deletion {
-                None
-            } else {
-                tmp.push(0);
-                tmp.extend(self.value_schema_id.to_be_bytes());
-                () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
+            let value =
+                if is_control || (is_deletion && matches!(self.deletes, DeletionMode::Kafka)) {
+                    None
+                } else {
+                    tmp.push(0);
+                    tmp.extend(self.value_schema_id.to_be_bytes());
 
-                records_bytes += tmp.len();
-                buf.extend_from_slice(&tmp);
-                tmp.clear();
-                Some(buf.split().freeze())
-            };
+                    if matches!(self.deletes, DeletionMode::CDC) {
+                        let mut heap_node = HeapNode::from_node(root.get(), &alloc);
+                        let foo = DELETION_INDICATOR_PTR
+                            .create_heap_node(&mut heap_node, &alloc)
+                            .context("Unable to add deletion meta indicator")?;
+
+                        *foo = HeapNode::PosInt(if is_deletion { 1 } else { 0 });
+
+                        () = avro::encode(&mut tmp, &self.value_schema, &heap_node)?;
+
+                        alloc.reset();
+                    } else {
+                        () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
+                    }
+
+                    record_bytes += tmp.len();
+                    buf.extend_from_slice(&tmp);
+                    tmp.clear();
+                    Some(buf.split().freeze())
+                };
 
             self.offset = next_offset;
 
@@ -237,7 +312,11 @@ impl Read {
             //
             // Note that sequence must increment at the same rate
             // as offset for efficient record batch packing.
-            let kafka_offset = next_offset - 1;
+            let kafka_offset = if let Some(rewrite_from) = self.rewrite_offsets_from {
+                rewrite_from + records.len() as i64
+            } else {
+                next_offset - 1
+            };
 
             records.push(Record {
                 control: is_control,
@@ -253,6 +332,7 @@ impl Read {
                 transactional: false,
                 value,
             });
+            records_bytes += record_bytes;
         }
 
         let opts = RecordEncodeOptions {
@@ -269,15 +349,28 @@ impl Read {
             last_write_head = self.last_write_head,
             ratio = buf.len() as f64 / (records_bytes + 1) as f64,
             records_bytes,
-            "returning records"
+            did_timeout,
+            "batch complete"
         );
 
-        metrics::counter!("documents_read", "journal_name" => self.journal_name.to_owned())
+        metrics::counter!("dekaf_documents_read", "journal_name" => self.journal_name.to_owned())
             .increment(records.len() as u64);
-        metrics::counter!("bytes_read", "journal_name" => self.journal_name.to_owned())
+        metrics::counter!("dekaf_bytes_read", "journal_name" => self.journal_name.to_owned())
             .increment(records_bytes as u64);
 
-        Ok((self, buf.freeze()))
+        let frozen = buf.freeze();
+
+        Ok((
+            self,
+            match (records.len() > 0, did_timeout) {
+                (false, true) => BatchResult::TimeoutNoData,
+                (true, true) => BatchResult::TimeoutExceededBeforeTarget(frozen),
+                (true, false) => BatchResult::TargetExceededBeforeTimeout(frozen),
+                (false, false) => {
+                    unreachable!("shouldn't be able see no documents, and also not timeout")
+                }
+            },
+        ))
     }
 }
 

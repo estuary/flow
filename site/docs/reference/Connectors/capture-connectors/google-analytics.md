@@ -1,17 +1,20 @@
 
-# Google Analytics UA
+# (Deprecated) Google Analytics UA
 
-This connector captures data from a view in Google Universal Analytics.
+This connector previously captured data from a view in Google Universal Analytics.
 
-:::info
-This connector supports Universal Analytics, not Google Analytics 4.
+:::danger
+
+This connector and Universal Analytics are now **deprecated** along with the Google Analytics Universal Analytics API - ([see Google announcement](https://support.google.com/analytics/answer/11583528?hl=en).
 
 Google Analytics 4 is supported by a [separate connector](./google-analytics-4.md).
+
 :::
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-ua:dev`](https://ghcr.io/estuary/source-google-analytics-ua:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+
 
 ## Supported data resources
 
@@ -207,7 +210,7 @@ captures:
           target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../concepts/captures.md)
 
 ## Performance considerations
 

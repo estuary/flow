@@ -80,4 +80,4 @@ captures:
           target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../concepts/captures.md)
