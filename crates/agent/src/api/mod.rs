@@ -1,4 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse};
+use models::Capability;
 use std::sync::{Arc, Mutex};
 
 mod authorize_dekaf;
@@ -6,11 +7,15 @@ mod authorize_task;
 mod authorize_user_collection;
 mod authorize_user_task;
 mod create_data_plane;
+mod error;
+mod public;
 mod snapshot;
 mod update_l2_reporting;
 
 use anyhow::Context;
 use snapshot::Snapshot;
+
+pub use error::ApiError;
 
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
@@ -49,6 +54,46 @@ struct App {
     pg_pool: sqlx::PgPool,
     publisher: crate::publications::Publisher,
     snapshot: std::sync::RwLock<Snapshot>,
+}
+
+impl App {
+    pub async fn is_user_authorized(
+        &self,
+        claims: &ControlClaims,
+        catalog_names: &[impl AsRef<str>],
+        capability: Capability,
+    ) -> anyhow::Result<bool> {
+        let started_unix = jsonwebtoken::get_current_timestamp();
+        loop {
+            match Snapshot::evaluate(&self.snapshot, started_unix, |snapshot: &Snapshot| {
+                for catalog_name in catalog_names {
+                    if !tables::UserGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        claims.sub,
+                        catalog_name.as_ref(),
+                        capability,
+                    ) {
+                        tracing::debug!(
+                            catalog_name=%catalog_name.as_ref(),
+                            required_capability = ?capability,
+                            user_id = %claims.sub,
+                            "user is unauthorized"
+                        );
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }) {
+                Ok(authz_result) => return Ok(authz_result),
+                Err(Ok(retry_millis)) => {
+                    tracing::debug!(%retry_millis, "waiting before retrying authZ check");
+                    () = tokio::time::sleep(std::time::Duration::from_millis(retry_millis)).await;
+                }
+                Err(Err(err)) => return Err(err),
+            }
+        }
+    }
 }
 
 /// Build the agent's API router.
@@ -102,7 +147,9 @@ pub fn build_router(
         .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
         .allow_headers(allow_headers);
 
-    let schema_router = axum::Router::new()
+    let public_api_router = public::api_v1_router(app.clone());
+
+    let main_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))
         .route("/authorize/dekaf", post(authorize_dekaf::authorize_dekaf))
         .route(
@@ -127,11 +174,15 @@ pub fn build_router(
             post(update_l2_reporting::update_l2_reporting)
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
         )
-        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .merge(public_api_router)
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http()
+                .on_failure(tower_http::trace::DefaultOnFailure::new().level(tracing::Level::INFO)),
+        )
         .layer(cors)
         .with_state(app);
 
-    Ok(schema_router)
+    Ok(main_router)
 }
 
 async fn preflight_handler() -> impl IntoResponse {
@@ -240,4 +291,19 @@ fn maybe_rewrite_address(external: bool, address: &str) -> String {
     } else {
         address.to_string()
     }
+}
+
+fn optional_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": ["string", "null"],
+        "format": "date-time",
+    }))
+    .unwrap()
+}
+fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    serde_json::from_value(serde_json::json!({
+        "type": "string",
+        "format": "date-time",
+    }))
+    .unwrap()
 }
