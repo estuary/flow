@@ -23,6 +23,7 @@ mod schemas;
 mod shards;
 mod source;
 mod source_capture;
+pub(crate) mod sqlx_json;
 pub mod status;
 mod tests;
 
