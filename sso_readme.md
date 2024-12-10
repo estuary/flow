@@ -8,4 +8,6 @@ We have a run book to keep steps and processes documented on [Google Drive](http
 
 # Attribute Mappings
 
-These are stored in `/supabase/attrMaps` as JSON files for each provider. These are stored here to make running the `supabase sso update` command a bit easier. To know more about these please see [Supabase Documentation](https://supabase.com/docs/guides/auth/enterprise-sso/auth-sso-saml#understanding-attribute-mappings).
+These are stored in 1password under `SSO Attribute Mappings`. They are stored on a per-customer basis. This is because each implementation of SAML could be different between companies - even with the same provider.
+
+To use an existing mapping you will want to copy the values into a *temporary* `json` file that is used to run `supabase sso update`. After you are done making changes please remember to update value in 1password. To know more about these please see [Supabase Documentation](https://supabase.com/docs/guides/auth/enterprise-sso/auth-sso-saml#understanding-attribute-mappings).
