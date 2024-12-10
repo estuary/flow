@@ -113,6 +113,35 @@ impl Client {
         self.user_access_token.is_some()
     }
 
+    /// Performs a GET request to the control-plane agent HTTP API and returns a
+    /// result with either the deserialized response or an error.
+    pub async fn api_get<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        raw_query: &[(String, String)],
+    ) -> anyhow::Result<T> {
+        let url = self.agent_endpoint.join(path)?;
+        let mut builder = self.http_client.get(url).query(raw_query);
+        // if let Some(query) = maybe_query {
+        //     builder = builder.query(query);
+        // }
+        if let Some(token) = &self.user_access_token {
+            builder = builder.bearer_auth(token);
+        }
+        let request = builder.build()?;
+        tracing::debug!(url = %request.url(), method = "GET", "sending request");
+
+        let response = self.http_client.execute(request).await?;
+        let status = response.status();
+
+        if status.is_success() {
+            Ok(response.json().await?)
+        } else {
+            let body = response.text().await?;
+            anyhow::bail!("GET {path}: {status}: {body}");
+        }
+    }
+
     pub async fn agent_unary<Request, Response>(
         &self,
         path: &str,
