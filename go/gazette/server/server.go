@@ -101,7 +101,7 @@ func New(
 
 	var srv = &Server{
 		endpoint: pb.Endpoint(endpoint),
-		HTTPMux:  http.DefaultServeMux,
+		HTTPMux:  http.NewServeMux(),
 		GRPCServer: grpc.NewServer(
 			grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 			grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor),

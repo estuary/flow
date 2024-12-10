@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -166,6 +167,13 @@ func (sc Cmd) Execute(args []string) error {
 		sc.WrapListener,
 	)
 	mbp.Must(err, "building Server instance")
+
+	if !bc.Diagnostics.Private {
+		// Expose diagnostics over the main service port.
+		srv.HTTPMux = http.DefaultServeMux
+	} else if bc.Diagnostics.Port == "" {
+		log.Warn("diagnostics are not served over the public port, and a private port is not configured")
+	}
 
 	if bc.Broker.Cache.Size <= 0 {
 		log.Warn("--broker.cache.size is disabled; consider setting > 0")

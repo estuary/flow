@@ -15,7 +15,8 @@ import (
 
 // DiagnosticsConfig configures pull-based application metrics, debugging and diagnostics.
 type DiagnosticsConfig struct {
-	// Nothing to see here (yet).
+	Port    string `long:"port" env:"PORT" description:"Port for diagnostics"`
+	Private bool   `long:"private" env:"PRIVATE" description:"When true, don't serve diagnostics over the main service port"`
 }
 
 // InitDiagnosticsAndRecover enables serving of metrics and debugging services
@@ -39,6 +40,10 @@ func InitDiagnosticsAndRecover(cfg DiagnosticsConfig) func() {
 	})
 	// Serve Prometheus metrics at /debug/metrics.
 	http.Handle("/debug/metrics", promhttp.Handler())
+
+	if cfg.Port != "" {
+		go http.ListenAndServe(":"+cfg.Port, http.DefaultServeMux)
+	}
 
 	return func() {
 		if r := recover(); r != nil {
