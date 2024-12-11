@@ -139,6 +139,23 @@ message Inference {
     double maximum = 4;
   }
   Numeric numeric = 9;
+  // Array type-specific inferences. Will be nil if types doesn't include
+  // "array", or if the specification was built prior to array inference
+  // existing in the protocol.
+  message Array {
+    // Minimum number of items the array must contain.
+    uint32 min_items = 1;
+    // True if there is an inferred maximum allowed number of items the array
+    // may contain, otherwise False.
+    bool has_max_items = 2;
+    // Maximum number of items the array may contain.
+    uint32 max_items = 3;
+    // The possible types of items contained in this array.
+    // Subset of ["null", "boolean", "object", "array", "integer", "numeric",
+    // "string"].
+    repeated string item_types = 4;
+  }
+  Array array = 10;
 }
 
 message NetworkPort {

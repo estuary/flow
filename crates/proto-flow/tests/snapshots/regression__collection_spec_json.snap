@@ -38,6 +38,15 @@ expression: json_test(msg)
         "numeric": {
           "hasMinimum": true,
           "minimum": -1000.0
+        },
+        "array": {
+          "minItems": 10,
+          "hasMaxItems": true,
+          "maxItems": 20,
+          "itemTypes": [
+            "null",
+            "integer"
+          ]
         }
       }
     }
