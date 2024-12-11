@@ -16,7 +16,8 @@ Before continuing, sign in to the Estuary Flow dashboard, make sure you enable a
 
 Execute the below command to display the documents in the `demo/wikipedia/recentchange-sampled` collection:
 
-::note This collection is a 3% sample of the enormous `demo/wikipedia/recentchange` collection which contains millions of documents. Since the purpose of this tutorial is to demonstrate a proof of concept, we avoid publishing a derivation that processes hundreds of gigabytes of data.
+:::note
+This collection is a 3% sample of the enormous `demo/wikipedia/recentchange` collection which contains millions of documents. Since the purpose of this tutorial is to demonstrate a proof of concept, we avoid publishing a derivation that processes hundreds of gigabytes of data.
 :::
 
 ```shell
@@ -231,7 +232,8 @@ flowctl preview --source flow.yaml --name Dani/derivation-tutorial/edits-by-user
 
 As you can see, the output format matches the defined schema.  The last step would be to publish your derivation to Flow, which you can also do using `flowctl`.
 
-:::warning Publishing the derivation will initialize the transformation on the live, real-time Wikipedia stream, make sure to delete it after completing the tutorial.
+:::warning
+Publishing the derivation will initialize the transformation on the live, real-time Wikipedia stream, make sure to delete it after completing the tutorial.
 :::
 
 ```shell

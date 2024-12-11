@@ -73,10 +73,10 @@ You'll start by creating your capture.
 
 4. Click inside the **Name** box.
 
-  Names of entities in Flow must be unique. They're organized by prefixes, similar to paths in a file system.
+   Names of entities in Flow must be unique. They're organized by prefixes, similar to paths in a file system.
 
-  You'll see one or more prefixes pertaining to your organization.
-  These prefixes represent the **namespaces** of Flow to which you have access.
+   You'll see one or more prefixes pertaining to your organization.
+   These prefixes represent the **namespaces** of Flow to which you have access.
 
 5. Click your prefix from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
 
@@ -115,13 +115,13 @@ Before you can materialize from Flow to Snowflake, you need to complete some set
 
 1. Leave the Flow web app open. In a new window or tab, go to your Snowflake console.
 
-  If you're a new trial user, you should have received instructions by email. For additional help in this section, see the [Snowflake documentation](https://docs.snowflake.com/en/user-guide-getting-started.html).
+   If you're a new trial user, you should have received instructions by email. For additional help in this section, see the [Snowflake documentation](https://docs.snowflake.com/en/user-guide-getting-started.html).
 
 2. Create a new SQL worksheet if you don't have one open.
 
    This provides an interface where you can run queries.
 
-3. Paste the follow script into the console, changing the value for `estuary_password` from `secret` to a strong password):
+3. Paste the following script into the console, changing the value for `estuary_password` from `secret` to a strong password:
 
 ```sql
 set database_name = 'ESTUARY_DB';

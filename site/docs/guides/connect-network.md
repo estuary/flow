@@ -10,7 +10,7 @@ You configure this in the `networkTunnel` section of applicable capture or mater
 before you can do so, you need a properly configured SSH server on your internal network or cloud hosting platform.
 
 :::tip
-If permitted by your organization, a quicker way to connect to a secure database is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses)
+If permitted by your organization, a quicker way to connect to a secure database is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses).
 
 For help completing this task on different cloud hosting platforms,
 see the documentation for the [connector](../reference/Connectors/README.md) you're using.
@@ -37,6 +37,7 @@ to add your SSH server to your capture or materialization definition.
   - `ssh://sshuser@ec2-198-21-98-1.compute-1.amazonaws.com`
   - `ssh://sshuser@198.21.98.1`
   - `ssh://sshuser@198.21.98.1:22`
+
     :::info Hint
     The [SSH default port is 22](https://www.ssh.com/academy/ssh/port).
     Depending on where your server is hosted, you may not be required to specify a port,
@@ -55,12 +56,12 @@ to add your SSH server to your capture or materialization definition.
       ssh-keygen -p -N "" -m pem -f /path/to/key
    ```
 
-Taken together, these configuration details would allow you to log into the SSH server from your local machine.
-They'll allow the connector to do the same.
+   Taken together, these configuration details would allow you to log into the SSH server from your local machine.
+   They'll allow the connector to do the same.
 
-5. Configure your internal network to allow the SSH server to access your capture or materialization endpoint.
+4. Configure your internal network to allow the SSH server to access your capture or materialization endpoint.
 
-6. To grant external access to the SSH server, it's essential to configure your network settings accordingly. The approach you take will be dictated by your organization's IT policies. One recommended step is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses). This ensures that connections from this specific IP are permitted through your network's firewall or security measures.
+5. To grant external access to the SSH server, it's essential to configure your network settings accordingly. The approach you take will be dictated by your organization's IT policies. One recommended step is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses). This ensures that connections from this specific IP are permitted through your network's firewall or security measures.
 
 ## Setup for AWS
 

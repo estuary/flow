@@ -31,12 +31,12 @@ If you don't have one, visit the web app to register for free.
 ## Introduction
 
 In Estuary Flow, you create **Data Flows** to transfer data from **source** systems to **destination** systems in real time.
-In this use case, your source is an Google Cloud Firestore NoSQL database and your destination is a Snowflake data warehouse.
+In this use case, your source is a Google Cloud Firestore NoSQL database and your destination is a Snowflake data warehouse.
 
 After following this guide, you'll have a Data Flow that comprises:
 
 * A **capture**, which ingests data from Firestore
-* Several **collection**, cloud-backed copies of [Firestore collections](https://cloud.google.com/firestore/docs/data-model) in the Flow system
+* Several **collections**, cloud-backed copies of [Firestore collections](https://cloud.google.com/firestore/docs/data-model) in the Flow system
 * A **materialization**, which pushes the collections to Snowflake
 
 The capture and materialization rely on plug-in components called **connectors**.
@@ -53,7 +53,7 @@ credentials provided by your Estuary account manager.
 
 3. Find the **Google Firestore** tile and click **Capture**.
 
-  A form appears with the properties required for a Firestore capture.
+   A form appears with the properties required for a Firestore capture.
 
 4. Type a name for your capture.
 
@@ -70,11 +70,11 @@ credentials provided by your Estuary account manager.
 
 6. Click **Next**.
 
-  Flow uses the provided configuration to initiate a connection with Firestore.
+   Flow uses the provided configuration to initiate a connection with Firestore.
 
-  It maps each available Firestore collection to a possible Flow collection. It also generates minimal schemas for each collection.
+   It maps each available Firestore collection to a possible Flow collection. It also generates minimal schemas for each collection.
 
-  You can use the **Source Collections** browser to remove or modify collections. You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
+   You can use the **Source Collections** browser to remove or modify collections. You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
   :::tip
   If you make any changes to collections, click **Next** again.
@@ -82,9 +82,9 @@ credentials provided by your Estuary account manager.
 
 7. Once you're satisfied with the collections to be captured, click **Save and Publish**.
 
-  You'll see a notification when the capture publishes successfully.
+   You'll see a notification when the capture publishes successfully.
 
-  The data currently in your Firestore database has been captured, and future updates to it will be captured continuously.
+   The data currently in your Firestore database has been captured, and future updates to it will be captured continuously.
 
 8. Click **Materialize Collections** to continue.
 
@@ -94,7 +94,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 1. Locate the **Snowflake** tile and click **Materialization**.
 
-  A form appears with the properties required for a Snowflake materialization.
+   A form appears with the properties required for a Snowflake materialization.
 
 2.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/mySnowflakeMaterialization`.
 
@@ -111,13 +111,13 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 4. Click **Next**.
 
-  Flow uses the provided configuration to initiate a connection to Snowflake.
+   Flow uses the provided configuration to initiate a connection to Snowflake.
 
-  You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
+   You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
-  Once the connection is successful, the Endpoint Config collapses and the **Source Collections** browser becomes prominent.
-  It shows the collections you captured previously.
-  Each of them will be mapped to a Snowflake table.
+   Once the connection is successful, the Endpoint Config collapses and the **Source Collections** browser becomes prominent.
+   It shows the collections you captured previously.
+   Each of them will be mapped to a Snowflake table.
 
 5. In the **Source Collections** browser, optionally change the name in the **Table** field for each collection.
 
@@ -127,9 +127,9 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 7. For each collection, apply a stricter schema to be used for the materialization.
 
-  Firestore has a flat data structure.
-  To materialize data effectively from Firestore to Snowflake, you should apply a schema can translate to a table structure.
-  Flow's **Schema Inference** tool can help.
+   Firestore has a flat data structure.
+   To materialize data effectively from Firestore to Snowflake, you should apply a schema that can translate to a table structure.
+   Flow's **Schema Inference** tool can help.
 
    1. In the Source Collections browser, choose a collection and click its **Collection** tab.
 

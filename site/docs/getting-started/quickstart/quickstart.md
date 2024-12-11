@@ -85,8 +85,7 @@ table.
 
 ![Link Capture](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//link_source_to_capture_b0d37a738f/link_source_to_capture_b0d37a738f.png)
 
-After pressing continue, you are met with a few configuration options, but for now, feel free to press **Next,** then *
-*Save and Publish** in the top right corner, the defaults will work perfectly fine for this tutorial.
+After pressing continue, you are met with a few configuration options, but for now, feel free to press **Next,** then **Save and Publish** in the top right corner, the defaults will work perfectly fine for this tutorial.
 
 A successful deployment will look something like this:
 
@@ -100,7 +99,7 @@ the data looks.
 Looks like the data is arriving as expected, and the schema of the table is properly configured by the connector based
 on the types of the original table in Postgres.
 
-To get a feel for how the data flow works; head over to the collection details page on the Flow web UI to see your
+To get a feel for how the data flow works, head over to the collection details page on the Flow web UI to see your
 changes immediately. On the Snowflake end, they will be materialized after the next update.
 
 ## Next Steps<a id="next-steps"></a>
