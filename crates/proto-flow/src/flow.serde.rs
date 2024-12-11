@@ -2573,6 +2573,9 @@ impl serde::Serialize for Inference {
         if self.numeric.is_some() {
             len += 1;
         }
+        if self.array.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.Inference", len)?;
         if !self.types.is_empty() {
             struct_ser.serialize_field("types", &self.types)?;
@@ -2600,6 +2603,9 @@ impl serde::Serialize for Inference {
         if let Some(v) = self.numeric.as_ref() {
             struct_ser.serialize_field("numeric", v)?;
         }
+        if let Some(v) = self.array.as_ref() {
+            struct_ser.serialize_field("array", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -2619,6 +2625,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
             "secret",
             "exists",
             "numeric",
+            "array",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2631,6 +2638,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
             Secret,
             Exists,
             Numeric,
+            Array,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2660,6 +2668,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             "secret" => Ok(GeneratedField::Secret),
                             "exists" => Ok(GeneratedField::Exists),
                             "numeric" => Ok(GeneratedField::Numeric),
+                            "array" => Ok(GeneratedField::Array),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2687,6 +2696,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                 let mut secret__ = None;
                 let mut exists__ = None;
                 let mut numeric__ = None;
+                let mut array__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Types => {
@@ -2737,6 +2747,12 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             }
                             numeric__ = map_.next_value()?;
                         }
+                        GeneratedField::Array => {
+                            if array__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("array"));
+                            }
+                            array__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(Inference {
@@ -2748,10 +2764,161 @@ impl<'de> serde::Deserialize<'de> for Inference {
                     secret: secret__.unwrap_or_default(),
                     exists: exists__.unwrap_or_default(),
                     numeric: numeric__,
+                    array: array__,
                 })
             }
         }
         deserializer.deserialize_struct("flow.Inference", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for inference::Array {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.min_items != 0 {
+            len += 1;
+        }
+        if self.has_max_items {
+            len += 1;
+        }
+        if self.max_items != 0 {
+            len += 1;
+        }
+        if !self.item_types.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("flow.Inference.Array", len)?;
+        if self.min_items != 0 {
+            struct_ser.serialize_field("minItems", &self.min_items)?;
+        }
+        if self.has_max_items {
+            struct_ser.serialize_field("hasMaxItems", &self.has_max_items)?;
+        }
+        if self.max_items != 0 {
+            struct_ser.serialize_field("maxItems", &self.max_items)?;
+        }
+        if !self.item_types.is_empty() {
+            struct_ser.serialize_field("itemTypes", &self.item_types)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for inference::Array {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "min_items",
+            "minItems",
+            "has_max_items",
+            "hasMaxItems",
+            "max_items",
+            "maxItems",
+            "item_types",
+            "itemTypes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            MinItems,
+            HasMaxItems,
+            MaxItems,
+            ItemTypes,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "minItems" | "min_items" => Ok(GeneratedField::MinItems),
+                            "hasMaxItems" | "has_max_items" => Ok(GeneratedField::HasMaxItems),
+                            "maxItems" | "max_items" => Ok(GeneratedField::MaxItems),
+                            "itemTypes" | "item_types" => Ok(GeneratedField::ItemTypes),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = inference::Array;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct flow.Inference.Array")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<inference::Array, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut min_items__ = None;
+                let mut has_max_items__ = None;
+                let mut max_items__ = None;
+                let mut item_types__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::MinItems => {
+                            if min_items__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("minItems"));
+                            }
+                            min_items__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::HasMaxItems => {
+                            if has_max_items__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hasMaxItems"));
+                            }
+                            has_max_items__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::MaxItems => {
+                            if max_items__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("maxItems"));
+                            }
+                            max_items__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::ItemTypes => {
+                            if item_types__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("itemTypes"));
+                            }
+                            item_types__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(inference::Array {
+                    min_items: min_items__.unwrap_or_default(),
+                    has_max_items: has_max_items__.unwrap_or_default(),
+                    max_items: max_items__.unwrap_or_default(),
+                    item_types: item_types__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("flow.Inference.Array", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for inference::Exists {

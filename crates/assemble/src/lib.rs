@@ -63,6 +63,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         } else {
             None
         },
+        array: None,
     }
 }
 
@@ -120,7 +121,9 @@ pub fn partition_template(
     let compression_codec = compression_codec(codec.unwrap_or(models::CompressionCodec::Gzip));
 
     // If an explicit flush interval isn't provided, default to 24 hours
-    let flush_interval = flush_interval.unwrap_or(std::time::Duration::from_secs(24 * 3600)).into();
+    let flush_interval = flush_interval
+        .unwrap_or(std::time::Duration::from_secs(24 * 3600))
+        .into();
 
     // If a fragment length isn't set, default and then map MB to bytes.
     let length = (length.unwrap_or(512) as i64) << 20;
