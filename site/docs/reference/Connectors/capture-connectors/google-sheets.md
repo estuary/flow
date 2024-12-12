@@ -5,11 +5,9 @@ This connector captures data from a Google Sheets spreadsheet.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-sheets:dev`](https://ghcr.io/estuary/source-google-sheets:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
-
 ## Prerequisites
 
-There are two ways to authenticate with Google when capturing data from a Sheet: using OAuth2, and manually,by generating a service account key.
+There are two ways to authenticate with Google when capturing data from a Sheet: using OAuth2, and manually, by generating a service account key.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;

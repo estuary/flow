@@ -54,7 +54,8 @@ MongoDB supports various types of change events, each catering to different aspe
 
 - Delete Events: Signaled when documents are removed from a collection.
 
-:::note In MongoDB, if you delete a key from a document, the corresponding change event that gets fired is an "update" event. This may seem counterintuitive at first, but in MongoDB, updates are atomic operations that can modify specific fields within a document, including removing keys. So, when a key is deleted from a document, MongoDB interprets it as an update operation where the specific field (i.e., the key) is being removed, resulting in an "update" event being generated in the oplog.
+:::note
+In MongoDB, if you delete a key from a document, the corresponding change event that gets fired is an "update" event. This may seem counterintuitive at first, but in MongoDB, updates are atomic operations that can modify specific fields within a document, including removing keys. So, when a key is deleted from a document, MongoDB interprets it as an update operation where the specific field (i.e., the key) is being removed, resulting in an "update" event being generated in the oplog.
 :::
 
 ![Delete event](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//image3_5dc8c9ea52/image3_5dc8c9ea52.png)
@@ -121,7 +122,8 @@ Navigate to the “Network Access” page using the left hand sidebar, and using
 
 Next, find your connection string by navigating to the `mongosh` setup page by clicking the “Connect” button on the database overview section, then choosing the “Shell” option.
 
-:::note You’re not going to set up `mongosh` for this tutorial, but this is the easiest way to get ahold of the connection string we’ll be using.
+:::note
+You’re not going to set up `mongosh` for this tutorial, but this is the easiest way to get ahold of the connection string we’ll be using.
 :::
 
 ![Grab your MongoDB connection string](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//image9_81fdbf1a20/image9_81fdbf1a20.png)
@@ -160,7 +162,8 @@ Before we initialize the connector, let’s talk a little bit about how incoming
 
 The **documents** of your flows are stored in **collections**: real-time data lakes of JSON documents in cloud storage.
 
-:::note Keep in mind, these are not the same documents and collections as the ones in MongoDB, only the names are similar, but we are talking about separate systems.
+:::note
+Keep in mind, these are not the same documents and collections as the ones in MongoDB, only the names are similar, but we are talking about separate systems.
 :::
 
 Collections being stored in an object storage mean that once you start capturing data, you won’t have to worry about it not being available to replay – object stores such as S3 can be configured to cheaply store data forever. See [docs page](https://docs.estuary.dev/concepts/collections/#documents) for more information about documents.
@@ -216,7 +219,8 @@ Incremental backfills in the MongoDB connector follow a straightforward approach
 
 In the event of a pause in the connector's process, it resumes capturing change events from the point of interruption. However, the connector's ability to accomplish this depends on the size of the replica set oplog. In certain scenarios where the pause duration is significant enough for the oplog to purge old change events, the connector may necessitate redoing the backfill to maintain data consistency.
 
-:::tip To ensure reliable data capture, it is recommended to [adjust the oplog size](https://www.mongodb.com/docs/manual/tutorial/change-oplog-size/#c.-change-the-oplog-size-of-the-replica-set-member) or set a [minimum retention period](https://www.mongodb.com/docs/manual/reference/command/replSetResizeOplog/#minimum-oplog-retention-period). A recommended minimum retention period of at least 24 hours is sufficient for most cases.
+:::tip
+To ensure reliable data capture, it is recommended to [adjust the oplog size](https://www.mongodb.com/docs/manual/tutorial/change-oplog-size/#c.-change-the-oplog-size-of-the-replica-set-member) or set a [minimum retention period](https://www.mongodb.com/docs/manual/reference/command/replSetResizeOplog/#minimum-oplog-retention-period). A recommended minimum retention period of at least 24 hours is sufficient for most cases.
 :::
 
 ## Real-time CDC<a id="real-time-cdc"></a>

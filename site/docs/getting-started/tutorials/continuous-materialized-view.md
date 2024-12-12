@@ -27,7 +27,7 @@ Amazon RDS, Amazon Aurora, Google Cloud SQL, Azure Database for PostgreSQL, and 
 
 ## Introduction
 
-Materialized views in Postgres give you a powerful way narrow down a huge dataset into a compact one that you can easily monitor.
+Materialized views in Postgres give you a powerful way to narrow down a huge dataset into a compact one that you can easily monitor.
 But if your data is updating in real-time, traditional materialized views introduce latency. They're batch workflows — the query is run at a set interval.
 
 To get around this, you'll need to perform a real-time transformation elsewhere.

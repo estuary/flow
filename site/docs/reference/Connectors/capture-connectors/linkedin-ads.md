@@ -5,8 +5,6 @@ This connector captures data from LinkedIn Ads into Flow collections through the
 
 [`ghcr.io/estuary/source-linkedin-ads:dev`](https://ghcr.io/estuary/source-linkedin-ads:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
-
 ## Supported data resources
 
 The following data resources are supported:
