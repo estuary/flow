@@ -6,8 +6,8 @@
 <title data-rh="true">Create a derivation with flowctl | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/guides/flowctl/create-derivation/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Create a derivation with flowctl | Estuary Flow Documentation"><meta data-rh="true" name="description" content="Once you&#x27;re familiar with creating a basic Data Flow, you can take things a step further"><meta data-rh="true" property="og:description" content="Once you&#x27;re familiar with creating a basic Data Flow, you can take things a step further"><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/guides/flowctl/create-derivation/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/flowctl/create-derivation/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/flowctl/create-derivation/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.7126b339.js" defer="defer"></script>
-<script src="/assets/js/main.624f3fe1.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.fd655bc3.js" defer="defer"></script>
+<script src="/assets/js/main.8d6623d1.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -38,7 +38,7 @@ If you need help, see the <a href="/guides/create-dataflow/">guide to create a D
 GitPod comes ready for derivation writing, with stubbed out files and flowctl installed. You&#x27;ll need a GitLab, GitHub, or BitBucket account to log in.</p>
 </li>
 <li>
-<p>Your local development environment. * <a href="/guides/get-started-with-flowctl/">Install flowctl locally</a></p>
+<p>Your local development environment. <a href="/guides/get-started-with-flowctl/">Install flowctl locally</a>.</p>
 </li>
 </ul>
 </li>
@@ -58,12 +58,12 @@ GitPod comes ready for derivation writing, with stubbed out files and flowctl in
 <p>For example, if your organization is <code>acmeCo</code>, you might choose the <code>acmeCo/resources/anvils</code> collection.</p>
 </li>
 <li>
-<p>Set the transformation language to either <strong>SQL</strong> and <strong>TypeScript</strong>.</p>
+<p>Set the transformation language to either <strong>SQL</strong> or <strong>TypeScript</strong>.</p>
 <p>SQL transformations can be a more approachable place to start if you&#x27;re new to derivations.
 TypeScript transformations can provide more resiliency against failures through static type checking.</p>
 </li>
 <li>
-<p>Give your derivation a name. From the dropdown, choose the name of your catalog prefix and append a unique name, for example <code>acmeCo/resources/anvil-status.</code></p>
+<p>Give your derivation a name. From the dropdown, choose the name of your catalog prefix and append a unique name, for example <code>acmeCo/resources/anvil-status</code>.</p>
 </li>
 <li>
 <p>Click <strong>Proceed to GitPod</strong> to create your development environment. Sign in with one of the available account types.</p>
@@ -236,7 +236,7 @@ You can refine by specifying a <code>--prefix</code>.</p>
 <p>Write the <a href="/concepts/schemas/">schema</a> you&#x27;d like your derivation to conform to and specify the <a href="/concepts/collections/#keys">collection key</a>. Reference the source collection&#x27;s schema, and keep in mind the transformation required to get from the source schema to the new schema.</p>
 </li>
 <li>
-<p>Add the <code>derive</code> stanza. See examples for <a href="/guides/flowctl/create-derivation/#add-a-sql-derivation-in-gitpod">SQL</a> and <a href="/guides/flowctl/create-derivation/#add-a-sql-derivation-in-gitpod">TypeScript</a> above. Give your transform a a unique name.</p>
+<p>Add the <code>derive</code> stanza. See examples for <a href="/guides/flowctl/create-derivation/#add-a-sql-derivation-in-gitpod">SQL</a> and <a href="/guides/flowctl/create-derivation/#add-a-sql-derivation-in-gitpod">TypeScript</a> above. Give your transform a unique name.</p>
 </li>
 </ol>
 </li>
@@ -255,7 +255,7 @@ You can refine by specifying a <code>--prefix</code>.</p>
 </li>
 </ol>
 <div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl preview --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
-<ol start="7">
+<ol start="10">
 <li>If the preview output appears how you&#x27;d expect, <strong>publish</strong> the derivation.</li>
 </ol>
 <div class="language-console codeBlockContainer_Ckt0 theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_biex"><pre tabindex="0" class="prism-code language-console codeBlock_bY9V thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_e6Vv"><span class="token-line" style="color:#393A34"><span class="token plain">flowctl catalog publish --source flow.yaml</span><br></span></code></pre><div class="buttonGroup__atx"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_eSgA" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_y97N"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_LjdS"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>

@@ -6,8 +6,8 @@
 <title data-rh="true">Google Cloud Firestore to Snowflake | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/guides/system-specific-dataflows/firestore-to-dwh/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Google Cloud Firestore to Snowflake | Estuary Flow Documentation"><meta data-rh="true" name="description" content="This guide walks you through the process of creating an"><meta data-rh="true" property="og:description" content="This guide walks you through the process of creating an"><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/guides/system-specific-dataflows/firestore-to-dwh/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/system-specific-dataflows/firestore-to-dwh/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/system-specific-dataflows/firestore-to-dwh/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.7126b339.js" defer="defer"></script>
-<script src="/assets/js/main.624f3fe1.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.fd655bc3.js" defer="defer"></script>
+<script src="/assets/js/main.8d6623d1.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -56,11 +56,11 @@ You can assign this role when you <a href="https://cloud.google.com/iam/docs/cre
 </ul>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="introduction">Introduction<a class="hash-link" aria-label="Direct link to Introduction" title="Direct link to Introduction" href="/guides/system-specific-dataflows/firestore-to-dwh/#introduction">​</a></h2>
 <p>In Estuary Flow, you create <strong>Data Flows</strong> to transfer data from <strong>source</strong> systems to <strong>destination</strong> systems in real time.
-In this use case, your source is an Google Cloud Firestore NoSQL database and your destination is a Snowflake data warehouse.</p>
+In this use case, your source is a Google Cloud Firestore NoSQL database and your destination is a Snowflake data warehouse.</p>
 <p>After following this guide, you&#x27;ll have a Data Flow that comprises:</p>
 <ul>
 <li>A <strong>capture</strong>, which ingests data from Firestore</li>
-<li>Several <strong>collection</strong>, cloud-backed copies of <a href="https://cloud.google.com/firestore/docs/data-model" target="_blank" rel="noopener noreferrer">Firestore collections</a> in the Flow system</li>
+<li>Several <strong>collections</strong>, cloud-backed copies of <a href="https://cloud.google.com/firestore/docs/data-model" target="_blank" rel="noopener noreferrer">Firestore collections</a> in the Flow system</li>
 <li>A <strong>materialization</strong>, which pushes the collections to Snowflake</li>
 </ul>
 <p>The capture and materialization rely on plug-in components called <strong>connectors</strong>.
@@ -77,10 +77,8 @@ credentials provided by your Estuary account manager.</p>
 </li>
 <li>
 <p>Find the <strong>Google Firestore</strong> tile and click <strong>Capture</strong>.</p>
-</li>
-</ol>
 <p>A form appears with the properties required for a Firestore capture.</p>
-<ol start="4">
+</li>
 <li>
 <p>Type a name for your capture.</p>
 <p>Your capture name must begin with a <a href="/concepts/catalogs/#namespace">prefix</a> to which you <a href="/reference/authentication/">have access</a>.</p>
@@ -100,27 +98,29 @@ Append a unique capture name after the <code>/</code> to create the full name, f
 </li>
 <li>
 <p>Click <strong>Next</strong>.</p>
-</li>
-</ol>
 <p>Flow uses the provided configuration to initiate a connection with Firestore.</p>
 <p>It maps each available Firestore collection to a possible Flow collection. It also generates minimal schemas for each collection.</p>
 <p>You can use the <strong>Source Collections</strong> browser to remove or modify collections. You&#x27;ll have the chance to tighten up each collection&#x27;s JSON schema later, when you materialize to Snowflake.</p>
+</li>
+</ol>
 <div class="theme-admonition theme-admonition-tip admonition_xJq3 alert alert--success"><div class="admonitionHeading_Gvgb"><span class="admonitionIcon_Rf37"><svg viewBox="0 0 12 16"><path fill-rule="evenodd" d="M6.5 0C3.48 0 1 2.19 1 5c0 .92.55 2.25 1 3 1.34 2.25 1.78 2.78 2 4v1h5v-1c.22-1.22.66-1.75 2-4 .45-.75 1-2.08 1-3 0-2.81-2.48-5-5.5-5zm3.64 7.48c-.25.44-.47.8-.67 1.11-.86 1.41-1.25 2.06-1.45 3.23-.02.05-.02.11-.02.17H5c0-.06 0-.13-.02-.17-.2-1.17-.59-1.83-1.45-3.23-.2-.31-.42-.67-.67-1.11C2.44 6.78 2 5.65 2 5c0-2.2 2.02-4 4.5-4 1.22 0 2.36.42 3.22 1.19C10.55 2.94 11 3.94 11 5c0 .66-.44 1.78-.86 2.48zM4 14h5c-.23 1.14-1.3 2-2.5 2s-2.27-.86-2.5-2z"></path></svg></span>tip</div><div class="admonitionContent_BuS1"><p>If you make any changes to collections, click <strong>Next</strong> again.</p></div></div>
 <ol start="7">
-<li>Once you&#x27;re satisfied with the collections to be captured, click <strong>Save and Publish</strong>.</li>
-</ol>
+<li>
+<p>Once you&#x27;re satisfied with the collections to be captured, click <strong>Save and Publish</strong>.</p>
 <p>You&#x27;ll see a notification when the capture publishes successfully.</p>
 <p>The data currently in your Firestore database has been captured, and future updates to it will be captured continuously.</p>
-<ol start="8">
-<li>Click <strong>Materialize Collections</strong> to continue.</li>
+</li>
+<li>
+<p>Click <strong>Materialize Collections</strong> to continue.</p>
+</li>
 </ol>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="materialize-to-snowflake">Materialize to Snowflake<a class="hash-link" aria-label="Direct link to Materialize to Snowflake" title="Direct link to Materialize to Snowflake" href="/guides/system-specific-dataflows/firestore-to-dwh/#materialize-to-snowflake">​</a></h2>
 <p>Next, you&#x27;ll add a Snowflake materialization to connect the captured data to its destination: your data warehouse.</p>
 <ol>
-<li>Locate the <strong>Snowflake</strong> tile and click <strong>Materialization</strong>.</li>
-</ol>
+<li>
+<p>Locate the <strong>Snowflake</strong> tile and click <strong>Materialization</strong>.</p>
 <p>A form appears with the properties required for a Snowflake materialization.</p>
-<ol start="2">
+</li>
 <li>
 <p>Choose a unique name for your materialization like you did when naming your capture; for example, <code>acmeCo/mySnowflakeMaterialization</code>.</p>
 </li>
@@ -139,14 +139,12 @@ Append a unique capture name after the <code>/</code> to create the full name, f
 </li>
 <li>
 <p>Click <strong>Next</strong>.</p>
-</li>
-</ol>
 <p>Flow uses the provided configuration to initiate a connection to Snowflake.</p>
 <p>You&#x27;ll be notified if there&#x27;s an error. In that case, fix the configuration form or Snowflake setup as needed and click <strong>Next</strong> to try again.</p>
 <p>Once the connection is successful, the Endpoint Config collapses and the <strong>Source Collections</strong> browser becomes prominent.
 It shows the collections you captured previously.
 Each of them will be mapped to a Snowflake table.</p>
-<ol start="5">
+</li>
 <li>
 <p>In the <strong>Source Collections</strong> browser, optionally change the name in the <strong>Table</strong> field for each collection.</p>
 <p>These will be the names of the output tables in Snowflake.</p>
@@ -156,10 +154,8 @@ Each of them will be mapped to a Snowflake table.</p>
 </li>
 <li>
 <p>For each collection, apply a stricter schema to be used for the materialization.</p>
-</li>
-</ol>
 <p>Firestore has a flat data structure.
-To materialize data effectively from Firestore to Snowflake, you should apply a schema can translate to a table structure.
+To materialize data effectively from Firestore to Snowflake, you should apply a schema that can translate to a table structure.
 Flow&#x27;s <strong>Schema Inference</strong> tool can help.</p>
 <ol>
 <li>
@@ -171,6 +167,8 @@ Flow&#x27;s <strong>Schema Inference</strong> tool can help.</p>
 </li>
 <li>
 <p>Review the new schema and click <strong>Apply Inferred Schema</strong>.</p>
+</li>
+</ol>
 </li>
 <li>
 <p>Click <strong>Next</strong> to apply the changes you made to collections.</p>

@@ -6,8 +6,8 @@
 <title data-rh="true">Create a basic Data Flow | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/guides/create-dataflow/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Create a basic Data Flow | Estuary Flow Documentation"><meta data-rh="true" name="description" content="This guide walks you through the process of creating an end-to-end Data Flow."><meta data-rh="true" property="og:description" content="This guide walks you through the process of creating an end-to-end Data Flow."><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/guides/create-dataflow/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/create-dataflow/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/guides/create-dataflow/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.7126b339.js" defer="defer"></script>
-<script src="/assets/js/main.624f3fe1.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.fd655bc3.js" defer="defer"></script>
+<script src="/assets/js/main.8d6623d1.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -43,12 +43,10 @@ credentials provided by your Estuary account manager.</p>
 </li>
 <li>
 <p>Choose the appropriate <strong>Connector</strong> for your desired data source.</p>
-</li>
-</ol>
 <p>A form appears with the properties required for that connector.
 A documentation page with details about that connector appears in the side panel.
 You can also browse the <a href="/reference/Connectors/capture-connectors/">connectors reference</a> in your browser.</p>
-<ol start="4">
+</li>
 <li>
 <p>Type a name for your capture.</p>
 <p>Your capture name must begin with a <a href="/concepts/catalogs/#namespace">prefix</a> to which you <a href="/reference/authentication/">have access</a>.</p>
@@ -57,23 +55,22 @@ Append a unique capture name after the <code>/</code> to create the full name, f
 </li>
 <li>
 <p>Fill out the required properties and click <strong>Next</strong>.</p>
-</li>
-</ol>
 <p>Flow uses the provided information to initiate a connection to the source system.
 It identifies one or more data <strong>resources</strong> — these may be tables, data streams, or something else, depending on the connector. These are each mapped to a <strong>collection</strong>.</p>
 <p>The <strong>Output Collections</strong> browser appears, showing this list of available collections.
 You can decide which ones you want to capture.</p>
-<ol start="6">
-<li>Look over the list of available collections. All are selected by default.
-You can remove collections you don&#x27;t want to capture, change collection names, and for some connectors, modify other properties.</li>
+</li>
+<li>
+<p>Look over the list of available collections. All are selected by default.
+You can remove collections you don&#x27;t want to capture, change collection names, and for some connectors, modify other properties.</p>
+</li>
 </ol>
 <div class="theme-admonition theme-admonition-tip admonition_xJq3 alert alert--success"><div class="admonitionHeading_Gvgb"><span class="admonitionIcon_Rf37"><svg viewBox="0 0 12 16"><path fill-rule="evenodd" d="M6.5 0C3.48 0 1 2.19 1 5c0 .92.55 2.25 1 3 1.34 2.25 1.78 2.78 2 4v1h5v-1c.22-1.22.66-1.75 2-4 .45-.75 1-2.08 1-3 0-2.81-2.48-5-5.5-5zm3.64 7.48c-.25.44-.47.8-.67 1.11-.86 1.41-1.25 2.06-1.45 3.23-.02.05-.02.11-.02.17H5c0-.06 0-.13-.02-.17-.2-1.17-.59-1.83-1.45-3.23-.2-.31-.42-.67-.67-1.11C2.44 6.78 2 5.65 2 5c0-2.2 2.02-4 4.5-4 1.22 0 2.36.42 3.22 1.19C10.55 2.94 11 3.94 11 5c0 .66-.44 1.78-.86 2.48zM4 14h5c-.23 1.14-1.3 2-2.5 2s-2.27-.86-2.5-2z"></path></svg></span>tip</div><div class="admonitionContent_BuS1"><p>Narrow down a large list of available collections by typing in the <strong>Search Bindings</strong> box.</p></div></div>
 <p>If you&#x27;re unsure which collections you want to keep or remove, you can look at their <a href="/concepts/#schemas">schemas</a>.</p>
 <ol start="7">
 <li>
-<p>In the <strong>Output Collections</strong> browser, select a collection and click the <strong>Collection</strong> tab to view its schema and collection key.
-.
-For many source systems, you&#x27;ll notice that the collection schemas are quite permissive.
+<p>In the <strong>Output Collections</strong> browser, select a collection and click the <strong>Collection</strong> tab to view its schema and collection key.</p>
+<p>For many source systems, you&#x27;ll notice that the collection schemas are quite permissive.
 You&#x27;ll have the option to apply more restrictive schemas later, when you materialize the collections.</p>
 </li>
 <li>
@@ -89,11 +86,11 @@ You&#x27;ll have the option to apply more restrictive schemas later, when you ma
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="create-a-materialization">Create a materialization<a class="hash-link" aria-label="Direct link to Create a materialization" title="Direct link to Create a materialization" href="/guides/create-dataflow/#create-a-materialization">​</a></h2>
 <p>Now that you&#x27;ve captured data into one or more collections, you can materialize it to a destination.</p>
 <ol>
-<li>Find the tile for your desired data destination and click <strong>Materialization</strong>.</li>
-</ol>
+<li>
+<p>Find the tile for your desired data destination and click <strong>Materialization</strong>.</p>
 <p>The page populates with the properties required for that connector.
-More details are on each connector are provided in the <a href="/reference/Connectors/materialization-connectors/">connectors reference</a>.</p>
-<ol start="2">
+More details on each connector are provided in the <a href="/reference/Connectors/materialization-connectors/">connectors reference</a>.</p>
+</li>
 <li>
 <p>Choose a unique name for your materialization like you did when naming your capture; for example, <code>acmeCo/myFirstMaterialization</code>.</p>
 </li>
@@ -102,8 +99,6 @@ More details are on each connector are provided in the <a href="/reference/Conne
 </li>
 <li>
 <p>Click <strong>Next</strong>.</p>
-</li>
-</ol>
 <p>Flow initiates a connection with the destination system.</p>
 <p>The Endpoint Config has collapsed and the <strong>Source Collections</strong> browser is now prominent.
 It shows each collection you captured previously.
@@ -111,7 +106,7 @@ All of them will be mapped to a <strong>resource</strong> in the destination.
 Again, these may be tables, data streams, or something else.
 When you publish the Data Flow, Flow will create these new resources in the destination.</p>
 <p>Now&#x27;s your chance to make changes to the collections before you materialize them.</p>
-<ol start="5">
+</li>
 <li>
 <p>Optionally remove some collections or add additional collections.</p>
 <ul>
