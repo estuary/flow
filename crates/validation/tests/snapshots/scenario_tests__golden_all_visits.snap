@@ -1276,7 +1276,16 @@ Outcome {
                                 secret: false,
                                 exists: Must,
                                 numeric: None,
-                                array: None,
+                                array: Some(
+                                    Array {
+                                        min_items: 5,
+                                        has_max_items: false,
+                                        max_items: 0,
+                                        item_types: [
+                                            "object",
+                                        ],
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -1747,7 +1756,16 @@ Outcome {
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: None,
-                                                        array: None,
+                                                        array: Some(
+                                                            Array {
+                                                                min_items: 5,
+                                                                has_max_items: false,
+                                                                max_items: 0,
+                                                                item_types: [
+                                                                    "object",
+                                                                ],
+                                                            },
+                                                        ),
                                                     },
                                                 ),
                                             },
@@ -2009,7 +2027,16 @@ Outcome {
                                                         secret: false,
                                                         exists: Must,
                                                         numeric: None,
-                                                        array: None,
+                                                        array: Some(
+                                                            Array {
+                                                                min_items: 5,
+                                                                has_max_items: false,
+                                                                max_items: 0,
+                                                                item_types: [
+                                                                    "object",
+                                                                ],
+                                                            },
+                                                        ),
                                                     },
                                                 ),
                                             },
@@ -2560,7 +2587,16 @@ Outcome {
                                 secret: false,
                                 exists: May,
                                 numeric: None,
-                                array: None,
+                                array: Some(
+                                    Array {
+                                        min_items: 0,
+                                        has_max_items: false,
+                                        max_items: 0,
+                                        item_types: [
+                                            "object",
+                                        ],
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -2938,7 +2974,16 @@ Outcome {
                                                         secret: false,
                                                         exists: May,
                                                         numeric: None,
-                                                        array: None,
+                                                        array: Some(
+                                                            Array {
+                                                                min_items: 0,
+                                                                has_max_items: false,
+                                                                max_items: 0,
+                                                                item_types: [
+                                                                    "object",
+                                                                ],
+                                                            },
+                                                        ),
                                                     },
                                                 ),
                                             },
@@ -3402,7 +3447,16 @@ Outcome {
                                                         secret: false,
                                                         exists: May,
                                                         numeric: None,
-                                                        array: None,
+                                                        array: Some(
+                                                            Array {
+                                                                min_items: 0,
+                                                                has_max_items: false,
+                                                                max_items: 0,
+                                                                item_types: [
+                                                                    "object",
+                                                                ],
+                                                            },
+                                                        ),
                                                     },
                                                 ),
                                             },
@@ -5199,7 +5253,16 @@ Outcome {
                                 secret: false,
                                 exists: May,
                                 numeric: None,
-                                array: None,
+                                array: Some(
+                                    Array {
+                                        min_items: 0,
+                                        has_max_items: false,
+                                        max_items: 0,
+                                        item_types: [
+                                            "object",
+                                        ],
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -6774,7 +6837,16 @@ Outcome {
                                                 secret: false,
                                                 exists: May,
                                                 numeric: None,
-                                                array: None,
+                                                array: Some(
+                                                    Array {
+                                                        min_items: 0,
+                                                        has_max_items: false,
+                                                        max_items: 0,
+                                                        item_types: [
+                                                            "object",
+                                                        ],
+                                                    },
+                                                ),
                                             },
                                         ),
                                     },
