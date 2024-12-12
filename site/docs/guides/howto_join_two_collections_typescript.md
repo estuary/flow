@@ -63,7 +63,7 @@ If you see something similar, you’re good to continue!
 
 Set up your folder structure so you can organize the resources required for the derivation. Create a working directory to follow along, and inside, create a `flow.yaml` file.
 
-Inside your `flow.yaml `file, add the following contents:
+Inside your `flow.yaml` file, add the following contents:
 
 ```yaml
 collections:
@@ -117,7 +117,7 @@ collections:
               - /customer_id
 ```
 
-Let’s take a look at this in a bit more detail. Essentially, we define one collection which it’s a `derivation` that is the result of two transformations.
+Let’s take a look at this in a bit more detail. Essentially, we define one collection which is a `derivation` that is the result of two transformations.
 
 In the schema definition, we specify what structure we want the documents of the result collection to take on.
 
@@ -155,9 +155,10 @@ In the schema definition, we specify what structure we want the documents of the
 
 Because you are going to implement a 1-to-many join using the two source collections, it’s important to pay attention to what reduction strategy Flow uses.
 
-There are two `merge` strategies defined here, one for the `customers_with_orders `collection and for the nested `orders` array. 
+There are two `merge` strategies defined here, one for the `customers_with_orders` collection and for the nested `orders` array. 
 
-:::note Merge reduces the left-hand side and right-hand side by recursively reducing shared document locations. The LHS and RHS must either both be objects, or both be arrays.
+:::note
+Merge reduces the left-hand side and right-hand side by recursively reducing shared document locations. The LHS and RHS must either both be objects, or both be arrays.
 :::
 
 For the nested merge, you have to define a key, which is one or more JSON pointers that are relative to the reduced location. If both sides are arrays and a merge key is present, then a deep sorted merge of the respective items is done, as ordered by the key. In this case, setting it to `order_id` will cause the reduction to collect all orders for a given customer.

@@ -37,9 +37,9 @@ credentials provided by your Estuary account manager.
 
 3. Choose the appropriate **Connector** for your desired data source.
 
-  A form appears with the properties required for that connector.
-  A documentation page with details about that connector appears in the side panel.
-  You can also browse the [connectors reference](../reference/Connectors/capture-connectors/README.md) in your browser.
+   A form appears with the properties required for that connector.
+   A documentation page with details about that connector appears in the side panel.
+   You can also browse the [connectors reference](../reference/Connectors/capture-connectors/README.md) in your browser.
 
 4. Type a name for your capture.
 
@@ -50,11 +50,11 @@ credentials provided by your Estuary account manager.
 
 5. Fill out the required properties and click **Next**.
 
-  Flow uses the provided information to initiate a connection to the source system.
-  It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. These are each mapped to a **collection**.
+   Flow uses the provided information to initiate a connection to the source system.
+   It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. These are each mapped to a **collection**.
 
-  The **Output Collections** browser appears, showing this list of available collections.
-  You can decide which ones you want to capture.
+   The **Output Collections** browser appears, showing this list of available collections.
+   You can decide which ones you want to capture.
 
 6. Look over the list of available collections. All are selected by default.
 You can remove collections you don't want to capture, change collection names, and for some connectors, modify other properties.
@@ -64,12 +64,12 @@ Narrow down a large list of available collections by typing in the **Search Bind
 
 :::
 
-  If you're unsure which collections you want to keep or remove, you can look at their [schemas](../concepts/README.md#schemas).
+   If you're unsure which collections you want to keep or remove, you can look at their [schemas](../concepts/README.md#schemas).
 
 7. In the **Output Collections** browser, select a collection and click the **Collection** tab to view its schema and collection key.
-.
-  For many source systems, you'll notice that the collection schemas are quite permissive.
-  You'll have the option to apply more restrictive schemas later, when you materialize the collections.
+
+    For many source systems, you'll notice that the collection schemas are quite permissive.
+    You'll have the option to apply more restrictive schemas later, when you materialize the collections.
 
 8. If you made any changes to output collections, click **Next** again.
 
@@ -83,8 +83,8 @@ Now that you've captured data into one or more collections, you can materialize 
 
 1. Find the tile for your desired data destination and click **Materialization**.
 
-  The page populates with the properties required for that connector.
-  More details are on each connector are provided in the [connectors reference](../reference/Connectors/materialization-connectors/README.md).
+   The page populates with the properties required for that connector.
+   More details on each connector are provided in the [connectors reference](../reference/Connectors/materialization-connectors/README.md).
 
 2. Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/myFirstMaterialization`.
 
@@ -92,15 +92,15 @@ Now that you've captured data into one or more collections, you can materialize 
 
 4. Click **Next**.
 
-  Flow initiates a connection with the destination system.
+   Flow initiates a connection with the destination system.
 
-  The Endpoint Config has collapsed and the **Source Collections** browser is now prominent.
-  It shows each collection you captured previously.
-  All of them will be mapped to a **resource** in the destination.
-  Again, these may be tables, data streams, or something else.
-  When you publish the Data Flow, Flow will create these new resources in the destination.
+   The Endpoint Config has collapsed and the **Source Collections** browser is now prominent.
+   It shows each collection you captured previously.
+   All of them will be mapped to a **resource** in the destination.
+   Again, these may be tables, data streams, or something else.
+   When you publish the Data Flow, Flow will create these new resources in the destination.
 
-  Now's your chance to make changes to the collections before you materialize them.
+   Now's your chance to make changes to the collections before you materialize them.
 
 5. Optionally remove some collections or add additional collections.
 

@@ -24,7 +24,7 @@ If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
    * [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
    GitPod comes ready for derivation writing, with stubbed out files and flowctl installed. You'll need a GitLab, GitHub, or BitBucket account to log in.
 
-   * Your local development environment. * [Install flowctl locally](../get-started-with-flowctl.md)
+   * Your local development environment. [Install flowctl locally](../get-started-with-flowctl.md).
 
 ## Get started with GitPod
 
@@ -40,12 +40,12 @@ You'll write your derivation using GitPod, a cloud development environment integ
 
    For example, if your organization is `acmeCo`, you might choose the `acmeCo/resources/anvils` collection.
 
-4. Set the transformation language to either **SQL** and **TypeScript**.
+4. Set the transformation language to either **SQL** or **TypeScript**.
 
    SQL transformations can be a more approachable place to start if you're new to derivations.
    TypeScript transformations can provide more resiliency against failures through static type checking.
 
-5. Give your derivation a name. From the dropdown, choose the name of your catalog prefix and append a unique name, for example `acmeCo/resources/anvil-status.`
+5. Give your derivation a name. From the dropdown, choose the name of your catalog prefix and append a unique name, for example `acmeCo/resources/anvil-status`.
 
 6. Click **Proceed to GitPod** to create your development environment. Sign in with one of the available account types.
 
@@ -256,25 +256,25 @@ Creating a derivation locally is largely the same as using GitPod, but has some 
 
    1. Write the [schema](../../concepts/schemas.md) you'd like your derivation to conform to and specify the [collection key](../../concepts/collections.md#keys). Reference the source collection's schema, and keep in mind the transformation required to get from the source schema to the new schema.
 
-   2. Add the `derive` stanza. See examples for [SQL](#add-a-sql-derivation-in-gitpod) and [TypeScript](#add-a-sql-derivation-in-gitpod) above. Give your transform a a unique name.
+   2. Add the `derive` stanza. See examples for [SQL](#add-a-sql-derivation-in-gitpod) and [TypeScript](#add-a-sql-derivation-in-gitpod) above. Give your transform a unique name.
 
-3. Stub out the SQL or TypeScript files for your transform.
+6. Stub out the SQL or TypeScript files for your transform.
 
    ```console
    flowctl generate --source flow.yaml
    ```
 
-4. Locate the generated file, likely in the same subdirectory as the `flow.yaml` file you've been working in.
+7. Locate the generated file, likely in the same subdirectory as the `flow.yaml` file you've been working in.
 
-5. Write your transformation.
+8. Write your transformation.
 
-6. Preview the derivation locally.
+9. Preview the derivation locally.
 
 ```console
 flowctl preview --source flow.yaml
 ```
 
-7. If the preview output appears how you'd expect, **publish** the derivation.
+10. If the preview output appears how you'd expect, **publish** the derivation.
 
 ```console
 flowctl catalog publish --source flow.yaml

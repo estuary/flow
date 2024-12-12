@@ -8,7 +8,7 @@ This connector uses change data capture (CDC) to continuously capture updates in
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-postgres:dev`](https://github.com/estuary/connectors/pkgs/container/source-postgres) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
-For managed PostgreSQL insteances that do not support logical replication, we offer a [PostgreSQL Batch Connector](./postgres-batch/) as an alternative.
+For managed PostgreSQL instances that do not support logical replication, we offer a [PostgreSQL Batch Connector](./postgres-batch/) as an alternative.
 
 ## Supported versions and platforms
 

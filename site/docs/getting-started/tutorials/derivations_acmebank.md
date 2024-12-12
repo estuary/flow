@@ -308,4 +308,4 @@ Reduction annotations also have some benefits over task state (like SQLite table
 * Certain aggregations, such as recursive merging of tree-like structures,
   are much simpler to express through reduction annotations vs implementing yourself.
 
-[See "Where to Accumulate?" for more discussion]../../concepts/derivations.md(#where-to-accumulate).
+[See "Where to Accumulate?" for more discussion](../../concepts/derivations.md#where-to-accumulate).
