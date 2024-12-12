@@ -157,9 +157,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let system_user_id = agent_sql::get_user_id_for_email(&args.accounts_email, &pg_pool)
         .await
         .context("querying for agent user id")?;
-    let jwt_secret: String = sqlx::query_scalar(r#"show app.settings.jwt_secret;"#)
-        .fetch_one(&pg_pool)
-        .await?;
+    let jwt_secret: String =
+        std::env::var("CONTROL_PLANE_JWT_SECRET").context("missing CONTROL_PLANE_JWT_SECRET")?;
 
     if args.builds_root.scheme() == "file" {
         std::fs::create_dir_all(args.builds_root.path())
