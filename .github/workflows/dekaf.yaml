@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - "crates/dekaf/**"
+      - "crates/proto-**"
       - "Cargo.lock"
   pull_request:
     branches: [master]
