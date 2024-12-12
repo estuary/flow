@@ -63,7 +63,22 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         } else {
             None
         },
-        array: None,
+        array: if shape.type_.overlaps(types::ARRAY) {
+            Some(flow::inference::Array {
+                min_items: shape.array.min_items,
+                has_max_items: shape.array.max_items.is_some(),
+                max_items: shape.array.max_items.unwrap_or_default(),
+                item_types: shape
+                    .array
+                    .tuple
+                    .iter()
+                    .chain(shape.array.additional_items.as_deref())
+                    .fold(types::INVALID, |acc, item| acc | item.type_)
+                    .to_vec(),
+            })
+        } else {
+            None
+        },
     }
 }
 
@@ -484,7 +499,7 @@ pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
 #[cfg(test)]
 mod test {
     use super::*;
-    use doc::shape::{NumericShape, StringShape};
+    use doc::shape::{ArrayShape, NumericShape, StringShape};
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
@@ -507,6 +522,28 @@ mod test {
                 minimum: None,
                 maximum: Some(json::Number::Unsigned(1000)),
             },
+            array: ArrayShape {
+                additional_items: Some(Box::new(Shape {
+                    type_: types::STRING,
+                    ..Shape::anything()
+                })),
+                min_items: 10,
+                max_items: Some(20),
+                tuple: vec![
+                    Shape {
+                        type_: types::STRING,
+                        ..Shape::anything()
+                    },
+                    Shape {
+                        type_: types::BOOLEAN,
+                        ..Shape::anything()
+                    },
+                    Shape {
+                        type_: types::OBJECT,
+                        ..Shape::anything()
+                    },
+                ],
+            },
             ..Shape::anything()
         };
 
@@ -515,8 +552,10 @@ mod test {
         let out2 = inference(&shape, Exists::May);
         shape.type_ = types::INTEGER | types::STRING;
         let out3 = inference(&shape, Exists::May);
+        shape.type_ = types::ARRAY;
+        let out4 = inference(&shape, Exists::May);
 
-        insta::assert_debug_snapshot!(&[out1, out2, out3]);
+        insta::assert_debug_snapshot!(&[out1, out2, out3, out4]);
     }
 
     #[test]
