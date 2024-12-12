@@ -164,6 +164,7 @@ local_resource(
         "DATABASE_URL": DATABASE_URL,
         "RUST_LOG": "info",
         "SSL_CERT_FILE": CA_CERT_PATH,
+        "CONTROL_PLANE_JWT_SECRET": "super-secret-jwt-token-with-at-least-32-characters-long",
     },
     resource_deps=['reactor', 'gazette']
 )
