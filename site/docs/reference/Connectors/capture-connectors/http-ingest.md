@@ -10,10 +10,10 @@ The connector is available for use in the Flow web application. For local develo
 
 ## Usage
 
-This connector is distinct from all other capture connectors in that it's not designed to pull data from a specific
+This connector is different from most other capture connectors in that it's not designed to pull data from a specific
 system or endpoint. It requires no endpoint-specific configuration, and can accept any and all valid JSON objects from any source.
 
-This is useful primarily if you want to test out Flow or see how your webhook data will come over.
+This is especially useful if you want to test out Flow or see how your webhook data will come over.
 
 To begin, use the web app to create a capture. Once published, the confirmation dialog displays
 a unique URL for your public endpoint. By default, this will accept webhook requests at `https://<your-public-endpoint>/webhook-data`, but you can customize the path, or even capture from multiple URL paths if you like.
@@ -51,6 +51,30 @@ Any URL query parameters that are sent on the request will be captured and seria
   ...
 }
 ```
+
+### Path parameters
+
+Paths are allowed to contain parameter placeholders, which will be captured and serialized under `/_meta/pathParams/*` in the documents. For example, if you configure a path for `/foo/{fooId}` a webhook request that's sent to `/foo/123` would result in a document like:
+
+```
+{
+  "_meta": {
+    "webhookId": "...",
+    "pathParams": {
+      "fooId": "123"
+    },
+    "reqPath": "/foo/{fooId}",
+    ...
+  }
+  ...
+}
+```
+
+Multiple parameters are allowed, for example `/foo/{fooId}/bar/{barId}`. Each parameter corresponds to exactly one path segment in the request URL. Capturing multiple segments in a single parameter is not supported. The syntax and semantics of the path specification follow the [OpenAPI specification](https://swagger.io/docs/specification/v3_0/paths-and-operations/#path-templating) (a.k.a Swagger).
+
+Path parameters are automatically added to the collection write schema as required properties, so they can be used as part of the collection key by editing the collection during capture creation.
+
+Care must be taken when specifying multiple paths, to ensure they don't conflict with each other. For example, you may not specify both `/{paramA}` and `/{paramB}`, because it would be impossible to determine which path to use for a request to `/123`.
 
 ### Webhook IDs
 
