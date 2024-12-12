@@ -68,12 +68,14 @@ pub fn start_periodic_publish_update<C: ControlPlane>(
     pending
 }
 
+// TODO: periodic publications are temporarily disabled
 fn is_spec_disabled(state: &ControllerState) -> bool {
-    state
-        .live_spec
-        .as_ref()
-        // Collections are never considered disabled, since they can still be
-        // captured or materialized even if derivation shards are disabled.
-        .map(|ls| ls.catalog_type() != models::CatalogType::Collection && !ls.is_enabled())
-        .unwrap_or(true)
+    true
+    // state
+    //     .live_spec
+    //     .as_ref()
+    //     // Collections are never considered disabled, since they can still be
+    //     // captured or materialized even if derivation shards are disabled.
+    //     .map(|ls| ls.catalog_type() != models::CatalogType::Collection && !ls.is_enabled())
+    //     .unwrap_or(true)
 }
