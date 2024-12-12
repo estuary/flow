@@ -1,6 +1,6 @@
 ---
 source: crates/assemble/src/lib.rs
-expression: "&[out1, out2, out3]"
+expression: "&[out1, out2, out3, out4]"
 ---
 [
     Inference {
@@ -64,5 +64,29 @@ expression: "&[out1, out2, out3]"
             },
         ),
         array: None,
+    },
+    Inference {
+        types: [
+            "array",
+        ],
+        string: None,
+        title: "the title",
+        description: "the description",
+        default_json: "{\"hello\":\"world\"}",
+        secret: true,
+        exists: May,
+        numeric: None,
+        array: Some(
+            Array {
+                min_items: 10,
+                has_max_items: true,
+                max_items: 20,
+                item_types: [
+                    "boolean",
+                    "object",
+                    "string",
+                ],
+            },
+        ),
     },
 ]
