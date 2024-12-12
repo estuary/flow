@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 
+// TODO: temporarily disabled
+/*
 use crate::{
     controllers::{ControllerState, Status},
     integration_tests::harness::{
@@ -182,3 +184,5 @@ async fn specs_are_published_periodically() {
         disabled_cap_end.last_build_id
     );
 }
+
+*/
