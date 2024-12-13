@@ -1,11 +1,9 @@
 
-# Intercom (Deprecated)
+# Intercom
 
 This connector captures data from Intercom into Flow collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-intercom:dev`](https://ghcr.io/estuary/source-intercom:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
-
-This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-intercom:dev`](https://ghcr.io/estuary/source-intercom-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
@@ -27,11 +25,9 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
-There are two ways to authenticate with Intercom:
+There are two ways to authenticate with Intercom: using OAuth2, or with an [access token](https://developers.intercom.com/building-apps/docs/authentication-types#section-how-to-get-your-access-token).
 
-* In the Flow web app, you sign in directly. You'll need the username and password associated with [a user with full permissions](https://www.intercom.com/help/en/articles/280-how-do-i-add-remove-or-delete-a-teammate) on your Intercom workspace.
-
-* Using the flowctl CLI, you configure authentication manually. You'll need the [access token](https://developers.intercom.com/building-apps/docs/authentication-types#section-how-to-get-your-access-token) for you Intercom account.
+OAuth is recommended for simplicity in the Flow web app.
 
 ## Configuration
 
@@ -47,73 +43,64 @@ you'll sign in directly and won't need the access token.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/access_token`** | Access token | Access token for making authenticated requests. | string | Required |
-| **`/start_date`** | Start date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
+| **`/credentials/access_token`** | Access Token | Intercom Access token. | string | Required |
+| **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
+| `/start_date` | Start date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | 30 days before the present date |
+| `/advanced/window_size` | Window size | Window size in days for incrementals streams. Typically left as the default unless more frequent checkpoints are desired. | integer | 5 |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Resource from Intercom from which collections are captured. | string | Required |
-| **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+| **`/name`** | Data resource | Name of the data resource. | string | Required |
+| `/interval` | Interval | Interval between data syncs | string |          |
 
 
 ### Sample
-
-The sample below reflects manual authentication in the CLI.
 
 ```yaml
 captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-intercom:dev
+        image: ghcr.io/estuary/source-intercom-native:dev
         config:
-            access_token: <secret>
-            start_date: 2022-06-18T00:00:00Z
+            credentials:
+                credentials_title: Private App Credentials
+                access_token: <secret>
+            start_date: "2024-12-13T12:00:00Z"
     bindings:
       - resource:
-          stream: admins
-          syncMode: full_refresh
+          name: admins
         target: ${PREFIX}/admins
       - resource:
-          stream: companies
-          syncMode: incremental
+          name: companies
         target: ${PREFIX}/companies
       - resource:
-          stream: company_segments
-          syncMode: incremental
+          name: company_segments
         target: ${PREFIX}/companysegments
       - resource:
-          stream: conversations
-          syncMode: incremental
+          name: conversations
         target: ${PREFIX}/conversations
       - resource:
-          stream: conversation_parts
-          syncMode: incremental
+          name: conversation_parts
         target: ${PREFIX}/conversationparts
       - resource:
-          stream: contacts
-          syncMode: incremental
+          name: contacts
         target: ${PREFIX}/contacts
       - resource:
-          stream: company_attributes
-          syncMode: full_refresh
+          name: company_attributes
         target: ${PREFIX}/companyattributes
       - resource:
-          stream: contact_attributes
-          syncMode: full_refresh
+          name: contact_attributes
         target: ${PREFIX}/contactattributes
       - resource:
-          stream: segments
-          syncMode: incremental
+          name: segments
         target: ${PREFIX}/segments
       - resource:
-          stream: tags
-          syncMode: full_refresh
+          name: tags
         target: ${PREFIX}/tags
       - resource:
-          stream: teams
-          syncMode: full_refresh
+          name: teams
         target: ${PREFIX}/teams
 ```

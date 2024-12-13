@@ -68,6 +68,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Hubspot (Real-Time)
   - [Configuration](./hubspot-real-time.md)
   - Package - ghcr.io/estuary/source-hubspot-native:dev
+- Intercom
+  - [Configuration](./intercom-native.md)
+  - Package - ghcr.io/estuary/source-intercom-native:dev
 - MariaDB
   - [Configuration](./MariaDB/)
   - Package - ghcr.io/estuary/source-mariadb:dev
@@ -167,7 +170,7 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Instagram
   - [Configuration](./instagram.md)
   - Package - ghcr.io/estuary/source-instagram:dev
-- Intercom
+- Intercom (deprecated)
   - [Configuration](./intercom.md)
   - Package - ghcr.io/estuary/source-intercom:dev
 - Iterable
