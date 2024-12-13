@@ -75,7 +75,11 @@ impl CollectionStatus {
         } else {
             None
         };
-        let periodic_next = periodic::next_periodic_publish(state);
+        let periodic_next = if model.derive.is_some() {
+            periodic::next_periodic_publish(state)
+        } else {
+            None
+        };
         Ok(NextRun::earliest([inferred_schema_next, periodic_next]))
     }
 }
