@@ -121,7 +121,6 @@ pub async fn start(
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
         // Cgroup memory / CPU resource limits.
-        // TODO(johnny): we intend to tighten these down further, over time.
         "--memory=1g".to_string(),
         "--cpus=2".to_string(),
         // For now, we support only Linux amd64 connectors.
@@ -148,6 +147,10 @@ pub async fn start(
             format!("--publish=0.0.0.0:{port}:{CONNECTOR_INIT_PORT}"),
             "--publish-all".to_string(),
         ])
+    }
+
+    if let Some(cgroup_parent) = std::env::var("CONNECTOR_CGROUP_PARENT").ok() {
+        docker_args.append(&mut vec!["--cgroup-parent".to_string(), cgroup_parent]);
     }
 
     docker_args.append(&mut vec![
