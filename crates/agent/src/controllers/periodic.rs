@@ -23,7 +23,7 @@ const PERIODIC_PUBLISH_INTERVAL: chrono::Duration = chrono::Duration::days(20);
 /// Returns a `NextRun` for the next scheduled periodic publication, unless the
 /// spec is disabled.
 pub fn next_periodic_publish(state: &ControllerState) -> Option<NextRun> {
-    if is_spec_disabled(state) {
+    if !is_enabled_task(state) {
         return None;
     }
     let next = state.live_spec_updated_at + PERIODIC_PUBLISH_INTERVAL;
@@ -60,7 +60,7 @@ pub fn start_periodic_publish_update<C: ControlPlane>(
     control_plane: &mut C,
 ) -> PendingPublication {
     let mut pending = PendingPublication::new();
-    if !is_spec_disabled(state)
+    if is_enabled_task(state)
         && control_plane.current_time() - state.live_spec_updated_at > PERIODIC_PUBLISH_INTERVAL
     {
         pending.start_touch(state, "periodic publication");
@@ -68,14 +68,17 @@ pub fn start_periodic_publish_update<C: ControlPlane>(
     pending
 }
 
-// TODO: periodic publications are temporarily disabled
-fn is_spec_disabled(state: &ControllerState) -> bool {
-    true
-    // state
-    //     .live_spec
-    //     .as_ref()
-    //     // Collections are never considered disabled, since they can still be
-    //     // captured or materialized even if derivation shards are disabled.
-    //     .map(|ls| ls.catalog_type() != models::CatalogType::Collection && !ls.is_enabled())
-    //     .unwrap_or(true)
+/// Returns true if the live spec is a task that is enabled. False for all
+/// captured collections, tests, and disabled tasks.
+pub fn is_enabled_task(state: &ControllerState) -> bool {
+    state
+        .live_spec
+        .as_ref()
+        .map(|ls| match ls {
+            models::AnySpec::Capture(c) => c.is_enabled(),
+            models::AnySpec::Materialization(m) => m.is_enabled(),
+            models::AnySpec::Collection(c) => c.derive.is_some() && c.is_enabled(),
+            models::AnySpec::Test(_) => false,
+        })
+        .unwrap_or(true)
 }

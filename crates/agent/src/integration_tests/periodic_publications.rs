@@ -1,16 +1,9 @@
 use std::collections::BTreeSet;
 
-// TODO: temporarily disabled
-/*
 use crate::{
-    controllers::{ControllerState, Status},
-    integration_tests::harness::{
-        draft_catalog, mock_inferred_schema, InjectBuildError, TestHarness,
-    },
-    ControlPlane,
+    controllers::Status,
+    integration_tests::harness::{draft_catalog, TestHarness},
 };
-use models::CatalogType;
-use uuid::Uuid;
 
 #[tokio::test]
 #[serial_test::serial]
@@ -129,10 +122,9 @@ async fn specs_are_published_periodically() {
         .await;
 
     // Everything else is expected to get published.
-    let expect_touched_names: BTreeSet<String> = all_spec_names
-        .iter()
-        .filter(|n| !n.contains("disabled"))
-        .cloned()
+    let expect_touched_names: BTreeSet<String> = ["cicadas/capture", "cicadas/materialize"]
+        .into_iter()
+        .map(ToOwned::to_owned)
         .collect();
 
     // Update the `last_updated` time in the database to simulate the passage of time after their creation.
@@ -184,5 +176,3 @@ async fn specs_are_published_periodically() {
         disabled_cap_end.last_build_id
     );
 }
-
-*/

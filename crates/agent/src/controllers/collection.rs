@@ -75,6 +75,7 @@ impl CollectionStatus {
         } else {
             None
         };
+        // This function will return None unless this collection is an enabled derivation.
         let periodic_next = periodic::next_periodic_publish(state);
         Ok(NextRun::earliest([inferred_schema_next, periodic_next]))
     }
