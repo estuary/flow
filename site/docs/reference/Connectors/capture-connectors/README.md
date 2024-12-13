@@ -44,9 +44,18 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - BigQuery
   - [Configuration](./bigquery-batch.md)
   - Package — ghcr.io/estuary/source-bigquery-batch:dev
+- Braintree
+  - [Configuration](./braintree.md)
+  - Package - ghcr.io/estuary/source-braintree-native:dev
 - Dropbox
   - [Configuration](./dropbox.md)
   - Package - ghcr.io/estuary/source-dropbox:dev
+- Front
+  - [Configuration](./front.md)
+  - Package - ghcr.io/estuary/source-front:dev
+- Genesys
+  - [Configuration](./genesys.md)
+  - Package - ghcr.io/estuary/source-genesys:dev
 - Google Cloud Storage
   - [Configuration](./gcs.md)
   - Package — ghcr.io/estuary/source-gcs:dev
@@ -98,6 +107,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Snowflake
   - [Configuration](./snowflake.md)
   - Package - ghcr.io/estuary/source-snowflake:dev
+- Stripe
+  - [Configuration](./stripe.md)
+  - Package - ghcr.io/estuary/source-stripe-native:dev
 
 ### Third party connectors
 
@@ -119,9 +131,6 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Bing Ads
   - [Configuration](./bing-ads.md)
   - Package - ghcr.io/estuary/source-bing-ads:dev
-- Braintree
-  - [Configuration](./braintree.md)
-  - Package - ghcr.io/estuary/source-braintree:dev
 - Braze
   - [Configuration](./braze.md)
   - Package - ghcr.io/estuary/source-braze:dev
