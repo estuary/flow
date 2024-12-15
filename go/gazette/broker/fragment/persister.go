@@ -82,7 +82,7 @@ func (p *Persister) Serve() {
 
 		// Rotate queues.
 		p.mu.Lock()
-		p.qA, p.qB, p.qC = p.qB, p.qC, p.qA[:0]
+		p.qA, p.qB, p.qC = p.qB, p.qC, nil
 
 		if exiting && len(p.qA) == 0 && len(p.qB) == 0 {
 			done = true
