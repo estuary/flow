@@ -64,9 +64,9 @@ func fragmentRefreshDaemon(ks *keyspace.KeySpace, r *replica) {
 
 	for {
 		select {
-		case _ = <-r.ctx.Done():
+		case <-r.ctx.Done():
 			return
-		case _ = <-timer.C:
+		case <-timer.C:
 		}
 
 		var spec *pb.JournalSpec
@@ -117,7 +117,7 @@ func pulseDaemon(svc *Service, r *replica) {
 			invalidateCh = nil
 		}
 
-		var ctx, _ = context.WithTimeout(r.ctx, healthCheckInterval)
+		var ctx, cancel = context.WithTimeout(r.ctx, healthCheckInterval)
 		var fsm = appendFSM{
 			svc: svc,
 			ctx: ctx,
@@ -161,6 +161,7 @@ func pulseDaemon(svc *Service, r *replica) {
 		if fsm.resolved != nil {
 			invalidateCh = fsm.resolved.invalidateCh
 		}
+		cancel()
 	}
 }
 
