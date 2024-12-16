@@ -1883,6 +1883,7 @@ dependencies = [
  "hexdump",
  "humantime",
  "itertools 0.10.5",
+ "json",
  "kafka-protocol",
  "labels",
  "lazy_static",
