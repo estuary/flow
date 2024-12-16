@@ -21,6 +21,8 @@ mod serde_recoverylog {
     include!("recoverylog.serde.rs");
 }
 
+pub use protocol::{Label, LabelSelector, LabelSet};
+
 /// Message UUID flags defined by Gazette, and used by Flow.
 /// C.f. Gazette's `message` package, where these are originally defined.
 pub mod message_flags {
