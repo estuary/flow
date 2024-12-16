@@ -14,6 +14,7 @@ use tables::CatalogResolver;
 mod discover;
 mod materialize_fixture;
 mod oauth;
+mod shards;
 mod spec;
 
 #[derive(Debug, clap::Args)]
@@ -65,6 +66,8 @@ pub enum Command {
     Stats(Stats),
     /// Stream logs associated with the given bearer token.
     BearerLogs(BearerLogs),
+    /// Print information about the shards for a given task
+    ListShards(TaskSelector),
 }
 
 #[derive(Debug, clap::Args)]
@@ -225,6 +228,7 @@ impl Advanced {
             }
             Command::Stats(stats) => stats.run(ctx).await,
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
+            Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
         }
     }
 }
