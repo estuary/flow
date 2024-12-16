@@ -1,9 +1,8 @@
 use crate::connector::DeletionMode;
 use anyhow::Context;
-use futures::{StreamExt, TryFutureExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
 use proto_flow::flow;
-use std::time::Duration;
 
 /// Fetch the names of all collections which the current user may read.
 /// Each is mapped into a kafka topic.
@@ -94,8 +93,45 @@ impl Collection {
         let validator = doc::Validator::new(json_schema)?;
         let mut shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
+        // In order for the `_meta/is_deleted` field to get serialized correctly into avro, we need an explicit
+        // field definition for it in the schema. Since some schemas can have `additionalProperties: true`
+        // (or unset, which defaults to true), trying to use e.g Shape::widen() or Shape::union() will
+        // fail to explicitly set the new location if `additionalProperties` would also accept it.
+        // As a result, we have to manually modify the Shape to have the new field.
         if matches!(deletion_mode, DeletionMode::CDC) {
-            shape.widen(&serde_json::json!({"_meta":{"is_deleted":1}}));
+            if let Some(meta) = shape
+                .object
+                .properties
+                .iter_mut()
+                .find(|prop| prop.name.to_string() == "_meta".to_string())
+            {
+                if let Err(idx) =
+                    meta.shape.object.properties.binary_search_by(|prop| {
+                        prop.name.to_string().cmp(&"is_deleted".to_string())
+                    })
+                {
+                    meta.shape.object.properties.insert(
+                        idx,
+                        doc::shape::ObjProperty {
+                            name: "is_deleted".into(),
+                            is_required: true,
+                            shape: doc::Shape {
+                                type_: json::schema::types::INTEGER,
+                                ..doc::Shape::nothing()
+                            },
+                        },
+                    );
+                } else {
+                    tracing::warn!(
+                        collection,
+                        "This collection's schema already has a /_meta/is_deleted location!"
+                    );
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Schema for collection {collection} missing /_meta"
+                ));
+            }
         }
 
         let (key_schema, value_schema) = avro::shape_to_avro(shape, &key_ptr);
