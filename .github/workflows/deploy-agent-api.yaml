@@ -53,6 +53,7 @@ jobs:
           secrets: |-
             PGPASSWORD=POSTGRES_PASSWORD:latest
             CONTROL_PLANE_DB_CA_CERT=CONTROL_PLANE_DB_CA_CERT:latest
+            CONTROL_PLANE_JWT_SECRET=CONTROL_PLANE_JWT_SECRET:latest
 
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite
