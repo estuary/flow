@@ -78,6 +78,16 @@ impl Status {
         matches!(self, Status::Uninitialized)
     }
 
+    /// Returns the activation status, if this status is for a capture, collection, or materialization.
+    pub fn activation_status(&self) -> Option<&publications::ActivationStatus> {
+        match self {
+            Status::Capture(c) => Some(&c.activation),
+            Status::Collection(c) => Some(&c.activation),
+            Status::Materialization(c) => Some(&c.activation),
+            _ => None,
+        }
+    }
+
     pub fn as_capture_mut(&mut self) -> anyhow::Result<&mut capture::CaptureStatus> {
         if self.is_uninitialized() {
             *self = Status::Capture(Default::default());
