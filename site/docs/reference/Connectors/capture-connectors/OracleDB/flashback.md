@@ -27,13 +27,19 @@ GRANT CREATE SESSION TO estuary_flow_user;
 
 ```sql
 GRANT SELECT ANY TABLE TO estuary_flow_user;
+GRANT FLASHBACK ANY TABLE to estuary_flow_user;
 ```
 
 3. Alternatively, you can be more granular and grant access to specific tables in different schemas:
 
 ```sql
 GRANT SELECT ON "<schema_a>"."<table_1>" TO estuary_flow_user;
+GRANT FLASHBACK ON "<schema_a>"."<table_1>" to estuary_flow_user;
 GRANT SELECT ON "<schema_b>"."<table_2>" TO estuary_flow_user;
+GRANT FLASHBACK ON "<schema_b>"."<table_2>" TO estuary_flow_user;
+
+-- In this case you need to also grant access to metadata views
+GRANT SELECT ON V$DATABASE TO estuary_flow_user;
 ```
 
 4. Finally you need to grant the user access to read metadata from the database:
