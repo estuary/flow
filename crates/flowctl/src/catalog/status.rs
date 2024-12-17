@@ -39,11 +39,12 @@ impl crate::output::CliOutput for StatusOutput {
             "Live Spec Updated At",
             "Controller Error",
             "Failures",
+            "Activation Complete",
         ]
     }
 
     fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-        to_table_row(
+        let mut row = to_table_row(
             &self.0,
             &[
                 "/catalog_name",
@@ -53,6 +54,12 @@ impl crate::output::CliOutput for StatusOutput {
                 "/controller_error",
                 "/failures",
             ],
-        )
+        );
+        // Activation Complete is a computed column so we need to add it manually.
+        let activation_complete = self.0.status.activation_status().map(|activation| {
+            serde_json::Value::Bool(activation.last_activated == self.0.last_build_id)
+        });
+        row.push(JsonCell(activation_complete));
+        row
     }
 }
