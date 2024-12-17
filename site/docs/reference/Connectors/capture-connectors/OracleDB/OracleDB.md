@@ -46,7 +46,6 @@ CREATE TABLE estuary_flow_user.FLOW_WATERMARKS(SLOT varchar(1000) PRIMARY KEY, W
 GRANT SELECT_CATALOG_ROLE TO estuary_flow_user;
 GRANT EXECUTE_CATALOG_ROLE TO estuary_flow_user;
 GRANT SELECT ON V$DATABASE TO estuary_flow_user;
-GRANT SELECT ANY TABLE TO estuary_flow_user;
 GRANT SELECT ON V$LOG TO estuary_flow_user;
 GRANT LOGMINING TO estuary_flow_user;
 
