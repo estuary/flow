@@ -6,19 +6,45 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
+    /// The publication has not yet been completed.
     Queued,
+    /// There was a failure to build or validate the drafted specs. This could
+    /// be due to a mistake in the drafted specs, or due to a failure to
+    /// validate the proposed changes with an external system connected to one
+    /// of the connected captures or materializations.
     BuildFailed {
+        /// Drafted collections that are considered incompatible with the
+        /// current state of the live catalog.
+        ///
+        /// Incompatbile collections will be set if there are collections that:
+        /// - have a drafted key that's different from the current key
+        /// - have changes to the logical partitioning
+        /// - have schema changes that were rejected by a materialization
+        ///
+        /// If incompatible collections are present, then these errors may often
+        /// be fixed by re-trying the publication and including a backfill of
+        /// affected materializations, or possibly by re-creating the collection
+        /// with a new name.
         #[serde(
             default,
             skip_serializing_if = "Vec::is_empty",
             rename = "incompatible_collections"
         )]
         incompatible_collections: Vec<IncompatibleCollection>,
+        /// Deprecated: This field is no longer used
         #[serde(default, skip_serializing_if = "Option::is_none")]
         evolution_id: Option<Id>,
     },
+    /// Publication failed due to the failure of one or more tests.
     TestFailed,
+    /// Something went wrong with the publication process. These errors can
+    /// typically be retried by the client.
     PublishFailed,
+    /// The publication was successful. All drafted specs are now committed as
+    /// the live specs. Note that activation of the published specs in the data
+    /// plane happens asynchronously, after the publication is committed.
+    /// Therefore, it may take some time for the published changes to be
+    /// reflected in running tasks.
     Success,
     /// Returned when there are no draft specs (after pruning unbound
     /// collections). There will not be any `draft_errors` in this case, because
@@ -81,8 +107,12 @@ impl JobStatus {
 /// Represents an optimistic lock failure when trying to update live specs.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct LockFailure {
+    /// The name of the spec that failed the optimistic concurrency check.
     pub catalog_name: String,
+    /// The expected id (either `last_pub_id` or `last_build_id`) that was not
+    /// matched.
     pub expected: Id,
+    /// The actual id that was found.
     pub actual: Option<Id>,
 }
 
@@ -99,14 +129,20 @@ pub enum ReCreateReason {
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct IncompatibleCollection {
+    /// The name of the drafted collection that was deemed incompatible.
     pub collection: String,
-    /// Reasons why the collection would need to be re-created in order for a publication of the draft spec to succeed.
+    /// Reasons why the collection would need to be re-created in order for a
+    /// publication of the draft spec to succeed. If this is empty or missing,
+    /// it indicates that the incompatibility can likely be resolved just by
+    /// backfilling the affected materialization bindings.
     #[serde(
         default,
         skip_serializing_if = "Vec::is_empty",
         alias = "requiresRecreation"
     )]
     pub requires_recreation: Vec<ReCreateReason>,
+    /// The materializations that must be updated in order to resolve the
+    /// incompatibility.
     #[serde(
         default,
         skip_serializing_if = "Vec::is_empty",
@@ -117,7 +153,11 @@ pub struct IncompatibleCollection {
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 pub struct AffectedConsumer {
+    /// The catalog name of the affected task.
     pub name: String,
+    /// The specific fields that were rejected by the task. This will be empty if
+    /// the incompatibility was not caused by an "unsatisfiable" constraint
+    /// being returned by the task during validation.
     pub fields: Vec<RejectedField>,
     /// Identifies the specific binding that is affected. This can be used to differentiate
     /// in cases there are multiple bindings with the same source.
@@ -127,7 +167,10 @@ pub struct AffectedConsumer {
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, JsonSchema)]
 pub struct RejectedField {
+    /// The name of the field that was rejected. This will be the name from the
+    /// collection `projections`.
     pub field: String,
+    /// The reason provided by the connector.
     pub reason: String,
 }
 
