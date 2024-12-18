@@ -53,7 +53,7 @@ pub fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
     // second group being unauthenticated routes that can be accessed by anyone.
     let router = aide::axum::ApiRouter::new()
         .api_route(
-            "/api/v1/status",
+            "/api/v1/catalog/status",
             aide::axum::routing::get(status::handle_get_status),
         )
         .layer(axum::middleware::from_fn(ensure_accepts_json))
