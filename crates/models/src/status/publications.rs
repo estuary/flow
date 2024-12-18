@@ -27,6 +27,8 @@ impl Default for ActivationStatus {
 /// Summary of a publication that was attempted by a controller.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct PublicationInfo {
+    /// The id of the publication, which will match the `last_pub_id` of the
+    /// spec after a successful publication, at least until the next publication.
     pub id: Id,
     /// Time at which the publication was initiated
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,8 +47,18 @@ pub struct PublicationInfo {
     /// Errors will be non-empty for publications that were not successful
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<draft_error::Error>,
+    /// A touch publication is a publication that does not modify the spec, but
+    /// only updates the `built_spec` and `last_build_id` fields. They are most
+    /// commonly performed in response to changes in the spec's dependencies.
+    /// Touch publications will never be combined with non-touch publications in
+    /// the history.
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_touch: bool,
+    /// A publication info may represent multiple publications of the same spec.
+    /// If the publications have similar outcomes, then multiple publications
+    /// can be condensed into a single entry in the history. If this is done,
+    /// then the `count` field will be greater than 1. This field is omitted if
+    /// the count is 1.
     #[serde(default = "default_count", skip_serializing_if = "is_one")]
     #[schemars(schema_with = "count_schema")]
     pub count: u32,
@@ -115,6 +127,11 @@ impl PublicationInfo {
 /// This does not include any information on user-initiated publications.
 #[derive(Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 pub struct PublicationStatus {
+    /// Hash of all of the dependencies of this spec at the time of the last
+    /// observation. This is compared against the `dependency_hash` of the live
+    /// spec in order to determine whether any of the spec's dependencies have
+    /// changed since it was last published. If they have, then the controller
+    /// will initiate a touch publication of the spec.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependency_hash: Option<String>,
     /// The publication id at which the controller has last notified dependent
