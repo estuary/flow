@@ -18,12 +18,14 @@ expression: schema
     "AffectedConsumer": {
       "properties": {
         "fields": {
+          "description": "The specific fields that were rejected by the task. This will be empty if the incompatibility was not caused by an \"unsatisfiable\" constraint being returned by the task during validation.",
           "items": {
             "$ref": "#/definitions/RejectedField"
           },
           "type": "array"
         },
         "name": {
+          "description": "The catalog name of the affected task.",
           "type": "string"
         },
         "resource_path": {
@@ -277,16 +279,18 @@ expression: schema
     "IncompatibleCollection": {
       "properties": {
         "affected_materializations": {
+          "description": "The materializations that must be updated in order to resolve the incompatibility.",
           "items": {
             "$ref": "#/definitions/AffectedConsumer"
           },
           "type": "array"
         },
         "collection": {
+          "description": "The name of the drafted collection that was deemed incompatible.",
           "type": "string"
         },
         "requires_recreation": {
-          "description": "Reasons why the collection would need to be re-created in order for a publication of the draft spec to succeed.",
+          "description": "Reasons why the collection would need to be re-created in order for a publication of the draft spec to succeed. If this is empty or missing, it indicates that the incompatibility can likely be resolved just by backfilling the affected materialization bindings.",
           "items": {
             "$ref": "#/definitions/ReCreateReason"
           },
@@ -322,6 +326,7 @@ expression: schema
       "description": "JobStatus is the possible outcomes of a handled publication.",
       "oneOf": [
         {
+          "description": "The publication has not yet been completed.",
           "properties": {
             "type": {
               "enum": [
@@ -336,6 +341,7 @@ expression: schema
           "type": "object"
         },
         {
+          "description": "There was a failure to build or validate the drafted specs. This could be due to a mistake in the drafted specs, or due to a failure to validate the proposed changes with an external system connected to one of the connected captures or materializations.",
           "properties": {
             "evolution_id": {
               "anyOf": [
@@ -345,9 +351,11 @@ expression: schema
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "description": "Deprecated: This field is no longer used"
             },
             "incompatible_collections": {
+              "description": "Drafted collections that are considered incompatible with the current state of the live catalog.\n\nIncompatbile collections will be set if there are collections that: - have a drafted key that's different from the current key - have changes to the logical partitioning - have schema changes that were rejected by a materialization\n\nIf incompatible collections are present, then these errors may often be fixed by re-trying the publication and including a backfill of affected materializations, or possibly by re-creating the collection with a new name.",
               "items": {
                 "$ref": "#/definitions/IncompatibleCollection"
               },
@@ -366,6 +374,7 @@ expression: schema
           "type": "object"
         },
         {
+          "description": "Publication failed due to the failure of one or more tests.",
           "properties": {
             "type": {
               "enum": [
@@ -380,6 +389,7 @@ expression: schema
           "type": "object"
         },
         {
+          "description": "Something went wrong with the publication process. These errors can typically be retried by the client.",
           "properties": {
             "type": {
               "enum": [
@@ -394,6 +404,7 @@ expression: schema
           "type": "object"
         },
         {
+          "description": "The publication was successful. All drafted specs are now committed as the live specs. Note that activation of the published specs in the data plane happens asynchronously, after the publication is committed. Therefore, it may take some time for the published changes to be reflected in running tasks.",
           "properties": {
             "type": {
               "enum": [
@@ -492,13 +503,16 @@ expression: schema
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "The actual id that was found."
         },
         "catalog_name": {
+          "description": "The name of the spec that failed the optimistic concurrency check.",
           "type": "string"
         },
         "expected": {
-          "$ref": "#/definitions/Id"
+          "$ref": "#/definitions/Id",
+          "description": "The expected id (either `last_pub_id` or `last_build_id`) that was not matched."
         }
       },
       "required": [
@@ -518,6 +532,7 @@ expression: schema
           ]
         },
         "count": {
+          "description": "A publication info may represent multiple publications of the same spec. If the publications have similar outcomes, then multiple publications can be condensed into a single entry in the history. If this is done, then the `count` field will be greater than 1. This field is omitted if the count is 1.",
           "minimum": 1.0,
           "type": "integer"
         },
@@ -543,9 +558,11 @@ expression: schema
           "type": "array"
         },
         "id": {
-          "$ref": "#/definitions/Id"
+          "$ref": "#/definitions/Id",
+          "description": "The id of the publication, which will match the `last_pub_id` of the spec after a successful publication, at least until the next publication."
         },
         "is_touch": {
+          "description": "A touch publication is a publication that does not modify the spec, but only updates the `built_spec` and `last_build_id` fields. They are most commonly performed in response to changes in the spec's dependencies. Touch publications will never be combined with non-touch publications in the history.",
           "type": "boolean"
         },
         "result": {
@@ -569,6 +586,7 @@ expression: schema
       "description": "Information on the publications performed by the controller. This does not include any information on user-initiated publications.",
       "properties": {
         "dependency_hash": {
+          "description": "Hash of all of the dependencies of this spec at the time of the last observation. This is compared against the `dependency_hash` of the live spec in order to determine whether any of the spec's dependencies have changed since it was last published. If they have, then the controller will initiate a touch publication of the spec.",
           "type": [
             "string",
             "null"
@@ -613,9 +631,11 @@ expression: schema
     "RejectedField": {
       "properties": {
         "field": {
+          "description": "The name of the field that was rejected. This will be the name from the collection `projections`.",
           "type": "string"
         },
         "reason": {
+          "description": "The reason provided by the connector.",
           "type": "string"
         }
       },
