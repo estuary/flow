@@ -18,7 +18,7 @@ pub async fn do_controller_status(
         .iter()
         .map(|name| ("name".to_string(), name.clone()))
         .collect::<Vec<_>>();
-    let resp: Vec<StatusResponse> = ctx.client.api_get("/api/v1/status", &query).await?;
+    let resp: Vec<StatusResponse> = ctx.client.api_get("/api/v1/catalog/status", &query).await?;
     ctx.write_all::<_, StatusOutput>(resp.into_iter().map(StatusOutput), ())?;
     Ok(())
 }
