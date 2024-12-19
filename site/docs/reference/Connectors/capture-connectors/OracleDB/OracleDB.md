@@ -13,7 +13,9 @@ Follow the steps below to set up the OracleDB connector.
 
 ### Create a Dedicated User
 
-Creating a dedicated database user with read-only access is recommended for better permission control and auditing.
+Creating a dedicated database user with read-only access is recommended for better permission control and auditing. Depending on whether your database is a container database (also known as CDB) or not, follow the corresponding section below.
+
+## Non-container Databases
 
 1. To create the user, run the following commands against your database:
 
@@ -64,7 +66,55 @@ For Amazon RDS instances use:
 BEGIN rdsadmin.rdsadmin_util.alter_supplemental_logging(p_action => 'ADD', p_type   => 'ALL'); end;
 ```
 
-6. Your database user should now be ready for use with Estuary Flow.
+## Container Databases
+
+For working with container databases, access to the root container is necessary. Amazon RDS Oracle databases do not allow access to the root container and so they do not work if  configured as a multi-tenant architecture database (whether single-tenant or multi-tenant). If your Amazon RDS instance has containers, try the [OracleDB Flashback connector](https://go.estuary.dev/source-oracle-flashback) instead.
+
+1. To create a common user (requires `c##` prefix in the name of the user), run the following commands against your database:
+
+```sql
+CREATE USER c##estuary_flow_user IDENTIFIED BY <your_password_here> CONTAINER=ALL;
+GRANT CREATE SESSION TO c##estuary_flow_user CONTAINER=ALL;
+```
+
+2. Next, grant the user read-only access to the relevant tables. The simplest way is to grant read access to all tables in the schema as follows:
+
+```sql
+GRANT SELECT ANY TABLE TO c##estuary_flow_user CONTAINER=ALL;
+```
+
+3. Alternatively, you can be more granular and grant access to specific tables in different schemas:
+
+```sql
+GRANT SELECT ON "<schema_a>"."<table_1>" TO c##estuary_flow_user CONTAINER=ALL;
+GRANT SELECT ON "<schema_b>"."<table_2>" TO c##estuary_flow_user CONTAINER=ALL;
+```
+
+4. Create a watermarks table.
+```sql
+CREATE TABLE c##estuary_flow_user.FLOW_WATERMARKS(SLOT varchar(1000) PRIMARY KEY, WATERMARK varchar(4000));
+```
+
+5. Finally you need to grant the user access to use logminer, read metadata from the database and write to the watermarks table:
+
+```sql
+GRANT SELECT_CATALOG_ROLE TO c##estuary_flow_user CONTAINER=ALL;
+GRANT EXECUTE_CATALOG_ROLE TO c##estuary_flow_user CONTAINER=ALL;
+GRANT SELECT ON V$DATABASE TO c##estuary_flow_user CONTAINER=ALL;
+GRANT SELECT ON V$LOG TO c##estuary_flow_user CONTAINER=ALL;
+GRANT LOGMINING TO c##estuary_flow_user CONTAINER=ALL;
+GRANT ALTER SESSION TO c##estuary_flow_user CONTAINER=ALL;
+GRANT SET CONTAINER TO c##estuary_flow_user CONTAINER=ALL;
+
+GRANT INSERT, UPDATE ON c##estuary_flow_user.FLOW_WATERMARKS TO c##estuary_flow_user CONTAINER=ALL;
+```
+
+5. Enable supplemental logging:
+
+For normal instances use:
+```sql
+ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
+```
 
 ### Include Schemas for Discovery
 In your Oracle configuration, you can specify the schemas that Flow should look at when discovering tables. The schema names are case-sensitive. If the user does not have access to a certain schema, no tables from that schema will be discovered.
