@@ -24,7 +24,7 @@ The connector automatically discovers bindings for the Braintree resources liste
 * [Transactions](https://developer.paypal.com/braintree/docs/reference/response/transaction/python)
 
 :::tip
-Incremental streams only capture **creates**, not updates, of resources due to Braintree API limitations. To capture updates to these resources, regular backfills are required. Please reach out via [email](mailto:support@estuary.dev) or [Slack](https://go.estuary.dev/slack) to set up and schedule regular backfills.
+All incremental streams except Transactions only capture **creates**, not updates, of resources due to Braintree API limitations. To capture updates to these resources, regular backfills are required. Please reach out via [email](mailto:support@estuary.dev) or [Slack](https://go.estuary.dev/slack) to set up and schedule regular backfills.
 :::
 
 ## Prerequisites
