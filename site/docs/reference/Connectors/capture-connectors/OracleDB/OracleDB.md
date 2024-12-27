@@ -54,7 +54,7 @@ GRANT LOGMINING TO estuary_flow_user;
 GRANT INSERT, UPDATE ON estuary_flow_user.FLOW_WATERMARKS TO estuary_flow_user;
 ```
 
-5. Enable supplemental logging:
+6. Enable supplemental logging:
 
 For normal instances use:
 ```sql
