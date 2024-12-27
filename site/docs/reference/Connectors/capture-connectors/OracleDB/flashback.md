@@ -48,7 +48,15 @@ GRANT SELECT ON V$DATABASE TO estuary_flow_user;
 GRANT SELECT_CATALOG_ROLE TO estuary_flow_user;
 ```
 
-5. Your database user should now be ready for use with Estuary Flow.
+1. Your database user should now be ready for use with Estuary Flow.
+
+### Recommended Database Configuration
+
+In order to use Flashback and ensure consistency of data, we recommend setting the `UNDO_RETENTION` configuration to at least 7 days, or at minimum a couple of days. See [UNDO_RETENTION](https://docs.oracle.com/en/database/oracle/oracle-database/19/refrn/UNDO_RETENTION.html) in Oracle docs. Example query to set retention to 2 days:
+
+```sql
+ALTER SYSTEM SET UNDO_RETENTION = 172800;
+```
 
 ### Include Schemas for Discovery
 In your Oracle configuration, you can specify the schemas that Flow should look at when discovering tables. The schema names are case-sensitive and will default to the upper-cased user if empty. If the user does not have access to the configured schemas, no tables will be discovered.
