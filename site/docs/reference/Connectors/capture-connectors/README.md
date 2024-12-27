@@ -56,6 +56,12 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Genesys
   - [Configuration](./genesys.md)
   - Package - ghcr.io/estuary/source-genesys:dev
+- GitHub
+  - [Configuration](./github.md)
+  - Package - ghcr.io/estuary/source-github:dev
+- Gladly
+  - [Configuration](./gladly.md)
+  - Package - ghrc.io/estuary/source-gladly.dev
 - Google Cloud Storage
   - [Configuration](./gcs.md)
   - Package — ghcr.io/estuary/source-gcs:dev
@@ -80,6 +86,15 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Intercom
   - [Configuration](./intercom-native.md)
   - Package - ghcr.io/estuary/source-intercom-native:dev
+- Iterable
+  - [Configuration](./iterable.md)
+  - Package - ghrc.io/estuary/source-iterable.dev
+- Jira
+  - [Configuration](./jira.md)
+  - Package - ghrc.io/estuary/source-jira.dev
+- Klaviyo
+  - [Configuration](./klaviyo.md)
+  - Package - ghrc.io/estuary/source-klaviyo.dev
 - MariaDB
   - [Configuration](./MariaDB/)
   - Package - ghcr.io/estuary/source-mariadb:dev
@@ -92,6 +107,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - MySQL
   - [Configuration](./MySQL/)
   - Package - ghcr.io/estuary/source-mysql:dev
+- NetSuite
+  - [Configuration](./netsuite-suiteanalytics.md)
+  - Package - ghcr.io/estuary/source-netsuite:dev
 - Pendo
   - [Configuration](./pendo.md)
   - Package - ghcr.io/estuary/source-pendo:dev
@@ -110,6 +128,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Stripe
   - [Configuration](./stripe.md)
   - Package - ghcr.io/estuary/source-stripe-native:dev
+- Zendesk Chat
+  - [Configuration](./zendesk-chat.md)
+  - Package - ghcr.io/estuary/source-zendesk-chat:dev
 
 ### Third party connectors
 
@@ -146,12 +167,6 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Freshdesk
   - [Configuration](./freshdesk.md)
   - Package - ghcr.io/estuary/source-freshdesk:dev
-- GitHub
-  - [Configuration](./github.md)
-  - Package - ghcr.io/estuary/source-github:dev
-- Gladly
-  - [Configuration](./gladly.md)
-  - Package - ghrc.io/estuary/source-gladly.dev
 - Google Ads
   - [Configuration](./google-ads.md)
   - Package - ghcr.io/estuary/source-google-ads:dev
@@ -164,33 +179,18 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Google Search Console
   - [Configuration](./google-search-console.md)
   - Package - ghcr.io/estuary/source-google-search-console:dev
-- Google Sheets
-  - [Configuration](./google-sheets.md)
-  - Package - ghcr.io/estuary/source-google-sheets:dev
 - Greenhouse
   - [Configuration](./greenhouse.md)
   - Package - ghrc.io/estuary/source-greenhouse.dev
 - Harvest
   - [Configuration](./harvest.md)
   - Package - ghcr.io/estuary/source-harvest:dev
-- Hubspot
-  - [Configuration](./hubspot.md)
-  - Package - ghcr.io/estuary/source-hubspot:dev
 - Instagram
   - [Configuration](./instagram.md)
   - Package - ghcr.io/estuary/source-instagram:dev
 - Intercom (deprecated)
   - [Configuration](./intercom.md)
   - Package - ghcr.io/estuary/source-intercom:dev
-- Iterable
-  - [Configuration](./iterable.md)
-  - Package - ghrc.io/estuary/source-iterable.dev
-- Jira
-  - [Configuration](./jira.md)
-  - Package - ghrc.io/estuary/source-jira.dev
-- Klaviyo
-  - [Configuration](./klaviyo.md)
-  - Package - ghrc.io/estuary/source-klaviyo.dev
 - LinkedIn Ads
   - [Configuration](./linkedin-ads.md)
   - Package - ghcr.io/estuary/source-linkedin-ads:dev
@@ -206,9 +206,6 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - MixPanel
   - [Configuration](./mixpanel.md)
   - Package - ghrc.io/estuary/source-mixpanel.dev
-- NetSuite
-  - [Configuration](./netsuite-suiteanalytics.md)
-  - Package - ghcr.io/estuary/source-netsuite:dev
 - Notion
   - [Configuration](./notion.md)
   - Package - ghcr.io/estuary/source-notion:dev
@@ -233,18 +230,12 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Snapchat
   - [Configuration](./snapchat.md)
   - Package - ghcr.io/estuary/source-snapchat:dev
-- Stripe
-  - [Configuration](./stripe.md)
-  - Package - ghcr.io/estuary/source-stripe:dev
 - SurveyMonkey
   - [Configuration](./survey-monkey.md)
   - Package - ghcr.io/estuary/source-surveymonkey:dev
 - Twilio
   - [Configuration](./twilio.md)
   - Package - ghcr.io/estuary/source-twilio:dev
-- Zendesk Chat
-  - [Configuration](./zendesk-chat.md)
-  - Package - ghcr.io/estuary/source-zendesk-chat:dev
 - Zendesk Support
   - [Configuration](./zendesk-support.md)
   - Package - ghcr.io/estuary/source-zendesk-support:dev
