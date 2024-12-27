@@ -12,8 +12,11 @@ Estuary is actively developing new connectors, so check back regularly for the l
 
 These connectors are created by Estuary. We prioritize high-scale technology systems for development.
 
-All Estuary connectors capture data in real time, as it appears in the source system
+All Estuary connectors capture data in real time, as it appears in the source system.
 
+- Airtable
+  - [Configuration](./airtable.md)
+  - Package - ghcr.io/estuary/source-airtable:dev
 - AlloyDB
   - [Configuration](./alloydb.md)
   - Package - ghcr.io/estuary/source-alloydb:dev
@@ -28,7 +31,10 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - Package — ghcr.io/estuary/source-kinesis:dev
 - Amazon RDS SQL Server
   - [Configuration](./SQLServer/amazon-rds-sqlserver.md)
-  - Package - ghcr.io/estuary/source-amazon-rds-sqlserver
+  - Package - ghcr.io/estuary/source-amazon-rds-sqlserver:dev
+- Amazon Redshift
+  - [Configuration](./amazon-redshift.md)
+  - Package - ghcr.io/estuary/source-redshift-batch:dev
 - Amazon S3
   - [Configuration](./amazon-s3.md)
   - Package — ghcr.io/estuary/source-s3:dev
@@ -50,6 +56,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Dropbox
   - [Configuration](./dropbox.md)
   - Package - ghcr.io/estuary/source-dropbox:dev
+- Facebook Marketing
+  - [Configuration](./facebook-marketing.md)
+  - Package - ghcr.io/estuary/source-facebook-marketing:dev
 - Front
   - [Configuration](./front.md)
   - Package - ghcr.io/estuary/source-front:dev
@@ -61,7 +70,10 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - Package - ghcr.io/estuary/source-github:dev
 - Gladly
   - [Configuration](./gladly.md)
-  - Package - ghrc.io/estuary/source-gladly.dev
+  - Package - ghcr.io/estuary/source-gladly:dev
+- Google Ads
+  - [Configuration](./google-ads.md)
+  - Package - ghcr.io/estuary/source-google-ads:dev
 - Google Cloud Storage
   - [Configuration](./gcs.md)
   - Package — ghcr.io/estuary/source-gcs:dev
@@ -73,7 +85,13 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - Package — ghcr.io/estuary/source-google-pubsub:dev
 - Google Cloud SQL Server
   - [Configuration](./SQLServer/google-cloud-sql-sqlserver.md)
-  - Package - ghcr.io/estuary/source-google-cloud-sql-sqlserver:md
+  - Package - ghcr.io/estuary/source-google-cloud-sql-sqlserver:dev
+- Google Drive
+  - [Configuration](./google-drive.md)
+  - Package - ghcr.io/estuary/source-google-drive:dev
+- Google Sheets
+  - [Configuration](./google-sheets.md)
+  - Package - ghcr.io/estuary/source-google-sheets-native:dev
 - HTTP file
   - [Configuration](./http-file.md)
   - Package - ghcr.io/estuary/source-http-file:dev
@@ -88,13 +106,16 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - Package - ghcr.io/estuary/source-intercom-native:dev
 - Iterable
   - [Configuration](./iterable.md)
-  - Package - ghrc.io/estuary/source-iterable.dev
+  - Package - ghcr.io/estuary/source-iterable:dev
 - Jira
   - [Configuration](./jira.md)
-  - Package - ghrc.io/estuary/source-jira.dev
+  - Package - ghcr.io/estuary/source-jira:dev
 - Klaviyo
   - [Configuration](./klaviyo.md)
-  - Package - ghrc.io/estuary/source-klaviyo.dev
+  - Package - ghcr.io/estuary/source-klaviyo:dev
+- LinkedIn Pages
+  - [Configuration](./linkedin-pages.md)
+  - Package - ghcr.io/estuary/source-linkedin-pages:dev
 - MariaDB
   - [Configuration](./MariaDB/)
   - Package - ghcr.io/estuary/source-mariadb:dev
@@ -128,9 +149,15 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Stripe
   - [Configuration](./stripe.md)
   - Package - ghcr.io/estuary/source-stripe-native:dev
+- Twilio
+  - [Configuration](./twilio.md)
+  - Package - ghcr.io/estuary/source-twilio:dev
 - Zendesk Chat
   - [Configuration](./zendesk-chat.md)
   - Package - ghcr.io/estuary/source-zendesk-chat:dev
+- Zendesk Support
+  - [Configuration](./zendesk-support.md)
+  - Package - ghcr.io/estuary/source-zendesk-support:dev
 
 ### Third party connectors
 
@@ -140,12 +167,15 @@ within the limitations set by the connector itself.
 
 Typically, we enable SaaS connectors from third parties to allow more diverse data flows.
 
-- Airtable
-  - [Configuration](./airtable.md)
-  - Package - ghrc.io/estuary/source-airtable.dev
+- Aircall
+  - [Configuration](./aircall.md)
+  - Package - ghcr.io/estuary/source-aircall:dev
 - Amazon Ads
   - [Configuration](./amazon-ads.md)
-  - Package - ghrc.io/estuary/source-amazon-ads.dev
+  - Package - ghcr.io/estuary/source-amazon-ads:dev
+- Amazon SQS
+  - [Configuration](./amazon-sqs.md)
+  - Package - ghcr.io/estuary/source-amazon-sqs:dev
 - Amplitude
   - [Configuration](./amplitude.md)
   - Package - ghcr.io/estuary/source-amplitude:dev
@@ -157,19 +187,19 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
   - Package - ghcr.io/estuary/source-braze:dev
 - Chargebee
   - [Configuration](./chargebee.md)
-  - Package - ghrc.io/estuary/source-chargebee.dev
+  - Package - ghcr.io/estuary/source-chargebee:dev
+- Confluence
+  - [Configuration](./confluence.md)
+  - Package - ghcr.io/estuary/source-confluence:dev
 - Exchange Rates API
   - [Configuration](./exchange-rates.md)
   - Package - ghcr.io/estuary/source-exchange-rates:dev
-- Facebook Marketing
-  - [Configuration](./facebook-marketing.md)
-  - Package - ghcr.io/estuary/source-facebook-marketing:dev
 - Freshdesk
   - [Configuration](./freshdesk.md)
   - Package - ghcr.io/estuary/source-freshdesk:dev
-- Google Ads
-  - [Configuration](./google-ads.md)
-  - Package - ghcr.io/estuary/source-google-ads:dev
+- GitLab
+  - [Configuration](./gitlab.md)
+  - Package - ghcr.io/estuary/source-gitlab:dev
 - Google Analytics 4
   - [Configuration](./google-analytics-4.md)
   - Package - ghcr.io/estuary/source-google-analytics-data-api:dev
@@ -181,7 +211,7 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
   - Package - ghcr.io/estuary/source-google-search-console:dev
 - Greenhouse
   - [Configuration](./greenhouse.md)
-  - Package - ghrc.io/estuary/source-greenhouse.dev
+  - Package - ghcr.io/estuary/source-greenhouse:dev
 - Harvest
   - [Configuration](./harvest.md)
   - Package - ghcr.io/estuary/source-harvest:dev
@@ -194,24 +224,24 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - LinkedIn Ads
   - [Configuration](./linkedin-ads.md)
   - Package - ghcr.io/estuary/source-linkedin-ads:dev
-- LinkedIn Pages
-  - [Configuration](./linkedin-pages.md)
-  - Package - ghcr.io/estuary/source-linkedin-pages:4985746
 - Mailchimp
   - [Configuration](./mailchimp.md)
   - Package - ghcr.io/estuary/source-mailchimp:dev
 - Marketo
   - [Configuration](./marketo.md)
-  - Package - ghrc.io/estuary/source-marketo.dev
+  - Package - ghcr.io/estuary/source-marketo:dev
 - MixPanel
   - [Configuration](./mixpanel.md)
-  - Package - ghrc.io/estuary/source-mixpanel.dev
+  - Package - ghcr.io/estuary/source-mixpanel:dev
 - Notion
   - [Configuration](./notion.md)
   - Package - ghcr.io/estuary/source-notion:dev
 - Paypal Transaction
   - [Configuration](./paypal-transaction.md)
-  - Package - ghrc.io/estuary/source-paypal-transaction.dev
+  - Package - ghcr.io/estuary/source-paypal-transaction:dev
+- Pinterest
+  - [Configuration](./pinterest.md)
+  - Package - ghcr.io/estuary/source-pinterest:dev
 - Recharge
   - [Configuration](./recharge.md)
   - Package - ghcr.io/estuary/source-recharge:dev
@@ -233,9 +263,12 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - SurveyMonkey
   - [Configuration](./survey-monkey.md)
   - Package - ghcr.io/estuary/source-surveymonkey:dev
-- Twilio
-  - [Configuration](./twilio.md)
-  - Package - ghcr.io/estuary/source-twilio:dev
-- Zendesk Support
-  - [Configuration](./zendesk-support.md)
-  - Package - ghcr.io/estuary/source-zendesk-support:dev
+- TikTok Marketing
+  - [Configuration](./tiktok.md)
+  - Package - ghcr.io/estuary/source-tiktok-marketing:dev
+- WooCommerce
+  - [Configuration](./woocommerce.md)
+  - Package - ghcr.io/estuary/source-woocommerce:dev
+- YouTube Analytics
+  - [Configuration](./youtube-analytics.md)
+  - Package - ghcr.io/estuary/source-youtube-analytics:dev
