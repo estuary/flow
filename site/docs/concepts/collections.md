@@ -332,7 +332,7 @@ If desired, a derivation could re-key the collection
 on `[/userId, /name]` to materialize the various `/name`s seen for a `/userId`.
 
 This property makes keys less lossy than they might otherwise appear,
-and it is generally good practice to chose a key that reflects how
+and it is generally good practice to choose a key that reflects how
 you wish to _query_ a collection, rather than an exhaustive key
 that's certain to be unique for every document.
 

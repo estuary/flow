@@ -22,7 +22,7 @@ Flow tasks — captures, derivations, and materializations — use recovery logs
 Recovery logs are an opaque binary log, but may contain user data.
 
 The recovery logs of a task are always prefixed by `recovery/`,
-so a task named `acmeCo/produce-TNT` would have a recovery log called `recovery/acmeCo/roduce-TNT`
+so a task named `acmeCo/produce-TNT` would have a recovery log called `recovery/acmeCo/produce-TNT`
 
 Flow prunes data from recovery logs once it is no longer required.
 
