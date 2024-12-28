@@ -6,8 +6,8 @@
 <title data-rh="true">Capture connectors | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/reference/Connectors/capture-connectors/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Capture connectors | Estuary Flow Documentation"><meta data-rh="true" name="description" content="Estuary&#x27;s available capture connectors are listed in this section. Each connector has a unique set of requirements for configuration; these are linked below the connector name."><meta data-rh="true" property="og:description" content="Estuary&#x27;s available capture connectors are listed in this section. Each connector has a unique set of requirements for configuration; these are linked below the connector name."><link data-rh="true" rel="icon" href="/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/reference/Connectors/capture-connectors/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/reference/Connectors/capture-connectors/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/reference/Connectors/capture-connectors/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.64623b2b.js" defer="defer"></script>
-<script src="/assets/js/main.b94ab0e6.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.d2b08480.js" defer="defer"></script>
+<script src="/assets/js/main.e960ffeb.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -20,8 +20,14 @@
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="available-capture-connectors">Available capture connectors<a class="hash-link" aria-label="Direct link to Available capture connectors" title="Direct link to Available capture connectors" href="/reference/Connectors/capture-connectors/#available-capture-connectors">​</a></h2>
 <h3 class="anchor anchorWithStickyNavbar_LWe7" id="estuary-connectors">Estuary connectors<a class="hash-link" aria-label="Direct link to Estuary connectors" title="Direct link to Estuary connectors" href="/reference/Connectors/capture-connectors/#estuary-connectors">​</a></h3>
 <p>These connectors are created by Estuary. We prioritize high-scale technology systems for development.</p>
-<p>All Estuary connectors capture data in real time, as it appears in the source system</p>
+<p>All Estuary connectors capture data in real time, as it appears in the source system.</p>
 <ul>
+<li>Airtable<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/airtable/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-airtable<!-- -->:dev</li>
+</ul>
+</li>
 <li>AlloyDB<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/alloydb/">Configuration</a></li>
@@ -49,7 +55,13 @@
 <li>Amazon RDS SQL Server<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/SQLServer/amazon-rds-sqlserver/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-amazon-rds-sqlserver</li>
+<li>Package - ghcr.io/estuary/source-amazon-rds-sqlserver<!-- -->:dev</li>
+</ul>
+</li>
+<li>Amazon Redshift<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/amazon-redshift/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-redshift-batch<!-- -->:dev</li>
 </ul>
 </li>
 <li>Amazon S3<!-- -->
@@ -94,6 +106,12 @@
 <li>Package - ghcr.io/estuary/source-dropbox<!-- -->:dev</li>
 </ul>
 </li>
+<li>Facebook Marketing<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/facebook-marketing/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-facebook-marketing<!-- -->:dev</li>
+</ul>
+</li>
 <li>Front<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/front/">Configuration</a></li>
@@ -104,6 +122,24 @@
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/genesys/">Configuration</a></li>
 <li>Package - ghcr.io/estuary/source-genesys<!-- -->:dev</li>
+</ul>
+</li>
+<li>GitHub<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/github/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-github<!-- -->:dev</li>
+</ul>
+</li>
+<li>Gladly<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/gladly/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-gladly<!-- -->:dev</li>
+</ul>
+</li>
+<li>Google Ads<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/google-ads/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-google-ads<!-- -->:dev</li>
 </ul>
 </li>
 <li>Google Cloud Storage<!-- -->
@@ -127,7 +163,19 @@
 <li>Google Cloud SQL Server<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/SQLServer/google-cloud-sql-sqlserver/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-google-cloud-sql-sqlserver<!-- -->:md</li>
+<li>Package - ghcr.io/estuary/source-google-cloud-sql-sqlserver<!-- -->:dev</li>
+</ul>
+</li>
+<li>Google Drive<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/google-drive/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-google-drive<!-- -->:dev</li>
+</ul>
+</li>
+<li>Google Sheets<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/google-sheets/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-google-sheets-native<!-- -->:dev</li>
 </ul>
 </li>
 <li>HTTP file<!-- -->
@@ -154,6 +202,30 @@
 <li>Package - ghcr.io/estuary/source-intercom-native<!-- -->:dev</li>
 </ul>
 </li>
+<li>Iterable<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/iterable/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-iterable<!-- -->:dev</li>
+</ul>
+</li>
+<li>Jira<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/jira/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-jira<!-- -->:dev</li>
+</ul>
+</li>
+<li>Klaviyo<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/klaviyo/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-klaviyo<!-- -->:dev</li>
+</ul>
+</li>
+<li>LinkedIn Pages<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/linkedin-pages/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-linkedin-pages<!-- -->:dev</li>
+</ul>
+</li>
 <li>MariaDB<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/MariaDB/">Configuration</a></li>
@@ -176,6 +248,12 @@
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/MySQL/">Configuration</a></li>
 <li>Package - ghcr.io/estuary/source-mysql<!-- -->:dev</li>
+</ul>
+</li>
+<li>NetSuite<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/netsuite-suiteanalytics/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-netsuite<!-- -->:dev</li>
 </ul>
 </li>
 <li>Pendo<!-- -->
@@ -214,6 +292,24 @@
 <li>Package - ghcr.io/estuary/source-stripe-native<!-- -->:dev</li>
 </ul>
 </li>
+<li>Twilio<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/twilio/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-twilio<!-- -->:dev</li>
+</ul>
+</li>
+<li>Zendesk Chat<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/zendesk-chat/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-zendesk-chat<!-- -->:dev</li>
+</ul>
+</li>
+<li>Zendesk Support<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/zendesk-support/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-zendesk-support<!-- -->:dev</li>
+</ul>
+</li>
 </ul>
 <h3 class="anchor anchorWithStickyNavbar_LWe7" id="third-party-connectors">Third party connectors<a class="hash-link" aria-label="Direct link to Third party connectors" title="Direct link to Third party connectors" href="/reference/Connectors/capture-connectors/#third-party-connectors">​</a></h3>
 <p>Estuary supports open-source connectors from third parties. These connectors operate in a <strong>batch</strong> fashion,
@@ -221,16 +317,22 @@ capturing data in increments. When you run these connectors in Flow, you&#x27;ll
 within the limitations set by the connector itself.</p>
 <p>Typically, we enable SaaS connectors from third parties to allow more diverse data flows.</p>
 <ul>
-<li>Airtable<!-- -->
+<li>Aircall<!-- -->
 <ul>
-<li><a href="/reference/Connectors/capture-connectors/airtable/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-airtable.dev</li>
+<li><a href="/reference/Connectors/capture-connectors/aircall/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-aircall<!-- -->:dev</li>
 </ul>
 </li>
 <li>Amazon Ads<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/amazon-ads/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-amazon-ads.dev</li>
+<li>Package - ghcr.io/estuary/source-amazon-ads<!-- -->:dev</li>
+</ul>
+</li>
+<li>Amazon SQS<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/amazon-sqs/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-amazon-sqs<!-- -->:dev</li>
 </ul>
 </li>
 <li>Amplitude<!-- -->
@@ -254,7 +356,13 @@ within the limitations set by the connector itself.</p>
 <li>Chargebee<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/chargebee/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-chargebee.dev</li>
+<li>Package - ghcr.io/estuary/source-chargebee<!-- -->:dev</li>
+</ul>
+</li>
+<li>Confluence<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/confluence/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-confluence<!-- -->:dev</li>
 </ul>
 </li>
 <li>Exchange Rates API<!-- -->
@@ -263,34 +371,16 @@ within the limitations set by the connector itself.</p>
 <li>Package - ghcr.io/estuary/source-exchange-rates<!-- -->:dev</li>
 </ul>
 </li>
-<li>Facebook Marketing<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/facebook-marketing/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-facebook-marketing<!-- -->:dev</li>
-</ul>
-</li>
 <li>Freshdesk<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/freshdesk/">Configuration</a></li>
 <li>Package - ghcr.io/estuary/source-freshdesk<!-- -->:dev</li>
 </ul>
 </li>
-<li>GitHub<!-- -->
+<li>GitLab<!-- -->
 <ul>
-<li><a href="/reference/Connectors/capture-connectors/github/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-github<!-- -->:dev</li>
-</ul>
-</li>
-<li>Gladly<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/gladly/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-gladly.dev</li>
-</ul>
-</li>
-<li>Google Ads<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/google-ads/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-google-ads<!-- -->:dev</li>
+<li><a href="/reference/Connectors/capture-connectors/gitlab/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-gitlab<!-- -->:dev</li>
 </ul>
 </li>
 <li>Google Analytics 4<!-- -->
@@ -311,28 +401,16 @@ within the limitations set by the connector itself.</p>
 <li>Package - ghcr.io/estuary/source-google-search-console<!-- -->:dev</li>
 </ul>
 </li>
-<li>Google Sheets<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/google-sheets/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-google-sheets<!-- -->:dev</li>
-</ul>
-</li>
 <li>Greenhouse<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/greenhouse/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-greenhouse.dev</li>
+<li>Package - ghcr.io/estuary/source-greenhouse<!-- -->:dev</li>
 </ul>
 </li>
 <li>Harvest<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/harvest/">Configuration</a></li>
 <li>Package - ghcr.io/estuary/source-harvest<!-- -->:dev</li>
-</ul>
-</li>
-<li>Hubspot<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/hubspot/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-hubspot<!-- -->:dev</li>
 </ul>
 </li>
 <li>Instagram<!-- -->
@@ -347,34 +425,10 @@ within the limitations set by the connector itself.</p>
 <li>Package - ghcr.io/estuary/source-intercom<!-- -->:dev</li>
 </ul>
 </li>
-<li>Iterable<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/iterable/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-iterable.dev</li>
-</ul>
-</li>
-<li>Jira<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/jira/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-jira.dev</li>
-</ul>
-</li>
-<li>Klaviyo<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/klaviyo/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-klaviyo.dev</li>
-</ul>
-</li>
 <li>LinkedIn Ads<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/linkedin-ads/">Configuration</a></li>
 <li>Package - ghcr.io/estuary/source-linkedin-ads<!-- -->:dev</li>
-</ul>
-</li>
-<li>LinkedIn Pages<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/linkedin-pages/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-linkedin-pages:4985746</li>
 </ul>
 </li>
 <li>Mailchimp<!-- -->
@@ -386,19 +440,13 @@ within the limitations set by the connector itself.</p>
 <li>Marketo<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/marketo/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-marketo.dev</li>
+<li>Package - ghcr.io/estuary/source-marketo<!-- -->:dev</li>
 </ul>
 </li>
 <li>MixPanel<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/mixpanel/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-mixpanel.dev</li>
-</ul>
-</li>
-<li>NetSuite<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/netsuite-suiteanalytics/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-netsuite<!-- -->:dev</li>
+<li>Package - ghcr.io/estuary/source-mixpanel<!-- -->:dev</li>
 </ul>
 </li>
 <li>Notion<!-- -->
@@ -410,7 +458,13 @@ within the limitations set by the connector itself.</p>
 <li>Paypal Transaction<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/paypal-transaction/">Configuration</a></li>
-<li>Package - ghrc.io/estuary/source-paypal-transaction.dev</li>
+<li>Package - ghcr.io/estuary/source-paypal-transaction<!-- -->:dev</li>
+</ul>
+</li>
+<li>Pinterest<!-- -->
+<ul>
+<li><a href="/reference/Connectors/capture-connectors/pinterest/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-pinterest<!-- -->:dev</li>
 </ul>
 </li>
 <li>Recharge<!-- -->
@@ -449,34 +503,28 @@ within the limitations set by the connector itself.</p>
 <li>Package - ghcr.io/estuary/source-snapchat<!-- -->:dev</li>
 </ul>
 </li>
-<li>Stripe<!-- -->
-<ul>
-<li><a href="/reference/Connectors/capture-connectors/stripe/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-stripe<!-- -->:dev</li>
-</ul>
-</li>
 <li>SurveyMonkey<!-- -->
 <ul>
 <li><a href="/reference/Connectors/capture-connectors/survey-monkey/">Configuration</a></li>
 <li>Package - ghcr.io/estuary/source-surveymonkey<!-- -->:dev</li>
 </ul>
 </li>
-<li>Twilio<!-- -->
+<li>TikTok Marketing<!-- -->
 <ul>
-<li><a href="/reference/Connectors/capture-connectors/twilio/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-twilio<!-- -->:dev</li>
+<li><a href="/reference/Connectors/capture-connectors/tiktok/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-tiktok-marketing<!-- -->:dev</li>
 </ul>
 </li>
-<li>Zendesk Chat<!-- -->
+<li>WooCommerce<!-- -->
 <ul>
-<li><a href="/reference/Connectors/capture-connectors/zendesk-chat/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-zendesk-chat<!-- -->:dev</li>
+<li><a href="/reference/Connectors/capture-connectors/woocommerce/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-woocommerce<!-- -->:dev</li>
 </ul>
 </li>
-<li>Zendesk Support<!-- -->
+<li>YouTube Analytics<!-- -->
 <ul>
-<li><a href="/reference/Connectors/capture-connectors/zendesk-support/">Configuration</a></li>
-<li>Package - ghcr.io/estuary/source-zendesk-support<!-- -->:dev</li>
+<li><a href="/reference/Connectors/capture-connectors/youtube-analytics/">Configuration</a></li>
+<li>Package - ghcr.io/estuary/source-youtube-analytics<!-- -->:dev</li>
 </ul>
 </li>
 </ul></div><footer class="theme-doc-footer docusaurus-mt-lg"><div class="row margin-top--sm theme-doc-footer-edit-meta-row"><div class="col"><a href="https://github.com/estuary/flow/edit/master/site/docs/reference/Connectors/capture-connectors/README.md" target="_blank" rel="noopener noreferrer" class="theme-edit-this-page"><svg fill="currentColor" height="20" width="20" viewBox="0 0 40 40" class="iconEdit_Z9Sw" aria-hidden="true"><g><path d="m34.5 11.7l-3 3.1-6.3-6.3 3.1-3q0.5-0.5 1.2-0.5t1.1 0.5l3.9 3.9q0.5 0.4 0.5 1.1t-0.5 1.2z m-29.5 17.1l18.4-18.5 6.3 6.3-18.4 18.4h-6.3v-6.2z"></path></g></svg>Edit this page</a></div><div class="col lastUpdated_JAkA"></div></div></footer></article><nav class="pagination-nav docusaurus-mt-lg" aria-label="Docs pages"><a class="pagination-nav__link pagination-nav__link--prev" href="/reference/Connectors/"><div class="pagination-nav__sublabel">Previous</div><div class="pagination-nav__label">Connectors</div></a><a class="pagination-nav__link pagination-nav__link--next" href="/reference/Connectors/capture-connectors/aircall/"><div class="pagination-nav__sublabel">Next</div><div class="pagination-nav__label">Aircall</div></a></nav></div></div><div class="col col--3"><div class="tableOfContents_bqdL thin-scrollbar theme-doc-toc-desktop"><ul class="table-of-contents table-of-contents__left-border"><li><a class="table-of-contents__link toc-highlight" href="/reference/Connectors/capture-connectors/#available-capture-connectors">Available capture connectors</a><ul><li><a class="table-of-contents__link toc-highlight" href="/reference/Connectors/capture-connectors/#estuary-connectors">Estuary connectors</a></li><li><a class="table-of-contents__link toc-highlight" href="/reference/Connectors/capture-connectors/#third-party-connectors">Third party connectors</a></li></ul></li></ul></div></div></div></div></main></div></div></div><footer class="footer footer--dark"><div class="container container-fluid"><div class="row footer__links"><div class="col footer__col"><div class="footer__title">Docs</div><ul class="footer__items clean-list"><li class="footer__item"><a class="footer__link-item" href="/">Flow Documentation</a></li></ul></div><div class="col footer__col"><div class="footer__title">Community</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://twitter.com/EstuaryDev" target="_blank" rel="noopener noreferrer" class="footer__link-item">Twitter<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div><div class="col footer__col"><div class="footer__title">More</div><ul class="footer__items clean-list"><li class="footer__item"><a href="https://github.com/estuary/flow" target="_blank" rel="noopener noreferrer" class="footer__link-item">GitHub<svg width="13.5" height="13.5" aria-hidden="true" viewBox="0 0 24 24" class="iconExternalLink_nPIU"><path fill="currentColor" d="M21 13v10h-21v-19h12v2h-10v15h17v-8h2zm3-12h-10.988l4.035 4-6.977 7.07 2.828 2.828 6.977-7.07 4.125 4.172v-11z"></path></svg></a></li></ul></div></div><div class="footer__bottom text--center"><div class="footer__copyright">Copyright © 2024 Estuary Technologies, Inc. Built with Docusaurus.</div></div></div></footer></div>
