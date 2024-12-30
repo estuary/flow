@@ -4,7 +4,7 @@
 The HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests.
 A common use case is to capture webhook deliveries, turning them into a Flow collection.
 
-If you need to capture a dataset hosted at at HTTP endpoint, see the [HTTP File](./http-file.md) connector.
+If you need to capture a dataset hosted at an HTTP endpoint, see the [HTTP File](./http-file.md) connector.
 
 The connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-ingest:dev`](https://ghcr.io/estuary/source-http-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -13,29 +13,31 @@ The connector is available for use in the Flow web application. For local develo
 This connector is different from most other capture connectors in that it's not designed to pull data from a specific
 system or endpoint. It requires no endpoint-specific configuration, and can accept any and all valid JSON objects from any source.
 
-This is especially useful if you want to test out Flow or see how your webhook data will come over.
+This is especially useful if you want to test out Flow or see how your webhook data will be received.
 
-To begin, use the web app to create a capture. Once published, the confirmation dialog displays
-a unique URL for your public endpoint. By default, this will accept webhook requests at `https://<your-public-endpoint>/webhook-data`, but you can customize the path, or even capture from multiple URL paths if you like.
-
-You're now ready to send data to Flow.
-
-### Send sample data to Flow
-
-1. After publishing the capture, click the endpoint link from the confirmation dialog to open the Swagger UI page for your capture.
-
-2. Expand **POST** or **PUT** and click **Try it out** to send some example JSON documents using the UI. You can also copy the provided `curl` commands to send data via the command line.
-
-3. After sending data, go to the Collections page of the Flow web app and find the collection associated with your capture.
-Click **Details** to view the data preview.
+To begin, use the web app to create and publish a capture. Estuary will create a unique URL for your public endpoint. By default, this will accept webhook requests at `https://<your-public-endpoint>/webhook-data`, but you can customize the path, or even capture from multiple URL paths if you like.
 
 ### Webhook URLs
 
-To configure a webhook in another service, such as Github, Shopify, or Segment, you'll need to paste a webhook URL into the configuration of their service.
+Some services, such as GitHub, Shopify, and Segment, allow you to send data to a specified URL. Estuary can generate and manage this destination URL. You will then need to add Estuary’s URL to the source service. This will allow the source service to send webhook data directly to your Estuary capture.
 
-To determine the full URL, start with the base URL from the Flow web app (for example `https://abc123-8080.us-central1.v1.estuary-data.dev`), and then append the path.
+![](<../connector-images/webhook-url.png>)
 
-The path will be whatever is in the `paths` endpoint configuration field (`/webhook-data` by default). For example, your full webhook URL would be `https://<your-unique-hostname>/webhook-data`. You can add additional paths to `paths`, and the connector will accept webhook requests on each of them. Each path will correspond to a separate binding. If you're editing the capture via the UI, click the "re-fresh" button after editing the URL paths in the endpoint config to see the resulting collections in the bindings editor. For example, if you set the path to `/my-webhook.json`, then the full URL for that binding would be `https://<your-unique-hostname>/my-webhook.json`.
+To determine the full URL:
+
+1. Your capture must first be published and enabled.
+
+2. Retrieve the base URL.
+
+   On the **Capture Details** page, scroll down to the **Endpoints** section. The listed link will be the base URL for your webhook. This should be something like `https://abc123-8080.us-central1.v1.estuary-data.dev`.
+
+3. Add the specific path.
+
+   This will depend on the capture's `paths` endpoint configuration field. By default, this is `/webhook-data`. You can add additional paths to `paths`, and the connector will accept webhook requests on each of them.
+
+Using this example, the full webhook URL would be: `https://abc123-8080.us-central1.v1.estuary-data.dev/webhook-data`
+
+Each path will correspond to a separate binding. If you're editing the capture via the UI, click the "refresh" button after editing the URL paths in the endpoint config to see the resulting collections in the bindings editor. For example, if you set the path to `/my-webhook.json`, then the full URL for that binding would be `https://<your-unique-hostname>/my-webhook.json`.
 
 Any URL query parameters that are sent on the request will be captured and serialized under `/_meta/query/*` the in documents. For example, a webhook request that's sent to `/webhook-data?testKey=testValue` would result in a document like:
 
@@ -51,6 +53,17 @@ Any URL query parameters that are sent on the request will be captured and seria
   ...
 }
 ```
+
+### Send sample data to Flow
+
+1. After publishing the capture, click the endpoint link from the confirmation dialog to open the Swagger UI page for your capture.
+
+   ![](<../connector-images/webhook-swagger-docs.png>)
+
+2. Expand **POST** or **PUT** and click **Try it out** to send some example JSON documents using the UI. You can also copy the provided `curl` commands to send data via the command line.
+
+3. After sending data, go to the Collections page of the Flow web app and find the collection associated with your capture.
+Click **Details** to view the data preview.
 
 ### Path parameters
 
@@ -103,9 +116,13 @@ For example, to capture webhooks from Segment, you'll want to set the `key` to `
 
 ### Authentication
 
-The connector can optionally require each request to present an authentication token as part of an `Authorization: Bearer ` HTTP header. To enable authentication, generate a secret and paste it into the "Require Auth Token" field. We recommend using a password manager to generate these values, but keep in mind that not all systems will be able to send values with certain special characters, so you may want to disable special characters when you generate the secret. If you enable authentication, then each incoming request must have an `Authorization` header with the value of your token. For example, if you use an auth token value of `mySecretToken`, then the header on each request must be `Authorization: Bearer mySecretToken`.
+The connector can optionally require each request to present an authentication token as part of an `Authorization: Bearer` HTTP header. To enable authentication, generate a secret and paste it into the "Require Auth Token" field. We recommend using a password manager to generate these values, but keep in mind that not all systems will be able to send values with certain special characters, so you may want to disable special characters when you generate the secret. If you enable authentication, then each incoming request must have an `Authorization` header with the value of your token. For example, if you use an auth token value of `mySecretToken`, then the header on each request must be `Authorization: Bearer mySecretToken`.
 
 **If you don't enable authentication, then anyone who knows the URL will be able to publish data to your collection.** We recommend using authentication whenever possible.
+
+### CORS allowed origins
+
+Under **Endpoint Config**, you can set [CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS) (Cross-Origin Resource Sharing) allowed origins for your webhook URLs. By default, CORS will be disabled. Enable it by adding at least one allowed request origin to the list. Each value in the list will be permitted by the [`Access-Control-Allow-Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin) header.
 
 ### Webhook signature verification
 
@@ -119,7 +136,6 @@ This connector does not yet support webhook signature verification. If this is a
 | `/require_auth_token` | Authentication token | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
 | `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
 
-List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment.
 ## Resource configuration
 
 | Property | Title | Description | Type | Required/Default |
