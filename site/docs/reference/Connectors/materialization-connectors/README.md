@@ -26,6 +26,9 @@ In the future, other open-source materialization connectors from third parties c
 * Apache Iceberg Tables in S3
   * [Configuration](./amazon-s3-iceberg.md)
   * Package — ghcr.io/estuary/materialize-s3-iceberg:dev
+* Apache Kafka
+  * [Configuration](./apache-kafka.md)
+  * Package — ghcr.io/estuary/apache-kafka:dev
 * Apache Parquet Files in GCS
   * [Configuration](./google-gcs-parquet.md)
   * Package — ghcr.io/estuary/materialize-gcs-parquet:dev
