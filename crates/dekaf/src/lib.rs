@@ -65,8 +65,7 @@ pub struct TaskAuth {
     client: flow_client::Client,
     task_name: String,
     config: DekafConfig,
-    spec: models::MaterializationDef,
-    ops_logs_journal: String,
+    built_spec: proto_flow::flow::MaterializationSpec,
     ops_stats_journal: String,
 
     // When access token expires
@@ -180,7 +179,7 @@ impl App {
         {
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
-            let (client, claims, ops_logs_journal, ops_stats_journal, task_spec) =
+            let (client, claims, _, ops_stats_journal, task_spec) =
                 topology::fetch_dekaf_task_auth(
                     self.client_base.clone(),
                     &username,
@@ -200,8 +199,7 @@ impl App {
             Ok(SessionAuthentication::Task(TaskAuth {
                 task_name: username,
                 config,
-                spec: task_spec,
-                ops_logs_journal,
+                built_spec: task_spec,
                 ops_stats_journal,
                 client: client.with_fresh_gazette_client(),
                 exp: time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),

@@ -7,9 +7,9 @@ use flow_client::fetch_task_authorization;
 use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
 use itertools::Itertools;
-use models::MaterializationBinding;
+use models::RawValue;
 use proto_flow::flow;
-use std::time::Duration;
+use std::{iter, time::Duration};
 
 impl UserAuth {
     /// Fetch the names of all collections which the current user may read.
@@ -38,12 +38,12 @@ impl UserAuth {
 impl TaskAuth {
     pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
         Ok(self
-            .spec
+            .built_spec
             .bindings
             .iter()
             .map(|b| {
-                serde_json::from_value::<crate::connector::DekafResourceConfig>(
-                    b.resource.to_value(),
+                serde_json::from_str::<crate::connector::DekafResourceConfig>(
+                    &b.resource_config_json,
                 )
             })
             .map_ok(|val| val.topic_name)
@@ -53,14 +53,19 @@ impl TaskAuth {
     pub fn get_binding_for_topic(
         &self,
         topic_name: &str,
-    ) -> anyhow::Result<Option<(MaterializationBinding, DekafResourceConfig)>> {
+    ) -> anyhow::Result<
+        Option<(
+            proto_flow::flow::materialization_spec::Binding,
+            DekafResourceConfig,
+        )>,
+    > {
         Ok(self
-            .spec
+            .built_spec
             .bindings
             .iter()
             .map(|b| {
-                serde_json::from_value::<crate::connector::DekafResourceConfig>(
-                    b.resource.to_value(),
+                serde_json::from_str::<crate::connector::DekafResourceConfig>(
+                    &b.resource_config_json,
                 )
                 .map(|parsed| (b, parsed))
             })
@@ -87,7 +92,10 @@ impl SessionAuthentication {
                     .get_binding_for_topic(topic_name)?
                     .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
 
-                Ok(binding.source.collection().to_string())
+                Ok(binding
+                    .collection
+                    .context("missing collection in materialization binding")?
+                    .name)
             }
         }
     }
@@ -103,6 +111,7 @@ pub struct Collection {
     pub spec: flow::CollectionSpec,
     pub uuid_ptr: doc::Pointer,
     pub value_schema: avro::Schema,
+    pub projections: Vec<proto_flow::flow::Projection>,
 }
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
@@ -133,23 +142,19 @@ impl Collection {
     ) -> anyhow::Result<Option<Self>> {
         let not_before = uuid::Clock::default();
 
-        if let SessionAuthentication::Task(task_auth) = auth {
+        let binding = if let SessionAuthentication::Task(task_auth) = auth {
             if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name)? {
-                if binding.disable {
-                    bail!(
-                        "Binding for topic {topic_name} is disabled in {}",
-                        task_auth.task_name
-                    )
-                }
-            } else if let Some(suggested_binding) = task_auth
-                .spec
-                .bindings
-                .iter()
-                .find(|b| b.source.collection().to_string() == topic_name)
-            {
-                let correct_topic_name = serde_json::from_value::<
+                Some(binding)
+            } else if let Some(suggested_binding) = task_auth.built_spec.bindings.iter().find(|b| {
+                b.collection
+                    .as_ref()
+                    .expect("missing collection in materialization binding")
+                    .name
+                    == topic_name
+            }) {
+                let correct_topic_name = serde_json::from_str::<
                     crate::connector::DekafResourceConfig,
-                >(suggested_binding.resource.to_value())?
+                >(&suggested_binding.resource_config_json)?
                 .topic_name;
                 bail!(
                     "{topic_name} is not a binding of {}. Did you mean {}?",
@@ -159,14 +164,16 @@ impl Collection {
             } else {
                 bail!("{topic_name} is not a binding of {}", task_auth.task_name)
             }
-        }
+        } else {
+            None
+        };
 
         let collection_name = &auth.get_collection_for_topic(topic_name)?;
 
-        let Some(spec) = Self::fetch_spec(&pg_client, collection_name).await? else {
+        let Some(collection_spec) = Self::fetch_spec(&pg_client, collection_name).await? else {
             return Ok(None);
         };
-        let partition_template_name = spec
+        let partition_template_name = collection_spec
             .partition_template
             .as_ref()
             .map(|spec| spec.name.to_owned())
@@ -179,57 +186,63 @@ impl Collection {
 
         tracing::debug!(?partitions, "Got partitions");
 
-        let key_ptr: Vec<doc::Pointer> =
-            spec.key.iter().map(|p| doc::Pointer::from_str(p)).collect();
-        let uuid_ptr = doc::Pointer::from_str(&spec.uuid_ptr);
+        let key_ptr: Vec<doc::Pointer> = collection_spec
+            .key
+            .iter()
+            .map(|p| doc::Pointer::from_str(p))
+            .collect();
+        let uuid_ptr = doc::Pointer::from_str(&collection_spec.uuid_ptr);
 
-        let json_schema = if spec.read_schema_json.is_empty() {
-            &spec.write_schema_json
+        let json_schema = if collection_spec.read_schema_json.is_empty() {
+            &collection_spec.write_schema_json
         } else {
-            &spec.read_schema_json
+            &collection_spec.read_schema_json
         };
 
         let json_schema = doc::validation::build_bundle(json_schema)?;
         let validator = doc::Validator::new(json_schema)?;
-        let mut shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let collection_schema_shape =
+            doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-        if matches!(auth.deletions(), DeletionMode::CDC) {
-            if let Some(meta) = shape
-                .object
-                .properties
-                .iter_mut()
-                .find(|prop| prop.name.to_string() == "_meta".to_string())
-            {
-                if let Err(idx) =
-                    meta.shape.object.properties.binary_search_by(|prop| {
-                        prop.name.to_string().cmp(&"is_deleted".to_string())
-                    })
-                {
-                    meta.shape.object.properties.insert(
-                        idx,
-                        doc::shape::ObjProperty {
-                            name: "is_deleted".into(),
-                            is_required: true,
-                            shape: doc::Shape {
-                                type_: json::schema::types::INTEGER,
-                                ..doc::Shape::nothing()
-                            },
-                        },
-                    );
-                } else {
-                    tracing::warn!(
-                        collection_name,
-                        "This collection's schema already has a /_meta/is_deleted location!"
-                    );
-                }
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Schema for collection {collection_name} missing /_meta"
-                ));
-            }
-        }
+        // Create value shape by merging all projected fields in the schema
+        let (field_selected_shape, projections) = if let Some(binding) = binding {
+            let selection = binding
+                .field_selection
+                .context("missing field selection in materialization binding")?;
 
-        let (key_schema, value_schema) = avro::shape_to_avro(shape, &key_ptr);
+            build_field_selection_shape(
+                collection_schema_shape.clone(),
+                selection
+                    .keys
+                    .into_iter()
+                    .chain(selection.values.into_iter())
+                    .collect_vec(),
+                collection_spec.projections.clone(),
+            )?
+        } else {
+            (
+                collection_schema_shape.clone(),
+                collection_spec.projections.clone(),
+            )
+        };
+
+        let field_selected_shape = if matches!(auth.deletions(), DeletionMode::CDC) {
+            let nested_shape = build_shape_at_pointer(
+                &doc::Pointer::from_str("/_meta/is_deleted"),
+                &doc::Shape {
+                    type_: json::schema::types::INTEGER,
+                    ..doc::Shape::nothing()
+                },
+            );
+            doc::Shape::intersect(field_selected_shape, nested_shape)
+        } else {
+            field_selected_shape
+        };
+
+        // Need to generate the key schema based on the collection schema,
+        // whereas the value schema is the shape of documents after field-selection
+        let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
+        let value_schema = avro::shape_to_avro(field_selected_shape);
 
         tracing::debug!(
             collection_name,
@@ -243,9 +256,10 @@ impl Collection {
             key_schema,
             not_before,
             partitions,
-            spec,
+            spec: collection_spec,
             uuid_ptr,
             value_schema,
+            projections,
         }))
     }
 
@@ -521,7 +535,7 @@ pub async fn fetch_dekaf_task_auth(
     AccessTokenClaims,
     String,
     String,
-    models::MaterializationDef,
+    proto_flow::flow::MaterializationSpec,
 )> {
     let request_token = flow_client::client::build_task_authorization_request_token(
         shard_template_id,
@@ -556,30 +570,133 @@ pub async fn fetch_dekaf_task_auth(
         break response;
     };
     let claims = flow_client::parse_jwt_claims(token.as_str())?;
+
     Ok((
         client.with_user_access_token(Some(token)),
         claims,
         ops_logs_journal,
         ops_stats_journal,
-        task_spec.ok_or(anyhow::anyhow!(
-            "task_spec is only None when we need to retry the auth request"
-        ))?,
+        serde_json::from_str(
+            task_spec
+                .ok_or(anyhow::anyhow!(
+                    "task_spec is only None when we need to retry the auth request"
+                ))?
+                .get(),
+        )?,
     ))
 }
 
 pub async fn extract_dekaf_config(
-    spec: &models::MaterializationDef,
+    spec: &proto_flow::flow::MaterializationSpec,
 ) -> anyhow::Result<DekafConfig> {
-    match &spec.endpoint {
-        models::MaterializationEndpoint::Dekaf(dekaf_endpoint) => {
-            let decrypted = runtime::unseal::decrypt_sops(&dekaf_endpoint.config).await?;
+    let config = serde_json::from_str::<models::DekafConfig>(&spec.config_json)?;
 
-            let dekaf_config = serde_json::from_value::<DekafConfig>(decrypted.to_value())?;
-            Ok(dekaf_config)
-        }
-        models::MaterializationEndpoint::Connector(_)
-        | models::MaterializationEndpoint::Local(_) => {
-            bail!("not a Dekaf materialization")
+    let decrypted_endpoint_config =
+        unseal::decrypt_sops(&RawValue::from_str(&config.config.to_string())?).await?;
+
+    let dekaf_config = serde_json::from_str::<DekafConfig>(&decrypted_endpoint_config.to_string())?;
+    Ok(dekaf_config)
+}
+
+/// Nests the provided shape under a JSON pointer path by creating the necessary object hierarchy.
+/// For example, given pointer "/a/b/c" and a field shape, creates an object structure:
+/// { "a": { "b": { "c": field_shape } } }
+fn build_shape_at_pointer(ptr: &doc::Pointer, shape: &doc::Shape) -> doc::Shape {
+    let mut current_shape = doc::Shape::nothing();
+    let mut current = &mut current_shape;
+
+    // For each component in the pointer path except the last one,
+    // create the object structure
+    for token in ptr.iter().take(ptr.0.len() - 1) {
+        match token {
+            doc::ptr::Token::Property(name) => {
+                let mut obj = doc::Shape::nothing();
+                obj.type_ = json::schema::types::OBJECT;
+
+                current.type_ = json::schema::types::OBJECT;
+                current.object.properties.push(doc::shape::ObjProperty {
+                    name: Box::from(name.as_str()),
+                    is_required: true,
+                    shape: obj,
+                });
+
+                // Move to the newly created object
+                current = &mut current.object.properties.last_mut().unwrap().shape;
+            }
+            doc::ptr::Token::Index(_) => {
+                // Create an array shape with the next level nested inside
+                let mut array = doc::Shape::nothing();
+                array.type_ = json::schema::types::ARRAY;
+                array.array.additional_items = Some(Box::new(doc::Shape::nothing()));
+
+                current.type_ = json::schema::types::ARRAY;
+                *current = array;
+
+                // Move to the array items shape for the next iteration
+                current = current.array.additional_items.as_mut().unwrap();
+            }
+            _ => unreachable!("NextIndex/NextProperty shouldn't appear in concrete pointers"),
         }
     }
+
+    // Add the actual field shape at the final position
+    if let Some(doc::ptr::Token::Property(name)) = ptr.iter().last() {
+        current.type_ = json::schema::types::OBJECT;
+        current.object.properties.push(doc::shape::ObjProperty {
+            name: Box::from(name.as_str()),
+            is_required: true,
+            shape: shape.clone(),
+        });
+    }
+
+    current_shape
+}
+
+fn build_field_selection_shape(
+    source_shape: doc::Shape,
+    fields: Vec<String>,
+    projections: Vec<flow::Projection>,
+) -> anyhow::Result<(doc::Shape, Vec<flow::Projection>)> {
+    let selected_projections = fields
+        .iter()
+        .filter(|f| f.len() > 0)
+        .map(|field| {
+            let projection = projections.iter().find(|proj| proj.field == *field);
+            if let Some(projection) = projection {
+                Some(projection.clone())
+            } else {
+                tracing::warn!(
+                    ?field,
+                    "Missing projection for field on materialization built spec"
+                );
+                None
+            }
+        })
+        .flatten(); // transform from Option<T> to T by filtering out Nones
+
+    let mut starting_shape = doc::Shape::nothing();
+    starting_shape.type_ = json::schema::types::OBJECT;
+
+    let mapped_shape =
+        selected_projections
+            .clone()
+            .fold(starting_shape, |value_shape, projection| {
+                let source_ptr = doc::Pointer::from_str(&projection.ptr);
+                let (source_shape, exists) = source_shape.locate(&source_ptr);
+                if exists.cannot() {
+                    tracing::warn!(
+                        projection = ?source_ptr,
+                        "Projection field not found in schema"
+                    );
+                    value_shape
+                } else {
+                    let nested_shape = build_shape_at_pointer(
+                        &doc::Pointer::from_str(&format!("/{}", projection.field)),
+                        source_shape,
+                    );
+                    doc::Shape::intersect(value_shape, nested_shape)
+                }
+            });
+
+    Ok((mapped_shape, selected_projections.collect_vec()))
 }
