@@ -39,7 +39,19 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    if model.auto_discover.is_some() {
+    publication_status::update_activation(&mut status.activation, state, control_plane)
+        .await
+        .with_retry(backoff_data_plane_activate(state.failures))?;
+
+    publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
+        .await
+        .context("failed to notify dependents")?;
+
+    if periodic::update_periodic_publish(state, &mut status.publications, control_plane).await? {
+        return Ok(Some(NextRun::immediately()));
+    }
+
+    let ad_next = if model.auto_discover.is_some() {
         let ad_status = status
             .auto_discover
             .get_or_insert_with(AutoDiscoverStatus::default);
@@ -56,29 +68,15 @@ pub async fn update<C: ControlPlane>(
         if published {
             return Ok(Some(NextRun::immediately()));
         }
+        auto_discover::next_run(ad_status)
     } else {
         // Clear auto-discover status to avoid confusion, but only if
         // auto-discover is disabled. We leave the auto-discover status if
         // shards are disabled, since it's still useful for debugging.
         status.auto_discover = None;
+        None
     };
 
-    if periodic::update_periodic_publish(state, &mut status.publications, control_plane).await? {
-        return Ok(Some(NextRun::immediately()));
-    }
-
-    publication_status::update_activation(&mut status.activation, state, control_plane)
-        .await
-        .with_retry(backoff_data_plane_activate(state.failures))?;
-
-    publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
-        .await
-        .context("failed to notify dependents")?;
-
-    let ad_next = status
-        .auto_discover
-        .as_ref()
-        .and_then(|ad| auto_discover::next_run(ad));
     let periodic_next = periodic::next_periodic_publish(state);
     Ok(NextRun::earliest([ad_next, periodic_next]))
 }
