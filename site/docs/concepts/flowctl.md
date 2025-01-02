@@ -2,8 +2,6 @@
 sidebar_position: 7
 ---
 import Mermaid from '@theme/Mermaid';
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 
 # flowctl
 
