@@ -1,4 +1,4 @@
-use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer, SerPolicy};
+use crate::{compare::compare, AsNode, BumpVec, HeapNode, Node, OwnedNode, Pointer, SerPolicy};
 use bytes::BufMut;
 use std::{
     borrow::Cow,
