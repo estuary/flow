@@ -10,7 +10,7 @@ pub(crate) mod publication_status;
 use crate::controlplane::ControlPlane;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use models::{status::Status, AnySpec, CatalogType, Id};
+use models::{status::ControllerStatus, AnySpec, CatalogType, Id};
 use proto_flow::{flow, AnyBuiltSpec};
 use serde::Serialize;
 use sqlx::types::Uuid;
@@ -62,7 +62,7 @@ pub struct ControllerState {
     pub controller_version: i32,
     /// The current `status` of the controller, which represents the before
     /// state during an update. This is just informational.
-    pub current_status: Status,
+    pub current_status: ControllerStatus,
     /// ID of the data plane in which this specification lives. May be zero for tests.
     pub data_plane_id: Id,
     /// Name of the data plane in which this specification lives. May be `None` for tests.
@@ -76,8 +76,8 @@ impl ControllerState {
     pub fn parse_db_row(
         job: &agent_sql::controllers::ControllerJob,
     ) -> anyhow::Result<ControllerState> {
-        let status: Status = if job.controller_version == 0 {
-            Status::Uninitialized
+        let status: ControllerStatus = if job.controller_version == 0 {
+            ControllerStatus::Uninitialized
         } else {
             serde_json::from_str(job.status.get()).context("deserializing controller status")?
         };
@@ -321,7 +321,7 @@ fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
 
 /// The main logic of a controller run is performed as an update of the status.
 async fn controller_update<C: ControlPlane>(
-    status: &mut Status,
+    status: &mut ControllerStatus,
     state: &ControllerState,
     control_plane: &mut C,
 ) -> anyhow::Result<Option<NextRun>> {

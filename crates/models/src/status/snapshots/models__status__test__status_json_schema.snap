@@ -811,5 +811,5 @@ expression: schema
       "type": "object"
     }
   ],
-  "title": "Status"
+  "title": "ControllerStatus"
 }
