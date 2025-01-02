@@ -1,13 +1,11 @@
 use crate::{
-    connector::{DekafConfig, DekafResourceConfig, DeletionMode},
-    dekaf_shard_template_id, App, SessionAuthentication, TaskAuth, UserAuth,
+    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
 use flow_client::fetch_task_authorization;
 use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
-use itertools::Itertools;
-use models::MaterializationBinding;
+use models::RawValue;
 use proto_flow::flow;
 use std::time::Duration;
 
@@ -36,38 +34,18 @@ impl UserAuth {
 }
 
 impl TaskAuth {
-    pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
-        Ok(self
-            .spec
-            .bindings
-            .iter()
-            .map(|b| {
-                serde_json::from_value::<crate::connector::DekafResourceConfig>(
-                    b.resource.to_value(),
-                )
-            })
-            .map_ok(|val| val.topic_name)
-            .collect::<Result<Vec<_>, _>>()?)
+    pub async fn fetch_all_collection_names(&self) -> Vec<String> {
+        self.bindings_by_topic.keys().cloned().collect()
     }
 
     pub fn get_binding_for_topic(
         &self,
         topic_name: &str,
-    ) -> anyhow::Result<Option<(MaterializationBinding, DekafResourceConfig)>> {
-        Ok(self
-            .spec
-            .bindings
-            .iter()
-            .map(|b| {
-                serde_json::from_value::<crate::connector::DekafResourceConfig>(
-                    b.resource.to_value(),
-                )
-                .map(|parsed| (b, parsed))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .find(|(_, parsed_config)| parsed_config.topic_name == topic_name)
-            .map(|(binding, config)| (binding.clone(), config)))
+    ) -> Option<&(
+        proto_flow::flow::materialization_spec::Binding,
+        connector::DekafResourceConfig,
+    )> {
+        self.bindings_by_topic.get(topic_name)
     }
 }
 
@@ -75,19 +53,24 @@ impl SessionAuthentication {
     pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
         match self {
             SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
-            SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
+            SessionAuthentication::Task(auth) => Ok(auth.fetch_all_collection_names().await),
         }
     }
 
-    pub fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
+    pub fn get_collection_for_topic<'a>(&'a self, topic_name: &'a str) -> anyhow::Result<&'a str> {
         match self {
-            SessionAuthentication::User(_) => Ok(topic_name.to_string()),
+            SessionAuthentication::User(_) => Ok(topic_name),
             SessionAuthentication::Task(auth) => {
                 let (binding, _resource_config) = auth
-                    .get_binding_for_topic(topic_name)?
+                    .get_binding_for_topic(topic_name)
                     .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
 
-                Ok(binding.source.collection().to_string())
+                Ok(binding
+                    .collection
+                    .as_ref()
+                    .context("missing collection in materialization binding")?
+                    .name
+                    .as_str())
             }
         }
     }
@@ -103,6 +86,7 @@ pub struct Collection {
     pub spec: flow::CollectionSpec,
     pub uuid_ptr: doc::Pointer,
     pub value_schema: avro::Schema,
+    pub extractors: Vec<utils::CustomizableExtractor>,
 }
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
@@ -124,7 +108,7 @@ pub struct PartitionOffset {
 }
 
 impl Collection {
-    /// Build a Collection by fetching its spec, a authenticated data-plane access token, and its partitions.
+    /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
     pub async fn new(
         app: &App,
         auth: &SessionAuthentication,
@@ -133,23 +117,19 @@ impl Collection {
     ) -> anyhow::Result<Option<Self>> {
         let not_before = uuid::Clock::default();
 
-        if let SessionAuthentication::Task(task_auth) = auth {
-            if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name)? {
-                if binding.disable {
-                    bail!(
-                        "Binding for topic {topic_name} is disabled in {}",
-                        task_auth.task_name
-                    )
-                }
-            } else if let Some(suggested_binding) = task_auth
-                .spec
-                .bindings
-                .iter()
-                .find(|b| b.source.collection().to_string() == topic_name)
-            {
-                let correct_topic_name = serde_json::from_value::<
+        let binding = if let SessionAuthentication::Task(task_auth) = auth {
+            if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name) {
+                Some(binding)
+            } else if let Some(suggested_binding) = task_auth.built_spec.bindings.iter().find(|b| {
+                b.collection
+                    .as_ref()
+                    .expect("missing collection in materialization binding")
+                    .name
+                    == topic_name
+            }) {
+                let correct_topic_name = serde_json::from_str::<
                     crate::connector::DekafResourceConfig,
-                >(suggested_binding.resource.to_value())?
+                >(&suggested_binding.resource_config_json)?
                 .topic_name;
                 bail!(
                     "{topic_name} is not a binding of {}. Did you mean {}?",
@@ -159,14 +139,16 @@ impl Collection {
             } else {
                 bail!("{topic_name} is not a binding of {}", task_auth.task_name)
             }
-        }
+        } else {
+            None
+        };
 
         let collection_name = &auth.get_collection_for_topic(topic_name)?;
 
-        let Some(spec) = Self::fetch_spec(&pg_client, collection_name).await? else {
+        let Some(collection_spec) = Self::fetch_spec(&pg_client, collection_name).await? else {
             return Ok(None);
         };
-        let partition_template_name = spec
+        let partition_template_name = collection_spec
             .partition_template
             .as_ref()
             .map(|spec| spec.name.to_owned())
@@ -179,57 +161,44 @@ impl Collection {
 
         tracing::debug!(?partitions, "Got partitions");
 
-        let key_ptr: Vec<doc::Pointer> =
-            spec.key.iter().map(|p| doc::Pointer::from_str(p)).collect();
-        let uuid_ptr = doc::Pointer::from_str(&spec.uuid_ptr);
+        let key_ptr: Vec<doc::Pointer> = collection_spec
+            .key
+            .iter()
+            .map(|p| doc::Pointer::from_str(p))
+            .collect();
+        let uuid_ptr = doc::Pointer::from_str(&collection_spec.uuid_ptr);
 
-        let json_schema = if spec.read_schema_json.is_empty() {
-            &spec.write_schema_json
+        let json_schema = if collection_spec.read_schema_json.is_empty() {
+            &collection_spec.write_schema_json
         } else {
-            &spec.read_schema_json
+            &collection_spec.read_schema_json
         };
 
         let json_schema = doc::validation::build_bundle(json_schema)?;
         let validator = doc::Validator::new(json_schema)?;
-        let mut shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let collection_schema_shape =
+            doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-        if matches!(auth.deletions(), DeletionMode::CDC) {
-            if let Some(meta) = shape
-                .object
-                .properties
-                .iter_mut()
-                .find(|prop| prop.name.to_string() == "_meta".to_string())
-            {
-                if let Err(idx) =
-                    meta.shape.object.properties.binary_search_by(|prop| {
-                        prop.name.to_string().cmp(&"is_deleted".to_string())
-                    })
-                {
-                    meta.shape.object.properties.insert(
-                        idx,
-                        doc::shape::ObjProperty {
-                            name: "is_deleted".into(),
-                            is_required: true,
-                            shape: doc::Shape {
-                                type_: json::schema::types::INTEGER,
-                                ..doc::Shape::nothing()
-                            },
-                        },
-                    );
-                } else {
-                    tracing::warn!(
-                        collection_name,
-                        "This collection's schema already has a /_meta/is_deleted location!"
-                    );
-                }
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Schema for collection {collection_name} missing /_meta"
-                ));
-            }
-        }
+        let (value_schema, extractors) = if let Some(binding) = binding {
+            let selection = binding
+                .field_selection
+                .clone()
+                .context("missing field selection in materialization binding")?;
 
-        let (key_schema, value_schema) = avro::shape_to_avro(shape, &key_ptr);
+            utils::build_field_extractors(
+                collection_schema_shape.clone(),
+                selection,
+                collection_spec.projections.clone(),
+                auth.deletions(),
+            )?
+        } else {
+            (
+                avro::shape_to_avro(collection_schema_shape.clone()),
+                vec![doc::Extractor::new("/", &doc::SerPolicy::noop()).into()],
+            )
+        };
+
+        let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
         tracing::debug!(
             collection_name,
@@ -243,9 +212,10 @@ impl Collection {
             key_schema,
             not_before,
             partitions,
-            spec,
+            spec: collection_spec,
             uuid_ptr,
             value_schema,
+            extractors,
         }))
     }
 
@@ -507,7 +477,6 @@ async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
 // Claims returned by `/authorize/dekaf`
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct AccessTokenClaims {
-    pub iat: u64,
     pub exp: u64,
 }
 #[tracing::instrument(skip(client, data_plane_signer), err)]
@@ -521,7 +490,7 @@ pub async fn fetch_dekaf_task_auth(
     AccessTokenClaims,
     String,
     String,
-    models::MaterializationDef,
+    proto_flow::flow::MaterializationSpec,
 )> {
     let request_token = flow_client::client::build_task_authorization_request_token(
         shard_template_id,
@@ -556,30 +525,31 @@ pub async fn fetch_dekaf_task_auth(
         break response;
     };
     let claims = flow_client::parse_jwt_claims(token.as_str())?;
+
     Ok((
         client.with_user_access_token(Some(token)),
         claims,
         ops_logs_journal,
         ops_stats_journal,
-        task_spec.ok_or(anyhow::anyhow!(
-            "task_spec is only None when we need to retry the auth request"
-        ))?,
+        serde_json::from_str(
+            task_spec
+                .ok_or(anyhow::anyhow!(
+                    "task_spec is only None when we need to retry the auth request"
+                ))?
+                .get(),
+        )?,
     ))
 }
 
 pub async fn extract_dekaf_config(
-    spec: &models::MaterializationDef,
-) -> anyhow::Result<DekafConfig> {
-    match &spec.endpoint {
-        models::MaterializationEndpoint::Dekaf(dekaf_endpoint) => {
-            let decrypted = runtime::unseal::decrypt_sops(&dekaf_endpoint.config).await?;
+    spec: &proto_flow::flow::MaterializationSpec,
+) -> anyhow::Result<connector::DekafConfig> {
+    let config = serde_json::from_str::<models::DekafConfig>(&spec.config_json)?;
 
-            let dekaf_config = serde_json::from_value::<DekafConfig>(decrypted.to_value())?;
-            Ok(dekaf_config)
-        }
-        models::MaterializationEndpoint::Connector(_)
-        | models::MaterializationEndpoint::Local(_) => {
-            bail!("not a Dekaf materialization")
-        }
-    }
+    let decrypted_endpoint_config =
+        unseal::decrypt_sops(&RawValue::from_str(&config.config.to_string())?).await?;
+
+    let dekaf_config =
+        serde_json::from_str::<connector::DekafConfig>(&decrypted_endpoint_config.to_string())?;
+    Ok(dekaf_config)
 }
