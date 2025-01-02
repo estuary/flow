@@ -13,6 +13,8 @@ license.workspace = true
 allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
+extractors = { path = "../extractors" }
+tuple = { path = "../tuple" }
 flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -71,3 +73,4 @@ tracing-subscriber = { workspace = true }
 typestate = { workspace = true }
 url = { workspace = true }
 webpki = { workspace = true }
+apache-avro = { workspace = true }

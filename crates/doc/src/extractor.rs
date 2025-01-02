@@ -28,9 +28,9 @@ enum Magic {
 impl Extractor {
     /// Build an Extractor for the JSON pointer.
     /// If the location doesn't exist, then `null` is extracted.
-    pub fn new(ptr: &str, policy: &SerPolicy) -> Self {
+    pub fn new<P: Into<Pointer>>(ptr: P, policy: &SerPolicy) -> Self {
         Self {
-            ptr: Pointer::from(ptr),
+            ptr: ptr.into(),
             policy: policy.clone(),
             default: serde_json::Value::Null,
             magic: None,
