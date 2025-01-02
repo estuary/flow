@@ -2,13 +2,15 @@ use super::{Collection, Partition};
 use crate::connector::DeletionMode;
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::{AsNode, HeapNode};
+use doc::{AsNode, BumpVec, HeapNode};
+use extractors;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
 use kafka_protocol::records::{Compression, TimestampType};
 use lazy_static::lazy_static;
 use lz4_flex::frame::BlockMode;
+use proto_flow::flow;
 
 pub struct Read {
     /// Journal offset to be served by this Read.
@@ -17,15 +19,16 @@ pub struct Read {
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
 
-    key_ptr: Vec<doc::Pointer>, // Pointers to the document key.
-    key_schema: avro::Schema,   // Avro schema when encoding keys.
-    key_schema_id: u32,         // Registry ID of the key's schema.
-    meta_op_ptr: doc::Pointer,  // Location of document op (currently always `/_meta/op`).
-    not_before: uuid::Clock,    // Not before this clock.
-    stream: ReadJsonLines,      // Underlying document stream.
-    uuid_ptr: doc::Pointer,     // Location of document UUID.
-    value_schema: avro::Schema, // Avro schema when encoding values.
-    value_schema_id: u32,       // Registry ID of the value's schema.
+    key_ptr: Vec<doc::Pointer>,         // Pointers to the document key.
+    key_schema: avro::Schema,           // Avro schema when encoding keys.
+    key_schema_id: u32,                 // Registry ID of the key's schema.
+    meta_op_ptr: doc::Pointer,          // Location of document op (currently always `/_meta/op`).
+    not_before: uuid::Clock,            // Not before this clock.
+    stream: ReadJsonLines,              // Underlying document stream.
+    uuid_ptr: doc::Pointer,             // Location of document UUID.
+    value_schema: avro::Schema,         // Avro schema when encoding values.
+    value_schema_id: u32,               // Registry ID of the value's schema.
+    projections: Vec<flow::Projection>, // Projections to apply
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
@@ -97,6 +100,7 @@ impl Read {
             uuid_ptr: collection.uuid_ptr.clone(),
             value_schema: collection.value_schema.clone(),
             value_schema_id,
+            projections: collection.projections.clone(),
 
             journal_name: partition.spec.name.clone(),
             rewrite_offsets_from,
@@ -273,20 +277,53 @@ impl Read {
                     tmp.push(0);
                     tmp.extend(self.value_schema_id.to_be_bytes());
 
+                    let policy = doc::SerPolicy::noop();
+
+                    let root_node = root.get();
+
+                    let mut extracted = self
+                        .projections
+                        .iter()
+                        .map(|proj| extractors::for_projection(proj, &policy).map(|ex| (ex, proj)))
+                        .try_fold(HeapNode::Object(BumpVec::new()), |mut doc, input| {
+                            match input {
+                                Ok((extractor, projection)) => {
+                                    // This is the value extracted from the original doc
+                                    let extracted = match extractor.query(root_node) {
+                                        Ok(value) => HeapNode::from_node(value, &alloc),
+                                        Err(default) => {
+                                            HeapNode::from_node(&default.into_owned(), &alloc)
+                                        }
+                                    };
+
+                                    // Now we need to put it at proj.field
+                                    match doc::Pointer::from_str(&format!("/{}", projection.field))
+                                        .create_heap_node(&mut doc, &alloc)
+                                    {
+                                        Some(inner_node) => {
+                                            *inner_node = extracted;
+                                        }
+                                        None => anyhow::bail!(
+                                            "Invalid projection field {}",
+                                            projection.field
+                                        ),
+                                    };
+
+                                    return Ok(doc);
+                                }
+                                Err(e) => return Err(anyhow::Error::from(e)),
+                            }
+                        })?;
+
                     if matches!(self.deletes, DeletionMode::CDC) {
-                        let mut heap_node = HeapNode::from_node(root.get(), &alloc);
                         let foo = DELETION_INDICATOR_PTR
-                            .create_heap_node(&mut heap_node, &alloc)
+                            .create_heap_node(&mut extracted, &alloc)
                             .context("Unable to add deletion meta indicator")?;
 
                         *foo = HeapNode::PosInt(if is_deletion { 1 } else { 0 });
-
-                        () = avro::encode(&mut tmp, &self.value_schema, &heap_node)?;
-
-                        alloc.reset();
-                    } else {
-                        () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
                     }
+
+                    () = avro::encode(&mut tmp, &self.value_schema, &extracted)?;
 
                     record_bytes += tmp.len();
                     buf.extend_from_slice(&tmp);

@@ -1,4 +1,6 @@
 use anyhow::{bail, Context};
+use futures::future::try_join_all;
+use models::RawValue;
 use proto_flow::{flow::materialization_spec, materialize};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -116,34 +118,53 @@ pub async fn unary_materialize(
             parsed_outer_config.variant
         ))?;
 
-        // Largely copied from crates/validation/src/noop.rs
-        let validated_bindings = std::mem::take(&mut validate.bindings)
-            .into_iter()
-            .enumerate()
-            .map(|(i, b)| {
-                let resource_path = vec![format!("binding-{}", i)];
-                let constraints = b
-                    .collection
-                    .expect("collection must exist")
-                    .projections
-                    .into_iter()
-                    .map(|proj| {
-                        (
-                            proj.field,
-                            validated::Constraint {
-                                r#type: validated::constraint::Type::FieldOptional as i32,
-                                reason: "Dekaf allows everything for now".to_string(),
+        let validated_bindings = try_join_all(
+            std::mem::take(&mut validate.bindings)
+                .into_iter()
+                .map(|binding| {
+                    let resource_config_str = binding.resource_config_json.clone();
+                    let endpoint_config = parsed_outer_config.clone();
+                    async move {
+                        let resource_config = serde_json::from_value::<DekafResourceConfig>(
+                            unseal::decrypt_sops(&RawValue::from_str(&resource_config_str)?)
+                                .await
+                                .context(format!(
+                                    "decrypting dekaf resource config for variant {}",
+                                    endpoint_config.variant
+                                ))?
+                                .to_value(),
+                        )
+                        .context(format!(
+                            "validating dekaf resource config for variant {}",
+                            endpoint_config.variant
+                        ))?;
+
+                        let collection = binding.collection.expect("collection must exist");
+
+                        let mut constraints = BTreeMap::new();
+
+                        for proj in collection.projections {
+                            constraints.insert(
+                                proj.field,
+                                validated::Constraint {
+                                    r#type: validated::constraint::Type::LocationRecommended as i32,
+                                    reason: "All data are recommended for Dekaf materialization"
+                                        .to_string(),
+                                },
+                            );
+                        }
+
+                        Ok::<proto_flow::materialize::response::validated::Binding, anyhow::Error>(
+                            validated::Binding {
+                                constraints,
+                                resource_path: vec![resource_config.topic_name],
+                                delta_updates: false,
                             },
                         )
-                    })
-                    .collect::<BTreeMap<_, _>>();
-                validated::Binding {
-                    constraints,
-                    resource_path,
-                    delta_updates: false,
-                }
-            })
-            .collect::<Vec<_>>();
+                    }
+                }),
+        )
+        .await?;
 
         return Ok(materialize::Response {
             validated: Some(materialize::response::Validated {
