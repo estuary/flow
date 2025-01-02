@@ -564,8 +564,8 @@ impl Session {
                                     key_schema_id,
                                     value_schema_id,
                                     Some(partition_request.fetch_offset - 1),
-                                    auth.deletions(),
-                                )
+                                    &auth,
+                                )?
                                 .next_batch(
                                     // Have to read at least 2 docs, as the very last doc
                                     // will probably be a control document and will be
@@ -592,8 +592,8 @@ impl Session {
                                     key_schema_id,
                                     value_schema_id,
                                     None,
-                                    auth.deletions(),
-                                )
+                                    &auth,
+                                )?
                                 .next_batch(
                                     crate::read::ReadTarget::Bytes(
                                         partition_request.partition_max_bytes as usize,

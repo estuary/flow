@@ -1,13 +1,13 @@
 use super::{Collection, Partition};
-use crate::connector::DeletionMode;
+use crate::{connector::DeletionMode, log_appender, logging, utils, SessionAuthentication};
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::{AsNode, HeapNode};
+use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
+use itertools::Itertools;
 use kafka_protocol::records::{Compression, TimestampType};
-use lazy_static::lazy_static;
 use lz4_flex::frame::BlockMode;
 
 pub struct Read {
@@ -24,8 +24,8 @@ pub struct Read {
     not_before: uuid::Clock,    // Not before this clock.
     stream: ReadJsonLines,      // Underlying document stream.
     uuid_ptr: doc::Pointer,     // Location of document UUID.
-    value_schema: avro::Schema, // Avro schema when encoding values.
     value_schema_id: u32,       // Registry ID of the value's schema.
+    extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>, // Projections to apply
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
@@ -53,10 +53,6 @@ pub enum ReadTarget {
     Docs(usize),
 }
 
-lazy_static! {
-    static ref DELETION_INDICATOR_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/is_deleted");
-}
-
 impl Read {
     pub fn new(
         client: journal::Client,
@@ -66,8 +62,8 @@ impl Read {
         key_schema_id: u32,
         value_schema_id: u32,
         rewrite_offsets_from: Option<i64>,
-        deletes: DeletionMode,
-    ) -> Self {
+        auth: &SessionAuthentication,
+    ) -> anyhow::Result<Self> {
         let (not_before_sec, _) = collection.not_before.to_unix();
 
         let stream = client.clone().read_json_lines(
@@ -84,7 +80,32 @@ impl Read {
             30,
         );
 
-        Self {
+        let extractors = match auth {
+            SessionAuthentication::User(_) => {
+                if collection.extractors.len() != 1 {
+                    anyhow::bail!("Expecting only one extractor!");
+                }
+                vec![(
+                    collection.value_schema.clone(),
+                    collection
+                        .extractors
+                        .first()
+                        .expect("Just checked above")
+                        .to_owned(),
+                )]
+            }
+            SessionAuthentication::Task(_) => {
+                let avro::Schema::Record(root_schema) = &collection.value_schema else {
+                    anyhow::bail!("Invalid schema");
+                };
+                let field_schemas = root_schema.fields.iter().cloned().map(|f| f.schema);
+                field_schemas
+                    .zip(collection.extractors.clone().into_iter())
+                    .collect_vec()
+            }
+        };
+
+        Ok(Self {
             offset,
             last_write_head: offset,
 
@@ -95,14 +116,14 @@ impl Read {
             not_before: collection.not_before,
             stream,
             uuid_ptr: collection.uuid_ptr.clone(),
-            value_schema: collection.value_schema.clone(),
             value_schema_id,
+            extractors,
 
             journal_name: partition.spec.name.clone(),
             rewrite_offsets_from,
-            deletes,
+            deletes: auth.deletions(),
             offset_start: offset,
-        }
+        })
     }
 
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
@@ -114,8 +135,6 @@ impl Read {
         use kafka_protocol::records::{
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions,
         };
-
-        let mut alloc = bumpalo::Bump::new();
 
         let mut records: Vec<Record> = Vec::new();
         let mut records_bytes: usize = 0;
@@ -266,20 +285,7 @@ impl Read {
                     tmp.push(0);
                     tmp.extend(self.value_schema_id.to_be_bytes());
 
-                    if matches!(self.deletes, DeletionMode::CDC) {
-                        let mut heap_node = HeapNode::from_node(root.get(), &alloc);
-                        let foo = DELETION_INDICATOR_PTR
-                            .create_heap_node(&mut heap_node, &alloc)
-                            .context("Unable to add deletion meta indicator")?;
-
-                        *foo = HeapNode::PosInt(if is_deletion { 1 } else { 0 });
-
-                        () = avro::encode(&mut tmp, &self.value_schema, &heap_node)?;
-
-                        alloc.reset();
-                    } else {
-                        () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
-                    }
+                    self.extract_and_encode(root.get(), &mut tmp)?;
 
                     record_bytes += tmp.len();
                     buf.extend_from_slice(&tmp);
@@ -361,6 +367,30 @@ impl Read {
                 }
             },
         ))
+    }
+
+    /// Handles extracting and avro-encoding a particular field.
+    /// Note that since avro encoding can happen piecewise, there's never a need to
+    /// put together the whole extracted document, and instead we can build up the
+    /// encoded output iteratively
+    fn extract_and_encode<'a>(
+        &'a self,
+        original: &'a doc::ArchivedNode,
+        buf: &mut Vec<u8>,
+    ) -> anyhow::Result<()> {
+        self.extractors
+            .iter()
+            .try_fold(buf, |buf, (schema, extractor)| {
+                // This is the value extracted from the original doc
+                match extractor.extract(original) {
+                    Ok(value) => avro::encode(buf, schema, value),
+                    Err(default) => avro::encode(buf, schema, &default.into_owned()),
+                }?;
+
+                Ok::<_, anyhow::Error>(buf)
+            })?;
+
+        Ok(())
     }
 }
 
