@@ -39,7 +39,7 @@ pub struct StatusResponse {
     #[schemars(schema_with = "datetime_schema")]
     pub controller_updated_at: DateTime<Utc>,
     /// The controller status json.
-    pub status: Status,
+    pub controller_status: ControllerStatus,
     /// Error from the most recent controller run, or `null` if the run was
     /// successful.
     pub controller_error: Option<String>,
@@ -51,7 +51,7 @@ pub struct StatusResponse {
 /// Represents the internal state of a controller.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(tag = "type")]
-pub enum Status {
+pub enum ControllerStatus {
     Capture(capture::CaptureStatus),
     Collection(collection::CollectionStatus),
     Materialization(materialization::MaterializationStatus),
@@ -61,49 +61,49 @@ pub enum Status {
 }
 
 // Status types are serialized as plain json columns.
-crate::sqlx_json::sqlx_json!(Status);
+crate::sqlx_json::sqlx_json!(ControllerStatus);
 
-impl Status {
+impl ControllerStatus {
     pub fn catalog_type(&self) -> Option<CatalogType> {
         match self {
-            Status::Capture(_) => Some(CatalogType::Capture),
-            Status::Collection(_) => Some(CatalogType::Collection),
-            Status::Materialization(_) => Some(CatalogType::Materialization),
-            Status::Test(_) => Some(CatalogType::Test),
-            Status::Uninitialized => None,
+            ControllerStatus::Capture(_) => Some(CatalogType::Capture),
+            ControllerStatus::Collection(_) => Some(CatalogType::Collection),
+            ControllerStatus::Materialization(_) => Some(CatalogType::Materialization),
+            ControllerStatus::Test(_) => Some(CatalogType::Test),
+            ControllerStatus::Uninitialized => None,
         }
     }
 
     pub fn is_uninitialized(&self) -> bool {
-        matches!(self, Status::Uninitialized)
+        matches!(self, ControllerStatus::Uninitialized)
     }
 
     /// Returns the activation status, if this status is for a capture, collection, or materialization.
     pub fn activation_status(&self) -> Option<&publications::ActivationStatus> {
         match self {
-            Status::Capture(c) => Some(&c.activation),
-            Status::Collection(c) => Some(&c.activation),
-            Status::Materialization(c) => Some(&c.activation),
+            ControllerStatus::Capture(c) => Some(&c.activation),
+            ControllerStatus::Collection(c) => Some(&c.activation),
+            ControllerStatus::Materialization(c) => Some(&c.activation),
             _ => None,
         }
     }
 
     pub fn as_capture_mut(&mut self) -> anyhow::Result<&mut capture::CaptureStatus> {
         if self.is_uninitialized() {
-            *self = Status::Capture(Default::default());
+            *self = ControllerStatus::Capture(Default::default());
         }
         match self {
-            Status::Capture(c) => Ok(c),
+            ControllerStatus::Capture(c) => Ok(c),
             _ => anyhow::bail!("expected capture status"),
         }
     }
 
     pub fn as_collection_mut(&mut self) -> anyhow::Result<&mut collection::CollectionStatus> {
         if self.is_uninitialized() {
-            *self = Status::Collection(Default::default());
+            *self = ControllerStatus::Collection(Default::default());
         }
         match self {
-            Status::Collection(c) => Ok(c),
+            ControllerStatus::Collection(c) => Ok(c),
             _ => anyhow::bail!("expected collection status"),
         }
     }
@@ -112,48 +112,48 @@ impl Status {
         &mut self,
     ) -> anyhow::Result<&mut materialization::MaterializationStatus> {
         if self.is_uninitialized() {
-            *self = Status::Materialization(Default::default());
+            *self = ControllerStatus::Materialization(Default::default());
         }
         match self {
-            Status::Materialization(m) => Ok(m),
+            ControllerStatus::Materialization(m) => Ok(m),
             _ => anyhow::bail!("expected materialization status"),
         }
     }
 
     pub fn as_test_mut(&mut self) -> anyhow::Result<&mut catalog_test::TestStatus> {
         if self.is_uninitialized() {
-            *self = Status::Test(Default::default());
+            *self = ControllerStatus::Test(Default::default());
         }
         match self {
-            Status::Test(t) => Ok(t),
+            ControllerStatus::Test(t) => Ok(t),
             _ => anyhow::bail!("expected test status"),
         }
     }
 
     pub fn unwrap_capture(&self) -> &capture::CaptureStatus {
         match self {
-            Status::Capture(c) => c,
+            ControllerStatus::Capture(c) => c,
             _ => panic!("expected capture status"),
         }
     }
 
     pub fn unwrap_collection(&self) -> &collection::CollectionStatus {
         match self {
-            Status::Collection(c) => c,
+            ControllerStatus::Collection(c) => c,
             _ => panic!("expected collection status"),
         }
     }
 
     pub fn unwrap_materialization(&self) -> &materialization::MaterializationStatus {
         match self {
-            Status::Materialization(m) => m,
+            ControllerStatus::Materialization(m) => m,
             _ => panic!("expected materialization status"),
         }
     }
 
     pub fn unwrap_test(&self) -> &catalog_test::TestStatus {
         match self {
-            Status::Test(t) => t,
+            ControllerStatus::Test(t) => t,
             _ => panic!("expected test status"),
         }
     }
@@ -205,7 +205,7 @@ mod test {
         let mut history = VecDeque::new();
         history.push_front(pub_status);
 
-        let status = Status::Materialization(MaterializationStatus {
+        let status = ControllerStatus::Materialization(MaterializationStatus {
             activation: ActivationStatus {
                 last_activated: Id::new([1, 2, 3, 4, 4, 3, 2, 1]),
             },
@@ -221,15 +221,15 @@ mod test {
         });
 
         let as_json = serde_json::to_string_pretty(&status).expect("failed to serialize status");
-        let round_tripped: Status =
+        let round_tripped: ControllerStatus =
             serde_json::from_str(&as_json).expect("failed to deserialize status");
 
         #[derive(Debug)]
         #[allow(unused)]
         struct StatusSnapshot {
-            starting: Status,
+            starting: ControllerStatus,
             json: String,
-            parsed: Status,
+            parsed: ControllerStatus,
         }
 
         insta::assert_debug_snapshot!(
@@ -246,7 +246,7 @@ mod test {
     fn test_status_json_schema() {
         let settings = schemars::gen::SchemaSettings::draft2019_09();
         let generator = schemars::gen::SchemaGenerator::new(settings);
-        let schema_obj = generator.into_root_schema_for::<Status>();
+        let schema_obj = generator.into_root_schema_for::<ControllerStatus>();
         let schema = serde_json::to_value(&schema_obj).unwrap();
         insta::assert_json_snapshot!(schema);
     }

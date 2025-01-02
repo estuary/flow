@@ -7,7 +7,7 @@ use crate::{
     },
     ControlPlane,
 };
-use models::{status::Status, CatalogType};
+use models::{status::ControllerStatus, CatalogType};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -150,11 +150,11 @@ async fn specs_are_published_periodically() {
 
         let after_state = harness.get_controller_state(&name).await;
         let pub_status = match after_state.current_status {
-            Status::Capture(cap) => cap.publications,
-            Status::Materialization(m) => m.publications,
-            Status::Collection(c) => c.publications,
-            Status::Test(t) => t.publications,
-            Status::Uninitialized => panic!("unexpected status"),
+            ControllerStatus::Capture(cap) => cap.publications,
+            ControllerStatus::Materialization(m) => m.publications,
+            ControllerStatus::Collection(c) => c.publications,
+            ControllerStatus::Test(t) => t.publications,
+            ControllerStatus::Uninitialized => panic!("unexpected status"),
         };
         assert_eq!(
             Some("periodic publication"),
