@@ -376,14 +376,7 @@ impl<L: runtime::LogHandler> validation::Connectors for RuntimeConnectors<L> {
         request: materialize::Request,
         _data_plane: &'a tables::DataPlane,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        match flow::materialization_spec::ConnectorType::try_from(
-            request.validate.as_ref().unwrap().connector_type,
-        ) {
-            Ok(flow::materialization_spec::ConnectorType::Dekaf) => {
-                dekaf::connector::unary_materialize(request).boxed()
-            }
-            _ => self.runtime.clone().unary_materialize(request).boxed(),
-        }
+        self.runtime.clone().unary_materialize(request).boxed()
     }
 }
 
