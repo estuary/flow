@@ -1,0 +1,22 @@
+[package]
+name = "unseal"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+async-process = { path = "../async-process" }
+models = { path = "../models" }
+locate-bin = { path = "../locate-bin" }
+
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zeroize = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+insta = { workspace = true }

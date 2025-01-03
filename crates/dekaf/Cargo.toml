@@ -21,6 +21,7 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+unseal = { path = "../unseal" }
 simd-doc = { path = "../simd-doc" }
 
 aes-siv = { workspace = true }
