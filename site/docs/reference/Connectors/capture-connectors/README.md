@@ -143,6 +143,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - SFTP
   - [Configuration](./sftp.md)
   - Package - ghcr.io/estuary/source-sftp:dev
+- Shopify
+  - [Configuration](./shopify.md)
+  - Package - ghcr.io/estuary/source-shopify:dev
 - Snowflake
   - [Configuration](./snowflake.md)
   - Package - ghcr.io/estuary/source-snowflake:dev
