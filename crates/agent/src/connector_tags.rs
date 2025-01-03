@@ -137,26 +137,20 @@ impl TagHandler {
         let log_handler =
             logs::ops_handler(self.logs_tx.clone(), "spec".to_string(), row.logs_token);
 
-        let spec_result = if row.image_name.starts_with(DEKAF_IMAGE_NAME_PREFIX) {
-            spec_dekaf(&image_composed).await
-        } else {
-            let runtime = Runtime::new(
-                self.allow_local,
-                self.connector_network.clone(),
-                log_handler,
-                None, // no need to change log level
-                "ops/connector-tags-job".to_string(),
-            );
+        let runtime = Runtime::new(
+            self.allow_local,
+            self.connector_network.clone(),
+            log_handler,
+            None, // no need to change log level
+            "ops/connector-tags-job".to_string(),
+        );
 
-            match proto_type {
-                RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
-                RuntimeProtocol::Materialize => {
-                    spec_materialization(&image_composed, runtime).await
-                }
-                RuntimeProtocol::Derive => {
-                    tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
-                    return Ok((row.tag_id, JobStatus::SpecFailed));
-                }
+        let spec_result = match proto_type {
+            RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
+            RuntimeProtocol::Materialize => spec_materialization(&image_composed, runtime).await,
+            RuntimeProtocol::Derive => {
+                tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
+                return Ok((row.tag_id, JobStatus::SpecFailed));
             }
         };
 
@@ -235,9 +229,15 @@ async fn spec_materialization(
 ) -> anyhow::Result<ConnectorSpec> {
     use proto_flow::materialize;
 
+    let connector_type = if image.starts_with(DEKAF_IMAGE_NAME_PREFIX) {
+        flow::materialization_spec::ConnectorType::Dekaf as i32
+    } else {
+        flow::materialization_spec::ConnectorType::Image as i32
+    };
+
     let req = materialize::Request {
         spec: Some(materialize::request::Spec {
-            connector_type: flow::materialization_spec::ConnectorType::Image as i32,
+            connector_type,
             config_json: serde_json::to_string(&serde_json::json!({"image": image, "config":{}}))
                 .unwrap(),
         }),
@@ -272,47 +272,6 @@ async fn spec_materialization(
             .context("parsing resource config schema")?,
 
         // materialization connectors don't currently specify resrouce_path_pointers, though perhaps they should
-        resource_path_pointers: Vec::new(),
-        oauth2: oauth,
-    })
-}
-
-async fn spec_dekaf(image: &str) -> anyhow::Result<ConnectorSpec> {
-    use proto_flow::materialize;
-
-    let req = materialize::Request {
-        spec: Some(materialize::request::Spec {
-            connector_type: flow::materialization_spec::ConnectorType::Image as i32,
-            config_json: serde_json::to_string(&serde_json::json!({"image": image, "config":{}}))
-                .unwrap(),
-        }),
-        ..Default::default()
-    };
-
-    let spec = dekaf::connector::unary_materialize(req)
-        .await?
-        .spec
-        .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
-
-    let materialize::response::Spec {
-        protocol: _,
-        config_schema_json,
-        resource_config_schema_json,
-        documentation_url,
-        oauth2,
-    } = spec;
-
-    let oauth = if let Some(oa) = oauth2 {
-        Some(serde_json::value::to_raw_value(&oa).expect("serializing oauth2 config"))
-    } else {
-        None
-    };
-    Ok(ConnectorSpec {
-        documentation_url,
-        endpoint_config_schema: RawValue::from_string(config_schema_json)
-            .context("parsing endpoint config schema")?,
-        resource_config_schema: RawValue::from_string(resource_config_schema_json)
-            .context("parsing resource config schema")?,
         resource_path_pointers: Vec::new(),
         oauth2: oauth,
     })
