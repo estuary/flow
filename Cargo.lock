@@ -1990,6 +1990,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typestate",
+ "unseal",
  "url",
  "webpki",
 ]
@@ -5437,6 +5438,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tuple",
+ "unseal",
  "uuid 1.10.0",
  "xxhash-rust",
  "zeroize",
@@ -7049,6 +7051,22 @@ name = "unicode_categories"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
+
+[[package]]
+name = "unseal"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "futures",
+ "insta",
+ "locate-bin",
+ "models",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
 
 [[package]]
 name = "untrusted"

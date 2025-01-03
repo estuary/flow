@@ -1,10 +1,11 @@
-use crate::{unseal, LogHandler, Runtime};
+use crate::{LogHandler, Runtime};
 use anyhow::Context;
 use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
 use proto_flow::{
     derive::{Request, Response},
     flow::collection_spec::derivation::ConnectorType,
 };
+use unseal;
 
 // Start a derivation connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses.
