@@ -219,7 +219,7 @@ sops:
 ```
 
 You then use this `config.yaml` within your Flow specification.
-The Flow runtime knows that this document is protected by `sops`
+The Flow runtime knows that this document is protected by `sops`,
 will continue to store it in its protected form,
 and will attempt a decryption only when invoking a connector on your behalf.
 

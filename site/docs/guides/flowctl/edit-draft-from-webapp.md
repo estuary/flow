@@ -41,13 +41,13 @@ Drafts aren't currently visible in the Flow web app, but you can get a list with
 
 2. Run `flowctl draft list`
 
-  flowctl outputs a table of all the drafts to which you have access, from oldest to newest.
+   flowctl outputs a table of all the drafts to which you have access, from oldest to newest.
 
 3. Use the name and timestamp to find the draft you're looking for.
 
-  Each draft has an **ID**, and most have a name in the **Details** column. Note the **# of Specs** column.
-  For drafts created in the web app, materialization drafts will always contain one specification.
-  A number higher than 1 indicates a capture with its associated collections.
+   Each draft has an **ID**, and most have a name in the **Details** column. Note the **# of Specs** column.
+   For drafts created in the web app, materialization drafts will always contain one specification.
+   A number higher than 1 indicates a capture with its associated collections.
 
 4. Copy the draft ID.
 
@@ -57,10 +57,10 @@ Drafts aren't currently visible in the Flow web app, but you can get a list with
 
 7. Browse the source files.
 
-  The source files and their directory structure will look slightly different depending on the draft.
-  Regardless, there will always be a top-level file called `flow.yaml` that *imports* all other YAML files,
-  which you'll find in a subdirectory named for your catalog prefix.
-  These, in turn, contain the specifications you'll want to edit.
+   The source files and their directory structure will look slightly different depending on the draft.
+   Regardless, there will always be a top-level file called `flow.yaml` that *imports* all other YAML files,
+   which you'll find in a subdirectory named for your catalog prefix.
+   These, in turn, contain the specifications you'll want to edit.
 
 ## Edit the draft and publish
 
@@ -76,7 +76,7 @@ Next, you'll make changes to the specification(s), test, and publish the draft.
 
 3. When you're done, sync the local work to the global draft: `flowctl draft author --source flow.yaml`.
 
-  Specifying the top-level `flow.yaml` file as the source ensures that all entities in the draft are imported.
+   Specifying the top-level `flow.yaml` file as the source ensures that all entities in the draft are imported.
 
 4. Publish the draft: `flowctl draft publish`
 
