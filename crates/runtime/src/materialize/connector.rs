@@ -1,10 +1,11 @@
-use crate::{unseal, LogHandler, Runtime};
+use crate::{LogHandler, Runtime};
 use anyhow::{bail, Context};
 use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
 use proto_flow::{
     flow::materialization_spec::ConnectorType,
     materialize::{Request, Response},
 };
+use unseal;
 
 // Start a materialization connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses.

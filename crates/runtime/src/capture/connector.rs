@@ -1,10 +1,11 @@
-use crate::{unseal, verify, LogHandler, Runtime};
+use crate::{verify, LogHandler, Runtime};
 use anyhow::Context;
 use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
 use proto_flow::{
     capture::{Request, Response},
     flow::capture_spec::ConnectorType,
 };
+use unseal;
 
 // Start a capture connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses.
