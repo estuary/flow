@@ -52,7 +52,7 @@ credentials provided by your Estuary account manager.
 
 3. Find the **Amazon S3** tile and click **Capture**.
 
-  A form appears with the properties required for an S3 capture.
+   A form appears with the properties required for an S3 capture.
 
 4. Type a name for your capture.
 
@@ -69,23 +69,23 @@ credentials provided by your Estuary account manager.
 
    * **Prefix**: You might organize your S3 bucket using [prefixes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html), which emulate a directory structure. To capture *only* from a specific prefix, add it here.
 
-   * **Match Keys**: Filters to apply to the objects in the S3 bucket. If provided, only data whose absolute path matches the filter will be captured. For example, `*\.json` will only capture JSON file.
+   * **Match Keys**: Filters to apply to the objects in the S3 bucket. If provided, only data whose absolute path matches the filter will be captured. For example, `*\.json` will only capture JSON files.
 
    See the S3 connector documentation for information on [advanced fields](../../reference/Connectors/capture-connectors/amazon-s3.md#endpoint) and [parser settings](../../reference/Connectors/capture-connectors/amazon-s3.md#advanced-parsing-cloud-storage-data). (You're unlikely to need these for most use cases.)
 
 6. Click **Next**.
 
-  Flow uses the provided configuration to initiate a connection to S3.
+   Flow uses the provided configuration to initiate a connection to S3.
 
-  It generates a permissive schema and details of the Flow collection that will store the data from S3.
+   It generates a permissive schema and details of the Flow collection that will store the data from S3.
 
-  You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
+   You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
 7. Click **Save and publish**.
 
-  You'll see a notification when the capture publishes successfully.
+   You'll see a notification when the capture publishes successfully.
 
-  The data currently in your S3 bucket has been captured, and future updates to it will be captured continuously.
+   The data currently in your S3 bucket has been captured, and future updates to it will be captured continuously.
 
 8. Click **Materialize Collections** to continue.
 
@@ -95,7 +95,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 1. Locate the **Snowflake** tile and click **Materialization**.
 
-  A form appears with the properties required for a Snowflake materialization.
+   A form appears with the properties required for a Snowflake materialization.
 
 2.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/mySnowflakeMaterialization`.
 
@@ -112,12 +112,12 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 4. Click **Next**.
 
-  Flow uses the provided configuration to initiate a connection to Snowflake.
+   Flow uses the provided configuration to initiate a connection to Snowflake.
 
-  You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
+   You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
-  Once the connection is successful, the Endpoint Config collapses and the **Source Collections** browser  becomes prominent.
-  It shows the collection you captured previously, which will be mapped to a Snowflake table.
+   Once the connection is successful, the Endpoint Config collapses and the **Source Collections** browser  becomes prominent.
+   It shows the collection you captured previously, which will be mapped to a Snowflake table.
 
 5. In the **Collection Selector**, optionally change the name in the **Table** field.
 
@@ -127,9 +127,9 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 7. Apply a stricter schema to the collection for the materialization.
 
-  S3 has a flat data structure.
-  To materialize this data effectively to Snowflake, you should apply a schema that can translate to a table structure.
-  Flow's **Schema Inference** tool can help.
+   S3 has a flat data structure.
+   To materialize this data effectively to Snowflake, you should apply a schema that can translate to a table structure.
+   Flow's **Schema Inference** tool can help.
 
    1. In the **Source Collections** browser, click the collection's **Collection** tab.
 

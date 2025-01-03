@@ -3,7 +3,7 @@ sidebar_position: 7
 ---
 # Imports
 
-When you work on a draft Data Flow [using `flowctl draft`](../concepts/flowctl.md#working-with-drafts),
+When you work on a draft Data Flow [using `flowctl draft`](../guides/flowctl/edit-draft-from-webapp.md),
 your Flow specifications may be spread across multiple files.
 For example, you may have multiple **materializations** that read from collections defined in separate files,
 or you could store a **derivation** separately from its **tests**.

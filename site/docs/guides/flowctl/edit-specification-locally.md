@@ -79,7 +79,7 @@ Using these names, you'll identify and pull the relevant specifications for edit
 
    * Pull a group of specifications by prefix or type filter, for example: `flowctl catalog pull-specs --prefix myOrg/marketing --collections`
 
-  The source files are written to your current working directory.
+   The source files are written to your current working directory.
 
 4. Browse the source files.
 
@@ -106,15 +106,15 @@ Next, you'll complete your edits, test that they were performed correctly, and r
 3. When you're done, you can test your changes:
 `flowctl catalog test --source flow.yaml`
 
-  You'll almost always use the top-level `flow.yaml` file as the source here because it imports all other Flow specifications
-  in your working directory.
+   You'll almost always use the top-level `flow.yaml` file as the source here because it imports all other Flow specifications
+   in your working directory.
 
-  Once the test has passed, you can publish your specifications.
+   Once the test has passed, you can publish your specifications.
 
 4. Re-publish all the specifications you pulled: `flowctl catalog publish --source flow.yaml`
 
-  Again you'll almost always want to use the top-level `flow.yaml` file. If you want to publish only certain specifications,
-  you can provide a path to a different file.
+   Again you'll almost always want to use the top-level `flow.yaml` file. If you want to publish only certain specifications,
+   you can provide a path to a different file.
 
 5. Return to the web app or use `flowctl catalog list` to check the status of the entities you just published.
 Their publication time will be updated to reflect the work you just did.
