@@ -26,9 +26,6 @@ impl Default for DeletionMode {
 /// Configures the behavior of a whole dekaf task
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct DekafConfig {
-    /// Whether or not to expose topic names in a strictly Kafka-compliant format
-    /// for systems that require it. Off by default.
-    pub strict_topic_names: bool,
     /// The password that will authenticate Kafka consumers to this task.
     // TODO(jshearer): Uncomment when schemars 1.0 is out and we upgrade
     // #[schemars(extend("secret" = true))]
@@ -39,7 +36,13 @@ pub struct DekafConfig {
     /// with empty string and `_is_deleted` header set to `1`. Setting this value
     /// will also cause all other non-deletions to have an `_is_deleted` header of `0`.
     #[serde(default)]
+    #[schemars(title = "Deletion Mode")]
     pub deletions: DeletionMode,
+    /// Whether or not to expose topic names in a strictly Kafka-compliant format
+    /// for systems that require it. Off by default.
+    #[serde(default)]
+    #[schemars(title = "Strict Topic Names")]
+    pub strict_topic_names: bool,
 }
 
 /// Configures a particular binding in a Dekaf-type materialization
@@ -54,14 +57,17 @@ pub struct DekafResourceConfig {
 fn collection_name(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({
         "x-collection-name": true,
+        "type": "string"
     }))
     .unwrap()
 }
 
 fn token_secret(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     serde_json::from_value(serde_json::json!({
-        "title": "Dekaf Auth Token",
+        "title": "Auth Token",
         "secret": true,
+        "type": "string",
+        "order": 0
     }))
     .unwrap()
 }
@@ -69,8 +75,24 @@ fn token_secret(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::
 pub async fn unary_materialize(
     request: materialize::Request,
 ) -> anyhow::Result<materialize::Response> {
-    use proto_flow::materialize::response::validated;
-    if let Some(mut validate) = request.validate {
+    if let Some(_) = request.spec {
+        let config_schema = schemars::schema_for!(DekafConfig);
+        let resource_schema = schemars::schema_for!(DekafResourceConfig);
+
+        return Ok(materialize::Response {
+            spec: Some(materialize::response::Spec {
+                protocol: 3032023,
+                config_schema_json: serde_json::to_string(&config_schema)?,
+                resource_config_schema_json: serde_json::to_string(&resource_schema)?,
+                documentation_url:
+                    "https://docs.estuary.dev/guides/dekaf_reading_collections_from_kafka"
+                        .to_string(),
+                oauth2: None,
+            }),
+            ..Default::default()
+        });
+    } else if let Some(mut validate) = request.validate {
+        use proto_flow::materialize::response::validated;
         match materialization_spec::ConnectorType::try_from(validate.connector_type)? {
             materialization_spec::ConnectorType::Dekaf => {}
             other => bail!("invalid connector type: {}", other.as_str_name()),

@@ -83,6 +83,11 @@ impl Handler for TagHandler {
 /// connector_tags without having to push to a registry.
 pub const LOCAL_IMAGE_TAG: &str = ":local";
 
+/// Connectors with an image name starting with this value are Dekaf-type materializations and we should
+/// not pull the image, as it won't exist. Instead, we mark them as having `connector_type: ConnectorType::Dekaf`
+/// so that `Runtime` will invoke Dekaf's in-tree connector implementation
+pub const DEKAF_IMAGE_NAME_PREFIX: &str = "ghcr.io/estuary/dekaf-";
+
 impl TagHandler {
     #[tracing::instrument(err, skip_all, fields(id=?row.tag_id))]
     async fn process(
@@ -100,7 +105,8 @@ impl TagHandler {
         );
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
-        if row.image_tag != LOCAL_IMAGE_TAG {
+        if row.image_tag != LOCAL_IMAGE_TAG && !row.image_name.starts_with(DEKAF_IMAGE_NAME_PREFIX)
+        {
             // Pull the image.
             let pull = jobs::run(
                 "pull",
@@ -117,29 +123,40 @@ impl TagHandler {
             }
         }
 
-        let proto_type = match runtime::flow_runtime_protocol(&image_composed).await {
-            Ok(ct) => ct,
-            Err(err) => {
-                tracing::warn!(image = %image_composed, error = %err, "failed to determine connector protocol");
-                return Ok((row.tag_id, JobStatus::SpecFailed));
+        let proto_type = if row.image_name.starts_with(DEKAF_IMAGE_NAME_PREFIX) {
+            RuntimeProtocol::Materialize
+        } else {
+            match runtime::flow_runtime_protocol(&image_composed).await {
+                Ok(ct) => ct,
+                Err(err) => {
+                    tracing::warn!(image = %image_composed, error = %err, "failed to determine connector protocol");
+                    return Ok((row.tag_id, JobStatus::SpecFailed));
+                }
             }
         };
         let log_handler =
             logs::ops_handler(self.logs_tx.clone(), "spec".to_string(), row.logs_token);
-        let runtime = Runtime::new(
-            self.allow_local,
-            self.connector_network.clone(),
-            log_handler,
-            None, // no need to change log level
-            "ops/connector-tags-job".to_string(),
-        );
 
-        let spec_result = match proto_type {
-            RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
-            RuntimeProtocol::Materialize => spec_materialization(&image_composed, runtime).await,
-            RuntimeProtocol::Derive => {
-                tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
-                return Ok((row.tag_id, JobStatus::SpecFailed));
+        let spec_result = if row.image_name.starts_with(DEKAF_IMAGE_NAME_PREFIX) {
+            spec_dekaf(&image_composed).await
+        } else {
+            let runtime = Runtime::new(
+                self.allow_local,
+                self.connector_network.clone(),
+                log_handler,
+                None, // no need to change log level
+                "ops/connector-tags-job".to_string(),
+            );
+
+            match proto_type {
+                RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
+                RuntimeProtocol::Materialize => {
+                    spec_materialization(&image_composed, runtime).await
+                }
+                RuntimeProtocol::Derive => {
+                    tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
+                    return Ok((row.tag_id, JobStatus::SpecFailed));
+                }
             }
         };
 
@@ -166,7 +183,9 @@ impl TagHandler {
         // Validate that there is an x-collection-name annotation in the resource config schema
         // of materialization connectors
         if proto_type == RuntimeProtocol::Materialize {
-            if let Err(err) = crate::resource_configs::pointer_for_schema(resource_config_schema.get()) {
+            if let Err(err) =
+                crate::resource_configs::pointer_for_schema(resource_config_schema.get())
+            {
                 tracing::warn!(image = %image_composed, error = %err, "resource schema does not have x-collection-name annotation");
                 return Ok((row.tag_id, JobStatus::SpecFailed));
             }
@@ -253,6 +272,47 @@ async fn spec_materialization(
             .context("parsing resource config schema")?,
 
         // materialization connectors don't currently specify resrouce_path_pointers, though perhaps they should
+        resource_path_pointers: Vec::new(),
+        oauth2: oauth,
+    })
+}
+
+async fn spec_dekaf(image: &str) -> anyhow::Result<ConnectorSpec> {
+    use proto_flow::materialize;
+
+    let req = materialize::Request {
+        spec: Some(materialize::request::Spec {
+            connector_type: flow::materialization_spec::ConnectorType::Image as i32,
+            config_json: serde_json::to_string(&serde_json::json!({"image": image, "config":{}}))
+                .unwrap(),
+        }),
+        ..Default::default()
+    };
+
+    let spec = dekaf::connector::unary_materialize(req)
+        .await?
+        .spec
+        .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
+
+    let materialize::response::Spec {
+        protocol: _,
+        config_schema_json,
+        resource_config_schema_json,
+        documentation_url,
+        oauth2,
+    } = spec;
+
+    let oauth = if let Some(oa) = oauth2 {
+        Some(serde_json::value::to_raw_value(&oa).expect("serializing oauth2 config"))
+    } else {
+        None
+    };
+    Ok(ConnectorSpec {
+        documentation_url,
+        endpoint_config_schema: RawValue::from_string(config_schema_json)
+            .context("parsing endpoint config schema")?,
+        resource_config_schema: RawValue::from_string(resource_config_schema_json)
+            .context("parsing resource config schema")?,
         resource_path_pointers: Vec::new(),
         oauth2: oauth,
     })
