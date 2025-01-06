@@ -4,7 +4,7 @@ extern crate allocator;
 use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
-use dekaf::Session;
+use dekaf::{log_appender::GazetteLogWriter, logging, Session};
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
     LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
@@ -19,7 +19,6 @@ use std::{
     sync::Arc,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
@@ -133,32 +132,12 @@ struct TlsArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
-        .from_env_lossy();
-
-    tracing_subscriber::fmt::fmt()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
-    tracing::info!("Starting dekaf");
-
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .unwrap();
-
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
         (cli.api_endpoint, cli.api_key)
     };
-
-    let upstream_kafka_host = format!(
-        "tcp://{}:{}",
-        cli.default_broker_hostname, cli.default_broker_port
-    );
 
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),
@@ -170,6 +149,19 @@ async fn main() -> anyhow::Result<()> {
         data_plane_fqdn: cli.data_plane_fqdn,
         client_base: flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None),
     });
+
+    logging::install();
+
+    tracing::info!("Starting dekaf");
+
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .unwrap();
+
+    let upstream_kafka_host = format!(
+        "tcp://{}:{}",
+        cli.default_broker_hostname, cli.default_broker_port
+    );
 
     let mut stop = async {
         tokio::signal::ctrl_c()
@@ -242,18 +234,21 @@ async fn main() -> anyhow::Result<()> {
                     };
 
                     tokio::spawn(
-                        serve(
-                            Session::new(
-                                app.clone(),
-                                cli.encryption_secret.to_owned(),
-                                upstream_kafka_host.to_string(),
-                                broker_username.to_string(),
-                                broker_password.to_string()
-                            ),
-                            socket,
-                            addr,
-                            cli.idle_session_timeout,
-                            stop.clone()
+                        logging::forward_logs(
+                            GazetteLogWriter::new(app.clone()),
+                            serve(
+                                Session::new(
+                                    app.clone(),
+                                    cli.encryption_secret.to_owned(),
+                                    upstream_kafka_host.to_string(),
+                                    broker_username.to_string(),
+                                    broker_password.to_string()
+                                ),
+                                socket,
+                                addr,
+                                cli.idle_session_timeout,
+                                stop.clone()
+                            )
                         )
                     );
                 }
@@ -277,18 +272,21 @@ async fn main() -> anyhow::Result<()> {
                     socket.set_nodelay(true)?;
 
                     tokio::spawn(
-                        serve(
-                            Session::new(
-                                app.clone(),
-                                cli.encryption_secret.to_owned(),
-                                upstream_kafka_host.to_string(),
-                                broker_username.to_string(),
-                                broker_password.to_string()
-                            ),
-                            socket,
-                            addr,
-                            cli.idle_session_timeout,
-                            stop.clone()
+                        logging::forward_logs(
+                            GazetteLogWriter::new(app.clone()),
+                            serve(
+                                Session::new(
+                                    app.clone(),
+                                    cli.encryption_secret.to_owned(),
+                                    upstream_kafka_host.to_string(),
+                                    broker_username.to_string(),
+                                    broker_password.to_string()
+                                ),
+                                socket,
+                                addr,
+                                cli.idle_session_timeout,
+                                stop.clone()
+                            )
                         )
                     );
                 }
@@ -300,7 +298,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(level = "info", ret, err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
+#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
 async fn serve<S>(
     mut session: Session,
     socket: S,

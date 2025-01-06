@@ -6,6 +6,9 @@ use kafka_protocol::{
 };
 use tracing::instrument;
 
+pub mod log_appender;
+pub mod logging;
+
 mod topology;
 use topology::{Collection, Partition};
 
@@ -26,10 +29,12 @@ pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use flow_client::client::{refresh_authorizations, RefreshToken};
+use log_appender::{SESSION_CLIENT_ID_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, time::SystemTime};
+use tracing_record_hierarchical::SpanExt;
 
 pub struct App {
     /// Hostname which is advertised for Kafka access.
@@ -226,6 +231,12 @@ impl App {
             // Decrypt this materialization's endpoint config
             let config = topology::extract_dekaf_config(&task_spec).await?;
 
+            // This marks this Session as being associated with the task name contained in `username`.
+            // We only set this after successfully validating that this task exists and is a Dekaf
+            // materialization. Otherwise we will either log auth errors attempting to append to
+            // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
+            logging::get_log_forwarder().set_task_name(username.clone());
+
             // 3. Validate that the provided password matches the task's bearer token
             if password != config.token {
                 anyhow::bail!("Invalid username or password")
@@ -252,6 +263,10 @@ impl App {
                 time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
             )?))
         } else if username.contains("{") {
+            // Since we don't have a task, we also don't have a logs journal to write to,
+            // so we should isable log forwarding for this session.
+            logging::get_log_forwarder().shutdown();
+
             let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
             let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
 
@@ -344,8 +359,11 @@ async fn handle_api(
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(frame, version)?;
-            tracing::debug!(client_id=?header.client_id, "Got client ID!");
-            session.client_id = header.client_id.clone().map(|id| id.to_string());
+            if let Some(client_id) = &header.client_id {
+                tracing::Span::current()
+                    .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, client_id.to_string());
+                tracing::info!("Got client ID!");
+            }
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
         ApiKey::SaslHandshakeKey => {
