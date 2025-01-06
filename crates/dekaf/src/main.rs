@@ -19,7 +19,10 @@ use std::{
     sync::Arc,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+use tracing::Instrument;
+use tracing_subscriber::{
+    filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+};
 use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
@@ -133,32 +136,12 @@ struct TlsArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
-        .from_env_lossy();
-
-    tracing_subscriber::fmt::fmt()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
-    tracing::info!("Starting dekaf");
-
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .unwrap();
-
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
         (cli.api_endpoint, cli.api_key)
     };
-
-    let upstream_kafka_host = format!(
-        "tcp://{}:{}",
-        cli.default_broker_hostname, cli.default_broker_port
-    );
 
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),
@@ -170,6 +153,33 @@ async fn main() -> anyhow::Result<()> {
         data_plane_fqdn: cli.data_plane_fqdn,
         client_base: flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None),
     });
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
+        .from_env_lossy();
+
+    let fmt_layer = tracing_subscriber::fmt::Layer::default()
+        .with_writer(std::io::stderr)
+        .with_filter(env_filter);
+
+    let registry = tracing_subscriber::registry()
+        // We attach `ops::tracing::Layer` so we can use the `Log` structs it attaches to spans
+        .with(ops::tracing::Layer::new(|_| {}, std::time::SystemTime::now))
+        .with(dekaf::SessionSubscriberLayer::new(app.clone()))
+        .with(fmt_layer);
+
+    registry.init();
+
+    tracing::info!("Starting dekaf");
+
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .unwrap();
+
+    let upstream_kafka_host = format!(
+        "tcp://{}:{}",
+        cli.default_broker_hostname, cli.default_broker_port
+    );
 
     let mut stop = async {
         tokio::signal::ctrl_c()
@@ -254,7 +264,7 @@ async fn main() -> anyhow::Result<()> {
                             addr,
                             cli.idle_session_timeout,
                             stop.clone()
-                        )
+                        ).instrument(tracing::info_span!("dekaf_session", is_session=true))
                     );
                 }
                 _ = &mut stop => break,
@@ -289,7 +299,7 @@ async fn main() -> anyhow::Result<()> {
                             addr,
                             cli.idle_session_timeout,
                             stop.clone()
-                        )
+                        ).instrument(tracing::info_span!("dekaf_session", is_session=true))
                     );
                 }
                 _ = &mut stop => break,

@@ -1976,7 +1976,6 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "rsasl",
- "runtime",
  "rustls 0.23.10",
  "rustls-native-certs 0.7.2",
  "rustls-pemfile 2.1.3",

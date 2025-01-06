@@ -6,6 +6,9 @@ use kafka_protocol::{
 };
 use tracing::instrument;
 
+pub mod log_journal;
+pub use log_journal::SessionSubscriberLayer;
+
 mod topology;
 use topology::{Collection, Partition};
 
@@ -177,6 +180,7 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
+            tracing::info_span!("login", session_task_name = username.clone()).enter();
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
             let (client, claims, _, ops_stats_journal, task_spec) =
@@ -205,6 +209,8 @@ impl App {
                 exp: time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
             }))
         } else if username.contains("{") {
+            // TODO: Disable log capturing here
+            // tracing::info_span!("login", session_task_name = username.clone()).enter();
             let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
             let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
 
