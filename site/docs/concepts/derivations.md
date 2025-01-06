@@ -218,8 +218,8 @@ into JSON arrays or objects and embeds them into the mapped document:
 `{"greeting": "hello", "items": [1, "two", 3]}`.
 If parsing fails, the raw string is used instead.
 
-If you would like to select all columns of the input collection, 
-rather than `select *`, use `select JSON($flow_document)`, e.g. 
+If you would like to select all columns of the input collection,
+rather than `select *`, use `select JSON($flow_document)`, e.g.
 `select JSON($flow_document where $status = open;`.
 
 As a special case if your query selects a _single_ column
@@ -608,6 +608,7 @@ Flow read delays are very efficient and scale better
 than managing very large numbers of fine-grain timers.
 
 [See Grouped Windows of Transfers for an example using a read delay](#grouped-windows-of-transfers)
+
 [Learn more from the Citi Bike "idle bikes" example](https://github.com/estuary/flow/blob/master/examples/citi-bike/idle-bikes.flow.yaml)
 
 ### Read priority
@@ -639,7 +640,7 @@ For SQLite derivations,
 the entire SQLite database is the internal state of the task.
 TypeScript derivations can use in-memory states with a
 recovery and checkpoint mechanism.
-Estuary intends to offer an additional mechanisms for
+Estuary intends to offer additional mechanisms for
 automatic internal state snapshot and recovery in the future.
 
 The exact nature of internal task states vary,

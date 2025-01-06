@@ -26,7 +26,7 @@ You define and configure materializations in **Flow specifications**.
 Materializations use real-time [connectors](./connectors.md) to connect to many endpoint types.
 
 When you use a materialization connector in the Flow web app,
-flow helps you configure it through the **discovery** workflow.
+Flow helps you configure it through the **discovery** workflow.
 
 To begin discovery, you tell Flow the connector you'd like to use, basic information about the endpoint,
 and the collection(s) you'd like to materialize there.
@@ -67,7 +67,7 @@ materializations:
           # Name of the collection to be read.
           # Required.
           name: acmeCo/example/collection
-          # Lower bound date-time for documents which should be processed. 
+          # Lower bound date-time for documents which should be processed.
           # Source collection documents published before this date-time are filtered.
           # `notBefore` is *only* a filter. Updating its value will not cause Flow
           # to re-process documents that have already been read.
@@ -93,11 +93,11 @@ materializations:
         # Priority applied to documents processed by this binding.
         # When all bindings are of equal priority, documents are processed
         # in order of their associated publishing time.
-        # 
+        #
         # However, when one binding has a higher priority than others,
         # then *all* ready documents are processed through the binding
         # before *any* documents of other bindings are processed.
-        # 
+        #
         # Optional. Default: 0, integer >= 0
         priority: 0
 
@@ -362,24 +362,27 @@ field implemented. Consult the individual connector documentation for details.
 ### How It Works
 
 1. **Source Capture Level:**
-   - If the source capture provides a schema or namespace, it will be used as the default schema for all bindings in
-   - the materialization.
+
+   If the source capture provides a schema or namespace, it will be used as the default schema for all bindings in the materialization.
 
 2. **Manual Overrides:**
-   - You can still manually configure schema names for each binding, overriding the default schema if needed.
+
+   You can still manually configure schema names for each binding, overriding the default schema if needed.
 
 3. **Materialization-Level Configuration:**
-   - The default schema name can be set at the materialization level, ensuring that all new captures within that
-   - materialization automatically inherit the default schema name.
+
+   The default schema name can be set at the materialization level, ensuring that all new captures within that materialization automatically inherit the default schema name.
 
 ### Configuration Steps
 
 1. **Set Default Schema at Source Capture Level:**
-   - When defining your source capture, specify the schema or namespace. If no schema is provided, Estuary Flow will
-   - automatically assign a default schema.
-   
+
+   When defining your source capture, specify the schema or namespace. If no schema is provided, Estuary Flow will automatically assign a default schema.
+
 2. **Override Schema at Binding Level:**
-   - For any binding, you can manually override the default schema by specifying a different schema name.
+
+   For any binding, you can manually override the default schema by specifying a different schema name.
 
 3. **Set Default Schema at Materialization Level:**
-   - During the materialization configuration, set a default schema name for all captures within the materialization.
+
+   During the materialization configuration, set a default schema name for all captures within the materialization.

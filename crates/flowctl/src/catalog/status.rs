@@ -56,9 +56,13 @@ impl crate::output::CliOutput for StatusOutput {
             ],
         );
         // Activation Complete is a computed column so we need to add it manually.
-        let activation_complete = self.0.status.activation_status().map(|activation| {
-            serde_json::Value::Bool(activation.last_activated == self.0.last_build_id)
-        });
+        let activation_complete = self
+            .0
+            .controller_status
+            .activation_status()
+            .map(|activation| {
+                serde_json::Value::Bool(activation.last_activated == self.0.last_build_id)
+            });
         row.push(JsonCell(activation_complete));
         row
     }

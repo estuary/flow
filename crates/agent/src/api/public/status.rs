@@ -52,7 +52,7 @@ async fn fetch_status(
         ls.controller_next_run,
         ls.updated_at as "live_spec_updated_at: DateTime<Utc>",
         cj.updated_at as "controller_updated_at: DateTime<Utc>",
-        cj.status as "status: status::Status",
+        cj.status as "controller_status: status::ControllerStatus",
         cj.error as "controller_error: String",
         cj.failures as "controller_failures: i32"
     from live_specs ls

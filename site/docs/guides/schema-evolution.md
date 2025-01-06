@@ -173,7 +173,7 @@ Regardless of whether the field is materialized or not, it must still pass schem
 
 Database and data warehouse materializations tend to be somewhat restrictive about changing column types. They typically only allow dropping `NOT NULL` constraints. This means that you can safely change a schema to make a required field optional, or to add `null` as a possible type, and the materialization will continue to work normally.  Most other types of changes will require materializing into a new table.
 
-The best way to find out whether a change is acceptable to a given connector is to run test or attempt to re-publish. Failed attempts to publish won't affect any tasks that are already running.
+The best way to find out whether a change is acceptable to a given connector is to run a test or attempt to re-publish. Failed attempts to publish won't affect any tasks that are already running.
 
 **Web app workflow**
 

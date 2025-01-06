@@ -6,6 +6,16 @@ on:
     paths:
       - "crates/dekaf/**"
       - "crates/proto-**"
+      - "crates/allocator"
+      - "crates/avro"
+      - "crates/doc"
+      - "crates/flow-client"
+      - "crates/gazette"
+      - "crates/json"
+      - "crates/labels"
+      - "crates/models"
+      - "crates/ops"
+      - "crates/simd-doc"
       - "Cargo.lock"
   pull_request:
     branches: [master]

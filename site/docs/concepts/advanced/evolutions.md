@@ -53,12 +53,12 @@ When you attempt to publish a breaking change to a collection in the Flow web ap
 
 Click the **Apply** button to trigger an evolution and update all necessary specification to keep your Data Flow functioning. Then, review and publish your draft.
 
-If you enabled [AutoDiscover](../captures.md#autodiscover) on a capture, any breaking changes that it introduces will trigger an automatic schema evolution, so long as you selected the **Breaking change re-versions collections** option(`evolveIncompatibleCollections`).
+If you enabled [AutoDiscover](../captures.md#autodiscover) on a capture, any breaking changes that it introduces will trigger an automatic schema evolution, so long as you selected the **Breaking change re-versions collections** option (`evolveIncompatibleCollections`).
 
 ## What do schema evolutions do?
 
 The schema evolution feature is available in the Flow web app when you're editing pre-existing Flow entities.
-It notices when one of your edit would cause other components of the Data Flow to fail, alerts you, and gives you the option to automatically update the specs of these components to prevent failure.
+It notices when one of your edits would cause other components of the Data Flow to fail, alerts you, and gives you the option to automatically update the specs of these components to prevent failure.
 
 In other words, evolutions happen in the *draft* state. Whenever you edit, you create a draft.
 Evolutions add to the draft so that when it is published and updates the active data flow, operations can continue seamlessly.

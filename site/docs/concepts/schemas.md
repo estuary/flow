@@ -45,7 +45,7 @@ Flow can usually generate suitable JSON schemas on your behalf.
 
 For systems like relational databases, Flow will typically generate a complete JSON schema by introspecting the table definition.
 
-For systems that store unstructured data, Flow will typically generate a very minimal schema, and will rely on schema inferrence to fill in the details. See [continuous schema inferenece](#continuous-schema-inference) for more information.
+For systems that store unstructured data, Flow will typically generate a very minimal schema, and will rely on schema inference to fill in the details. See [continuous schema inference](#continuous-schema-inference) for more information.
 
 ### Translations
 
@@ -72,7 +72,7 @@ Schema inference is also used to provide translations into other schema flavors:
 ### Annotations
 
 The JSON Schema standard introduces the concept of
-[annotations](http://json-schema.org/understanding-json-schema/reference/generic.html#annotations),
+[annotations](https://json-schema.org/understanding-json-schema/reference/annotations),
 which are keywords that attach metadata to a location within a validated JSON document.
 For example, `title` and `description` can be used to annotate a schema with its meaning:
 

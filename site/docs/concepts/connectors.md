@@ -157,6 +157,7 @@ Storing configuration in separate files serves two important purposes:
 - Re-use of configuration across multiple captures or materializations
 - The ability to protect sensitive credentials
 
+
 ### Connecting to endpoints on secure networks
 
 In some cases, your source or destination endpoint may be within a secure network, and you may not be able

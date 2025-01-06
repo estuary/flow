@@ -273,7 +273,8 @@ You can use `flowctl` to quickly verify your derivation before publishing it. Us
 
 As you can see, the output format matches the defined schema.  The last step would be to publish your derivation to Flow, which you can also do using `flowctl`.
 
-:::warning Publishing the derivation will initialize the transformation on the live, real-time Wikipedia stream, make sure to delete it after completing the tutorial.
+:::warning
+Publishing the derivation will initialize the transformation on the live, real-time Wikipedia stream, make sure to delete it after completing the tutorial.
 :::
 
 ```shell
