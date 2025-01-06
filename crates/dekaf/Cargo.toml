@@ -23,7 +23,6 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-runtime = { path = "../runtime" }
 simd-doc = { path = "../simd-doc" }
 unseal = { path = "../unseal" }
 
