@@ -1,0 +1,50 @@
+---
+source: crates/dekaf/src/log_appender.rs
+expression: captured_logs
+---
+[
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_appender::tests"
+    },
+    "level": "info",
+    "message": "Test log data before setting name, you should see me",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests"
+        },
+        "level": "info",
+        "message": "test_session",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_appender::tests",
+      "task_name": "my_task"
+    },
+    "level": "info",
+    "message": "Test log data with a task name!",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests",
+          "task_name": "my_task"
+        },
+        "level": "info",
+        "message": "test_session",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  }
+]
