@@ -16,7 +16,7 @@ mod tokio_context;
 mod unary;
 pub mod uuid;
 
-pub use container::flow_runtime_protocol;
+pub use container::{flow_runtime_protocol, DEKAF_IMAGE_NAME_PREFIX};
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 

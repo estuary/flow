@@ -83,11 +83,6 @@ impl Handler for TagHandler {
 /// connector_tags without having to push to a registry.
 pub const LOCAL_IMAGE_TAG: &str = ":local";
 
-/// Connectors with an image name starting with this value are Dekaf-type materializations and we should
-/// not pull the image, as it won't exist. Instead, we mark them as having `connector_type: ConnectorType::Dekaf`
-/// so that `Runtime` will invoke Dekaf's in-tree connector implementation
-pub const DEKAF_IMAGE_NAME_PREFIX: &str = "ghcr.io/estuary/dekaf-";
-
 impl TagHandler {
     #[tracing::instrument(err, skip_all, fields(id=?row.tag_id))]
     async fn process(
@@ -105,7 +100,8 @@ impl TagHandler {
         );
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
-        if row.image_tag != LOCAL_IMAGE_TAG && !row.image_name.starts_with(DEKAF_IMAGE_NAME_PREFIX)
+        if row.image_tag != LOCAL_IMAGE_TAG
+            && !row.image_name.starts_with(runtime::DEKAF_IMAGE_NAME_PREFIX)
         {
             // Pull the image.
             let pull = jobs::run(
@@ -123,17 +119,14 @@ impl TagHandler {
             }
         }
 
-        let proto_type = if row.image_name.starts_with(DEKAF_IMAGE_NAME_PREFIX) {
-            RuntimeProtocol::Materialize
-        } else {
-            match runtime::flow_runtime_protocol(&image_composed).await {
-                Ok(ct) => ct,
-                Err(err) => {
-                    tracing::warn!(image = %image_composed, error = %err, "failed to determine connector protocol");
-                    return Ok((row.tag_id, JobStatus::SpecFailed));
-                }
+        let proto_type = match runtime::flow_runtime_protocol(&image_composed).await {
+            Ok(ct) => ct,
+            Err(err) => {
+                tracing::warn!(image = %image_composed, error = %err, "failed to determine connector protocol");
+                return Ok((row.tag_id, JobStatus::SpecFailed));
             }
         };
+
         let log_handler =
             logs::ops_handler(self.logs_tx.clone(), "spec".to_string(), row.logs_token);
 
@@ -229,7 +222,7 @@ async fn spec_materialization(
 ) -> anyhow::Result<ConnectorSpec> {
     use proto_flow::materialize;
 
-    let connector_type = if image.starts_with(DEKAF_IMAGE_NAME_PREFIX) {
+    let connector_type = if image.starts_with(runtime::DEKAF_IMAGE_NAME_PREFIX) {
         flow::materialization_spec::ConnectorType::Dekaf as i32
     } else {
         flow::materialization_spec::ConnectorType::Image as i32
