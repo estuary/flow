@@ -198,6 +198,7 @@ tracing-subscriber = { version = "0.3", features = [
     "env-filter",
     "fmt",
 ] }
+tracing-record-hierarchical = "0.1.1"
 rustls-native-certs = "0.7.2"
 zeroize = "1.6"
 

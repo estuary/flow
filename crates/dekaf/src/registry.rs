@@ -1,5 +1,8 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name, SessionAuthentication};
+use crate::{
+    from_downstream_topic_name, log_appender::GazetteLogWriter, logging, to_downstream_topic_name,
+    SessionAuthentication,
+};
 use anyhow::Context;
 use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
@@ -33,7 +36,7 @@ async fn all_subjects(
         headers::Authorization<headers::authorization::Basic>,
     >,
 ) -> Response {
-    wrap(async move {
+    wrap(app.clone(), async move {
         let mut auth = app.authenticate(auth.username(), auth.password()).await?;
 
         let strict_topic_names = match auth {
@@ -73,7 +76,7 @@ async fn get_subject_latest(
     >,
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
-    wrap(async move {
+    wrap(app.clone(), async move {
         let mut auth = app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
@@ -130,7 +133,7 @@ async fn get_schema_by_id(
     >,
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
-    wrap(async move {
+    wrap(app.clone(), async move {
         let mut auth = app.authenticate(auth.username(), auth.password()).await?;
         let client = &auth.flow_client(&app).await?.pg_client();
 
@@ -167,12 +170,14 @@ async fn get_schema_by_id(
     .await
 }
 
-async fn wrap<F, T>(fut: F) -> Response
+async fn wrap<F, T>(app: Arc<App>, fut: F) -> Response
 where
     T: serde::Serialize,
     F: std::future::Future<Output = anyhow::Result<T>>,
 {
-    match fut.await {
+    let writer = GazetteLogWriter::new(app);
+
+    match logging::forward_logs(writer, fut).await {
         Ok(inner) => (axum::http::StatusCode::OK, axum::Json::from(inner)).into_response(),
         Err(err) => {
             let err = format!("{err:#?}");
