@@ -6,8 +6,8 @@
 <title data-rh="true">Edit a draft created in the web app | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/pr-preview/pr-1851/guides/flowctl/edit-draft-from-webapp/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Edit a draft created in the web app | Estuary Flow Documentation"><meta data-rh="true" name="description" content="When you create or edit tasks in the web app, your work is periodically saved as a draft."><meta data-rh="true" property="og:description" content="When you create or edit tasks in the web app, your work is periodically saved as a draft."><link data-rh="true" rel="icon" href="/pr-preview/pr-1851/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/pr-preview/pr-1851/guides/flowctl/edit-draft-from-webapp/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1851/guides/flowctl/edit-draft-from-webapp/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1851/guides/flowctl/edit-draft-from-webapp/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/pr-preview/pr-1851/assets/css/styles.7552b07e.css">
-<script src="/pr-preview/pr-1851/assets/js/runtime~main.311dabbf.js" defer="defer"></script>
-<script src="/pr-preview/pr-1851/assets/js/main.d9f7612e.js" defer="defer"></script>
+<script src="/pr-preview/pr-1851/assets/js/runtime~main.5218b8dd.js" defer="defer"></script>
+<script src="/pr-preview/pr-1851/assets/js/main.c7233393.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -53,16 +53,14 @@ you can pull the draft into a local environment, finish making changes, and publ
 </li>
 <li>
 <p>Run <code>flowctl draft list</code></p>
-</li>
-</ol>
 <p>flowctl outputs a table of all the drafts to which you have access, from oldest to newest.</p>
-<ol start="3">
-<li>Use the name and timestamp to find the draft you&#x27;re looking for.</li>
-</ol>
+</li>
+<li>
+<p>Use the name and timestamp to find the draft you&#x27;re looking for.</p>
 <p>Each draft has an <strong>ID</strong>, and most have a name in the <strong>Details</strong> column. Note the <strong># of Specs</strong> column.
 For drafts created in the web app, materialization drafts will always contain one specification.
 A number higher than 1 indicates a capture with its associated collections.</p>
-<ol start="4">
+</li>
 <li>
 <p>Copy the draft ID.</p>
 </li>
@@ -74,12 +72,12 @@ A number higher than 1 indicates a capture with its associated collections.</p>
 </li>
 <li>
 <p>Browse the source files.</p>
-</li>
-</ol>
 <p>The source files and their directory structure will look slightly different depending on the draft.
 Regardless, there will always be a top-level file called <code>flow.yaml</code> that <em>imports</em> all other YAML files,
 which you&#x27;ll find in a subdirectory named for your catalog prefix.
 These, in turn, contain the specifications you&#x27;ll want to edit.</p>
+</li>
+</ol>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="edit-the-draft-and-publish">Edit the draft and publish<a class="hash-link" aria-label="Direct link to Edit the draft and publish" title="Direct link to Edit the draft and publish" href="/pr-preview/pr-1851/guides/flowctl/edit-draft-from-webapp/#edit-the-draft-and-publish">​</a></h2>
 <p>Next, you&#x27;ll make changes to the specification(s), test, and publish the draft.</p>
 <ol>
@@ -96,10 +94,8 @@ These, in turn, contain the specifications you&#x27;ll want to edit.</p>
 </li>
 <li>
 <p>When you&#x27;re done, sync the local work to the global draft: <code>flowctl draft author --source flow.yaml</code>.</p>
-</li>
-</ol>
 <p>Specifying the top-level <code>flow.yaml</code> file as the source ensures that all entities in the draft are imported.</p>
-<ol start="4">
+</li>
 <li>
 <p>Publish the draft: <code>flowctl draft publish</code></p>
 </li>

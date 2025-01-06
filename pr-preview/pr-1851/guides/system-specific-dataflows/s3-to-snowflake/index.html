@@ -6,8 +6,8 @@
 <title data-rh="true">Amazon S3 to Snowflake | Estuary Flow Documentation</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:url" content="https://docs.estuary.dev/pr-preview/pr-1851/guides/system-specific-dataflows/s3-to-snowflake/"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Amazon S3 to Snowflake | Estuary Flow Documentation"><meta data-rh="true" name="description" content="This guide walks you through the process of creating an"><meta data-rh="true" property="og:description" content="This guide walks you through the process of creating an"><link data-rh="true" rel="icon" href="/pr-preview/pr-1851/img/favicon-2.ico"><link data-rh="true" rel="canonical" href="https://docs.estuary.dev/pr-preview/pr-1851/guides/system-specific-dataflows/s3-to-snowflake/"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1851/guides/system-specific-dataflows/s3-to-snowflake/" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.estuary.dev/pr-preview/pr-1851/guides/system-specific-dataflows/s3-to-snowflake/" hreflang="x-default"><link rel="preconnect" href="https://www.googletagmanager.com">
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script><link rel="stylesheet" href="/pr-preview/pr-1851/assets/css/styles.7552b07e.css">
-<script src="/pr-preview/pr-1851/assets/js/runtime~main.311dabbf.js" defer="defer"></script>
-<script src="/pr-preview/pr-1851/assets/js/main.d9f7612e.js" defer="defer"></script>
+<script src="/pr-preview/pr-1851/assets/js/runtime~main.5218b8dd.js" defer="defer"></script>
+<script src="/pr-preview/pr-1851/assets/js/main.c7233393.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -74,10 +74,8 @@ credentials provided by your Estuary account manager.</p>
 </li>
 <li>
 <p>Find the <strong>Amazon S3</strong> tile and click <strong>Capture</strong>.</p>
-</li>
-</ol>
 <p>A form appears with the properties required for an S3 capture.</p>
-<ol start="4">
+</li>
 <li>
 <p>Type a name for your capture.</p>
 <p>Your capture name must begin with a <a href="/pr-preview/pr-1851/concepts/catalogs/#namespace">prefix</a> to which you <a href="/pr-preview/pr-1851/reference/authentication/">have access</a>.</p>
@@ -97,33 +95,33 @@ Append a unique capture name after the <code>/</code> to create the full name, f
 <p><strong>Prefix</strong>: You might organize your S3 bucket using <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html" target="_blank" rel="noopener noreferrer">prefixes</a>, which emulate a directory structure. To capture <em>only</em> from a specific prefix, add it here.</p>
 </li>
 <li>
-<p><strong>Match Keys</strong>: Filters to apply to the objects in the S3 bucket. If provided, only data whose absolute path matches the filter will be captured. For example, <code>*\.json</code> will only capture JSON file.</p>
+<p><strong>Match Keys</strong>: Filters to apply to the objects in the S3 bucket. If provided, only data whose absolute path matches the filter will be captured. For example, <code>*\.json</code> will only capture JSON files.</p>
 </li>
 </ul>
 <p>See the S3 connector documentation for information on <a href="/pr-preview/pr-1851/reference/Connectors/capture-connectors/amazon-s3/#endpoint">advanced fields</a> and <a href="/pr-preview/pr-1851/reference/Connectors/capture-connectors/amazon-s3/#advanced-parsing-cloud-storage-data">parser settings</a>. (You&#x27;re unlikely to need these for most use cases.)</p>
 </li>
 <li>
 <p>Click <strong>Next</strong>.</p>
-</li>
-</ol>
 <p>Flow uses the provided configuration to initiate a connection to S3.</p>
 <p>It generates a permissive schema and details of the Flow collection that will store the data from S3.</p>
 <p>You&#x27;ll have the chance to tighten up each collection&#x27;s JSON schema later, when you materialize to Snowflake.</p>
-<ol start="7">
-<li>Click <strong>Save and publish</strong>.</li>
-</ol>
+</li>
+<li>
+<p>Click <strong>Save and publish</strong>.</p>
 <p>You&#x27;ll see a notification when the capture publishes successfully.</p>
 <p>The data currently in your S3 bucket has been captured, and future updates to it will be captured continuously.</p>
-<ol start="8">
-<li>Click <strong>Materialize Collections</strong> to continue.</li>
+</li>
+<li>
+<p>Click <strong>Materialize Collections</strong> to continue.</p>
+</li>
 </ol>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="materialize-to-snowflake">Materialize to Snowflake<a class="hash-link" aria-label="Direct link to Materialize to Snowflake" title="Direct link to Materialize to Snowflake" href="/pr-preview/pr-1851/guides/system-specific-dataflows/s3-to-snowflake/#materialize-to-snowflake">​</a></h2>
 <p>Next, you&#x27;ll add a Snowflake materialization to connect the captured data to its destination: your data warehouse.</p>
 <ol>
-<li>Locate the <strong>Snowflake</strong> tile and click <strong>Materialization</strong>.</li>
-</ol>
+<li>
+<p>Locate the <strong>Snowflake</strong> tile and click <strong>Materialization</strong>.</p>
 <p>A form appears with the properties required for a Snowflake materialization.</p>
-<ol start="2">
+</li>
 <li>
 <p>Choose a unique name for your materialization like you did when naming your capture; for example, <code>acmeCo/mySnowflakeMaterialization</code>.</p>
 </li>
@@ -142,13 +140,11 @@ Append a unique capture name after the <code>/</code> to create the full name, f
 </li>
 <li>
 <p>Click <strong>Next</strong>.</p>
-</li>
-</ol>
 <p>Flow uses the provided configuration to initiate a connection to Snowflake.</p>
 <p>You&#x27;ll be notified if there&#x27;s an error. In that case, fix the configuration form or Snowflake setup as needed and click <strong>Next</strong> to try again.</p>
 <p>Once the connection is successful, the Endpoint Config collapses and the <strong>Source Collections</strong> browser  becomes prominent.
 It shows the collection you captured previously, which will be mapped to a Snowflake table.</p>
-<ol start="5">
+</li>
 <li>
 <p>In the <strong>Collection Selector</strong>, optionally change the name in the <strong>Table</strong> field.</p>
 <p>This will be the name of the output table in Snowflake.</p>
@@ -158,8 +154,6 @@ It shows the collection you captured previously, which will be mapped to a Snowf
 </li>
 <li>
 <p>Apply a stricter schema to the collection for the materialization.</p>
-</li>
-</ol>
 <p>S3 has a flat data structure.
 To materialize this data effectively to Snowflake, you should apply a schema that can translate to a table structure.
 Flow&#x27;s <strong>Schema Inference</strong> tool can help.</p>
@@ -173,6 +167,8 @@ Flow&#x27;s <strong>Schema Inference</strong> tool can help.</p>
 </li>
 <li>
 <p>Review the new schema and click <strong>Apply Inferred Schema</strong>.</p>
+</li>
+</ol>
 </li>
 <li>
 <p>Click <strong>Next</strong> to apply the changes you made to the collection.</p>
