@@ -26,7 +26,7 @@ where
         Self(handler, timesource)
     }
 
-    fn log_from_metadata(&self, metadata: &tracing::Metadata) -> Log {
+    pub fn log_from_metadata(&self, metadata: &tracing::Metadata) -> Log {
         let mut log = Log {
             meta: None,
             timestamp: Some(proto_flow::as_timestamp(self.1())),
@@ -97,7 +97,7 @@ where
     }
 }
 
-struct FieldVisitor<'a>(&'a mut Log);
+pub struct FieldVisitor<'a>(pub &'a mut Log);
 
 impl<'a> FieldVisitor<'a> {
     fn record_raw<S>(&mut self, field: &tracing::field::Field, value: S)
@@ -184,7 +184,7 @@ impl<'a> tracing::field::Visit for FieldVisitor<'a> {
     }
 }
 
-fn level_from_tracing(lvl: &tracing::Level) -> LogLevel {
+pub fn level_from_tracing(lvl: &tracing::Level) -> LogLevel {
     match lvl.as_str() {
         "TRACE" => LogLevel::Trace,
         "DEBUG" => LogLevel::Debug,
