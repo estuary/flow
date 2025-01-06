@@ -103,7 +103,13 @@ pub async fn unary_materialize(
                 .context("validating dekaf config")?;
 
         let _parsed_inner_config = serde_json::from_value::<DekafConfig>(
-            parsed_outer_config.config.to_value(),
+            unseal::decrypt_sops(&parsed_outer_config.config)
+                .await
+                .context(format!(
+                    "decrypting dekaf endpoint config for variant {}",
+                    parsed_outer_config.variant
+                ))?
+                .to_value(),
         )
         .context(format!(
             "validating dekaf endpoint config for variant {}",
