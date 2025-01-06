@@ -181,10 +181,10 @@ You may find this useful when you want to easily control access to multiple serv
 If necessary, you can configure this authorization model for a GCS capture in Flow using the GitOps workflow.
 To do so, you'll enable sops encryption and impersonate the target account with JSON credentials.
 
-Before you begin, make sure you're familiar with [how to encrypt credentials in Flow using sops](./../../../concepts/connectors.md#protecting-secrets).
+Before you begin, make sure you're familiar with [how to encrypt credentials in Flow using sops](./../../../concepts/flowctl.md#protecting-secrets).
 
 Use the following sample as a guide to add the credentials JSON to the capture's endpoint configuration.
-The sample uses the [encrypted suffix feature](../../../concepts/connectors.md#example-protect-portions-of-a-configuration) of sops to encrypt only the sensitive credentials, but you may choose to encrypt the entire configuration.
+The sample uses the [encrypted suffix feature](../../../concepts/flowctl.md#example-protect-portions-of-a-configuration) of sops to encrypt only the sensitive credentials, but you may choose to encrypt the entire configuration.
 
 ```yaml
 config:
