@@ -46,6 +46,7 @@ pub enum Error {
 }
 
 /// RetryError is an Error encountered during a retry-able operation.
+#[derive(Debug)]
 pub struct RetryError {
     /// Number of operation attempts since the last success.
     pub attempt: usize,
