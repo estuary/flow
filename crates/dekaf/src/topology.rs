@@ -602,6 +602,12 @@ pub async fn extract_dekaf_config(
 /// For example, given pointer "/a/b/c" and a field shape, creates an object structure:
 /// { "a": { "b": { "c": field_shape } } }
 fn build_shape_at_pointer(ptr: &doc::Pointer, shape: &doc::Shape) -> doc::Shape {
+    // Return the original shape if pointer is empty
+    if ptr.0.is_empty() {
+        return shape.clone();
+    }
+
+    tracing::debug!(?ptr, "Building shape");
     let mut current_shape = doc::Shape::nothing();
     let mut current = &mut current_shape;
 
