@@ -544,6 +544,9 @@ pub async fn fetch_dekaf_task_auth(
 pub async fn extract_dekaf_config(
     spec: &proto_flow::flow::MaterializationSpec,
 ) -> anyhow::Result<connector::DekafConfig> {
+    if spec.connector_type != proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32 {
+        anyhow::bail!("Not a Dekaf materialization")
+    }
     let config = serde_json::from_str::<models::DekafConfig>(&spec.config_json)?;
 
     let decrypted_endpoint_config =
