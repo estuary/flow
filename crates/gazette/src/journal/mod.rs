@@ -1,6 +1,7 @@
 use proto_gazette::broker;
 use tonic::transport::Channel;
 
+mod append;
 mod list;
 mod read;
 
