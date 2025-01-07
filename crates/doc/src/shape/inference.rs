@@ -590,6 +590,84 @@ mod test {
         );
     }
 
+    // This test documents the behavior in the corneer case where the
+    // intersection of two object schemas forbids an enum property.
+    #[test]
+    fn test_enum_property_empty_intersection() {
+        let shape = shape_from(
+            r#"{
+            "type": "object",
+            "allOf": [
+                {
+                    "properties": {
+                        "foo": {
+                            "type": "integer",
+                            "enum": [1, 2, 3]
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "bar": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                }
+            ]
+        }"#,
+        );
+
+        let foo_shape = shape
+            .object
+            .properties
+            .iter()
+            .find(|p| p.name.as_ref() == "foo")
+            .unwrap();
+
+        // The `type_` is empty because the property is not allowed to be present.
+        // Note that the `enum_` is still `Some`, though the set of values is empty.
+        insta::assert_debug_snapshot!(foo_shape, @r###"
+        ObjProperty {
+            name: "foo",
+            is_required: false,
+            shape: Shape {
+                type_: ,
+                enum_: Some(
+                    [],
+                ),
+                title: None,
+                description: None,
+                reduction: Unset,
+                provenance: Inline,
+                default: None,
+                secret: None,
+                annotations: {},
+                array: ArrayShape {
+                    additional_items: None,
+                    max_items: None,
+                    min_items: 0,
+                    tuple: [],
+                },
+                numeric: NumericShape {
+                    minimum: None,
+                    maximum: None,
+                },
+                object: ObjShape {
+                    additional_properties: None,
+                    pattern_properties: [],
+                    properties: [],
+                },
+                string: StringShape {
+                    content_encoding: None,
+                    content_type: None,
+                    format: None,
+                    max_length: None,
+                    min_length: 0,
+                },
+            },
+        }
+        "###);
+    }
+
     #[test]
     fn test_enum_type_extraction() {
         assert_eq!(
