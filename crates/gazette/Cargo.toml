@@ -12,7 +12,10 @@ license.workspace = true
 coroutines = { path = "../coroutines" }
 ops = { path = "../ops" }
 proto-gazette = { path = "../proto-gazette" }
-proto-grpc = { path = "../proto-grpc", features = ["broker_client", "consumer_client"] }
+proto-grpc = { path = "../proto-grpc", features = [
+    "broker_client",
+    "consumer_client",
+] }
 
 async-compression = { workspace = true }
 bytes = { workspace = true }
@@ -25,6 +28,7 @@ reqwest = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
