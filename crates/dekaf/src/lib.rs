@@ -28,6 +28,7 @@ pub use api_client::KafkaApiClient;
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::{DekafConfig, DeletionMode};
 use flow_client::client::{refresh_authorizations, RefreshToken};
+use log_journal::{SESSION_TASKLESS_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
@@ -180,7 +181,12 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
-            tracing::info_span!("login", session_task_name = username.clone()).enter();
+            // This marks this Session as being associated with the task name contained in `username`.
+            tracing::info_span!(
+                "login",
+                { SESSION_TASK_NAME_FIELD_MARKER } = username.clone()
+            );
+
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
             let (client, claims, _, ops_stats_journal, task_spec) =
@@ -209,8 +215,10 @@ impl App {
                 exp: time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
             }))
         } else if username.contains("{") {
-            // TODO: Disable log capturing here
-            // tracing::info_span!("login", session_task_name = username.clone()).enter();
+            // Since we don't have a task, we also don't have a logs journal to write to,
+            // so we should isable log forwarding for this session.
+            tracing::info_span!("login", { SESSION_TASKLESS_FIELD_MARKER } = true);
+
             let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
             let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
 
