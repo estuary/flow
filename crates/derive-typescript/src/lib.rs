@@ -178,6 +178,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
 
     let types_url = format!("{project_root}/{GENERATED_PREFIX}/{}.ts", collection.name);
     let types_content = codegen::types_ts(&collection, &transforms);
+    tracing::debug!(%types_content, "generated TS types");
 
     let mut generated_files: Vec<(String, String)> = vec![
         (types_url.clone(), types_content.clone()),

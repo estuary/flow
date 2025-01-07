@@ -115,7 +115,7 @@ impl Mapper {
             return AST::Unknown;
         }
         // Is this an enum? Just emit the variants.
-        if let Some(enum_) = &shape.enum_ {
+        if let Some(enum_) = shape.enum_.as_ref().filter(|e| !e.is_empty()) {
             return AST::Union {
                 variants: enum_
                     .iter()
