@@ -35,6 +35,8 @@ pub enum Error {
     },
     #[error("{0}")]
     Protocol(&'static str),
+    #[error("{0}")]
+    Append(String),
     #[error(transparent)]
     UUID(#[from] uuid::Error),
     #[error("unexpected server EOF")]
@@ -71,6 +73,7 @@ impl Error {
             Error::Protocol(_) => false,
             Error::UUID(_) => false,
             Error::JWT(_) => false,
+            Error::Append(_) => false,
         }
     }
 }
