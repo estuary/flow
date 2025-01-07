@@ -186,6 +186,7 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tokio-util = { version = "0.7", features = ["io", "compat", "rt"] }
+tokio-stream = { version = "0.1.17" }
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 hyper-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
