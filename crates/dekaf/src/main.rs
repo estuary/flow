@@ -4,13 +4,19 @@ extern crate allocator;
 use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
-use dekaf::Session;
+use dekaf::{
+    log_journal::{
+        SESSION_SPAN_NAME_MARKER, SESSION_TASKLESS_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER,
+    },
+    Session,
+};
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
     LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
     LOCAL_PG_URL,
 };
 use futures::{FutureExt, TryStreamExt};
+use rand::Rng;
 use rustls::pki_types::CertificateDer;
 use std::{
     fs::File,
@@ -154,18 +160,30 @@ async fn main() -> anyhow::Result<()> {
         client_base: flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None),
     });
 
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
-        .from_env_lossy();
+    let env_filter_builder = || {
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
+            .from_env_lossy()
+    };
 
     let fmt_layer = tracing_subscriber::fmt::Layer::default()
         .with_writer(std::io::stderr)
-        .with_filter(env_filter);
+        .with_filter(env_filter_builder());
+
+    // There's probably a neat bit-banging way to do this with i64 and masks, but I'm just not that fancy.
+    let mut producer_id = rand::thread_rng().gen::<[u8; 6]>();
+    producer_id[0] |= 0x01;
 
     let registry = tracing_subscriber::registry()
         // We attach `ops::tracing::Layer` so we can use the `Log` structs it attaches to spans
         .with(ops::tracing::Layer::new(|_| {}, std::time::SystemTime::now))
-        .with(dekaf::SessionSubscriberLayer::new(app.clone()))
+        .with(
+            dekaf::SessionSubscriberLayer::new(
+                app.clone(),
+                gazette::uuid::Producer::from_bytes(producer_id),
+            )
+            .with_filter(env_filter_builder()),
+        )
         .with(fmt_layer);
 
     registry.init();
@@ -264,7 +282,13 @@ async fn main() -> anyhow::Result<()> {
                             addr,
                             cli.idle_session_timeout,
                             stop.clone()
-                        ).instrument(tracing::info_span!("dekaf_session", is_session=true))
+                        ).instrument(
+                            tracing::info_span!(
+                                SESSION_SPAN_NAME_MARKER,
+                                {SESSION_TASK_NAME_FIELD_MARKER}=tracing::field::Empty,
+                                {SESSION_TASKLESS_FIELD_MARKER}=false
+                            )
+                        )
                     );
                 }
                 _ = &mut stop => break,
@@ -299,7 +323,13 @@ async fn main() -> anyhow::Result<()> {
                             addr,
                             cli.idle_session_timeout,
                             stop.clone()
-                        ).instrument(tracing::info_span!("dekaf_session", is_session=true))
+                        ).instrument(
+                            tracing::info_span!(
+                                SESSION_SPAN_NAME_MARKER,
+                                {SESSION_TASK_NAME_FIELD_MARKER}=tracing::field::Empty,
+                                {SESSION_TASKLESS_FIELD_MARKER}=false
+                            )
+                        )
                     );
                 }
                 _ = &mut stop => break,
