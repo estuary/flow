@@ -172,7 +172,7 @@ impl super::ModelDef for TestDef {
         true // there's no way to disable a test
     }
 
-    fn connector_image(&self) -> Option<&str> {
+    fn connector_image(&self) -> Option<String> {
         None
     }
 }

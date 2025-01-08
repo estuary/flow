@@ -212,9 +212,10 @@ impl super::ModelDef for MaterializationDef {
         }
     }
 
-    fn connector_image(&self) -> Option<&str> {
+    fn connector_image(&self) -> Option<String> {
         match &self.endpoint {
-            MaterializationEndpoint::Connector(cfg) => Some(&cfg.image),
+            MaterializationEndpoint::Connector(cfg) => Some(cfg.image.to_owned()),
+            MaterializationEndpoint::Dekaf(cfg) => Some(cfg.image_name()),
             _ => None,
         }
     }
