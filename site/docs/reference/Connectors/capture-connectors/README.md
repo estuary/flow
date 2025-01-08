@@ -41,6 +41,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Apache Kafka
   - [Configuration](./apache-kafka.md)
   - Package — ghcr.io/estuary/source-kafka:dev
+- Asana
+  - [Configuration](./asana.md)
+  - Package - ghcr.io/estuary/source-asana:dev
 - Azure Blob Storage
   - [Configuration](./azure-blob-storage.md)
   - Package — ghcr.io/estuary/azure-blob-storage:dev
@@ -108,8 +111,8 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - [Configuration](./iterable.md)
   - Package - ghcr.io/estuary/source-iterable:dev
 - Jira
-  - [Configuration](./jira.md)
-  - Package - ghcr.io/estuary/source-jira:dev
+  - [Configuration](./jira-native.md)
+  - Package - ghcr.io/estuary/source-jira-native:dev
 - Klaviyo
   - [Configuration](./klaviyo.md)
   - Package - ghcr.io/estuary/source-klaviyo:dev
@@ -149,9 +152,12 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Snowflake
   - [Configuration](./snowflake.md)
   - Package - ghcr.io/estuary/source-snowflake:dev
-- Stripe
-  - [Configuration](./stripe.md)
+- Stripe Real-time
+  - [Configuration](./stripe-realtime.md)
   - Package - ghcr.io/estuary/source-stripe-native:dev
+- Stripe (deprecated)
+  - [Configuration](./stripe.md)
+  - Package - ghcr.io/estuary/source-stripe:dev
 - Twilio
   - [Configuration](./twilio.md)
   - Package - ghcr.io/estuary/source-twilio:dev
@@ -224,6 +230,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Intercom (deprecated)
   - [Configuration](./intercom.md)
   - Package - ghcr.io/estuary/source-intercom:dev
+- Jira (deprecated)
+  - [Configuration](./jira.md)
+  - Package - ghcr.io/estuary/source-jira:dev
 - LinkedIn Ads
   - [Configuration](./linkedin-ads.md)
   - Package - ghcr.io/estuary/source-linkedin-ads:dev
