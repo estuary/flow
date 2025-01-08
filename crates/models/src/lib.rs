@@ -31,7 +31,10 @@ pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
-pub use connector::{split_image_tag, ConnectorConfig, DekafConfig, LocalConfig};
+pub use connector::{
+    split_image_tag, ConnectorConfig, DekafConfig, LocalConfig, DEKAF_IMAGE_NAME_PREFIX,
+    DEKAF_IMAGE_TAG,
+};
 pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
 pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
@@ -88,7 +91,7 @@ pub trait ModelDef:
     fn is_enabled(&self) -> bool;
 
     /// The full connector image name used by this specificiation, including the tag.
-    fn connector_image(&self) -> Option<&str>;
+    fn connector_image(&self) -> Option<String>;
 
     /// If this spec is a materialization, returns the value of `source_capture`.
     /// This function is admittedly a little smelly, but it's included in the trait
@@ -246,7 +249,7 @@ impl ModelDef for AnySpec {
         }
     }
 
-    fn connector_image(&self) -> Option<&str> {
+    fn connector_image(&self) -> Option<String> {
         match self {
             AnySpec::Capture(c) => c.connector_image(),
             AnySpec::Collection(c) => c.connector_image(),

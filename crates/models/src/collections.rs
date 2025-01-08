@@ -157,9 +157,9 @@ impl super::ModelDef for CollectionDef {
             .map(|d| !d.shards.disable)
             .unwrap_or(true)
     }
-    fn connector_image(&self) -> Option<&str> {
+    fn connector_image(&self) -> Option<String> {
         self.derive.as_ref().and_then(|d| match &d.using {
-            DeriveUsing::Connector(cfg) => Some(cfg.image.as_str()),
+            DeriveUsing::Connector(cfg) => Some(cfg.image.to_owned()),
             _ => None,
         })
     }
