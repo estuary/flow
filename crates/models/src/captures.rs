@@ -158,9 +158,9 @@ impl super::ModelDef for CaptureDef {
         !self.shards.disable
     }
 
-    fn connector_image(&self) -> Option<&str> {
+    fn connector_image(&self) -> Option<String> {
         match &self.endpoint {
-            CaptureEndpoint::Connector(cfg) => Some(&cfg.image),
+            CaptureEndpoint::Connector(cfg) => Some(cfg.image.to_owned()),
             _ => None,
         }
     }
