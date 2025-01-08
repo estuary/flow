@@ -1,5 +1,12 @@
-use models::{SourceCaptureSchemaMode, SourceCapture};
+use models::{SourceCapture, SourceCaptureSchemaMode};
 use serde_json::Value;
+use std::collections::BTreeSet;
+
+pub struct ResourceSpecPointers {
+    pub x_collection_name: doc::Pointer,
+    pub x_schema_name: Option<doc::Pointer>,
+    pub x_delta_updates: Option<doc::Pointer>,
+}
 
 ///
 /// # Panics
@@ -11,13 +18,12 @@ pub fn update_materialization_resource_spec(
     resource_spec_pointers: &ResourceSpecPointers,
     full_collection_name: &str,
 ) -> anyhow::Result<()> {
-    let split: Vec<&str> = full_collection_name
-        .rsplit('/')
-        .take(2)
-        .collect();
+    let split: Vec<&str> = full_collection_name.rsplit('/').take(2).collect();
 
     if split.len() < 2 {
-        return Err(anyhow::anyhow!("collection name is invalid (does not contain '/')"))
+        return Err(anyhow::anyhow!(
+            "collection name is invalid (does not contain '/')"
+        ));
     }
 
     let x_collection_name = split[0];
@@ -66,12 +72,6 @@ pub fn update_materialization_resource_spec(
     Ok(())
 }
 
-pub struct ResourceSpecPointers {
-    pub x_collection_name: doc::Pointer,
-    pub x_schema_name: Option<doc::Pointer>,
-    pub x_delta_updates: Option<doc::Pointer>,
-}
-
 /// Runs inference on the given schema and searches for a location within the resource spec
 /// that bears the `x-collection-name`, `x-schema-name` or `x-delta-updates` annotations.
 /// Returns the pointer to those location, or an error if no `x-collection-name` exists.
@@ -110,4 +110,34 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
             "resource spec schema does not contain any location annotated with x-collection-name"
         ))
     }
+}
+
+pub fn update_linked_materialization(
+    source_capture: &SourceCapture,
+    resource_spec_pointers: ResourceSpecPointers,
+    bindings_to_add: &BTreeSet<models::Collection>,
+    materialization: &mut models::MaterializationDef,
+) -> anyhow::Result<()> {
+    for collection_name in bindings_to_add {
+        let mut resource_spec = serde_json::json!({});
+        update_materialization_resource_spec(
+            source_capture,
+            &mut resource_spec,
+            &resource_spec_pointers,
+            &collection_name,
+        )?;
+
+        let binding = models::MaterializationBinding {
+            resource: models::RawValue::from_value(&resource_spec),
+            source: models::Source::Collection(collection_name.clone()),
+            disable: false,
+            fields: Default::default(),
+            priority: Default::default(),
+            backfill: 0,
+            on_incompatible_schema_change: None,
+        };
+        materialization.bindings.push(binding);
+    }
+
+    Ok(())
 }
