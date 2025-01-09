@@ -131,6 +131,7 @@ fn ex_partition_template() -> broker::JournalSpec {
             stores: vec!["s3://bucket/prefix".to_string()],
             retention: None,
         }),
+        suspend: None,
     }
 }
 fn ex_recovery_template() -> broker::JournalSpec {
@@ -149,6 +150,7 @@ fn ex_recovery_template() -> broker::JournalSpec {
             path_postfix_template: String::new(),
             refresh_interval: Some(Duration::from_secs_f32(300.0).into()),
         }),
+        suspend: None,
     }
 }
 fn ex_shard_template() -> consumer::ShardSpec {

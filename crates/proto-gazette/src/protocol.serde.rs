@@ -27,6 +27,9 @@ impl serde::Serialize for AppendRequest {
         if self.subtract_registers.is_some() {
             len += 1;
         }
+        if self.suspend != 0 {
+            len += 1;
+        }
         if !self.content.is_empty() {
             len += 1;
         }
@@ -54,6 +57,11 @@ impl serde::Serialize for AppendRequest {
         if let Some(v) = self.subtract_registers.as_ref() {
             struct_ser.serialize_field("subtractRegisters", v)?;
         }
+        if self.suspend != 0 {
+            let v = append_request::Suspend::try_from(self.suspend)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.suspend)))?;
+            struct_ser.serialize_field("suspend", &v)?;
+        }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
@@ -80,6 +88,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
             "unionRegisters",
             "subtract_registers",
             "subtractRegisters",
+            "suspend",
             "content",
         ];
 
@@ -92,6 +101,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
             CheckRegisters,
             UnionRegisters,
             SubtractRegisters,
+            Suspend,
             Content,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -121,6 +131,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                             "checkRegisters" | "check_registers" => Ok(GeneratedField::CheckRegisters),
                             "unionRegisters" | "union_registers" => Ok(GeneratedField::UnionRegisters),
                             "subtractRegisters" | "subtract_registers" => Ok(GeneratedField::SubtractRegisters),
+                            "suspend" => Ok(GeneratedField::Suspend),
                             "content" => Ok(GeneratedField::Content),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -148,6 +159,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                 let mut check_registers__ = None;
                 let mut union_registers__ = None;
                 let mut subtract_registers__ = None;
+                let mut suspend__ = None;
                 let mut content__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -195,6 +207,12 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                             }
                             subtract_registers__ = map_.next_value()?;
                         }
+                        GeneratedField::Suspend => {
+                            if suspend__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("suspend"));
+                            }
+                            suspend__ = Some(map_.next_value::<append_request::Suspend>()? as i32);
+                        }
                         GeneratedField::Content => {
                             if content__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("content"));
@@ -213,11 +231,89 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                     check_registers: check_registers__,
                     union_registers: union_registers__,
                     subtract_registers: subtract_registers__,
+                    suspend: suspend__.unwrap_or_default(),
                     content: content__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("protocol.AppendRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for append_request::Suspend {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Resume => "SUSPEND_RESUME",
+            Self::NoResume => "SUSPEND_NO_RESUME",
+            Self::IfFlushed => "SUSPEND_IF_FLUSHED",
+            Self::Now => "SUSPEND_NOW",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for append_request::Suspend {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "SUSPEND_RESUME",
+            "SUSPEND_NO_RESUME",
+            "SUSPEND_IF_FLUSHED",
+            "SUSPEND_NOW",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = append_request::Suspend;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "SUSPEND_RESUME" => Ok(append_request::Suspend::Resume),
+                    "SUSPEND_NO_RESUME" => Ok(append_request::Suspend::NoResume),
+                    "SUSPEND_IF_FLUSHED" => Ok(append_request::Suspend::IfFlushed),
+                    "SUSPEND_NOW" => Ok(append_request::Suspend::Now),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for AppendResponse {
@@ -1962,6 +2058,9 @@ impl serde::Serialize for JournalSpec {
         if self.max_append_rate != 0 {
             len += 1;
         }
+        if self.suspend.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.JournalSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -1983,6 +2082,9 @@ impl serde::Serialize for JournalSpec {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("maxAppendRate", ToString::to_string(&self.max_append_rate).as_str())?;
         }
+        if let Some(v) = self.suspend.as_ref() {
+            struct_ser.serialize_field("suspend", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -2000,6 +2102,7 @@ impl<'de> serde::Deserialize<'de> for JournalSpec {
             "flags",
             "max_append_rate",
             "maxAppendRate",
+            "suspend",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2010,6 +2113,7 @@ impl<'de> serde::Deserialize<'de> for JournalSpec {
             Fragment,
             Flags,
             MaxAppendRate,
+            Suspend,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2037,6 +2141,7 @@ impl<'de> serde::Deserialize<'de> for JournalSpec {
                             "fragment" => Ok(GeneratedField::Fragment),
                             "flags" => Ok(GeneratedField::Flags),
                             "maxAppendRate" | "max_append_rate" => Ok(GeneratedField::MaxAppendRate),
+                            "suspend" => Ok(GeneratedField::Suspend),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2062,6 +2167,7 @@ impl<'de> serde::Deserialize<'de> for JournalSpec {
                 let mut fragment__ = None;
                 let mut flags__ = None;
                 let mut max_append_rate__ = None;
+                let mut suspend__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -2106,6 +2212,12 @@ impl<'de> serde::Deserialize<'de> for JournalSpec {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Suspend => {
+                            if suspend__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("suspend"));
+                            }
+                            suspend__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(JournalSpec {
@@ -2115,6 +2227,7 @@ impl<'de> serde::Deserialize<'de> for JournalSpec {
                     fragment: fragment__,
                     flags: flags__.unwrap_or_default(),
                     max_append_rate: max_append_rate__.unwrap_or_default(),
+                    suspend: suspend__,
                 })
             }
         }
@@ -2399,6 +2512,194 @@ impl<'de> serde::Deserialize<'de> for journal_spec::Fragment {
             }
         }
         deserializer.deserialize_struct("protocol.JournalSpec.Fragment", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for journal_spec::Suspend {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.level != 0 {
+            len += 1;
+        }
+        if self.offset != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("protocol.JournalSpec.Suspend", len)?;
+        if self.level != 0 {
+            let v = journal_spec::suspend::Level::try_from(self.level)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.level)))?;
+            struct_ser.serialize_field("level", &v)?;
+        }
+        if self.offset != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("offset", ToString::to_string(&self.offset).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for journal_spec::Suspend {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "level",
+            "offset",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Level,
+            Offset,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "level" => Ok(GeneratedField::Level),
+                            "offset" => Ok(GeneratedField::Offset),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = journal_spec::Suspend;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct protocol.JournalSpec.Suspend")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<journal_spec::Suspend, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut level__ = None;
+                let mut offset__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Level => {
+                            if level__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("level"));
+                            }
+                            level__ = Some(map_.next_value::<journal_spec::suspend::Level>()? as i32);
+                        }
+                        GeneratedField::Offset => {
+                            if offset__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("offset"));
+                            }
+                            offset__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(journal_spec::Suspend {
+                    level: level__.unwrap_or_default(),
+                    offset: offset__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("protocol.JournalSpec.Suspend", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for journal_spec::suspend::Level {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::None => "NONE",
+            Self::Partial => "PARTIAL",
+            Self::Full => "FULL",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for journal_spec::suspend::Level {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "NONE",
+            "PARTIAL",
+            "FULL",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = journal_spec::suspend::Level;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "NONE" => Ok(journal_spec::suspend::Level::None),
+                    "PARTIAL" => Ok(journal_spec::suspend::Level::Partial),
+                    "FULL" => Ok(journal_spec::suspend::Level::Full),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for Label {
@@ -4411,6 +4712,7 @@ impl serde::Serialize for Status {
             Self::WrongAppendOffset => "WRONG_APPEND_OFFSET",
             Self::IndexHasGreaterOffset => "INDEX_HAS_GREATER_OFFSET",
             Self::RegisterMismatch => "REGISTER_MISMATCH",
+            Self::Suspended => "SUSPENDED",
         };
         serializer.serialize_str(variant)
     }
@@ -4436,6 +4738,7 @@ impl<'de> serde::Deserialize<'de> for Status {
             "WRONG_APPEND_OFFSET",
             "INDEX_HAS_GREATER_OFFSET",
             "REGISTER_MISMATCH",
+            "SUSPENDED",
         ];
 
         struct GeneratedVisitor;
@@ -4490,6 +4793,7 @@ impl<'de> serde::Deserialize<'de> for Status {
                     "WRONG_APPEND_OFFSET" => Ok(Status::WrongAppendOffset),
                     "INDEX_HAS_GREATER_OFFSET" => Ok(Status::IndexHasGreaterOffset),
                     "REGISTER_MISMATCH" => Ok(Status::RegisterMismatch),
+                    "SUSPENDED" => Ok(Status::Suspended),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
