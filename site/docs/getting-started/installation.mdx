@@ -145,3 +145,12 @@ information you gathered per the steps above.
 Let us know whether you want to use this storage bucket to for your whole Flow account, or just a
 specific [prefix](../concepts/catalogs.md#namespace).
 We'll be in touch when it's done!
+
+## Migrating your existing data to the new storage mapping
+
+Once you've created your new storage mapping, your collections will be updated to pick up the new storage mapping, 
+so new data will be written there. Existing data from your previous storage mapping is not automatically migrated,
+to do so you should backfill all of your captures after configuring a storage mapping. Most tenants will have been 
+using the estuary-public storage mapping on the Free plan to begin with, which expires data after 20 days. By 
+backfilling all of your captures you guarantee that even though the data from estuary-public will expire, you’ll 
+still have a full view of your data available on your new storage mapping.
