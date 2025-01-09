@@ -82,9 +82,17 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 	spec.Replication = 1024
 	c.Check(spec.Validate(), gc.ErrorMatches, `invalid Replication \(1024; .*`)
 	spec.Replication = 3
+	c.Check(spec.DesiredReplication(), gc.Equals, 3)
+
+	// Suspension level modulates down the desired replication.
+	spec.Suspend = &JournalSpec_Suspend{Level: JournalSpec_Suspend_PARTIAL}
+	c.Check(spec.DesiredReplication(), gc.Equals, 1)
+	spec.Suspend.Level = JournalSpec_Suspend_FULL
+	c.Check(spec.DesiredReplication(), gc.Equals, 0)
+	spec.Suspend.Level = JournalSpec_Suspend_NONE
+	c.Check(spec.DesiredReplication(), gc.Equals, 3)
 
 	// DesiredReplication honors the lower-bound of the spec & global limit.
-	c.Check(spec.DesiredReplication(), gc.Equals, 3)
 	defer func(r int32) { MaxReplication = r }(MaxReplication)
 	MaxReplication = 1
 	c.Check(spec.DesiredReplication(), gc.Equals, 1)
@@ -175,6 +183,15 @@ func (s *JournalSuite) TestSpecValidationCases(c *gc.C) {
 
 	f.Stores = append(f.Stores, "invalid")
 	c.Check(f.Validate(), gc.ErrorMatches, `Stores\[2\]: not absolute \(invalid\)`)
+	f.Stores = f.Stores[:1]
+
+	spec.Suspend.Offset = -1
+	c.Check(spec.Validate(), gc.ErrorMatches, `Suspend.Offset: invalid Offset \(-1; expected >= 0\)`)
+	spec.Suspend.Offset = 1234
+	spec.Suspend.Level = 12345
+	c.Check(spec.Validate(), gc.ErrorMatches, `Suspend.Level: invalid Level variant \(12345\)`)
+	spec.Suspend.Level = JournalSpec_Suspend_FULL
+	c.Check(spec.Validate(), gc.IsNil)
 }
 
 func (s *JournalSuite) TestMetaLabelExtraction(c *gc.C) {

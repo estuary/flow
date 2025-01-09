@@ -58,6 +58,11 @@ enum Status {
   // The Append is refused because a registers selector was provided with the
   // request, but it was not matched by current register values of the journal.
   REGISTER_MISMATCH = 13;
+  // The operation cannot complete because the journal has been suspended.
+  // This implicitly means the journal has no available content to read.
+  // An Append will resume the journal, or the client may want to filter
+  // further requests directed to suspended journals.
+  SUSPENDED = 14;
 }
 
 // CompressionCode defines codecs known to Gazette.
@@ -288,6 +293,44 @@ message JournalSpec {
   // smaller of the journal vs global rate.
   int64 max_append_rate = 7
       [ (gogoproto.moretags) = "yaml:\"max_append_rate,omitempty\"" ];
+
+  // Suspension control for this journal.
+  // If unset the suspension level is implicitly NONE, with an offset of zero.
+  //
+  // The Suspend field is managed by Gazette, and is updated when an Append RPC
+  // suspends a journal or if auto-suspension is enabled. Operators should
+  // not set it directly. However when utilizing suspension, operators MUST
+  // take care to pass-through Suspend when applying updates to JournalSpecs.
+  message Suspend {
+    option (gogoproto.equal) = true;
+
+    enum Level {
+      // When NONE, the journal is not suspended and is fully replicated.
+      NONE = 0x00;
+      // When PARTIAL, the journal is scaled down to a single replica
+      // which monitors the fragment index and serves reads.
+      PARTIAL = 0x01;
+      // When FULL, the journal's fragment index MUST be empty and the journal
+      // is scaled down to zero replicas. Operations other than Append,
+      // which resumes the journal, will fail with status SUSPENDED.
+      //
+      // Clients should identify and filter requests which would otherwise be
+      // directed at suspended journals. For example, a client may watch a
+      // journal listing and filter to read journals which have a suspension
+      // level of ACTIVE or PARTIAL.
+      FULL = 0x02;
+    }
+    Level level = 1
+        [ (gogoproto.moretags) = "yaml:\",omitempty\"" ];
+
+    // The lower-bound journal offset at which appends should proceed,
+    // once this journal is resumed.
+    int64 offset = 2
+        [ (gogoproto.moretags) = "yaml:\",omitempty\"" ];
+  }
+  Suspend suspend = 8 [
+    (gogoproto.moretags) = "yaml:\",omitempty\""
+  ];
 }
 
 // ProcessSpec describes a uniquely identified process and its addressable
@@ -496,6 +539,28 @@ message AppendRequest {
   // Labels to subtract from current registers if the RPC succeeds and appended
   // at least one byte.
   LabelSet subtract_registers = 8;
+  // Suspension control for this request.
+  enum Suspend {
+    // SUSPEND_RESUME (the default) will resume a suspended journal.
+    SUSPEND_RESUME = 0x00;
+    // SUSPEND_NO_RESUME fails with status SUSPENDED if the journal is suspended.
+    SUSPEND_NO_RESUME = 0x01;
+    // SUSPEND_IF_FLUSHED potentially suspends the requested journal:
+    // - If the journal has local content which is not yet available in the
+    //   remote fragment store, the operation has no effect.
+    // - If the journal has not content at all, it is fully suspended.
+    // - Otherwise, the journal is partially suspended.
+    SUSPEND_IF_FLUSHED = 0x02;
+    // SUSPEND_NOW is similar to SUSPEND_IF_FLUSHED, but will also
+    // partially suspend the journal even if it has local content which
+    // is not yet available in the remote fragment store.
+    //
+    // This operation is always safe -- even once suspended, all former replicas
+    // persist content to the remote store as per usual -- but it can result in
+    // many small files if a journal is repeatedly suspended and resumed.
+    SUSPEND_NOW = 0x03;
+  }
+  Suspend suspend = 9;
 
   // Content chunks to be appended. Immediately prior to closing the stream,
   // the client must send an empty chunk (eg, zero-valued AppendRequest) to

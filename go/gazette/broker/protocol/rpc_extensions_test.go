@@ -126,6 +126,7 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 		CheckRegisters:    &LabelSelector{Include: badLabel},
 		UnionRegisters:    &badLabel,
 		SubtractRegisters: &badLabel,
+		Suspend:           12345,
 	}
 
 	c.Check(req.Validate(), gc.ErrorMatches, `Header.Etcd: invalid ClusterId .*`)
@@ -142,6 +143,8 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 	req.UnionRegisters = &goodLabel
 	c.Check(req.Validate(), gc.ErrorMatches, `SubtractRegisters.Labels\[0\].Name: not a valid token \(inv alid\)`)
 	req.SubtractRegisters = &goodLabel
+	c.Check(req.Validate(), gc.ErrorMatches, `Suspend: invalid Suspend variant \(12345\)`)
+	req.Suspend = AppendRequest_SUSPEND_NOW
 
 	c.Check(req.Validate(), gc.IsNil)
 
@@ -161,6 +164,8 @@ func (s *RPCSuite) TestAppendRequestValidationCases(c *gc.C) {
 	req.UnionRegisters = nil
 	c.Check(req.Validate(), gc.ErrorMatches, `unexpected SubtractRegisters`)
 	req.SubtractRegisters = nil
+	c.Check(req.Validate(), gc.ErrorMatches, `unexpected Suspend \(SUSPEND_NOW; expected SUSPEND_RESUMED\)`)
+	req.Suspend = AppendRequest_SUSPEND_RESUME
 
 	c.Check(req.Validate(), gc.IsNil)
 

@@ -24,19 +24,21 @@ type appendFSM struct {
 	claims pb.Claims
 	req    pb.AppendRequest
 
-	resolved            *resolution      // Current journal resolution.
-	pln                 *pipeline        // Current replication pipeline.
-	plnReturnCh         chan<- *pipeline // If |pln| is owned, channel to which it must be returned. Else nil.
-	readThroughRev      int64            // Etcd revision we must read through to proceed.
-	rollToOffset        int64            // Journal write offset we must synchronize on to proceed.
-	registers           pb.LabelSet      // Effective journal registers.
-	clientCommit        bool             // Did we see a commit chunk from the client?
-	clientFragment      *pb.Fragment     // Journal Fragment holding the client's content.
-	clientSummer        hash.Hash        // Summer over the client's content.
-	clientTotalChunks   int64            // Total number of append chunks.
-	clientDelayedChunks int64            // Number of flow-controlled chunks.
-	state               appendState      // Current FSM state.
-	err                 error            // Error encountered during FSM execution.
+	resolved            *resolution             // Current journal resolution.
+	pln                 *pipeline               // Current replication pipeline.
+	plnHeader           bool                    // If true, then send opening pipeline header.
+	plnReturnCh         chan<- *pipeline        // If |pln| is owned, channel to which it must be returned. Else nil.
+	readThroughRev      int64                   // Etcd revision we must read through to proceed.
+	rollToOffset        int64                   // Journal write offset we must synchronize on to proceed.
+	registers           pb.LabelSet             // Effective journal registers.
+	nextSuspend         *pb.JournalSpec_Suspend // Journal Suspend to apply.
+	clientCommit        bool                    // Did we see a commit chunk from the client?
+	clientFragment      *pb.Fragment            // Journal Fragment holding the client's content.
+	clientSummer        hash.Hash               // Summer over the client's content.
+	clientTotalChunks   int64                   // Total number of append chunks.
+	clientDelayedChunks int64                   // Number of flow-controlled chunks.
+	state               appendState             // Current FSM state.
+	err                 error                   // Error encountered during FSM execution.
 }
 
 type appendState int8
@@ -50,6 +52,7 @@ const (
 	stateUpdateAssignments     appendState = iota
 	stateAwaitDesiredReplicas  appendState = iota
 	stateValidatePreconditions appendState = iota
+	stateUpdateSuspend         appendState = iota
 	stateStreamContent         appendState = iota // Semi-terminal state (requires more input).
 	stateReadAcknowledgements  appendState = iota
 	stateError                 appendState = iota // Terminal state.
@@ -106,6 +109,8 @@ func (b *appendFSM) runTo(state appendState) bool {
 			b.onAwaitDesiredReplicas()
 		case stateValidatePreconditions:
 			b.onValidatePreconditions()
+		case stateUpdateSuspend:
+			b.onUpdateSuspend()
 		case stateError, stateProxy, stateFinished, stateStreamContent:
 			return false
 		default:
@@ -139,6 +144,12 @@ func (b *appendFSM) onResolve() {
 	if b.resolved, b.err = b.svc.resolver.resolve(b.ctx, b.claims, b.req.Journal, opts); b.err != nil {
 		b.state = stateError
 		b.err = errors.WithMessage(b.err, "resolve")
+	} else if b.resolved.status == pb.Status_SUSPENDED && b.req.Suspend == pb.AppendRequest_SUSPEND_RESUME {
+		b.nextSuspend = &pb.JournalSpec_Suspend{
+			Level:  pb.JournalSpec_Suspend_NONE,
+			Offset: b.resolved.journalSpec.Suspend.GetOffset(),
+		}
+		b.state = stateUpdateSuspend
 	} else if b.resolved.status != pb.Status_OK {
 		b.state = stateError
 	} else if b.resolved.ProcessId != b.resolved.localID {
@@ -246,6 +257,7 @@ func (b *appendFSM) onStartPipeline() {
 
 	// Build a pipeline around `spool`.
 	b.pln = newPipeline(plnCtx, b.resolved.Header, spool, b.resolved.replica.spoolCh, b.svc.jc)
+	b.plnHeader = true
 	b.state = stateSendPipelineSync
 }
 
@@ -262,12 +274,12 @@ func (b *appendFSM) onSendPipelineSync() {
 		Registers:   &b.registers,
 		Acknowledge: true,
 	}
-	// Iff |rollToOffset| is zero then this is our first sync of this pipeline,
-	// and we must attach a Header.
+	// Iff `plnHeader` then this is our first sync of this pipeline, and we must attach a Header.
 	// TODO: Remove DeprecatedJournal, which is sent for compatibility with last release.
-	if b.rollToOffset == 0 {
+	if b.plnHeader {
 		req.Header = &b.pln.Header
 		req.DeprecatedJournal = b.pln.spool.Journal
+		b.plnHeader = false
 	}
 
 	b.pln.scatter(req)
@@ -423,31 +435,108 @@ func (b *appendFSM) onValidatePreconditions() {
 	// reflected in our index, if a commit wasn't accepted by all peers.
 	// Such writes are reported as failed to the client and are retried
 	// (this failure mode is what makes journals at-least-once).
-	var indexMin, indexMax = b.resolved.replica.index.OffsetRange()
+	var indexMin, indexMax, indexDirty = b.resolved.replica.index.OffsetRange()
+	var suspend = b.resolved.journalSpec.Suspend
 
 	var maxOffset = b.pln.spool.End
 	if indexMax > maxOffset {
 		maxOffset = indexMax
 	}
 
+	// Do journal registers match the request's expectation?
 	if b.req.CheckRegisters != nil &&
 		len(b.registers.Labels) != 0 &&
 		!b.req.CheckRegisters.Matches(b.registers) {
 
 		b.resolved.status = pb.Status_REGISTER_MISMATCH
 		b.state = stateError
-	} else if b.pln.spool.End != maxOffset && b.req.Offset == 0 && b.resolved.journalSpec.Flags.MayWrite() {
+		return
+	}
+	// Do we need to roll forward to the resumption offset of the journal?
+	if b.pln.spool.End < suspend.GetOffset() {
+		b.rollToOffset = suspend.GetOffset()
+		b.state = stateSendPipelineSync
+		return
+	}
+	// Does the synchronized offset not match the maximum of the fragment index?
+	if b.pln.spool.End != maxOffset && b.req.Offset == 0 && b.resolved.journalSpec.Flags.MayWrite() {
 		b.resolved.status = pb.Status_INDEX_HAS_GREATER_OFFSET
 		b.state = stateError
-	} else if b.req.Offset != 0 && b.req.Offset != maxOffset {
+		return
+	}
+	// Does the request have an explicit offset, which doesn't match the maximum of the index?
+	if b.req.Offset != 0 && b.req.Offset != maxOffset {
 		// If a request offset is present, it must match |maxOffset|.
 		b.resolved.status = pb.Status_WRONG_APPEND_OFFSET
 		b.state = stateError
-	} else if b.req.Offset != 0 && b.pln.spool.End != maxOffset {
-		// Re-sync the pipeline at the explicitly requested |maxOffset|.
+		return
+	}
+	// Does the request have an explicit offset which matches the maximum of the index,
+	// but doesn't match the synchronized offset?
+	if b.req.Offset != 0 && b.pln.spool.End != maxOffset {
+		// Re-sync the pipeline at the explicitly requested `maxOffset`.
 		b.rollToOffset = maxOffset
 		b.state = stateSendPipelineSync
-	} else if b.pln.spool.Begin == indexMin {
+		return
+	}
+
+	// At this point, we hold a synchronized and validated pipeline.
+
+	// Do we need to update the suspension state of the journal?
+	switch b.req.Suspend {
+	case pb.AppendRequest_SUSPEND_RESUME:
+		if suspend.GetLevel() != pb.JournalSpec_Suspend_NONE {
+			b.nextSuspend = &pb.JournalSpec_Suspend{
+				Level:  pb.JournalSpec_Suspend_NONE,
+				Offset: b.pln.spool.End,
+			}
+			b.state = stateUpdateSuspend
+			return
+		}
+	case pb.AppendRequest_SUSPEND_NO_RESUME:
+		if suspend.GetLevel() != pb.JournalSpec_Suspend_NONE {
+			b.resolved.status = pb.Status_SUSPENDED
+			b.state = stateError
+			return
+		}
+	case pb.AppendRequest_SUSPEND_IF_FLUSHED, pb.AppendRequest_SUSPEND_NOW:
+		// We're requested to suspend the journal. If it's not fully suspended
+		// but the index is completely empty, we can proceed to full suspension.
+		if suspend.GetLevel() != pb.JournalSpec_Suspend_FULL && indexMin == indexMax {
+			b.nextSuspend = &pb.JournalSpec_Suspend{
+				Level:  pb.JournalSpec_Suspend_FULL,
+				Offset: b.pln.spool.End,
+			}
+			b.state = stateUpdateSuspend
+			return
+		}
+		// If the index is fully remote, or we're requested to suspend regardless,
+		// we can proceed to partially suspend the journal.
+		if suspend.GetLevel() == pb.JournalSpec_Suspend_NONE &&
+			(!indexDirty || b.req.Suspend == pb.AppendRequest_SUSPEND_NOW) {
+
+			b.nextSuspend = &pb.JournalSpec_Suspend{
+				Level:  pb.JournalSpec_Suspend_PARTIAL,
+				Offset: b.pln.spool.End,
+			}
+			b.state = stateUpdateSuspend
+
+			// The journal replication factor will be reduced, but this broker
+			// will likely still be the primary, which implies a dirty local spool
+			// may not be immediately rolled and persisted without deliberately
+			// rolling it forward here (this is relevant only for SUSPEND_NOW;
+			// SUSPEND_IF_FLUSHED's pre-condition is there are no local fragments).
+			b.rollToOffset = b.pln.spool.End
+			return
+		}
+		// If the journal was suspended, set SUSPENDED status to tell the caller as much.
+		// Note that fully suspended journals return SUSPENDED as part of onResolve().
+		if suspend.GetLevel() == pb.JournalSpec_Suspend_PARTIAL {
+			b.resolved.status = pb.Status_SUSPENDED
+		}
+	}
+
+	if b.pln.spool.Begin == indexMin {
 		// The spool holds the journal's first known write and should be rolled.
 		// This has the effect of "dirtying" the remote fragment index,
 		// and protects against data loss if N > R consistency is lost (eg, Etcd fails).
@@ -457,10 +546,32 @@ func (b *appendFSM) onValidatePreconditions() {
 		// recovering brokers cannot distinguish this case from a newly-created
 		// journal, which risks double-writes to journal offsets.
 		b.rollToOffset = b.pln.spool.End
-		b.state = stateStreamContent
-	} else {
-		b.state = stateStreamContent
 	}
+	b.state = stateStreamContent
+}
+
+func (b *appendFSM) onUpdateSuspend() {
+	b.mustState(stateUpdateSuspend)
+
+	var update = *b.resolved.journalSpec
+	update.Suspend = b.nextSuspend
+
+	addTrace(b.ctx, " ... updating suspension of JournalSpec to %v", update.Suspend)
+	b.readThroughRev, b.err = updateJournalSpec(b.ctx, b.resolved.item, b.resolved.assignments, update, b.svc.etcd)
+	addTrace(b.ctx, "updateJournalSpec() => %d, err: %v", b.readThroughRev, b.err)
+
+	if b.err != nil {
+		b.err = errors.WithMessage(b.err, "updateJournalSpec")
+		b.state = stateError
+	} else {
+		b.state = stateResolve
+	}
+
+	log.WithFields(log.Fields{
+		"journal":  update.Name,
+		"revision": b.readThroughRev,
+		"suspend":  update.Suspend,
+	}).Info("updated journal suspension")
 }
 
 // onStreamContent is called with each received content message or error
@@ -520,6 +631,10 @@ func (b *appendFSM) onStreamContent(req *pb.AppendRequest, err error) {
 		return
 	} else if err == nil && !b.resolved.journalSpec.Flags.MayWrite() {
 		// Non-empty appends cannot be made to non-writable journals.
+		b.resolved.status = pb.Status_NOT_ALLOWED
+	} else if err == nil &&
+		(b.req.Suspend == pb.AppendRequest_SUSPEND_IF_FLUSHED || b.req.Suspend == pb.AppendRequest_SUSPEND_NOW) {
+		// Appends that request a suspension may not have content.
 		b.resolved.status = pb.Status_NOT_ALLOWED
 	} else if err == nil {
 		// Regular content chunk. Forward it through the pipeline.

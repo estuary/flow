@@ -40,7 +40,7 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 	require.NoError(t, stream.Send(&pb.ReplicateRequest{Content: []byte("bazbing"), ContentDelta: 6}))
 
 	// Precondition: content not observable in the Fragment index.
-	var _, eo = broker.replica("a/journal").index.OffsetRange()
+	var _, eo, _ = broker.replica("a/journal").index.OffsetRange()
 	require.Equal(t, int64(0), eo)
 
 	// Commit.
@@ -58,7 +58,7 @@ func TestReplicateStreamAndCommit(t *testing.T) {
 	expectReplResponse(t, stream, &pb.ReplicateResponse{Status: pb.Status_OK})
 
 	// Post-condition: content is now observable.
-	_, eo = broker.replica("a/journal").index.OffsetRange()
+	_, eo, _ = broker.replica("a/journal").index.OffsetRange()
 	require.Equal(t, int64(13), eo)
 
 	// Send EOF and expect its returned.

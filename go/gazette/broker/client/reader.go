@@ -195,6 +195,8 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 		err = ErrInsufficientJournalBrokers
 	case pb.Status_OFFSET_NOT_YET_AVAILABLE:
 		err = ErrOffsetNotYetAvailable
+	case pb.Status_SUSPENDED:
+		err = ErrSuspended
 	default:
 		err = errors.New(r.Response.Status.String())
 	}
@@ -428,10 +430,12 @@ var (
 	// Map common broker error statuses into named errors.
 	ErrInsufficientJournalBrokers = errors.New(pb.Status_INSUFFICIENT_JOURNAL_BROKERS.String())
 	ErrJournalNotFound            = errors.New(pb.Status_JOURNAL_NOT_FOUND.String())
+	ErrNoJournalPrimaryBroker     = errors.New(pb.Status_NO_JOURNAL_PRIMARY_BROKER.String())
 	ErrNotJournalBroker           = errors.New(pb.Status_NOT_JOURNAL_BROKER.String())
 	ErrNotJournalPrimaryBroker    = errors.New(pb.Status_NOT_JOURNAL_PRIMARY_BROKER.String())
 	ErrOffsetNotYetAvailable      = errors.New(pb.Status_OFFSET_NOT_YET_AVAILABLE.String())
 	ErrRegisterMismatch           = errors.New(pb.Status_REGISTER_MISMATCH.String())
+	ErrSuspended                  = errors.New(pb.Status_SUSPENDED.String())
 	ErrWrongAppendOffset          = errors.New(pb.Status_WRONG_APPEND_OFFSET.String())
 
 	// ErrOffsetJump is returned by Reader.Read to indicate that the next byte

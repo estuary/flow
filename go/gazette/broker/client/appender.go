@@ -8,6 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -96,15 +97,21 @@ func (a *Appender) Close() (err error) {
 		switch a.Response.Status {
 		case pb.Status_OK:
 			// Pass.
+		case pb.Status_INSUFFICIENT_JOURNAL_BROKERS:
+			err = ErrInsufficientJournalBrokers
 		case pb.Status_JOURNAL_NOT_FOUND:
 			err = ErrJournalNotFound
+		case pb.Status_NO_JOURNAL_PRIMARY_BROKER:
+			err = ErrNoJournalPrimaryBroker
 		case pb.Status_NOT_JOURNAL_PRIMARY_BROKER:
 			err = ErrNotJournalPrimaryBroker
-		case pb.Status_WRONG_APPEND_OFFSET:
-			err = ErrWrongAppendOffset
 		case pb.Status_REGISTER_MISMATCH:
 			err = errors.Wrapf(ErrRegisterMismatch, "selector %v doesn't match registers %v",
 				a.Request.CheckRegisters, a.Response.Registers)
+		case pb.Status_SUSPENDED:
+			err = ErrSuspended
+		case pb.Status_WRONG_APPEND_OFFSET:
+			err = ErrWrongAppendOffset
 		default:
 			err = errors.New(a.Response.Status.String())
 		}
@@ -182,14 +189,24 @@ func Append(ctx context.Context, rjc pb.RoutedJournalClient, req pb.AppendReques
 			a.Abort()
 		}
 
+		var squelch bool
+
 		if err == nil {
 			return a.Response, nil
 		} else if s, ok := status.FromError(err); ok && s.Code() == codes.Unavailable {
 			// Fallthrough to retry
-		} else if err == ErrNotJournalPrimaryBroker || err == ErrInsufficientJournalBrokers {
-			// Fallthrough.
+		} else if err == ErrNotJournalPrimaryBroker || err == ErrNoJournalPrimaryBroker || err == ErrInsufficientJournalBrokers {
+			squelch = attempt == 0 // Fallthrough.
 		} else {
 			return a.Response, err
+		}
+
+		if !squelch {
+			log.WithFields(log.Fields{
+				"journal": req.Journal,
+				"err":     err,
+				"attempt": attempt,
+			}).Warn("append failure (will retry)")
 		}
 
 		select {

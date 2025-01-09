@@ -246,7 +246,7 @@ func (s *IndexSuite) TestBlockedContextCancelled(c *gc.C) {
 }
 
 func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
-	var tmpdir, err = ioutil.TempDir("", "IndexSuite.TestWalkStores")
+	var tmpdir, err = os.MkdirTemp("", "IndexSuite.TestWalkStores")
 	c.Assert(err, gc.IsNil)
 
 	defer func() { os.RemoveAll(tmpdir) }()
@@ -288,7 +288,7 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	<-ind.FirstRefreshCh()
 
 	c.Check(ind.set, gc.HasLen, 3)
-	var bo, eo = ind.OffsetRange()
+	var bo, eo, _ = ind.OffsetRange()
 	c.Check(bo, gc.Equals, int64(0x0))
 	c.Check(eo, gc.Equals, int64(0x255))
 
@@ -306,7 +306,7 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	ind.ReplaceRemote(set)
 
 	c.Check(ind.set, gc.HasLen, 4) // Combined Fragments are reflected.
-	bo, eo = ind.OffsetRange()
+	bo, eo, _ = ind.OffsetRange()
 	c.Check(bo, gc.Equals, int64(0x0))
 	c.Check(eo, gc.Equals, int64(0x555))
 

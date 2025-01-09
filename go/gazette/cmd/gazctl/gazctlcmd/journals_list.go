@@ -70,8 +70,8 @@ func (cmd *cmdJournalsList) Execute([]string) error {
 	mbp.Must(<-list.UpdateCh(), "failed to list journals")
 
 	for {
-		<-list.UpdateCh()
 		cmd.output(list.List())
+		<-list.UpdateCh()
 	}
 }
 
@@ -105,9 +105,7 @@ func (cmd *cmdJournalsList) outputTable(resp *pb.ListResponse) {
 	if cmd.Stores {
 		headers = append(headers, "Stores")
 	}
-	for _, l := range cmd.Labels {
-		headers = append(headers, l)
-	}
+	headers = append(headers, cmd.Labels...)
 	table.SetHeader(headers)
 
 	for _, j := range resp.Journals {
@@ -120,6 +118,10 @@ func (cmd *cmdJournalsList) outputTable(resp *pb.ListResponse) {
 			} else {
 				replicas = append(replicas, m.Suffix)
 			}
+		}
+
+		if j.Spec.Suspend.GetLevel() != pb.JournalSpec_Suspend_NONE {
+			primary = primary + " <S>"
 		}
 
 		var row = []string{

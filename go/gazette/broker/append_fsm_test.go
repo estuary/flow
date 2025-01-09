@@ -297,6 +297,80 @@ func TestFSMUpdateAssignments(t *testing.T) {
 	peer.Cleanup()
 }
 
+func TestFSMSuspendAndResume(t *testing.T) {
+	var ctx, etcd = context.Background(), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
+
+	// Case: Journal is eligible for partial suspension.
+	var fsm = newFSM(broker, ctx, pb.AppendRequest{
+		Journal: "a/journal",
+		Offset:  1024,
+		Suspend: pb.AppendRequest_SUSPEND_NOW,
+	})
+	fsm.onResolve()
+	fsm.resolved.replica.index.ReplaceRemote(fragment.CoverSet{
+		{Fragment: pb.Fragment{Journal: "a/journal", Begin: 0, End: 1024}},
+	})
+	require.True(t, fsm.runTo(stateStreamContent))
+
+	require.Equal(t, pb.Status_SUSPENDED, fsm.resolved.status)
+	require.Equal(t, &pb.JournalSpec_Suspend{
+		Level:  pb.JournalSpec_Suspend_PARTIAL,
+		Offset: 1024,
+	}, fsm.resolved.journalSpec.Suspend)
+
+	require.NotNil(t, fsm.plnReturnCh)
+	fsm.returnPipeline()
+
+	// Case: Journal is eligible for full suspension.
+	broker.initialFragmentLoad() // Clear remote fragments.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
+		Journal: "a/journal",
+		Suspend: pb.AppendRequest_SUSPEND_IF_FLUSHED,
+	})
+	require.False(t, fsm.runTo(stateStreamContent))
+
+	require.Equal(t, pb.Status_SUSPENDED, fsm.resolved.status)
+	require.Equal(t, &pb.JournalSpec_Suspend{
+		Level:  pb.JournalSpec_Suspend_FULL,
+		Offset: 1024,
+	}, fsm.resolved.journalSpec.Suspend)
+
+	require.NotNil(t, fsm.plnReturnCh)
+	fsm.returnPipeline()
+
+	// Case: append doesn't wake the journal.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
+		Journal: "a/journal",
+		Suspend: pb.AppendRequest_SUSPEND_NO_RESUME,
+	})
+	require.False(t, fsm.runTo(stateStreamContent))
+	require.Equal(t, pb.Status_SUSPENDED, fsm.resolved.status)
+	require.Nil(t, fsm.plnReturnCh)
+
+	// Case: append DOES wake the journal.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
+		Journal: "a/journal",
+		Suspend: pb.AppendRequest_SUSPEND_RESUME,
+	})
+	require.True(t, fsm.runTo(stateStreamContent))
+
+	require.Equal(t, pb.Status_OK, fsm.resolved.status)
+	require.Equal(t, &pb.JournalSpec_Suspend{
+		Level:  pb.JournalSpec_Suspend_NONE,
+		Offset: 1024,
+	}, fsm.resolved.journalSpec.Suspend)
+	require.Equal(t, int64(1024), fsm.pln.spool.Begin)
+
+	require.NotNil(t, fsm.plnReturnCh)
+	fsm.returnPipeline()
+
+	broker.cleanup()
+}
+
 func TestFSMDesiredReplicas(t *testing.T) {
 	var ctx, etcd = context.Background(), etcdtest.TestClient()
 	defer etcdtest.Cleanup()

@@ -125,12 +125,13 @@ func (fi *Index) Query(ctx context.Context, req *pb.ReadRequest) (*pb.ReadRespon
 	}
 }
 
-// OffsetRange returns the [Begin, End) offset range of all Fragments in the index.
-func (fi *Index) OffsetRange() (int64, int64) {
+// OffsetRange returns the [Begin, End) offset range of all Fragments in the index,
+// and a boolean indicating if the index has local-only fragments.
+func (fi *Index) OffsetRange() (int64, int64, bool) {
 	defer fi.mu.RUnlock()
 	fi.mu.RLock()
 
-	return fi.set.BeginOffset(), fi.set.EndOffset()
+	return fi.set.BeginOffset(), fi.set.EndOffset(), len(fi.local) != 0
 }
 
 // SpoolCommit adds local Spool Fragment |frag| to the index.

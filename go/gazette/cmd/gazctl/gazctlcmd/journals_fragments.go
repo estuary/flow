@@ -97,6 +97,9 @@ func (cmd *cmdJournalsFragments) Execute([]string) error {
 	var responses = make([]*pb.FragmentsResponse, len(listResponse.Journals))
 
 	for i := range listResponse.Journals {
+		if listResponse.Journals[i].Spec.Suspend.GetLevel() == pb.JournalSpec_Suspend_FULL {
+			continue
+		}
 		wg.Add(1)
 
 		go func(i int) {
@@ -145,6 +148,9 @@ func (cmd *cmdJournalsFragments) outputTable(responses []*pb.FragmentsResponse) 
 	table.SetHeader(headers)
 
 	for _, r := range responses {
+		if r == nil {
+			continue // Skipped due to suspension.
+		}
 		for _, f := range r.Fragments {
 			var sum = f.Spec.Sum.ToDigest()
 			var modTime string

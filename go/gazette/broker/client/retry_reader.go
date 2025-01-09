@@ -112,6 +112,8 @@ func (rr *RetryReader) Read(p []byte) (n int, err error) {
 			if rr.Reader.Request.Header != nil || attempt > 3 {
 				return // Surface to caller.
 			}
+		case ErrSuspended:
+			return // Surface to caller.
 		case io.EOF:
 			// EOF means we had an established RPC, but it might not have sent
 			// any data before being closed server-side, so clear `attempts` to

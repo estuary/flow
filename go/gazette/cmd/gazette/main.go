@@ -38,6 +38,7 @@ var Config = new(struct {
 		DisableStores  bool          `long:"disable-stores" env:"DISABLE_STORES" description:"Disable use of any configured journal fragment stores. The broker will neither list or persist remote fragments, and all data is discarded on broker exit."`
 		WatchDelay     time.Duration `long:"watch-delay" env:"WATCH_DELAY" default:"30ms" description:"Delay applied to the application of watched Etcd events. Larger values amortize the processing of fast-changing Etcd keys."`
 		AuthKeys       string        `long:"auth-keys" env:"AUTH_KEYS" description:"Whitespace or comma separated, base64-encoded keys used to sign (first key) and verify (all keys) Authorization tokens." json:"-"`
+		AutoSuspend    bool          `long:"auto-suspend" env:"AUTO_SUSPEND" description:"Automatically suspend journals which have persisted all fragments"`
 	} `group:"Broker" namespace:"broker" env-namespace:"BROKER"`
 
 	Etcd struct {
@@ -105,10 +106,11 @@ func (cmdServe) Execute(args []string) error {
 		fragment.FileSystemStoreRoot = Config.Broker.FileRoot
 	}
 
-	broker.MinAppendRate = int64(Config.Broker.MinAppendRate)
+	broker.AutoSuspend = Config.Broker.AutoSuspend
 	broker.MaxAppendRate = int64(Config.Broker.MaxAppendRate)
-	pb.MaxReplication = int32(Config.Broker.MaxReplication)
+	broker.MinAppendRate = int64(Config.Broker.MinAppendRate)
 	fragment.DisableStores = Config.Broker.DisableStores
+	pb.MaxReplication = int32(Config.Broker.MaxReplication)
 
 	var (
 		lo   = pb.NewAuthJournalClient(pb.NewJournalClient(srv.GRPCLoopback), authorizer)

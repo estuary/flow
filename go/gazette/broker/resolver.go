@@ -66,7 +66,9 @@ type resolution struct {
 	// resolution is proxy-able to multiple peers, but is always specified if this
 	// broker can locally serve the request, or the primary broker is required.
 	pb.Header
-	// JournalSpec of the Journal at the current Etcd Revision.
+	// Item (JournalSpec) of the Journal at the current Etcd Revision.
+	item keyspace.KeyValue
+	// Decoded JournalSpec extracted from `item`.
 	journalSpec *pb.JournalSpec
 	// Assignments of the Journal at the current Etcd Revision.
 	assignments keyspace.KeyValues
@@ -135,11 +137,15 @@ func (r *resolver) resolve(ctx context.Context, claims pb.Claims, journal pb.Jou
 		allocator.ItemAssignmentsPrefix(ks, journal.String())).Copy()
 
 	// Extract JournalSpec.
-	if item, ok := allocator.LookupItem(ks, journal.String()); ok {
-		var spec = item.ItemValue.(*pb.JournalSpec)
+	if index, ok := ks.KeyValues.Search(allocator.ItemKey(ks, journal.String())); ok {
+		var item = ks.KeyValues[index]
+		var spec = item.Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)
 
 		// Is the caller authorized to the journal?
-		if claims.Selector.Matches(spec.LabelSetExt(pb.LabelSet{})) {
+		if claims.Selector.Matches(spec.LabelSetExt(pb.LabelSet{
+			Labels: make([]pb.Label, 0, 1+len(spec.LabelSet.Labels)),
+		})) {
+			res.item = item
 			res.journalSpec = spec
 		} else {
 			// Clear to act as if the journal doesn't exist.
@@ -182,6 +188,8 @@ func (r *resolver) resolve(ctx context.Context, claims pb.Claims, journal pb.Jou
 	// Select a response Status code.
 	if res.journalSpec == nil {
 		res.status = pb.Status_JOURNAL_NOT_FOUND
+	} else if res.journalSpec.Suspend.GetLevel() == pb.JournalSpec_Suspend_FULL {
+		res.status = pb.Status_SUSPENDED
 	} else if opts.requirePrimary && res.Route.Primary == -1 {
 		res.status = pb.Status_NO_JOURNAL_PRIMARY_BROKER
 	} else if len(res.Route.Members) == 0 {

@@ -122,6 +122,15 @@ func (m *ReadResponse) Validate() error {
 	return nil
 }
 
+func (x AppendRequest_Suspend) Validate() error {
+	switch x {
+	case AppendRequest_SUSPEND_RESUME, AppendRequest_SUSPEND_NO_RESUME, AppendRequest_SUSPEND_IF_FLUSHED, AppendRequest_SUSPEND_NOW:
+		return nil
+	default:
+		return NewValidationError("invalid Suspend variant (%s)", x)
+	}
+}
+
 // Validate returns an error if the AppendRequest is not well-formed.
 func (m *AppendRequest) Validate() error {
 	if m.Journal != "" {
@@ -152,6 +161,9 @@ func (m *AppendRequest) Validate() error {
 				return ExtendContext(err, "SubtractRegisters")
 			}
 		}
+		if err := m.Suspend.Validate(); err != nil {
+			return ExtendContext(err, "Suspend")
+		}
 	} else if m.Header != nil {
 		return NewValidationError("unexpected Header")
 	} else if m.DoNotProxy {
@@ -164,6 +176,8 @@ func (m *AppendRequest) Validate() error {
 		return NewValidationError("unexpected UnionRegisters")
 	} else if m.SubtractRegisters != nil {
 		return NewValidationError("unexpected SubtractRegisters")
+	} else if m.Suspend != AppendRequest_SUSPEND_RESUME {
+		return NewValidationError("unexpected Suspend (%v; expected SUSPEND_RESUMED)", m.Suspend)
 	}
 	return nil
 }
