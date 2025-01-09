@@ -26,7 +26,7 @@ impl Dependencies {
     /// is necessary.
     pub async fn resolve<C: ControlPlane>(
         state: &ControllerState,
-        control_plane: &mut C,
+        control_plane: &C,
     ) -> anyhow::Result<Dependencies> {
         let Some(model) = state.live_spec.as_ref() else {
             // The spec is being deleted, and thus has no dependencies
@@ -77,7 +77,7 @@ impl Dependencies {
     pub async fn update<C, DF, M>(
         &mut self,
         state: &ControllerState,
-        control_plane: &mut C,
+        control_plane: &C,
         pub_status: &mut PublicationStatus,
         handle_deleted: DF,
     ) -> anyhow::Result<bool>

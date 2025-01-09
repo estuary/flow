@@ -50,14 +50,14 @@ pub struct ConnectorSpec {
 /// starting point for functions that we may wish to expose via an HTTP API or
 /// other language bindings.
 #[async_trait::async_trait]
-pub trait ControlPlane: Send {
+pub trait ControlPlane: Send + Sync {
     /// Returns the current time. Having controllers access the current time through this api
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
 
     /// Activates the given built spec in the data plane.
     async fn data_plane_activate(
-        &mut self,
+        &self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
         data_plane_id: models::Id,
@@ -65,23 +65,23 @@ pub trait ControlPlane: Send {
 
     /// Deletes the given entity from the data plane.
     async fn data_plane_delete(
-        &mut self,
+        &self,
         catalog_name: String,
         spec_type: CatalogType,
         data_plane_id: models::Id,
     ) -> anyhow::Result<()>;
 
     /// Triggers controller runs for all dependents of the given `catalog_name`.
-    async fn notify_dependents(&mut self, catalog_name: String) -> anyhow::Result<()>;
+    async fn notify_dependents(&self, catalog_name: String) -> anyhow::Result<()>;
 
     async fn evolve_collections(
-        &mut self,
+        &self,
         draft: tables::DraftCatalog,
         collections: Vec<evolution::EvolveRequest>,
     ) -> anyhow::Result<EvolutionOutput>;
 
     async fn discover(
-        &mut self,
+        &self,
         capture_name: models::Capture,
         draft: tables::DraftCatalog,
         update_only: bool,
@@ -94,7 +94,7 @@ pub trait ControlPlane: Send {
     /// executing the publication. Unsuccessful publications are represented by
     /// an `Ok`, where the `PublicationResult` has a non-success status.
     async fn publish(
-        &mut self,
+        &self,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
@@ -102,21 +102,15 @@ pub trait ControlPlane: Send {
     ) -> anyhow::Result<PublicationResult>;
 
     /// Fetch the given set of live specs, returning them all as part of a `LiveCatalog`.
-    async fn get_live_specs(
-        &mut self,
-        names: BTreeSet<String>,
-    ) -> anyhow::Result<tables::LiveCatalog>;
+    async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog>;
 
     /// Fetch the connector spec for the given image, which should include both
     /// the name and the tag.
-    async fn get_connector_spec(
-        &mut self,
-        connector_image: String,
-    ) -> anyhow::Result<ConnectorSpec>;
+    async fn get_connector_spec(&self, connector_image: String) -> anyhow::Result<ConnectorSpec>;
 
     /// Fetch the inferred schema for the given collection.
     async fn get_inferred_schema(
-        &mut self,
+        &self,
         collection: models::Collection,
     ) -> anyhow::Result<Option<tables::InferredSchema>> {
         let live = self.get_live_specs(set_of(collection)).await?;
@@ -126,7 +120,7 @@ pub trait ControlPlane: Send {
 
     /// Fetch a single collection spec.
     async fn get_collection(
-        &mut self,
+        &self,
         collection: models::Collection,
     ) -> anyhow::Result<Option<tables::LiveCollection>> {
         let live = self.get_live_specs(set_of(collection)).await?;
@@ -136,7 +130,7 @@ pub trait ControlPlane: Send {
 
     /// Fetch a single capture spec.
     async fn get_capture(
-        &mut self,
+        &self,
         capture: models::Capture,
     ) -> anyhow::Result<Option<tables::LiveCapture>> {
         let live = self.get_live_specs(set_of(capture)).await?;
@@ -145,7 +139,7 @@ pub trait ControlPlane: Send {
 
     /// Fetch a single materialization spec.
     async fn get_materialization(
-        &mut self,
+        &self,
         materialization: models::Materialization,
     ) -> anyhow::Result<Option<tables::LiveMaterialization>> {
         let live = self.get_live_specs(set_of(materialization)).await?;
@@ -153,7 +147,7 @@ pub trait ControlPlane: Send {
     }
 
     /// Fetch a single test spec.
-    async fn get_test(&mut self, test: models::Test) -> anyhow::Result<Option<tables::LiveTest>> {
+    async fn get_test(&self, test: models::Test) -> anyhow::Result<Option<tables::LiveTest>> {
         let live = self.get_live_specs(set_of(test)).await?;
         unwrap_single!(live; expect tests not captures, collections, materializations, inferred_schemas)
     }
@@ -257,13 +251,13 @@ impl<C: DiscoverConnectors> PGControlPlane<C> {
 #[async_trait::async_trait]
 impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     #[tracing::instrument(level = "debug", err, skip(self))]
-    async fn notify_dependents(&mut self, catalog_name: String) -> anyhow::Result<()> {
+    async fn notify_dependents(&self, catalog_name: String) -> anyhow::Result<()> {
         let now = self.current_time();
         agent_sql::controllers::notify_dependents(&catalog_name, now, &self.pool).await?;
         Ok(())
     }
 
-    async fn get_connector_spec(&mut self, image: String) -> anyhow::Result<ConnectorSpec> {
+    async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
         let (image_name, image_tag) = models::split_image_tag(&image);
         let Some(row) =
             agent_sql::connector_tags::fetch_connector_spec(&image_name, &image_tag, &self.pool)
@@ -306,10 +300,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
         })
     }
 
-    async fn get_live_specs(
-        &mut self,
-        names: BTreeSet<String>,
-    ) -> anyhow::Result<tables::LiveCatalog> {
+    async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
         let names = names.into_iter().collect::<Vec<_>>();
         let mut live = crate::live_specs::get_live_specs(
             self.system_user_id,
@@ -353,7 +344,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     }
 
     async fn evolve_collections(
-        &mut self,
+        &self,
         draft: tables::DraftCatalog,
         requests: Vec<evolution::EvolveRequest>,
     ) -> anyhow::Result<EvolutionOutput> {
@@ -367,7 +358,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     }
 
     async fn discover(
-        &mut self,
+        &self,
         capture_name: models::Capture,
         draft: tables::DraftCatalog,
         update_only: bool,
@@ -402,7 +393,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     }
 
     async fn publish(
-        &mut self,
+        &self,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
@@ -425,7 +416,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     }
 
     async fn data_plane_activate(
-        &mut self,
+        &self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
         data_plane_id: models::Id,
@@ -491,7 +482,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     }
 
     async fn data_plane_delete(
-        &mut self,
+        &self,
         catalog_name: String,
         spec_type: CatalogType,
         data_plane_id: models::Id,
