@@ -22,6 +22,7 @@ impl<E: Executor> ObjSafe for E {
         E::TASK_TYPE
     }
 
+    #[tracing::instrument(skip_all, fields(task_id = %task_id))]
     fn poll<'s>(
         &'s self,
         pool: &'s sqlx::PgPool,

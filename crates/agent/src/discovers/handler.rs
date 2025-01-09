@@ -293,12 +293,16 @@ mod test {
             ),
             p4 as (
                 -- This is here to assert that it is ignored due to the presence of the drafted capture
-                insert into live_specs (catalog_name, spec_type, spec) values
-                ('aliceCo/dir/source-thingy', 'capture', '{
+                insert into live_specs (catalog_name, spec_type, controller_task_id, spec) values
+                ('aliceCo/dir/source-thingy', 'capture', '1122334455667788'::flowid, '{
                     "bindings": [ {"target": "who/cares" } ],
                     "endpoint": { "connector": { "config": { "a": "liveA" }, "image": "live/image" } },
                     "interval": "90m"
                 }')
+            ),
+            p5 as (
+                insert into internal.tasks (task_id, task_type) values ('1122334455667788'::flowid, 2)
+                on conflict do nothing
             )
             select 1;
             "#,

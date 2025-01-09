@@ -88,13 +88,56 @@ pub async fn update_live_specs(
                 $14::text[]
             )
         ),
-        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, last_build_id, next_pub_id) as (
+        joined(catalog_name, spec_type, spec, built_spec, expect_build_id, reads_from, writes_to, image, image_tag, data_plane_id, is_touch, dependency_hash, last_build_id, next_pub_id, controller_task_id) as (
             select
-                inputs.*,
+                inputs.catalog_name,
+                inputs.spec_type,
+                inputs.spec,
+                inputs.built_spec,
+                inputs.expect_pub_id,
+                inputs.reads_from,
+                inputs.writes_to,
+                inputs.image,
+                inputs.image_tag,
+                inputs.data_plane_id,
+                inputs.is_touch,
+                inputs.dependency_hash,
                 case when ls.spec is null then '00:00:00:00:00:00:00:00'::flowid else ls.last_build_id end as last_build_id,
-                case when inputs.is_touch then ls.last_pub_id else $1::flowid end as next_pub_id
+                case when inputs.is_touch then ls.last_pub_id else $1::flowid end as next_pub_id,
+                case when ls.controller_task_id is null then internal.id_generator() else ls.controller_task_id end as controller_task_id
             from inputs
             left outer join live_specs ls on ls.catalog_name = inputs.catalog_name
+        ),
+        create_controller_tasks as (
+            insert into internal.tasks (task_id, task_type, wake_at, inbox)
+            select
+                controller_task_id,
+                2,
+                now(),
+                array[json_build_array(
+                    '00:00:00:00:00:00:00:00',
+                    json_build_object('type', 'spec_published', 'pub_id', $1::text)
+                )] as inbox
+            from joined
+            on conflict (task_id) do update set
+            wake_at = now(),
+            inbox =
+                CASE WHEN internal.tasks.heartbeat = '0001-01-01T00:00:00Z'
+                THEN ARRAY_APPEND(internal.tasks.inbox, json_build_array(
+                                    '00:00:00:00:00:00:00:00',
+                                    json_build_object('type', 'spec_published', 'pub_id', $1::text)
+                                ))
+                ELSE internal.tasks.inbox
+                END,
+            inbox_next =
+                CASE WHEN internal.tasks.heartbeat = '0001-01-01T00:00:00Z'
+                THEN internal.tasks.inbox_next
+                ELSE ARRAY_APPEND(internal.tasks.inbox_next, json_build_array(
+                                                    '00:00:00:00:00:00:00:00',
+                                                    json_build_object('type', 'spec_published', 'pub_id', $1::text)
+                                                ))
+                END
+            returning task_id
         ),
         insert_live_specs(catalog_name,live_spec_id) as (
             insert into live_specs (
@@ -104,13 +147,13 @@ pub async fn update_live_specs(
                 built_spec,
                 last_build_id,
                 last_pub_id,
-                controller_next_run,
                 reads_from,
                 writes_to,
                 connector_image_name,
                 connector_image_tag,
                 data_plane_id,
-                dependency_hash
+                dependency_hash,
+                controller_task_id
             ) select
                 catalog_name,
                 spec_type,
@@ -118,7 +161,6 @@ pub async fn update_live_specs(
                 built_spec,
                 $2::flowid,
                 joined.next_pub_id,
-                now(),
                 case when json_typeof(reads_from) is null then
                     null
                 else
@@ -132,7 +174,8 @@ pub async fn update_live_specs(
                 image,
                 image_tag,
                 data_plane_id,
-                dependency_hash
+                dependency_hash,
+                controller_task_id
             from joined
             on conflict (catalog_name) do update set
                 updated_at = now(),
@@ -141,20 +184,20 @@ pub async fn update_live_specs(
                 built_spec = excluded.built_spec,
                 last_build_id = excluded.last_build_id,
                 last_pub_id = excluded.last_pub_id,
-                controller_next_run = excluded.controller_next_run,
                 reads_from = excluded.reads_from,
                 writes_to = excluded.writes_to,
                 connector_image_name = excluded.connector_image_name,
                 connector_image_tag = excluded.connector_image_tag,
                 dependency_hash = excluded.dependency_hash
+                -- controller_task_id is not updated here, as it is only set on first publication
             returning
                 catalog_name,
                 id as live_spec_id,
                 last_build_id
         ),
-        insert_controller_jobs as (
-            insert into controller_jobs(live_spec_id)
-            select live_spec_id from insert_live_specs
+        insert_controller_status as (
+            insert into controller_jobs (live_spec_id, status)
+            select live_spec_id, '{}'::json from insert_live_specs
             on conflict (live_spec_id) do nothing
         ),
         delete_alerts as (
