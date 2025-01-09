@@ -70,9 +70,7 @@ pub struct ControllerState {
 }
 
 /// Returns a struct with all of the initial state that's needed to run a
-/// controller. If the `live_specs` row still has a `controller_next_run` set,
-/// this will return an error so that automation-driven controllers and
-/// handler-driven controllers don't try to update the same row.
+/// controller.
 pub async fn fetch_controller_state(
     controller_task_id: Id,
     db: impl sqlx::PgExecutor<'static>,
@@ -83,10 +81,6 @@ pub async fn fetch_controller_state(
 
     let Some(job) = maybe_job else {
         return Ok(None);
-    };
-    // TODO(phil): remove controller_next_run after legacy agents no longer need it.
-    if job.controller_next_run.is_some() {
-        anyhow::bail!("live_specs row still has legacy controller_next_run set");
     };
     let state = ControllerState::parse_db_row(&job)?;
     Ok(Some(state))

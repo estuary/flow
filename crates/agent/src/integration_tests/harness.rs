@@ -662,7 +662,6 @@ impl TestHarness {
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
                 ls.spec_type as "spec_type: agent_sql::CatalogType",
                 ls.dependency_hash as "live_dependency_hash",
-                ls.controller_next_run,
                 ls.created_at,
                 ls.updated_at as "live_spec_updated_at",
                 cj.controller_version as "controller_version: i32",

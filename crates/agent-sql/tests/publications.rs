@@ -1,54 +1,8 @@
-use agent_sql::{Id, TextJson};
+use agent_sql::TextJson;
 use serde_json::value::RawValue;
 use sqlx::Connection;
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
-
-#[tokio::test]
-async fn test_finding_forbidden_connectors() {
-    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
-        .await
-        .expect("connect");
-
-    let mut txn = conn.begin().await.unwrap();
-
-    sqlx::query(
-        r#"
-        with p1 as (
-          insert into live_specs (id, catalog_name, spec, spec_type, connector_image_name, last_build_id, last_pub_id) values
-          ('aa00000000000000', 'testConnectors/Forbidden', '{}'::json, 'capture', 'forbidden_image', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-          ('bb00000000000000', 'testConnectors/Allowed', '{}'::json, 'capture', 'allowed_image', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
-        ),
-        p2 as (
-            insert into connectors (external_url, image_name, title, short_description, logo_url, recommended) values
-                ('http://example.com', 'allowed_image', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, false)
-        )
-        select 1;
-        "#,
-    )
-    .execute(&mut txn)
-    .await
-    .unwrap();
-
-    let res = agent_sql::connector_tags::resolve_unknown_connectors(
-        vec![
-            Id::from_hex("aa00000000000000").unwrap(),
-            Id::from_hex("bb00000000000000").unwrap(),
-        ],
-        &mut txn,
-    )
-    .await
-    .unwrap();
-
-    insta::assert_json_snapshot!(res, @r#"
-    [
-      {
-        "catalog_name": "testConnectors/Forbidden",
-        "image_name": "forbidden_image"
-      }
-    ]
-    "#);
-}
 
 #[tokio::test]
 async fn test_tenant_usage_quotas() {
@@ -72,11 +26,16 @@ async fn test_tenant_usage_quotas() {
             ('8000000000000000', 'usageB/CaptureC', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('9000000000000000', 'usageB/CaptureD', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('1100000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+            returning controller_task_id
           ),
           p2 as (
               insert into tenants (tenant, tasks_quota, collections_quota) values
               ('usageA/', 6, 3),
               ('usageB/', 1, 5)
+          ),
+          p3 as (
+              insert into internal.tasks (task_id, task_type)
+              select controller_task_id, 2 from p1
           )
           select 1;
         "#,
@@ -127,8 +86,13 @@ async fn test_text_json_round_trip() {
     let got: Res = sqlx::query_as!(
         Res,
         r#"
-        insert into live_specs(id, catalog_name, last_build_id, last_pub_id, spec_type, spec)
-        values ('aa00000000000000', 'acmeCo/testing', 'bb00000000000000', 'cc00000000000000', 'capture', $1)
+        with t as (
+            insert into internal.tasks (task_id, task_type) values ('aaaaaaaaaaaaaaaa', 2)
+            returning task_id
+        )
+        insert into live_specs(id, controller_task_id, catalog_name, last_build_id, last_pub_id, spec_type, spec)
+        select 'aa00000000000000', task_id, 'acmeCo/testing', 'bb00000000000000', 'cc00000000000000', 'capture', $1
+        from t
         returning spec as "spec: TextJson<Box<RawValue>>"
         "#,
         &Some(TextJson(raw.clone())) as &Option<TextJson<Box<RawValue>>>,

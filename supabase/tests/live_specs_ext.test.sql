@@ -21,14 +21,18 @@ returns setof text as $$
     ('0101010101010101', '11111111-1111-1111-1111-111111111111');
 
   delete from live_specs;
-  insert into live_specs (id, catalog_name, last_build_id, last_pub_id, spec_type) values
-    ('0202020202020202', 'aliceCo/widgets/test1', '0101010101010101', '0101010101010101', 'test'),
-    -- alice is authorised to access carolCo through two different roles_grants, but
-    -- must only be returned once in live_specs_ext
-    ('0303030303030303', 'carolCo/paper/test1', '0101010101010101', '0101010101010101', 'test'),
-    -- alice is not authorised to access unknownCo
-    ('0404040404040404', 'unknownCo/foo/bar', '0101010101010101', '0101010101010101', 'collection')
-  ;
+  with insert_live as (
+    insert into live_specs (id, catalog_name, last_build_id, last_pub_id, spec_type) values
+        ('0202020202020202', 'aliceCo/widgets/test1', '0101010101010101', '0101010101010101', 'test'),
+        -- alice is authorised to access carolCo through two different roles_grants, but
+        -- must only be returned once in live_specs_ext
+        ('0303030303030303', 'carolCo/paper/test1', '0101010101010101', '0101010101010101', 'test'),
+        -- alice is not authorised to access unknownCo
+        ('0404040404040404', 'unknownCo/foo/bar', '0101010101010101', '0101010101010101', 'collection')
+    returning controller_task_id
+  )
+  insert into internal.tasks (task_id, task_type)
+  select controller_task_id, 2 from insert_live;
 
   delete from publication_specs;
   insert into publication_specs (live_spec_id, pub_id, user_id) values
