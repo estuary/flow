@@ -16,7 +16,6 @@ pub struct ControllerJob {
     pub spec_type: Option<CatalogType>,
     pub controller_version: i32,
     pub controller_updated_at: DateTime<Utc>,
-    pub controller_next_run: Option<DateTime<Utc>>,
     pub live_spec_updated_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub logs_token: Uuid,
@@ -45,8 +44,6 @@ pub async fn fetch_controller_job(
             ls.dependency_hash as "live_dependency_hash",
             ls.created_at,
             ls.updated_at as "live_spec_updated_at",
-            -- TODO(phil): remove controller_next_run after legacy agents no longer need it.
-            ls.controller_next_run,
             cj.controller_version as "controller_version: i32",
             cj.updated_at as "controller_updated_at",
             cj.logs_token,
@@ -98,9 +95,7 @@ pub async fn update_status(
     Ok(())
 }
 
-/// Trigger a controller sync of all dependents of the given `catalog_name` that have not already
-/// been published at the given `publication_id`. This will not update any dependents that already
-/// have a `controller_next_run` set to an earlier time than the given `next_run`.
+/// Trigger a controller sync of all dependents of the given `live_spec_id`.
 #[tracing::instrument(err, ret, skip(pool))]
 pub async fn notify_dependents(live_spec_id: Id, pool: &sqlx::PgPool) -> sqlx::Result<u64> {
     // If the spec is a source, then notify all all targets, but only if the flow_type is

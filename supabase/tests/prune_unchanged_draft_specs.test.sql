@@ -13,6 +13,7 @@ begin
     ('aliceCo/collA', '{"description": "collA has a schema"}', '{}'),
     ('aliceCo/collG', '{"description": "collG has a schema"}', '{}');
 
+  with insert_live as (
   insert into live_specs (catalog_name, spec_type, spec, inferred_schema_md5) values
     ('aliceCo/capA', 'capture', '{
       "endpoint": {
@@ -43,7 +44,11 @@ begin
     }', null),
     ('aliceCo/collA', 'collection', collection_spec, 'different md5 that should be ignored'),
     ('aliceCo/collG', 'collection', collection_spec,
-      (select md5 from inferred_schemas where collection_name = 'aliceCo/collG'));
+      (select md5 from inferred_schemas where collection_name = 'aliceCo/collG'))
+    returning controller_task_id
+  )
+  insert into internal.tasks (task_id, task_type)
+  select controller_task_id, 2 from insert_live;
 
 
   -- Drop privilege to `authenticated` and authorize as Alice.

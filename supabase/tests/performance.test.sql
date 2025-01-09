@@ -27,9 +27,15 @@ begin
     ('daveCo/', 'daveCo/', 'admin'),
     ('aliceCo/', 'support/', 'admin');
 
-  insert into live_specs (catalog_name, spec_type, spec)
-  values ('daveCo/the/capture', 'capture', '{}'),
-         ('daveCo/and/collection', 'collection', '{}');
+  with insert_live as (
+    insert into live_specs (catalog_name, spec_type, spec)
+    values
+        ('daveCo/the/capture', 'capture', '{}'),
+        ('daveCo/and/collection', 'collection', '{}')
+    returning controller_task_id
+  )
+  insert into internal.tasks (task_id, task_type)
+  select controller_task_id, 2 from insert_live;
 
   -- Now create a slew of tenants, each with role & user grants
   -- and multiple live specs.
@@ -55,15 +61,20 @@ begin
             ('support/', tenant, 'admin'),
             (tenant, 'aliceCo/shared/', 'read');
 
-    insert into live_specs (catalog_name, spec_type, spec)
-    values (tenant || 'my-cool/capture', 'capture', '{}'),
-           (tenant || 'my-cool/collection-a', 'collection', '{}'),
-           (tenant || 'my-cool/collection-b', 'collection', '{}'),
-           (tenant || 'my-cool/collection-c', 'collection', '{}'),
-           (tenant || 'my-important/derivation.v1', 'collection', '{}'),
-           (tenant || 'my-important/derivation.v2', 'collection', '{}'),
-           (tenant || 'my-first/materialization', 'materialization', '{}'),
-           (tenant || 'my-second/materialization', 'materialization', '{}');
+    with insert_live as (
+        insert into live_specs (catalog_name, spec_type, spec)
+        values (tenant || 'my-cool/capture', 'capture', '{}'),
+            (tenant || 'my-cool/collection-a', 'collection', '{}'),
+            (tenant || 'my-cool/collection-b', 'collection', '{}'),
+            (tenant || 'my-cool/collection-c', 'collection', '{}'),
+            (tenant || 'my-important/derivation.v1', 'collection', '{}'),
+            (tenant || 'my-important/derivation.v2', 'collection', '{}'),
+            (tenant || 'my-first/materialization', 'materialization', '{}'),
+            (tenant || 'my-second/materialization', 'materialization', '{}')
+        returning controller_task_id
+    )
+    insert into internal.tasks (task_id, task_type)
+    select controller_task_id, 2 from insert_live;
 
   end loop;
 

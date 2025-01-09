@@ -30,84 +30,89 @@ begin
     ('bobCo/', 'bobCo/', 'admin'),
     ('bobCo/', 'carolCo/', 'read');
 
-  insert into live_specs (catalog_name, spec_type, spec, writes_to, reads_from) values
-    ('carolCo/capture/pending-deletion', 'capture', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }',
-      array[
-        'carolCo/pending-deletion/collection-A',
-        'carolCo/pending-deletion/collection-B',
-        'carolCo/pending-deletion/collection-C',
-        'carolCo/pending-deletion/collection-D',
-        'carolCo/pending-deletion/collection-E',
-        'carolCo/pending-deletion/collection-F'
-      ],
-      null),
-    ('carolCo/pending-deletion/collection-A', 'collection', '{"schema":{},"key":["/id"]}', null, null),
-    ('carolCo/pending-deletion/collection-B', 'collection', '{"schema":{},"key":["/id"]}', null, null),
-    ('carolCo/pending-deletion/collection-C', 'collection', '{"schema":{},"key":["/id"]}', null, null),
-    ('carolCo/pending-deletion/collection-D', 'collection', '{"schema":{},"key":["/id"]}', null, null),
-    ('carolCo/pending-deletion/collection-E', 'collection', '{"schema":{},"key":["/id"]}', null, null),
-    ('carolCo/pending-deletion/collection-F', 'collection', '{"schema":{},"key":["/id"]}', null, null),
-    ('carolCo/capture/consumes-collection-A', 'capture', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }',
-      array['carolCo/pending-deletion/collection-A'],
-      null),
-    ('carolCo/materialization/consumes-collection-B', 'materialization', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }',
-      null,
-      array['carolCo/pending-deletion/collection-B']),
-    ('carolCo/derivation/consumes-collection-C', 'collection', '{
-        "using": {
-          "sqlite": {
-            "migrations": []
-            }
-        },
-        "transforms": []
-      }',
-      array['carolCo/pending-deletion/collection-C'],
-      null),
-    ('carolCo/derivation/consumes-collection-D', 'collection', '{
-        "using": {
-          "sqlite": {
-            "migrations": []
-            }
-        },
-        "transforms": []
-      }',
-      null,
-      array['carolCo/pending-deletion/collection-D']),
-    ('bobCo/materialization/consumes-collection-F', 'materialization', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }',
-      null,
-      array['carolCo/pending-deletion/collection-F']);
+  with insert_live as (
+    insert into live_specs (catalog_name, spec_type, spec, writes_to, reads_from) values
+        ('carolCo/capture/pending-deletion', 'capture', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }',
+        array[
+            'carolCo/pending-deletion/collection-A',
+            'carolCo/pending-deletion/collection-B',
+            'carolCo/pending-deletion/collection-C',
+            'carolCo/pending-deletion/collection-D',
+            'carolCo/pending-deletion/collection-E',
+            'carolCo/pending-deletion/collection-F'
+        ],
+        null),
+        ('carolCo/pending-deletion/collection-A', 'collection', '{"schema":{},"key":["/id"]}', null, null),
+        ('carolCo/pending-deletion/collection-B', 'collection', '{"schema":{},"key":["/id"]}', null, null),
+        ('carolCo/pending-deletion/collection-C', 'collection', '{"schema":{},"key":["/id"]}', null, null),
+        ('carolCo/pending-deletion/collection-D', 'collection', '{"schema":{},"key":["/id"]}', null, null),
+        ('carolCo/pending-deletion/collection-E', 'collection', '{"schema":{},"key":["/id"]}', null, null),
+        ('carolCo/pending-deletion/collection-F', 'collection', '{"schema":{},"key":["/id"]}', null, null),
+        ('carolCo/capture/consumes-collection-A', 'capture', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }',
+        array['carolCo/pending-deletion/collection-A'],
+        null),
+        ('carolCo/materialization/consumes-collection-B', 'materialization', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }',
+        null,
+        array['carolCo/pending-deletion/collection-B']),
+        ('carolCo/derivation/consumes-collection-C', 'collection', '{
+            "using": {
+            "sqlite": {
+                "migrations": []
+                }
+            },
+            "transforms": []
+        }',
+        array['carolCo/pending-deletion/collection-C'],
+        null),
+        ('carolCo/derivation/consumes-collection-D', 'collection', '{
+            "using": {
+            "sqlite": {
+                "migrations": []
+                }
+            },
+            "transforms": []
+        }',
+        null,
+        array['carolCo/pending-deletion/collection-D']),
+        ('bobCo/materialization/consumes-collection-F', 'materialization', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }',
+        null,
+        array['carolCo/pending-deletion/collection-F'])
+        returning controller_task_id
+    )
+    insert into internal.tasks (task_id, task_type)
+    select controller_task_id, 2 from insert_live;
 
   target_capture_id := (select id from live_specs where catalog_name = 'carolCo/capture/pending-deletion');
 
