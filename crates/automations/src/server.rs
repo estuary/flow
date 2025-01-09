@@ -2,6 +2,7 @@ use super::{executors, BoxedRaw, Executor, Server, TaskType};
 use futures::stream::StreamExt;
 use sqlx::types::Json as SqlJson;
 use std::sync::Arc;
+use tokio::sync::OwnedSemaphorePermit;
 
 impl Server {
     pub const fn new() -> Self {
@@ -236,4 +237,61 @@ async fn ready_tasks_iter(
             _ = semaphore.clone().acquire_owned() => (), // Cancel sleep.
         }
     }
+}
+
+pub async fn dequeue_tasks(
+    permits: &mut OwnedSemaphorePermit,
+    pool: &sqlx::PgPool,
+    executors: &Server,
+    task_types: &[i16],
+    heartbeat_timeout: std::time::Duration,
+) -> sqlx::Result<Vec<ReadyTask>> {
+    let dequeued = sqlx::query_as!(
+        DequeuedTask,
+        r#"
+        WITH picked AS (
+            SELECT task_id
+            FROM internal.tasks
+            WHERE
+                task_type = ANY($1) AND
+                wake_at   < NOW() AND
+                heartbeat < NOW() - $2::INTERVAL
+            ORDER BY wake_at DESC
+            LIMIT $3
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE internal.tasks
+        SET heartbeat = NOW()
+        WHERE task_id in (SELECT task_id FROM picked)
+        RETURNING
+            task_id as "id: models::Id",
+            task_type as "type_: TaskType",
+            parent_id as "parent_id: models::Id",
+            inbox as "inbox: Vec<SqlJson<(models::Id, Option<BoxedRaw>)>>",
+            inner_state as "state: SqlJson<BoxedRaw>",
+            heartbeat::TEXT as "last_heartbeat!";
+        "#,
+        &task_types as &[i16],
+        heartbeat_timeout as std::time::Duration,
+        permits.num_permits() as i64,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let ready = dequeued
+        .into_iter()
+        .map(|task| {
+            let Ok(index) = task_types.binary_search(&task.type_.0) else {
+                panic!("polled {:?} with unexpected {:?}", task.id, task.type_);
+            };
+            ReadyTask {
+                task,
+                executor: executors.0[index].clone(),
+                permit: permits.split(1).unwrap(),
+                pool: pool.clone(),
+            }
+        })
+        .collect();
+
+    Ok(ready)
 }
