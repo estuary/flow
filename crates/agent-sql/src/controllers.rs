@@ -31,7 +31,7 @@ pub struct ControllerJob {
 pub async fn fetch_controller_job(
     controller_task_id: Id,
     db: impl sqlx::PgExecutor<'static>,
-) -> sqlx::Result<ControllerJob> {
+) -> sqlx::Result<Option<ControllerJob>> {
     sqlx::query_as!(
         ControllerJob,
         r#"select
@@ -62,7 +62,7 @@ pub async fn fetch_controller_job(
         where t.task_id = $1::flowid;"#,
         controller_task_id as Id,
     )
-    .fetch_one(db)
+    .fetch_optional(db)
     .await
 }
 
