@@ -14,45 +14,50 @@ begin
     ('aliceCo/materialization/four-hours', '4 hours'),
     ('aliceCo/materialization/disabled', '2 hours');
 
-  insert into live_specs (catalog_name, spec_type, spec, created_at) values
-    ('aliceCo/capture/three-hours', 'capture', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }', now() - '3h'::interval),
-    ('aliceCo/capture/two-hours', 'capture', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }', now() - '2h'::interval),
-    ('aliceCo/capture/deleted', 'capture', null, now() - '3h'::interval),
-    ('aliceCo/materialization/four-hours', 'materialization', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }', now() - '4h'::interval),
-    ('aliceCo/materialization/disabled', 'materialization', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": [],
-        "shards": { "disable": true }
-      }', now() - '3h'::interval);
+    with insert_live as (
+    insert into live_specs (catalog_name, spec_type, spec, created_at) values
+        ('aliceCo/capture/three-hours', 'capture', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }', now() - '3h'::interval),
+        ('aliceCo/capture/two-hours', 'capture', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }', now() - '2h'::interval),
+        ('aliceCo/capture/deleted', 'capture', null, now() - '3h'::interval),
+        ('aliceCo/materialization/four-hours', 'materialization', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }', now() - '4h'::interval),
+        ('aliceCo/materialization/disabled', 'materialization', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": [],
+            "shards": { "disable": true }
+        }', now() - '3h'::interval)
+    returning controller_task_id
+    )
+    insert into internal.tasks (task_id, task_type)
+    select controller_task_id, 2 from insert_live;
 
   insert into catalog_stats_hourly (catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_written_to_me, bytes_read_by_me) values
     ('aliceCo/capture/three-hours', 'hourly', date_trunc('hour', now()), '{}', 0, 0, 0),
@@ -159,25 +164,30 @@ begin
     ('aliceCo/capture/three-hours', '2 hours'),
     ('aliceCo/materialization/four-hours', '4 hours');
 
-  insert into live_specs (catalog_name, spec_type, spec, created_at) values
-    ('aliceCo/capture/three-hours', 'capture', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }', now() - '3h'::interval),
-    ('aliceCo/materialization/four-hours', 'materialization', '{
-        "endpoint": {
-          "connector": {
-            "image": "some image",
-              "config": {"some": "config"}
-            }
-        },
-        "bindings": []
-      }', now() - '4h'::interval);
+  with insert_live as (
+    insert into live_specs (catalog_name, spec_type, spec, created_at) values
+        ('aliceCo/capture/three-hours', 'capture', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }', now() - '3h'::interval),
+        ('aliceCo/materialization/four-hours', 'materialization', '{
+            "endpoint": {
+            "connector": {
+                "image": "some image",
+                "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+        }', now() - '4h'::interval)
+        returning controller_task_id
+  )
+  insert into internal.tasks (task_id, task_type)
+  select controller_task_id, 2 from insert_live;
 
   insert into catalog_stats_hourly (catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_written_to_me, bytes_read_by_me) values
     ('aliceCo/capture/three-hours', 'hourly', date_trunc('hour', now()), '{}', 0, 0, 0),
