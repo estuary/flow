@@ -110,6 +110,7 @@ async fn load_draft_errors(draft_id: Id, db: &sqlx::PgPool) -> Vec<(String, Stri
 /// (nearly) all data in the database, to ensure each test run starts with a
 /// clean slate.
 pub struct TestHarness {
+    pub control_plane: TestControlPlane,
     pub test_name: String,
     pub pool: sqlx::PgPool,
     pub publisher: Publisher,
@@ -162,7 +163,7 @@ impl TestHarness {
             id_gen.clone(),
         );
 
-        let control_plane = PGControlPlane::new(
+        let control_plane = TestControlPlane::new(PGControlPlane::new(
             pool.clone(),
             system_user_id,
             publisher.clone(),
@@ -369,7 +370,7 @@ impl TestHarness {
     /// testing control plane operations or verifying results. See `TestControlPlane`
     /// comments for deets.
     pub fn control_plane(&mut self) -> &mut TestControlPlane {
-        self.controllers.control_plane()
+        &mut self.control_plane
     }
 
     /// Setup a new tenant with the given name, and return the id of the user
@@ -1065,13 +1066,18 @@ impl FailBuild for InjectBuildError {
     }
 }
 
-/// A wrapper around `PGControlPlane` that has a few basic capbilities for verifying
-/// activation calls and simulating failures of activations and publications.
-pub struct TestControlPlane {
-    inner: PGControlPlane<MockDiscoverConnectors>,
+struct ControlPlaneMocks {
     activations: Vec<Activation>,
     fail_activations: BTreeSet<String>,
     build_failures: InjectBuildFailures,
+}
+
+/// A wrapper around `PGControlPlane` that has a few basic capbilities for verifying
+/// activation calls and simulating failures of activations and publications.
+#[derive(Clone)]
+pub struct TestControlPlane {
+    inner: PGControlPlane<MockDiscoverConnectors>,
+    mocks: Arc<Mutex<ControlPlaneMocks>>,
 }
 
 /// A `Finalize` that can inject build failures in order to test failure scenarios.
@@ -1104,21 +1110,25 @@ impl TestControlPlane {
     fn new(inner: PGControlPlane<MockDiscoverConnectors>) -> Self {
         Self {
             inner,
-            activations: Vec::new(),
-            fail_activations: BTreeSet::new(),
-            build_failures: InjectBuildFailures(Arc::new(Mutex::new(BTreeMap::new()))),
+            mocks: Arc::new(Mutex::new(ControlPlaneMocks {
+                activations: Vec::new(),
+                fail_activations: BTreeSet::new(),
+                build_failures: InjectBuildFailures(Arc::new(Mutex::new(BTreeMap::new()))),
+            })),
         }
     }
 
     pub fn reset_activations(&mut self) {
-        self.activations.clear();
-        self.fail_activations.clear();
+        let mut mocks = self.mocks.lock().unwrap();
+        mocks.activations.clear();
+        mocks.fail_activations.clear();
     }
 
     /// Cause all calls to activate the given catalog_name to fail until
     /// `reset_activations` is called.
     pub fn fail_next_activation(&mut self, catalog_name: &str) {
-        self.fail_activations.insert(catalog_name.to_string());
+        let mut mocks = self.mocks.lock().unwrap();
+        mocks.fail_activations.insert(catalog_name.to_string());
     }
 
     /// Asserts that there were calls to activate or delete all the given specs.
@@ -1129,7 +1139,8 @@ impl TestControlPlane {
         desc: &str,
         mut expected: Vec<(&str, Option<CatalogType>)>,
     ) {
-        let mut actual = self
+        let mocks = self.mocks.lock().unwrap();
+        let mut actual = mocks
             .activations
             .iter()
             .map(|a| {
@@ -1150,6 +1161,7 @@ impl TestControlPlane {
             expected, actual,
             "{desc} activations mismatch, expected:\n{expected:?}\nactual:\n{actual:?}\n"
         );
+        std::mem::drop(mocks);
         self.reset_activations();
     }
 
@@ -1159,7 +1171,8 @@ impl TestControlPlane {
     where
         F: FailBuild,
     {
-        let mut build_failures = self.build_failures.0.lock().unwrap();
+        let mocks = self.mocks.lock().unwrap();
+        let mut build_failures = mocks.build_failures.0.lock().unwrap();
         let modifications = build_failures.entry(catalog_name.to_string()).or_default();
         modifications.push_back(Box::new(modify));
     }
@@ -1168,18 +1181,15 @@ impl TestControlPlane {
 #[async_trait::async_trait]
 impl ControlPlane for TestControlPlane {
     #[tracing::instrument(level = "debug", err, skip(self))]
-    async fn notify_dependents(&mut self, catalog_name: String) -> anyhow::Result<()> {
+    async fn notify_dependents(&self, catalog_name: String) -> anyhow::Result<()> {
         self.inner.notify_dependents(catalog_name).await
     }
 
-    async fn get_connector_spec(&mut self, image: String) -> anyhow::Result<ConnectorSpec> {
+    async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {
         self.inner.get_connector_spec(image).await
     }
 
-    async fn get_live_specs(
-        &mut self,
-        names: BTreeSet<String>,
-    ) -> anyhow::Result<tables::LiveCatalog> {
+    async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
         self.inner.get_live_specs(names).await
     }
 
@@ -1188,7 +1198,7 @@ impl ControlPlane for TestControlPlane {
     }
 
     async fn evolve_collections(
-        &mut self,
+        &self,
         draft: tables::DraftCatalog,
         collections: Vec<evolution::EvolveRequest>,
     ) -> anyhow::Result<evolution::EvolutionOutput> {
@@ -1196,7 +1206,7 @@ impl ControlPlane for TestControlPlane {
     }
 
     async fn discover(
-        &mut self,
+        &self,
         capture_name: models::Capture,
         draft: tables::DraftCatalog,
         update_only: bool,
@@ -1209,13 +1219,16 @@ impl ControlPlane for TestControlPlane {
     }
 
     async fn publish(
-        &mut self,
+        &self,
         detail: Option<String>,
         logs_token: Uuid,
         draft: tables::DraftCatalog,
         data_plane_name: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
-        let finalize = self.build_failures.clone();
+        let finalize = {
+            let mocks = self.mocks.lock().unwrap();
+            mocks.build_failures.clone()
+        };
         let publication = DraftPublication {
             user_id: self.inner.system_user_id,
             detail,
@@ -1233,12 +1246,13 @@ impl ControlPlane for TestControlPlane {
     }
 
     async fn data_plane_activate(
-        &mut self,
+        &self,
         catalog_name: String,
         spec: &AnyBuiltSpec,
         _data_plane_id: Id,
     ) -> anyhow::Result<()> {
-        if self.fail_activations.contains(&catalog_name) {
+        let mut mocks = self.mocks.lock().unwrap();
+        if mocks.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
         }
         let catalog_type = match spec {
@@ -1247,7 +1261,7 @@ impl ControlPlane for TestControlPlane {
             AnyBuiltSpec::Materialization(_) => CatalogType::Materialization,
             AnyBuiltSpec::Test(_) => panic!("unexpected catalog_type Test for data_plane_activate"),
         };
-        self.activations.push(Activation {
+        mocks.activations.push(Activation {
             catalog_name,
             catalog_type,
             built_spec: Some(spec.clone()),
@@ -1256,15 +1270,16 @@ impl ControlPlane for TestControlPlane {
     }
 
     async fn data_plane_delete(
-        &mut self,
+        &self,
         catalog_name: String,
         catalog_type: CatalogType,
         _data_plane_id: Id,
     ) -> anyhow::Result<()> {
-        if self.fail_activations.contains(&catalog_name) {
+        let mut mocks = self.mocks.lock().unwrap();
+        if mocks.fail_activations.contains(&catalog_name) {
             anyhow::bail!("data_plane_delete simulated failure");
         }
-        self.activations.push(Activation {
+        mocks.activations.push(Activation {
             catalog_name,
             catalog_type,
             built_spec: None,
