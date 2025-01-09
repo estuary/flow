@@ -71,7 +71,7 @@ async fn test_auto_discovers_add_new_bindings() {
         .unwrap_capture()
         .auto_discover
         .is_some());
-    assert!(capture_state.next_run.is_some());
+    harness.assert_controller_pending("marmots/capture").await;
 
     let no_disco_capture_state = harness
         .get_controller_state("marmots/no-auto-discover")
@@ -406,7 +406,7 @@ async fn test_auto_discovers_no_evolution() {
     let capture_state = harness.get_controller_state("mules/capture").await;
     assert!(capture_state.error.is_some());
     assert_eq!(1, capture_state.failures);
-    assert!(capture_state.next_run.is_some());
+    harness.assert_controller_pending("mules/capture").await;
     let capture_status = capture_state.current_status.unwrap_capture();
     // Expect to see that the discover succeeded, but that the publication failed.
     insta::assert_json_snapshot!(capture_status, {
@@ -615,11 +615,11 @@ async fn test_auto_discovers_update_only() {
         .await;
     assert!(result.status.is_success());
 
-    harness.run_pending_controllers(Some(6)).await;
+    harness.run_pending_controllers(None).await;
 
     // Expect to see that the controller has initialized a blank auto-capture status.
     let capture_state = harness.get_controller_state("pikas/capture").await;
-    assert!(capture_state.next_run.is_some());
+    harness.assert_controller_pending("pikas/capture").await;
     assert!(capture_state
         .current_status
         .unwrap_capture()
@@ -627,7 +627,9 @@ async fn test_auto_discovers_update_only() {
         .is_some());
 
     let disabled_state = harness.get_controller_state("pikas/disabled-capture").await;
-    assert!(disabled_state.next_run.is_none());
+    harness
+        .assert_controller_not_pending("pikas/disabled-capture")
+        .await;
     assert!(disabled_state
         .current_status
         .unwrap_capture()
@@ -647,7 +649,9 @@ async fn test_auto_discovers_update_only() {
     let ad_disabled_state = harness
         .get_controller_state("pikas/capture-auto-disco-disabled")
         .await;
-    assert!(ad_disabled_state.next_run.is_none());
+    harness
+        .assert_controller_not_pending("pikas/capture-auto-disco-disabled")
+        .await;
     assert!(ad_disabled_state
         .current_status
         .unwrap_capture()
@@ -745,10 +749,7 @@ async fn test_auto_discovers_update_only() {
     let capture_state = harness.get_controller_state("pikas/capture").await;
     assert!(capture_state.error.is_some());
     assert_eq!(1, capture_state.failures);
-    assert!(
-        capture_state.next_run.is_some(),
-        "expect error to be retried automatically"
-    );
+    harness.assert_controller_pending("pikas/capture").await;
     let auto_discover = capture_state
         .current_status
         .unwrap_capture()

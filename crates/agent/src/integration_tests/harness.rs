@@ -1,10 +1,10 @@
 pub mod connectors;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    controllers::{ControllerHandler, ControllerState},
+    controllers::ControllerState,
     controlplane::ConnectorSpec,
     discovers::{self, DiscoverHandler, DiscoverOutput},
     evolution,
@@ -23,6 +23,7 @@ use serde_json::{value::RawValue, Value};
 use sqlx::types::Uuid;
 use tables::DraftRow;
 use tempfile::tempdir;
+use tokio::sync::Semaphore;
 
 use self::connectors::MockDiscoverConnectors;
 
@@ -116,8 +117,10 @@ pub struct TestHarness {
     pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
-    pub controllers: ControllerHandler<TestControlPlane>,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
+
+    automations_server: automations::Server,
+    automations_task_types: Vec<i16>,
 }
 
 impl TestHarness {
@@ -169,18 +172,27 @@ impl TestHarness {
             publisher.clone(),
             id_gen.clone(),
             discover_handler.clone(),
-        );
-        let controllers = ControllerHandler::new(TestControlPlane::new(control_plane));
+        ));
+
+        let controller_exec =
+            crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
+
+        let automations_server = automations::Server::new().register(controller_exec);
+        let automations_task_types = vec![automations::task_types::LIVE_SPEC_CONTROLLER.0];
+
         let mut harness = Self {
             test_name: test_name.to_string(),
             pool,
             publisher,
-            controllers,
             builds_root,
             discover_handler,
+            control_plane,
+            automations_server,
+            automations_task_types,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
+
         harness
     }
 
@@ -311,6 +323,9 @@ impl TestHarness {
             ),
             del_controllers as (
                 delete from controller_jobs
+            ),
+            del_automations as (
+                delete from internal.tasks
             ),
             del_draft_specs as (
                 delete from draft_specs
@@ -534,10 +549,11 @@ impl TestHarness {
     pub async fn get_enqueued_controllers(&mut self, within: chrono::Duration) -> Vec<String> {
         let threshold = chrono::Utc::now() + within;
         sqlx::query_scalar!(
-            r#"select catalog_name
-            from live_specs
-            where controller_next_run is not null and controller_next_run <= $1
-            order by catalog_name"#,
+            r#"select ls.catalog_name
+            from live_specs ls
+            join internal.tasks t on ls.controller_task_id = t.task_id
+            where t.wake_at is not null and t.wake_at <= $1
+            order by ls.catalog_name"#,
             threshold,
         )
         .fetch_all(&self.pool)
@@ -640,13 +656,13 @@ impl TestHarness {
             r#"select
                 ls.id as "live_spec_id: Id",
                 ls.catalog_name as "catalog_name!: String",
-                ls.controller_next_run,
                 ls.last_pub_id as "last_pub_id: Id",
                 ls.last_build_id as "last_build_id: Id",
                 ls.spec as "live_spec: TextJson<Box<RawValue>>",
                 ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
                 ls.spec_type as "spec_type: agent_sql::CatalogType",
                 ls.dependency_hash as "live_dependency_hash",
+                ls.controller_next_run,
                 ls.created_at,
                 ls.updated_at as "live_spec_updated_at",
                 cj.controller_version as "controller_version: i32",
@@ -665,35 +681,63 @@ impl TestHarness {
         )
         .fetch_one(&self.pool)
         .await
-        .expect("failed to query controller states");
-
-        ControllerState::parse_db_row(&job).unwrap_or_else(|err| {
-            panic!(
-                "parsing controller jobs row {:?}, {err:?}",
-                job.catalog_name
-            )
-        })
+        .expect("failed to query controller state");
+        ControllerState::parse_db_row(&job).expect("failed to parse controller state")
     }
 
-    /// Runs a specific controller, which must already have a non-null `controller_next_run`,
-    /// though it doesn't necessarily have to be the oldest `controller_next_run`.
-    /// Returns the `ControllerState` as it was _before_ the controller ran.
+    /// Runs a specific controller task, which must already have a non-null
+    /// `wake_at`, though it doesn't necessarily have to be the oldest
+    /// `wake_at`, and may also be in the future Returns the `ControllerState`
+    /// as it was _after_ the controller ran.
     pub async fn run_pending_controller(&mut self, catalog_name: &str) -> ControllerState {
-        // Set controller_next_run in the distant past to ensure that it doesn't race against
-        // other tasks having controller_next_runs in the very recent past/present.
+        self.assert_controller_pending(catalog_name).await;
         sqlx::query!(
-            r#"update live_specs
-            set controller_next_run = '1999-01-01T01:01:01Z'::timestamptz
-            where catalog_name = $1 and controller_next_run is not null
-            returning 1 as "must_exist: bool";"#,
+            r#"
+            select internal.send_to_task(
+                (select controller_task_id from live_specs where catalog_name = $1),
+                '00:00:00:00:00:00:00:00'::flowid,
+                '{"type": "manual_trigger", "user_id": "ffffffff-ffff-ffff-ffff-ffffffffffff"}'
+            )"#,
             catalog_name
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to send controller task");
+
+        let runs = self.run_pending_controllers(Some(1)).await;
+
+        let run = runs.into_iter().next().unwrap();
+        assert_eq!(catalog_name, &run.catalog_name);
+        run
+    }
+
+    pub async fn assert_controller_pending(&mut self, catalog_name: &str) {
+        let wake_at: Option<DateTime<Utc>> = self.get_controller_wake_at(catalog_name).await;
+        assert!(
+            wake_at.is_some(),
+            "expected controller for '{catalog_name}' to have a non-null wake_at, but it was null"
+        );
+    }
+
+    pub async fn assert_controller_not_pending(&mut self, catalog_name: &str) {
+        let wake_at: Option<DateTime<Utc>> = self.get_controller_wake_at(catalog_name).await;
+        assert!(
+            wake_at.is_none(),
+            "expected controller for '{catalog_name}' to have a null wake_at, but it was: {wake_at:?}"
+        );
+    }
+
+    async fn get_controller_wake_at(&mut self, catalog_name: &str) -> Option<DateTime<Utc>> {
+        sqlx::query_scalar!(
+            r#"select t.wake_at
+            from internal.tasks t
+            join live_specs ls on t.task_id = ls.controller_task_id
+            where ls.catalog_name = $1;"#,
+            catalog_name,
         )
         .fetch_one(&self.pool)
         .await
-        .expect("run_pending_controller fail");
-
-        let runs = self.run_pending_controllers(Some(1)).await;
-        runs.into_iter().next().unwrap()
+        .expect("get_controller_wake_at query failed")
     }
 
     /// Runs all controllers until there are no more that are ready. Optionally, `max` can limit the
@@ -703,19 +747,47 @@ impl TestHarness {
         let max = max.unwrap_or(usize::MAX);
         assert!(max > 0, "run_pending_controllers max must be > 0");
         let mut states = Vec::new();
-        while let Some(state) = self
-            .controllers
-            .try_run_next(&self.pool)
+
+        let semaphor = Arc::new(Semaphore::new(1));
+
+        for _ in 0..max {
+            let mut permit = semaphor.clone().acquire_owned().await.unwrap();
+
+            let mut next = automations::server::dequeue_tasks(
+                &mut permit,
+                &self.pool,
+                &self.automations_server,
+                &self.automations_task_types,
+                std::time::Duration::from_secs(10),
+            )
             .await
-            .expect("failed to run controller")
-        {
-            states.push(state);
-            if states.len() == max {
+            .expect("failed to dequeue automations tasks");
+            if next.is_empty() {
+                assert_eq!(
+                    1,
+                    permit.num_permits(),
+                    "expect the semaphor permit to still be present"
+                );
                 break;
-            } else if states.len() > 100 {
-                panic!("run_pending_controllers ran for more than 100 iterations, is there an infinite loop?");
+            }
+
+            assert_eq!(1, next.len(), "expected at most 1 dequeued task");
+            let task = next.pop().unwrap();
+            let task_id = task.task.id;
+            automations::executors::poll_task(task, std::time::Duration::from_secs(10))
+                .await
+                .expect("failed to polll task");
+
+            let controller_state = crate::controllers::fetch_controller_state(task_id, &self.pool)
+                .await
+                .expect("failed to fetch controller state");
+            if let Some(s) = controller_state {
+                states.push(s);
+            } else {
+                tracing::info!(%task_id, "controller run deleted the task (this is expected if the live spec was deleted");
             }
         }
+
         states
     }
 

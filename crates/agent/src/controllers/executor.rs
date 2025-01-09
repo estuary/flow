@@ -139,7 +139,9 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let controller_state = fetch_controller_state(task_id, pool).await?;
+        let controller_state = fetch_controller_state(task_id, pool)
+            .await?
+            .unwrap_or_else(|| panic!("failed to fetch controller state for task_id: {task_id}"));
         // Note that `failures` here only counts the number of _consecutive_
         // failures, and resets to 0 on any sucessful update.
         let (status, failures, error, next_run) =
