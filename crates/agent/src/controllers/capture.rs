@@ -11,7 +11,7 @@ use models::status::capture::{AutoDiscoverStatus, CaptureStatus};
 pub async fn update<C: ControlPlane>(
     status: &mut CaptureStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
     model: &models::CaptureDef,
 ) -> anyhow::Result<Option<NextRun>> {
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
