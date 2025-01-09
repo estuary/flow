@@ -31,9 +31,11 @@ impl Server {
         heartbeat_timeout: std::time::Duration,
         shutdown: impl std::future::Future<Output = ()>,
     ) {
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(permits as usize));
         serve(
             self,
             permits,
+            semaphore,
             pool,
             dequeue_interval,
             heartbeat_timeout,
@@ -61,14 +63,13 @@ pub struct DequeuedTask {
 
 pub async fn serve(
     executors: Server,
-    permits: u32,
+    max_permits: u32,
+    semaphore: Arc<tokio::sync::Semaphore>,
     pool: sqlx::PgPool,
     dequeue_interval: std::time::Duration,
     heartbeat_timeout: std::time::Duration,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(permits as usize));
-
     // Use Box::pin to ensure we can fullly drop `ready_tasks` later,
     // as it may hold `semaphore` permits.
     let mut ready_tasks = Box::pin(ready_tasks(
@@ -115,7 +116,7 @@ pub async fn serve(
     std::mem::drop(ready_tasks);
 
     // Acquire all permits, when only happens after all running tasks have finished.
-    let _ = semaphore.acquire_many_owned(permits).await.unwrap();
+    let _ = semaphore.acquire_many_owned(max_permits).await.unwrap();
 }
 
 pub fn ready_tasks(
@@ -152,15 +153,12 @@ async fn ready_tasks_iter(
     semaphore: &Arc<tokio::sync::Semaphore>,
     task_types: &[i16],
 ) {
-    // Block until at least one permit is available.
-    if semaphore.available_permits() == 0 {
-        let _ = semaphore.clone().acquire_owned().await.unwrap();
-    }
-
     // Acquire all available permits, and then poll for up to that many tasks.
+    // If there's no currently available permits, then just acquire one.
+    let n_permits = semaphore.available_permits().max(1) as u32;
     let mut permits = semaphore
         .clone()
-        .acquire_many_owned(semaphore.available_permits() as u32)
+        .acquire_many_owned(n_permits)
         .await
         .unwrap();
 
@@ -226,11 +224,10 @@ async fn ready_tasks_iter(
 
     // If permits remain, there were not enough tasks to dequeue.
     // Sleep for up-to `dequeue_interval`, cancelling early if a task completes.
-    if permits.num_permits() != 0 {
+    if semaphore.available_permits() > 0 {
         // Jitter dequeue by 10% in either direction, to ensure
         // distribution of tasks and retries across executors.
         let jitter = 0.9 + rand::random::<f64>() * 0.2; // [0.9, 1.1)
-
         tokio::select! {
             () = tokio::time::sleep(dequeue_interval.mul_f64(jitter)) => (),
             _ = semaphore.clone().acquire_owned() => (), // Cancel sleep.
