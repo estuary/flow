@@ -25,31 +25,45 @@ gazctl supports a flag which will send changes in batches of at most
 a single Etcd transaction and it should therefore be used with caution.
 If possible, prefer to use label selectors to limit the number of changes.
 
-Application Options:
-      --zone=                        Availability zone within which this process is running (default: local) [$ZONE]
-
-Logging:
-      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
-      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
-
 Help Options:
-  -h, --help                         Show this help message
+  -h, --help                                              Show this help message
 
 [shards command options]
 
+    Interact with consumer shards:
+          --zone=                                         Availability zone within which this process is running (default: local) [$ZONE]
+
+    Logging:
+          --log.level=[trace|debug|info|warn|error|fatal] Logging level (default: warn) [$LOG_LEVEL]
+          --log.format=[json|text|color]                  Logging output format (default: text) [$LOG_FORMAT]
+
     Consumer:
-          --consumer.address=        Service address endpoint (default: http://localhost:8080) [$CONSUMER_ADDRESS]
-          --consumer.cache.size=     Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$CONSUMER_CACHE_SIZE]
-          --consumer.cache.ttl=      Time-to-live of route cache entries. (default: 1m) [$CONSUMER_CACHE_TTL]
+          --consumer.address=                             Service address endpoint (default: http://localhost:8080) [$CONSUMER_ADDRESS]
+          --consumer.cert-file=                           Path to the client TLS certificate [$CONSUMER_CERT_FILE]
+          --consumer.cert-key-file=                       Path to the client TLS private key [$CONSUMER_CERT_KEY_FILE]
+          --consumer.trusted-ca-file=                     Path to the trusted CA for client verification of server certificates
+                                                          [$CONSUMER_TRUSTED_CA_FILE]
+          --consumer.auth-keys=                           Whitespace or comma separated, base64-encoded keys. The first key is used to sign
+                                                          Authorization tokens. [$CONSUMER_AUTH_KEYS]
+          --consumer.cache.size=                          Size of client route cache. If <= zero, no cache is used (server always proxies)
+                                                          (default: 0) [$CONSUMER_CACHE_SIZE]
+          --consumer.cache.ttl=                           Time-to-live of route cache entries. (default: 1m) [$CONSUMER_CACHE_TTL]
 
     Broker:
-          --broker.address=          Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
-          --broker.cache.size=       Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
-          --broker.cache.ttl=        Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+          --broker.address=                               Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cert-file=                             Path to the client TLS certificate [$BROKER_CERT_FILE]
+          --broker.cert-key-file=                         Path to the client TLS private key [$BROKER_CERT_KEY_FILE]
+          --broker.trusted-ca-file=                       Path to the trusted CA for client verification of server certificates
+                                                          [$BROKER_TRUSTED_CA_FILE]
+          --broker.auth-keys=                             Whitespace or comma separated, base64-encoded keys. The first key is used to sign
+                                                          Authorization tokens. [$BROKER_AUTH_KEYS]
+          --broker.cache.size=                            Size of client route cache. If <= zero, no cache is used (server always proxies)
+                                                          (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=                             Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
 
 [apply command options]
-          --specs=                   Input specifications path to apply. Use '-' for stdin (default: -)
-          --dry-run                  Perform a dry-run of the apply
-          --max-txn-size=            maximum number of specs to be processed within an apply transaction. If 0, the default, all changes are issued in a single transaction
-                                     (default: 0)
+          --specs=                                        Input specifications path to apply. Use '-' for stdin (default: -)
+          --dry-run                                       Perform a dry-run of the apply
+          --max-txn-size=                                 maximum number of specs to be processed within an apply transaction. If 0, the default,
+                                                          all changes are issued in a single transaction (default: 0)
 

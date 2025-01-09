@@ -7,25 +7,58 @@ its responsible journals and will exit only when it can safely do so.
 
 
 Broker:
-      --broker.zone=                 Availability zone within which this process is running (default: local) [$BROKER_ZONE]
-      --broker.id=                   Unique ID of this process. Auto-generated if not set [$BROKER_ID]
-      --broker.host=                 Addressable, advertised hostname or IP of this process. Hostname is used if not set [$BROKER_HOST]
-      --broker.port=                 Service port for HTTP and gRPC requests. A random port is used if not set [$BROKER_PORT]
-      --broker.limit=                Maximum number of Journals the broker will allocate (default: 1024) [$BROKER_LIMIT]
-      --broker.file-root=            Local path which roots file:// fragment stores (optional) [$BROKER_FILE_ROOT]
-      --broker.max-append-rate=      Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate (default: 0) [$BROKER_MAX_APPEND_RATE]
-      --broker.min-append-rate=      Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted (default: 65536)
-                                     [$BROKER_MIN_APPEND_RATE]
+      --broker.zone=                                  Availability zone within which this process is running (default: local) [$BROKER_ZONE]
+      --broker.id=                                    Unique ID of this process. Auto-generated if not set [$BROKER_ID]
+      --broker.host=                                  Addressable, advertised hostname or IP of this process. Hostname is used if not set
+                                                      [$BROKER_HOST]
+      --broker.port=                                  Service port for HTTP and gRPC requests. A random port is used if not set. Port may also
+                                                      take the form 'unix:///path/to/socket' to use a Unix Domain Socket [$BROKER_PORT]
+      --broker.server-cert-file=                      Path to the server TLS certificate. This option toggles whether TLS is used. If absent, all
+                                                      other TLS settings are ignored. [$BROKER_SERVER_CERT_FILE]
+      --broker.server-cert-key-file=                  Path to the server TLS private key [$BROKER_SERVER_CERT_KEY_FILE]
+      --broker.server-ca-file=                        Path to the trusted CA for server verification of client certificates. When present, client
+                                                      certificates are required and verified against this CA. When absent, client certificates are
+                                                      not required but are verified against the system CA pool if presented.
+                                                      [$BROKER_SERVER_CA_FILE]
+      --broker.peer-cert-file=                        Path to the client TLS certificate for peer-to-peer requests [$BROKER_PEER_CERT_FILE]
+      --broker.peer-cert-key-file=                    Path to the client TLS private key for peer-to-peer requests [$BROKER_PEER_CERT_KEY_FILE]
+      --broker.peer-ca-file=                          Path to the trusted CA for client verification of peer server certificates. When absent, the
+                                                      system CA pool is used instead. [$BROKER_PEER_CA_FILE]
+      --broker.max-grpc-recv-size=                    Maximum size of gRPC messages accepted by this server, in bytes (default: 4194304)
+                                                      [$BROKER_MAX_GRPC_RECV_SIZE]
+      --broker.allow-origin=                          Origin to allow in CORS contexts [$BROKER_ALLOW_ORIGIN]
+      --broker.limit=                                 Maximum number of Journals the broker will allocate (default: 1024) [$BROKER_LIMIT]
+      --broker.file-root=                             Local path which roots file:// fragment stores (optional) [$BROKER_FILE_ROOT]
+      --broker.file-only                              Use the local file:// store for all journal fragments, ignoring cloud bucket storage
+                                                      configuration (for example, S3) [$BROKER_FILE_ONLY]
+      --broker.max-append-rate=                       Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no
+                                                      max rate (default: 0) [$BROKER_MAX_APPEND_RATE]
+      --broker.max-replication=                       Maximum effective replication of any one journal, which upper-bounds its stated replication.
+                                                      (default: 9) [$BROKER_MAX_REPLICATION]
+      --broker.min-append-rate=                       Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to
+                                                      sustain this rate are aborted (default: 65536) [$BROKER_MIN_APPEND_RATE]
+      --broker.watch-delay=                           Delay applied to the application of watched Etcd events. Larger values amortize the
+                                                      processing of fast-changing Etcd keys. (default: 30ms) [$BROKER_WATCH_DELAY]
+      --broker.auth-keys=                             Whitespace or comma separated, base64-encoded keys used to sign (first key) and verify (all
+                                                      keys) Authorization tokens. [$BROKER_AUTH_KEYS]
+      --broker.auto-suspend                           Automatically suspend journals which have persisted all fragments [$BROKER_AUTO_SUSPEND]
 
 Etcd:
-      --etcd.address=                Etcd service address endpoint (default: http://localhost:2379) [$ETCD_ADDRESS]
-      --etcd.lease=                  Time-to-live of Etcd lease (default: 20s) [$ETCD_LEASE_TTL]
-      --etcd.prefix=                 Etcd base prefix for broker state and coordination (default: /gazette/cluster) [$ETCD_PREFIX]
+      --etcd.address=                                 Etcd service address endpoint (default: http://localhost:2379) [$ETCD_ADDRESS]
+      --etcd.cert-file=                               Path to the client TLS certificate [$ETCD_CERT_FILE]
+      --etcd.cert-key-file=                           Path to the client TLS private key [$ETCD_CERT_KEY_FILE]
+      --etcd.trusted-ca-file=                         Path to the trusted CA for client verification of server certificates [$ETCD_TRUSTED_CA_FILE]
+      --etcd.lease=                                   Time-to-live of Etcd lease (default: 20s) [$ETCD_LEASE_TTL]
+      --etcd.prefix=                                  Etcd base prefix for broker state and coordination (default: /gazette/cluster) [$ETCD_PREFIX]
 
 Logging:
-      --log.level=[info|debug|warn]  Logging level (default: info) [$LOG_LEVEL]
-      --log.format=[json|text|color] Logging output format (default: text) [$LOG_FORMAT]
+      --log.level=[trace|debug|info|warn|error|fatal] Logging level (default: warn) [$LOG_LEVEL]
+      --log.format=[json|text|color]                  Logging output format (default: text) [$LOG_FORMAT]
+
+Debug:
+      --debug.port=                                   Port for diagnostics [$DEBUG_PORT]
+      --debug.private                                 When true, don't serve diagnostics over the main service port [$DEBUG_PRIVATE]
 
 Help Options:
-  -h, --help                         Show this help message
+  -h, --help                                          Show this help message
 

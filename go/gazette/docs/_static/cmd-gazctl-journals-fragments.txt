@@ -51,27 +51,34 @@ gazctl journals fragments -l name=my/journal --url-ttl 1m --from $(date -d "1 ho
 gazctl journals fragments -l my-label --format json --url-ttl 1h --from $(date -d 3AM '+%s') --to $(date -d 4:05AM '+%s') --format json
 
 
-Application Options:
-      --zone=                         Availability zone within which this process is running (default: local) [$ZONE]
-
-Logging:
-      --log.level=[info|debug|warn]   Logging level (default: info) [$LOG_LEVEL]
-      --log.format=[json|text|color]  Logging output format (default: text) [$LOG_FORMAT]
-
 Help Options:
-  -h, --help                          Show this help message
+  -h, --help                                              Show this help message
 
 [journals command options]
 
+    Interact with broker journals:
+          --zone=                                         Availability zone within which this process is running (default: local) [$ZONE]
+
+    Logging:
+          --log.level=[trace|debug|info|warn|error|fatal] Logging level (default: warn) [$LOG_LEVEL]
+          --log.format=[json|text|color]                  Logging output format (default: text) [$LOG_FORMAT]
+
     Broker:
-          --broker.address=           Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
-          --broker.cache.size=        Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
-          --broker.cache.ttl=         Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+          --broker.address=                               Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cert-file=                             Path to the client TLS certificate [$BROKER_CERT_FILE]
+          --broker.cert-key-file=                         Path to the client TLS private key [$BROKER_CERT_KEY_FILE]
+          --broker.trusted-ca-file=                       Path to the trusted CA for client verification of server certificates
+                                                          [$BROKER_TRUSTED_CA_FILE]
+          --broker.auth-keys=                             Whitespace or comma separated, base64-encoded keys. The first key is used to sign
+                                                          Authorization tokens. [$BROKER_AUTH_KEYS]
+          --broker.cache.size=                            Size of client route cache. If <= zero, no cache is used (server always proxies)
+                                                          (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=                             Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
 
 [fragments command options]
-      -l, --selector=                 Label Selector query to filter on
-      -o, --format=[table|json|proto] Output format (default: table)
-          --from=                     Restrict to fragments created at or after this time, in unix seconds since epoch
-          --to=                       Restrict to fragments created before this time, in unix seconds since epoch
-          --url-ttl=                  Provide a signed GET URL with the given TTL
+      -l, --selector=                                     Label Selector query to filter on
+      -o, --format=[table|json|proto]                     Output format (default: table)
+          --from=                                         Restrict to fragments created at or after this time, in unix seconds since epoch
+          --to=                                           Restrict to fragments created before this time, in unix seconds since epoch
+          --url-ttl=                                      Provide a signed GET URL with the given TTL (default: 0s)
 

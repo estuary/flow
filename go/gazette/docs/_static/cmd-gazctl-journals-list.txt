@@ -24,29 +24,37 @@ typically, common configuration. This hierarchy is simply sugar for and is
 exactly equivalent to the original JournalSpecs.
 
 
-Application Options:
-      --zone=                              Availability zone within which this process is running (default: local) [$ZONE]
-
-Logging:
-      --log.level=[info|debug|warn]        Logging level (default: info) [$LOG_LEVEL]
-      --log.format=[json|text|color]       Logging output format (default: text) [$LOG_FORMAT]
-
 Help Options:
-  -h, --help                               Show this help message
+  -h, --help                                              Show this help message
 
 [journals command options]
 
+    Interact with broker journals:
+          --zone=                                         Availability zone within which this process is running (default: local) [$ZONE]
+
+    Logging:
+          --log.level=[trace|debug|info|warn|error|fatal] Logging level (default: warn) [$LOG_LEVEL]
+          --log.format=[json|text|color]                  Logging output format (default: text) [$LOG_FORMAT]
+
     Broker:
-          --broker.address=                Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
-          --broker.cache.size=             Size of client route cache. If <= zero, no cache is used (server always proxies) (default: 0) [$BROKER_CACHE_SIZE]
-          --broker.cache.ttl=              Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
+          --broker.address=                               Service address endpoint (default: http://localhost:8080) [$BROKER_ADDRESS]
+          --broker.cert-file=                             Path to the client TLS certificate [$BROKER_CERT_FILE]
+          --broker.cert-key-file=                         Path to the client TLS private key [$BROKER_CERT_KEY_FILE]
+          --broker.trusted-ca-file=                       Path to the trusted CA for client verification of server certificates
+                                                          [$BROKER_TRUSTED_CA_FILE]
+          --broker.auth-keys=                             Whitespace or comma separated, base64-encoded keys. The first key is used to sign
+                                                          Authorization tokens. [$BROKER_AUTH_KEYS]
+          --broker.cache.size=                            Size of client route cache. If <= zero, no cache is used (server always proxies)
+                                                          (default: 0) [$BROKER_CACHE_SIZE]
+          --broker.cache.ttl=                             Time-to-live of route cache entries. (default: 1m) [$BROKER_CACHE_TTL]
 
 [list command options]
-      -l, --selector=                      Label Selector query to filter on
-      -o, --format=[table|yaml|json|proto] Output format (default: table)
-      -L, --label-columns=                 Labels to present as columns, eg -L label-one -L label-two
-      -p, --primary                        Show primary column
-      -r, --replicas                       Show replicas column
-          --rf                             Show replication factor column
-          --stores                         Show fragment store column
+      -l, --selector=                                     Label Selector query to filter on
+      -o, --format=[table|yaml|json|proto]                Output format (default: table)
+      -L, --label-columns=                                Labels to present as columns, eg -L label-one -L label-two
+      -p, --primary                                       Show primary column
+      -r, --replicas                                      Show replicas column
+          --rf                                            Show replication factor column
+          --stores                                        Show fragment store column
+          --watch                                         Use a long-lived watch
 

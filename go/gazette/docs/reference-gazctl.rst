@@ -41,6 +41,10 @@ gazctl journals reset-head
 ---------------------------
 .. literalinclude:: _static/cmd-gazctl-journals-reset-head.txt
 
+gazctl journals suspend
+---------------------------
+.. literalinclude:: _static/cmd-gazctl-journals-suspend.txt
+
 gazctl print-config
 ---------------------------
 .. literalinclude:: _static/cmd-gazctl-print-config.txt
