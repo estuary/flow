@@ -1,139 +1,47 @@
 name: Gazette Continuous Integration
 
-# We build on any push to a branch, or when a release is created.
 on:
-  pull_request:
-    paths-ignore:
-      - "docs/**"
   push:
-    branches:
-      - "master"
-    # Ignore pushes to tags, since those ought to be handled by the release created event.
-    tags-ignore:
-      - "*"
-    paths-ignore:
-      - "docs/**"
-  release:
-    # Without this additional restriction, GH actions will trigger multiple runs for a single
-    # release, because it fires off separate events creating vs publishing the release.
-    types: [created]
-
-env:
-  # This is only used as the cache key to prevent rebuilding rocksdb every time. Eventually
-  # we'll need to figure out a solution that doesn't duplicate this version everywhere.
-  # For now, ensure that it's changed both here and in mk/common-config.mk.
-  ROCKSDB_VERSION: "6.22.1"
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 jobs:
   build:
-    name: "Build"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
-      - name: "Checkout"
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history.
 
-        # Sets outputs for version, docker tag, and whether we should push images and upload release
-        # artifacts. These outputs are used by later steps.
-      - name: "Release Info"
-        id: release_info
-        env:
-          # just having this in the env is enough to make it visible in the "raw" logs attached to the run
-          GITHUB_EVENT_JSON: "${{ toJson(github.event) }}"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GitHub container registry
         run: |
-          is_release=${{ github.event_name == 'release' }}
-          if [[ "$is_release" == "true" ]]; then
-            push_images=true
-            tag_name=${{ github.event.release.tag_name }}
-            # The version regex doesn't need to be super sophisticated, since the goal is not to
-            # validate that this is a semantic version number. Rather the goal is just to see if
-            # matches the typical pattern we use for release tags (e.g. v0.86.1). If it does, then
-            # we'll remove the 'v' prefix and use the remainder as the docker tag
-            # If a release tag does not match that format, then we'll just use the tag value as is.
-            if echo "$tag_name" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
-              version="${tag_name#v}"
-            else
-              version="${tag_name}"
-            fi
-          else
-            # This is not a release, so we'll use 'dev-<sha>' for the version number
-            # and just 'latest-dev' for the docker tag.
-            sha=${{ github.sha }}
-            version="dev-${sha:0:7}"
-            # If this is a master build, then we'll treat this as a release and just use the
-            # hard-coded tag as the docker image tag.
-            if [[ '${{ github.ref }}' == 'refs/heads/master' ]]; then
-                # We don't want to put the git sha in the docker tag because otherwise they'll
-                # accumulate forever and just clutter up the page on docker hub. So 'latest-dev'
-                # just always gets you the most recent master build, and if you want a specific master
-                # build, then you can use the '@sha256:...' syntax.
-                docker_tag="latest-dev"
-                push_images='true'
-            else
-                push_images='false'
-            fi
-          fi
-          echo ::set-output name=VERSION::${version}
-          echo ::set-output name=DOCKER_TAG::${docker_tag:-$version}
-          echo ::set-output name=PUSH_IMAGES::${push_images}
-          echo ::set-output name=IS_RELEASE::${is_release}
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
-        # Try to load the ci-builder docker image from the cache. If this misses, then it will be
-        # built automatically by a make rule. A later step will then run 'docker save' to export the
-        # image as a tar archive so we can cache it.
-      - name: "CI Builder Docker Image Cache"
-        id: "ci_builder_cache"
-        uses: actions/cache@v2
+      - uses: actions/setup-go@v4
+      - run: sudo apt install -y protobuf-compiler librocksdb-dev libsqlite3-dev etcd-server
+      - run: echo "VERSION=$(git describe --dirty --tags)" >> "$GITHUB_ENV"
+
+      - run: make go-test-ci
+      - run: make go-build go-build-arm64
+
+      - uses: docker/build-push-action@v5
         with:
-          key: ci-builder-${{ hashFiles('mk/ci-builder.Dockerfile') }}
-          path: ".build/ci-builder-image.tar"
+          context: .build
+          file: Dockerfile
+          target: broker
+          platforms: linux/amd64,linux/arm64
+          tags: "ghcr.io/gazette/broker:${{ env.VERSION }}"
+          push: true
 
-        # The 'c<n>' in these Cache steps is just for changing the cache key so that
-        # we can manually invalidate the cache if we need.
-      - name: "RocksDB Cache"
-        uses: actions/cache@v2
+      - uses: docker/build-push-action@v5
         with:
-          key: rocksdb-c4-${{ env.ROCKSDB_VERSION }}
-          path: ".build-ci/rocksdb-v${{ env.ROCKSDB_VERSION }}"
-
-      - name: "Go Module Cache"
-        uses: actions/cache@v2
-        with:
-          key: go-mod-c4-${{ hashFiles('go.sum') }}
-          path: ".build-ci/go-path/pkg"
-          # If we don't have a cached directory that matches the hash exactly,
-          # then this will allow a non-matching directory to be pulled in. This is safe
-          # because go will use its own finer-grained cache invalidation logic.
-          restore-keys: "go-mod-c4-"
-
-      - name: "Build Binaries"
-        run: "make as-ci target=release-linux-binaries VERSION=${{ steps.release_info.outputs.VERSION }}"
-
-      - name: "Test"
-        run: "make as-ci target=go-test-ci VERSION=${{ steps.release_info.outputs.VERSION }}"
-
-        # We upload this to the artifacts that are attached to the action just to make it easy for
-        # someone to pull down a build from another branch.
-      - name: "Upload Binaries"
-        uses: actions/upload-artifact@v4
-        with:
-          name: "gazette-x86_64-linux-gnu.zip"
-          path: ".build-ci/gazette-x86_64-linux-gnu.zip"
-
-      - name: "Upload Release Binaries"
-        if: steps.release_info.outputs.IS_RELEASE == 'true'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          asset_name: gazette-x86_64-linux-gnu.zip
-          asset_path: ".build-ci/gazette-x86_64-linux-gnu.zip"
-          upload_url: "${{ github.event.release.upload_url }}"
-          asset_content_type: application/zip
-
-      - name: "Build and Push Docker Images"
-        if: steps.release_info.outputs.PUSH_IMAGES == 'true'
-        run: |
-          docker login -u '${{ secrets.DOCKER_USERNAME }}' -p '${{ secrets.DOCKER_PASSWORD }}' ${{ secrets.DOCKER_REGISTRY }}
-          make as-ci target=ci-release-gazette-examples VERSION=${{ steps.release_info.outputs.VERSION }}
-          make as-ci target=ci-release-gazette-broker VERSION=${{ steps.release_info.outputs.VERSION }}
-          make push-to-registry REGISTRY=${{ secrets.DOCKER_REGISTRY }} RELEASE_TAG=${{ steps.release_info.outputs.DOCKER_TAG }}
+          context: .build
+          file: Dockerfile
+          target: examples
+          platforms: linux/amd64
+          tags: "ghcr.io/gazette/examples:${{ env.VERSION }}"
+          push: true

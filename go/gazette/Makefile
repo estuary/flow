@@ -1,23 +1,47 @@
-include mk/common-config.mk
+# Git version & date which are injected into built binaries.
+VERSION ?= "$(shell git describe --dirty --tags)"
+DATE    = $(shell date +%F-%T-%Z)
+# Repository root (the directory of this Makefile).
+ROOTDIR  = $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+# Location to place intermediate files and output artifacts.
+# Note the go tool ignores directories with leading '.' or '_'.
+WORKDIR  = ${ROOTDIR}/.build
 
-# Project-specific configuration:
+###############################################################################
+# Rules for generating protobuf sources:
 
-# Go binaries to package under the `gazette/broker` image.
-ci-release-gazette-broker-targets = \
-	${WORKDIR}/go-path/bin/gazctl \
-	${WORKDIR}/go-path/bin/gazette
+${WORKDIR}/protoc-gen-gogo:
+	go mod download github.com/golang/protobuf
+	go build -o $@ github.com/gogo/protobuf/protoc-gen-gogo
 
-# Go binaries to package under the `gazette/examples` image.
-ci-release-gazette-examples-targets = \
-	${WORKDIR}/go-path/bin/bike-share \
-	${WORKDIR}/go-path/bin/chunker \
-	${WORKDIR}/go-path/bin/counter \
-	${WORKDIR}/go-path/bin/gazctl \
-	${WORKDIR}/go-path/bin/integration.test \
-	${WORKDIR}/go-path/bin/summer \
-	${WORKDIR}/go-path/bin/wordcountctl
+${WORKDIR}/protoc-gen-grpc-gateway:
+	go mod download github.com/grpc-ecosystem/grpc-gateway
+	go build -o $@ github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway
 
-# Targets of protobufs which must be compiled.
+# PROTOC_INC_MODULES is an append-able list of Go modules
+# which should be included with `protoc` invocations.
+PROTOC_INC_MODULES += "github.com/golang/protobuf"
+PROTOC_INC_MODULES += "github.com/gogo/protobuf"
+
+# module_path expands a $(module), like go.gazette.dev/core, to the local path
+# of its repository as currently specified by go.mod.
+module_path = $(shell go list -f '{{ .Dir }}' -m $(module))
+
+# Run the protobuf compiler to generate message and gRPC service implementations.
+# Invoke protoc with local and third-party include paths set. The `go list` tool
+# is used to map submodules to corresponding go.mod versions and paths.
+%.pb.go: %.proto ${WORKDIR}/protoc-gen-gogo
+	PATH=${WORKDIR}:$${PATH} ;\
+	protoc -I . $(foreach module, $(PROTOC_INC_MODULES), -I$(module_path)) \
+	--gogo_out=paths=source_relative,plugins=grpc:. \
+	$*.proto
+
+%.pb.gw.go: %.proto ${WORKDIR}/protoc-gen-grpc-gateway
+	PATH=${WORKDIR}:$${PATH} ;\
+	protoc -I . $(foreach module, $(PROTOC_INC_MODULES), -I$(module_path)) \
+	--grpc-gateway_out=logtostderr=true,paths=source_relative,generate_unbound_methods=false,grpc_api_configuration=$*_gateway.yaml:. \
+	$*.proto
+
 protobuf-targets = \
 	./broker/protocol/protocol.pb.go \
 	./broker/protocol/protocol.pb.gw.go \
@@ -29,38 +53,97 @@ protobuf-targets = \
 # consumer.proto depends on protocol.proto & recorded_op.proto.
 consumer/protocol/consumer.pb.go: broker/protocol/protocol.proto consumer/recoverylog/recorded_op.proto
 
-# Rule for integration.test, depended on by ci-release-gazette-examples.
-# It's an actual file, but we set it as PHONY so it's kept fresh
-# with each build of that target.
-${WORKDIR}/go-path/bin/integration.test:
+###############################################################################
+# Rules for building and testing:
+
+${WORKDIR}/amd64/integration.test:
 	go test -v -c -tags integration ./test/integration -o $@
 
-include mk/common-build.mk
-include mk/microk8s.mk
-include mk/cmd-reference.mk
+go-build: $(protobuf-targets) ${WORKDIR}/amd64/integration.test
+	MBP=go.gazette.dev/core/mainboilerplate ;\
+	go build -o ${WORKDIR}/amd64/ -v --tags libsqlite3 \
+		-ldflags "-X $${MBP}.Version=${VERSION} -X $${MBP}.BuildDate=${DATE}" ./...
 
-# Push the broker & example image to a specified private registry.
-# Override the registry to use by passing a "REGISTRY=" flag to make.
-REGISTRY=localhost:32000
-RELEASE_TAG=latest
-push-to-registry:
-	docker tag gazette/broker:latest $(REGISTRY)/broker:$(RELEASE_TAG)
-	docker tag gazette/examples:latest $(REGISTRY)/examples:$(RELEASE_TAG)
-	docker push $(REGISTRY)/broker:$(RELEASE_TAG)
-	docker push $(REGISTRY)/examples:$(RELEASE_TAG)
+go-build-arm64: $(protobuf-targets)
+	MBP=go.gazette.dev/core/mainboilerplate ;\
+	GOOS=linux ;\
+	GOARCH=arm64 \
+	go build -o ${WORKDIR}/arm64/ -v --tags nozstd ./cmd/gazette ./cmd/gazctl
 
-${WORKDIR}/gazette-x86_64-linux-gnu.zip: go-install
-	cd ${WORKDIR}/go-path/bin/
-	zip gazette-x86_64-linux-gnu.zip gazette gazctl
+go-test-ci:   ${protobuf-targets}
+	GORACE="halt_on_error=1" go test -race -count=10 --tags libsqlite3 --failfast ./...
 
-# Builds a zip file containing both the gazette and gazctl release binaries. This target may only be run
-# on a linux host, since we don't currently support cross-compilation (we may want to in the
-# future).
-release-linux-binaries: go-install
-	@# sanity check, since our make builds don't support cross-compilation at the moment
-	@test "$(shell uname -io)" = "x86_64 GNU/Linux" || (echo "only x86_64 linux binaries are produced" && exit 1)
-	@rm -f ${WORKDIR}/gazette-x86_64-linux-gnu.zip
-	zip -j ${WORKDIR}/gazette-x86_64-linux-gnu.zip ${WORKDIR}/go-path/bin/gazette ${WORKDIR}/go-path/bin/gazctl
+go-test-fast: ${protobuf-targets}
+	go test --tags libsqlite3 ./...
+
+###############################################################################
+# Rules for updating reference documentation:
+
+cmd-reference-targets = \
+	docs/_static/cmd-gazette-serve.txt \
+	docs/_static/cmd-gazette-print-config.txt \
+	docs/_static/cmd-gazctl.txt \
+	docs/_static/cmd-gazctl-attach-uuids.txt \
+	docs/_static/cmd-gazctl-journals-append.txt \
+	docs/_static/cmd-gazctl-journals-apply.txt \
+	docs/_static/cmd-gazctl-journals-edit.txt \
+	docs/_static/cmd-gazctl-journals-fragments.txt \
+	docs/_static/cmd-gazctl-journals-list.txt \
+	docs/_static/cmd-gazctl-journals-prune.txt \
+	docs/_static/cmd-gazctl-journals-read.txt \
+	docs/_static/cmd-gazctl-journals-reset-head.txt \
+	docs/_static/cmd-gazctl-journals-suspend.txt \
+	docs/_static/cmd-gazctl-print-config.txt \
+	docs/_static/cmd-gazctl-shards-apply.txt \
+	docs/_static/cmd-gazctl-shards-edit.txt \
+	docs/_static/cmd-gazctl-shards-list.txt \
+	docs/_static/cmd-gazctl-shards-prune.txt
+
+cmd-reference: ${cmd-reference-targets}
 
 
-.PHONY: release-linux-binaries ${WORKDIR}/go-path/bin/integration.test
+docs/_static/cmd-gazette-serve.txt: go-build
+	${WORKDIR}/amd64/gazette serve --help > $@ || true
+docs/_static/cmd-gazette-print-config.txt: go-build
+	${WORKDIR}/amd64/gazette serve print config --help > $@ || true
+
+docs/_static/cmd-gazctl.txt: go-build
+	${WORKDIR}/amd64/gazctl --help > $@ || true
+docs/_static/cmd-gazctl-attach-uuids.txt: go-build
+	${WORKDIR}/amd64/gazctl attach-uuids --help > $@ || true
+docs/_static/cmd-gazctl-journals-append.txt: go-build
+	${WORKDIR}/amd64/gazctl journals append --help > $@ || true
+docs/_static/cmd-gazctl-journals-apply.txt: go-build
+	${WORKDIR}/amd64/gazctl journals apply --help > $@ || true
+docs/_static/cmd-gazctl-journals-edit.txt: go-build
+	${WORKDIR}/amd64/gazctl journals edit --help > $@ || true
+docs/_static/cmd-gazctl-journals-fragments.txt: go-build
+	${WORKDIR}/amd64/gazctl journals fragments --help > $@ || true
+docs/_static/cmd-gazctl-journals-list.txt: go-build
+	${WORKDIR}/amd64/gazctl journals list --help > $@ || true
+docs/_static/cmd-gazctl-journals-prune.txt: go-build
+	${WORKDIR}/amd64/gazctl journals prune --help > $@ || true
+docs/_static/cmd-gazctl-journals-read.txt: go-build
+	${WORKDIR}/amd64/gazctl journals read --help > $@ || true
+docs/_static/cmd-gazctl-journals-reset-head.txt: go-build
+	${WORKDIR}/amd64/gazctl journals reset-head --help > $@ || true
+docs/_static/cmd-gazctl-journals-suspend.txt: go-build
+	${WORKDIR}/amd64/gazctl journals suspend --help > $@ || true
+docs/_static/cmd-gazctl-print-config.txt: go-build
+	${WORKDIR}/amd64/gazctl print-config --help > $@ || true
+docs/_static/cmd-gazctl-shards-apply.txt: go-build
+	${WORKDIR}/amd64/gazctl shards apply --help > $@ || true
+docs/_static/cmd-gazctl-shards-edit.txt: go-build
+	${WORKDIR}/amd64/gazctl shards edit --help > $@ || true
+docs/_static/cmd-gazctl-shards-list.txt: go-build
+	${WORKDIR}/amd64/gazctl shards list --help > $@ || true
+docs/_static/cmd-gazctl-shards-prune.txt: go-build
+	${WORKDIR}/amd64/gazctl shards prune --help > $@ || true
+
+
+.PHONY: \
+	cmd-reference \
+	go-build \
+	go-build-arm64 \
+	go-test-ci \
+	go-test-fast
