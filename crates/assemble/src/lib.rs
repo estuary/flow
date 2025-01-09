@@ -172,6 +172,7 @@ pub fn partition_template(
         flags,
         labels: Some(labels),
         max_append_rate,
+        suspend: None,
     }
 }
 
@@ -241,6 +242,7 @@ pub fn recovery_log_template(
         flags,
         labels: Some(labels),
         max_append_rate,
+        suspend: None,
     }
 }
 
