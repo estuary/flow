@@ -1,8 +1,8 @@
 use anyhow::Context;
 use std::sync::Arc;
 
-mod executors;
-mod server;
+pub mod executors;
+pub mod server;
 
 /// BoxedRaw is a type-erased raw JSON message.
 type BoxedRaw = Box<serde_json::value::RawValue>;

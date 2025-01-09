@@ -76,16 +76,20 @@ pub struct ControllerState {
 pub async fn fetch_controller_state(
     controller_task_id: Id,
     db: impl sqlx::PgExecutor<'static>,
-) -> anyhow::Result<ControllerState> {
-    let job = agent_sql::controllers::fetch_controller_job(controller_task_id, db)
+) -> anyhow::Result<Option<ControllerState>> {
+    let maybe_job = agent_sql::controllers::fetch_controller_job(controller_task_id, db)
         .await
         .context("fetching controller job")?;
 
+    let Some(job) = maybe_job else {
+        return Ok(None);
+    };
     // TODO(phil): remove controller_next_run after legacy agents no longer need it.
     if job.controller_next_run.is_some() {
         anyhow::bail!("live_specs row still has legacy controller_next_run set");
     };
-    ControllerState::parse_db_row(&job)
+    let state = ControllerState::parse_db_row(&job)?;
+    Ok(Some(state))
 }
 
 impl ControllerState {
@@ -405,9 +409,11 @@ mod test {
 
         let now = Utc::now();
         let then = now + chrono::Duration::seconds(60);
-        let duration = NextRun::after(then)
+        let millis = NextRun::after(then)
             .with_jitter_percent(20)
-            .compute_duration();
-        assert!(duration.as_secs() >= 60);
+            .compute_duration()
+            .as_millis();
+        assert!(millis > 59900, "duration too small, got: {millis}ms");
+        assert!(millis < 72000, "duration too big, got: {millis}ms");
     }
 }
