@@ -323,7 +323,7 @@ fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
 async fn controller_update<C: ControlPlane>(
     status: &mut ControllerStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> anyhow::Result<Option<NextRun>> {
     let Some(live_spec) = &state.live_spec else {
         // There's no need to delete tests and nothing depends on them.
