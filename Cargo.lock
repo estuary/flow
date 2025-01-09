@@ -105,6 +105,7 @@ dependencies = [
  "anyhow",
  "async-process",
  "async-trait",
+ "automations",
  "axum",
  "axum-extra",
  "base64 0.13.1",

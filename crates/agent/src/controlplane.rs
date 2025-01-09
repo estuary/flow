@@ -71,8 +71,8 @@ pub trait ControlPlane: Send + Sync {
         data_plane_id: models::Id,
     ) -> anyhow::Result<()>;
 
-    /// Triggers controller runs for all dependents of the given `catalog_name`.
-    async fn notify_dependents(&self, catalog_name: String) -> anyhow::Result<()>;
+    /// Triggers controller runs for all dependents of the live spec with the given id.
+    async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()>;
 
     async fn evolve_collections(
         &self,
@@ -251,9 +251,8 @@ impl<C: DiscoverConnectors> PGControlPlane<C> {
 #[async_trait::async_trait]
 impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     #[tracing::instrument(level = "debug", err, skip(self))]
-    async fn notify_dependents(&self, catalog_name: String) -> anyhow::Result<()> {
-        let now = self.current_time();
-        agent_sql::controllers::notify_dependents(&catalog_name, now, &self.pool).await?;
+    async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
+        agent_sql::controllers::notify_dependents(live_spec_id, &self.pool).await?;
         Ok(())
     }
 

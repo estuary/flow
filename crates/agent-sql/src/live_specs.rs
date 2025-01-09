@@ -3,10 +3,7 @@ use serde_json::value::RawValue;
 use sqlx::types::{Json, Uuid};
 
 /// Deletes the given live spec row, along with the corresponding `controller_jobs` row.
-pub async fn hard_delete_live_spec(
-    id: Id,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
+pub async fn hard_delete_live_spec(id: Id, txn: &mut sqlx::PgConnection) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
         with delete_inferred_schema as (

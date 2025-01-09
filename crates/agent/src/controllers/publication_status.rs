@@ -184,7 +184,7 @@ impl PendingPublication {
                 record_result(status, pub_info(r));
                 if r.status.is_success() {
                     control_plane
-                        .notify_dependents(state.catalog_name.clone())
+                        .notify_dependents(state.live_spec_id)
                         .await
                         .context("notifying dependents after successful publication")?;
                     status.max_observed_pub_id = r.pub_id;
@@ -219,9 +219,7 @@ pub async fn update_notify_dependents<C: ControlPlane>(
     control_plane: &C,
 ) -> anyhow::Result<()> {
     if state.last_pub_id > status.max_observed_pub_id {
-        control_plane
-            .notify_dependents(state.catalog_name.clone())
-            .await?;
+        control_plane.notify_dependents(state.live_spec_id).await?;
         status.max_observed_pub_id = state.last_pub_id;
     }
     Ok(())

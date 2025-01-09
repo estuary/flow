@@ -1,6 +1,6 @@
-use crate::{CatalogType, Id, TextJson};
+use crate::TextJson;
 use chrono::prelude::*;
-use serde::Serialize;
+use models::{CatalogType, Id};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::fmt::Debug;
@@ -14,9 +14,9 @@ pub struct ControllerJob {
     pub live_spec: Option<TextJson<Box<RawValue>>>,
     pub built_spec: Option<TextJson<Box<RawValue>>>,
     pub spec_type: Option<CatalogType>,
-    pub controller_next_run: Option<DateTime<Utc>>,
     pub controller_version: i32,
     pub controller_updated_at: DateTime<Utc>,
+    pub controller_next_run: Option<DateTime<Utc>>,
     pub live_spec_updated_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub logs_token: Uuid,
@@ -28,21 +28,15 @@ pub struct ControllerJob {
     pub live_dependency_hash: Option<String>,
 }
 
-/// Returns the next available controller job, if any are due to be run. Filters
-/// out any rows having a `controller_version` that is greater than the provided
-/// `controller_version` so that old agent versions don't trample the changes
-/// from newer agent versions during a deployment rollout.
-#[tracing::instrument(level = "debug", skip(txn))]
-pub async fn dequeue(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    controller_version: i32,
-) -> sqlx::Result<Option<ControllerJob>> {
+pub async fn fetch_controller_job(
+    controller_task_id: Id,
+    db: impl sqlx::PgExecutor<'static>,
+) -> sqlx::Result<ControllerJob> {
     sqlx::query_as!(
         ControllerJob,
         r#"select
             ls.id as "live_spec_id: Id",
-            ls.catalog_name as "catalog_name: String",
-            ls.controller_next_run,
+            ls.catalog_name as "catalog_name!: String",
             ls.last_pub_id as "last_pub_id: Id",
             ls.last_build_id as "last_build_id: Id",
             ls.spec as "live_spec: TextJson<Box<RawValue>>",
@@ -51,6 +45,8 @@ pub async fn dequeue(
             ls.dependency_hash as "live_dependency_hash",
             ls.created_at,
             ls.updated_at as "live_spec_updated_at",
+            -- TODO(phil): remove controller_next_run after legacy agents no longer need it.
+            ls.controller_next_run,
             cj.controller_version as "controller_version: i32",
             cj.updated_at as "controller_updated_at",
             cj.logs_token,
@@ -59,44 +55,28 @@ pub async fn dequeue(
             cj.error,
             ls.data_plane_id as "data_plane_id: Id",
             dp.data_plane_name as "data_plane_name?: String"
-        from live_specs ls
+        from internal.tasks t
+        join live_specs ls on t.task_id = ls.controller_task_id
         join controller_jobs cj on ls.id = cj.live_spec_id
         left outer join data_planes dp on ls.data_plane_id = dp.id
-        where
-            -- This condition is required in order to for this query to use the sparse index
-            ls.controller_next_run is not null
-            and ls.controller_next_run <= now()
-            and cj.controller_version <= $1
-        order by ls.controller_next_run asc
-        limit 1
-        for update of cj skip locked;
-        "#,
-        controller_version as i32,
+        where t.task_id = $1::flowid;"#,
+        controller_task_id as Id,
     )
-    .fetch_optional(txn)
+    .fetch_one(db)
     .await
 }
 
 #[tracing::instrument(level = "debug", skip(txn, status, controller_version))]
-pub async fn update<S: Serialize + Send + Sync + Debug>(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+pub async fn update_status(
+    txn: &mut sqlx::PgConnection,
     live_spec_id: Id,
     controller_version: i32,
-    status: S,
+    status: &models::status::ControllerStatus,
     failures: i32,
     error: Option<&str>,
-    expect_next_run: Option<DateTime<Utc>>,
-    set_next_run: Option<DateTime<Utc>>,
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
-        with update_next_run as (
-            update live_specs
-            set controller_next_run = case
-                when controller_next_run is not distinct from $6 then $7
-                else controller_next_run end
-            where id = $1
-        )
         insert into controller_jobs(live_spec_id, controller_version, status, failures, error)
         values ($1, $2, $3, $4, $5)
         on conflict (live_spec_id) do update set
@@ -109,56 +89,51 @@ pub async fn update<S: Serialize + Send + Sync + Debug>(
         "#,
         live_spec_id as Id,
         controller_version as i32,
-        TextJson(status) as TextJson<S>,
+        status as &models::status::ControllerStatus,
         failures,
         error,
-        expect_next_run,
-        set_next_run,
     )
     .execute(txn)
     .await?;
     Ok(())
 }
 
-// TODO(phil): We may want to change to debug level once we gain more confidence.
 /// Trigger a controller sync of all dependents of the given `catalog_name` that have not already
 /// been published at the given `publication_id`. This will not update any dependents that already
 /// have a `controller_next_run` set to an earlier time than the given `next_run`.
-#[tracing::instrument(level = "info", err, ret, skip(pool))]
-pub async fn notify_dependents(
-    catalog_name: &str,
-    next_run: DateTime<Utc>,
-    pool: &sqlx::PgPool,
-) -> sqlx::Result<u64> {
-    // If the catalog_name is a source, then notify all all targets, but only if the flow_type is
+#[tracing::instrument(err, ret, skip(pool))]
+pub async fn notify_dependents(live_spec_id: Id, pool: &sqlx::PgPool) -> sqlx::Result<u64> {
+    // If the spec is a source, then notify all all targets, but only if the flow_type is
     // not 'capture'. Capture flows treat the capture as the source. But in terms of publication
     // dependencies, the capture depends on the collection, not the other way around. (Because the
     // capture spec embeds the collection spec.)
+    // We send a zero-valued id as the sender in `send_to_task` because we don't
+    // currently use the sender for anything, so it doesn't seem worthwhile to
+    // thread it through.
     let result = sqlx::query!(
         r#"
         with dependents as (
             select lsf.target_id as id
-            from live_specs ls
-            join live_spec_flows lsf on ls.id = lsf.source_id
-            where ls.catalog_name = $1 and lsf.flow_type != 'capture'
+            from live_spec_flows lsf
+            where lsf.source_id = $1 and lsf.flow_type != 'capture'
             union
             select lsf.source_id as id
-            from live_specs ls
-            join live_spec_flows lsf on ls.id = lsf.target_id
-            where ls.catalog_name = $1 and lsf.flow_type = 'capture'
+            from live_spec_flows lsf
+            where lsf.target_id = $1 and lsf.flow_type = 'capture'
         ),
-        filtered as (
-            select dependents.id
+        dependent_tasks as (
+            select ls.controller_task_id
             from dependents
             join live_specs ls on dependents.id = ls.id
-            where (ls.controller_next_run is null or ls.controller_next_run > $2)
         )
-        update live_specs set controller_next_run = $2
-        from filtered
-        where live_specs.id = filtered.id;
+        select internal.send_to_task(
+            dependent_tasks.controller_task_id,
+            '0000000000000000'::flowid,
+            '{"type":"dependency_updated"}'
+        )
+        from dependent_tasks
         "#,
-        catalog_name,
-        next_run,
+        live_spec_id as Id,
     )
     .execute(pool)
     .await?;

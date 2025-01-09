@@ -78,9 +78,6 @@ async fn listen_for_tasks(
         let maybe_notification = tokio::select! {
            _ = recv_timeout => {
                should_poke_connection = true;
-               // This is just a convenient place to ensure that the controller_jobs handler
-               // gets invoked periodically, since it needs to handle periodic tasks.
-               task_tx.send(String::from(CONTROLLER_JOBS_TABLE))?;
                continue;
            },
            notify = listener.try_recv() => notify
@@ -116,39 +113,16 @@ enum Status {
     Idle,
 }
 
-const PUBLICATIONS_TABLE: &str = "publications";
-const CONTROLLER_JOBS_TABLE: &str = "controller_jobs";
-
-/// The purpose of this is to ensure that the controllers handler gets polled
-/// promptly after a publication. Without any form of explicit trigger, the
-/// controllers handler might otherwise only be polled in response to the
-/// periodic trigger in `listen_for_notifications`. But we know that every
-/// successful publication will result in at least one controller run, so this
-/// notifies the controllers handler after every successful invocation of the
-/// publications handler.
-struct ControllersHack(tokio::sync::mpsc::UnboundedSender<String>);
-impl ControllersHack {
-    fn notify(&self) {
-        let _ = self.0.send(String::from(CONTROLLER_JOBS_TABLE));
-    }
-}
-
 struct WrappedHandler {
     status: Status,
     handler: Box<dyn Handler>,
-    controllers_hack: Option<ControllersHack>,
 }
 
 impl WrappedHandler {
     async fn handle_next_job(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<()> {
         let allow_background = self.status != Status::PollInteractive;
         match self.handler.handle(pg_pool, allow_background).await {
-            Ok(HandleResult::HadJob) => {
-                if let Some(hack) = &self.controllers_hack {
-                    hack.notify();
-                }
-                Ok(())
-            }
+            Ok(HandleResult::HadJob) => Ok(()),
             Ok(HandleResult::NoJobs) if self.status == Status::PollInteractive => {
                 tracing::debug!(handler = %self.handler.name(), "handler completed all interactive jobs");
                 self.status = Status::PollBackground;
@@ -191,18 +165,12 @@ where
     let mut handlers_by_table = handlers
         .into_iter()
         .map(|h| {
-            let controllers_hack = if h.table_name() == PUBLICATIONS_TABLE {
-                Some(ControllersHack(task_tx.clone()))
-            } else {
-                None
-            };
             (
                 h.table_name().to_string(),
                 WrappedHandler {
                     // We'll start by assuming every handler might have interactive jobs to handle
                     status: Status::PollInteractive,
                     handler: h,
-                    controllers_hack,
                 },
             )
         })
