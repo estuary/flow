@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"context"
 	"io"
 	"net"
 
@@ -56,7 +57,10 @@ func (svc *Service) Read(claims pb.Claims, req *pb.ReadRequest, stream pb.Journa
 func proxyRead(stream grpc.ServerStream, req *pb.ReadRequest, jc pb.JournalClient, stopCh <-chan struct{}) error {
 	// We verified the client's authorization and are running under its context.
 	// pb.AuthJournalClient will self-sign claims to proxy this journal on the client's behalf.
-	var ctx = pb.WithDispatchRoute(stream.Context(), req.Header.Route, req.Header.ProcessId)
+	var ctx, cancel = context.WithCancel(stream.Context())
+	ctx = pb.WithDispatchRoute(ctx, req.Header.Route, req.Header.ProcessId)
+
+	defer cancel()
 
 	// We use the |stream| context for this RPC, which means a cancellation from
 	// our client automatically propagates to the proxy |client| stream.
@@ -68,42 +72,38 @@ func proxyRead(stream grpc.ServerStream, req *pb.ReadRequest, jc pb.JournalClien
 
 	// Start a "pump" of |client| reads that we'll select from.
 	go func() {
-		var resp pb.ReadResponse
 		for {
-			var err = client.RecvMsg(&resp)
+			var resp, err = client.Recv()
+			chunkCh <- proxyChunk{resp: resp, err: err}
 
-			select {
-			case chunkCh <- proxyChunk{resp: resp, err: err}:
-				if err != nil {
-					return
-				}
-			case <-ctx.Done():
-				return // RPC complete.
+			if err != nil {
+				return
 			}
 		}
 	}()
 
-	// Read and proxy chunks from |client|, or immediately halt with EOF
-	// if |stopCh| is signaled.
+	// Read and proxy chunks from `client`.
+	// Cancel the proxy RPC when `stopCh` is signaled.
 	var chunk proxyChunk
 	for {
 		select {
 		case chunk = <-chunkCh:
-			if chunk.err == io.EOF {
+			if chunk.err == nil {
+				_ = stream.SendMsg(chunk.resp)
+			} else if chunk.err == io.EOF || ctx.Err() != nil {
 				return nil
 			} else if chunk.err != nil {
 				return chunk.err
-			} else if err = stream.SendMsg(&chunk.resp); err != nil {
-				return err
 			}
 		case <-stopCh:
-			return nil
+			stopCh = nil
+			cancel()
 		}
 	}
 }
 
 type proxyChunk struct {
-	resp pb.ReadResponse
+	resp *pb.ReadResponse
 	err  error
 }
 
