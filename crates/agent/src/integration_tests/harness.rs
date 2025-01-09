@@ -1181,8 +1181,8 @@ impl TestControlPlane {
 #[async_trait::async_trait]
 impl ControlPlane for TestControlPlane {
     #[tracing::instrument(level = "debug", err, skip(self))]
-    async fn notify_dependents(&self, catalog_name: String) -> anyhow::Result<()> {
-        self.inner.notify_dependents(catalog_name).await
+    async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
+        self.inner.notify_dependents(live_spec_id).await
     }
 
     async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {

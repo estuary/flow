@@ -2,7 +2,7 @@ pub(crate) mod capture;
 pub(crate) mod catalog_test;
 pub(crate) mod collection;
 pub(crate) mod dependencies;
-mod handler;
+pub(crate) mod executor;
 pub(crate) mod materialization;
 pub(crate) mod periodic;
 pub(crate) mod publication_status;
@@ -16,7 +16,7 @@ use serde::Serialize;
 use sqlx::types::Uuid;
 use std::fmt::Debug;
 
-pub use handler::ControllerHandler;
+pub use executor::LiveSpecControllerExecutor;
 
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a higher version than this will be ignored.
@@ -25,6 +25,7 @@ pub const CONTROLLER_VERSION: i32 = 2;
 /// Represents the state of a specific controller and catalog_name.
 #[derive(Clone, Debug, Serialize)]
 pub struct ControllerState {
+    pub live_spec_id: Id,
     pub catalog_name: String,
     /// The live spec corresponding to this controller, which will be `None` if
     /// the spec has been deleted.
@@ -32,10 +33,6 @@ pub struct ControllerState {
     /// The built spec that goes along with the live spec, which will be `None`
     /// if the spec has been deleted.
     pub built_spec: Option<AnyBuiltSpec>,
-    /// The current `controller_next_run` value. This is useful for knowing
-    /// when the controller run was desired, which may have been earlier than
-    /// the actual time of the current run.
-    pub next_run: Option<DateTime<Utc>>,
     /// The last update time of the controller.
     pub controller_updated_at: DateTime<Utc>,
     /// The last update time of the live spec.
@@ -70,6 +67,25 @@ pub struct ControllerState {
     /// The `dependency_hash` of the `live_specs` row, used to determine whether any
     /// dependencies have had their models changed.
     pub live_dependency_hash: Option<String>,
+}
+
+/// Returns a struct with all of the initial state that's needed to run a
+/// controller. If the `live_specs` row still has a `controller_next_run` set,
+/// this will return an error so that automation-driven controllers and
+/// handler-driven controllers don't try to update the same row.
+pub async fn fetch_controller_state(
+    controller_task_id: Id,
+    db: impl sqlx::PgExecutor<'static>,
+) -> anyhow::Result<ControllerState> {
+    let job = agent_sql::controllers::fetch_controller_job(controller_task_id, db)
+        .await
+        .context("fetching controller job")?;
+
+    // TODO(phil): remove controller_next_run after legacy agents no longer need it.
+    if job.controller_next_run.is_some() {
+        anyhow::bail!("live_specs row still has legacy controller_next_run set");
+    };
+    ControllerState::parse_db_row(&job)
 }
 
 impl ControllerState {
@@ -133,7 +149,7 @@ impl ControllerState {
         };
 
         let controller_state = ControllerState {
-            next_run: job.controller_next_run,
+            live_spec_id: job.live_spec_id,
             controller_updated_at: job.controller_updated_at,
             live_spec_updated_at: job.live_spec_updated_at,
             created_at: job.created_at,
@@ -274,25 +290,18 @@ impl NextRun {
         }
     }
 
-    /// Returns an absolute time at which the next run should become due.
-    /// Uses only millisecond precision to ensure that the timestamp can be losslessly
-    /// round-tripped through postgres.
-    pub fn compute_time(&self) -> DateTime<Utc> {
+    pub fn compute_duration(&self) -> std::time::Duration {
         use rand::Rng;
 
-        if self.after_seconds == 0 {
-            return Utc::now();
-        }
-        let delta_millis = self.after_seconds as i64 * 1000;
-        let jitter_add = if self.jitter_percent > 0 {
+        let mut dur = std::time::Duration::from_secs(self.after_seconds as u64);
+        if self.jitter_percent > 0 && self.after_seconds > 0 {
+            let delta_millis = self.after_seconds * 1000;
             let jitter_mul = self.jitter_percent as f64 / 100.0;
-            let jitter_max = (delta_millis as f64 * jitter_mul) as i64;
-            rand::thread_rng().gen_range(0..jitter_max)
-        } else {
-            0
-        };
-        let dur = chrono::TimeDelta::milliseconds(delta_millis + jitter_add);
-        Utc::now() + dur
+            let jitter_max = (delta_millis as f64 * jitter_mul) as u64;
+            let jitter_add = rand::thread_rng().gen_range(0..jitter_max);
+            dur = dur + std::time::Duration::from_millis(jitter_add);
+        }
+        dur
     }
 
     pub fn earliest(runs: impl IntoIterator<Item = Option<NextRun>>) -> Option<NextRun> {
@@ -346,7 +355,7 @@ async fn controller_update<C: ControlPlane>(
             .with_retry(backoff_data_plane_activate(state.failures))?;
 
             control_plane
-                .notify_dependents(state.catalog_name.clone())
+                .notify_dependents(state.live_spec_id)
                 .await
                 .expect("failed to update dependents");
         } else {
@@ -383,30 +392,22 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_next_run_after() {
+    fn test_next_run() {
         // Test with zero, to make sure that it doesn't panic.
-        let sub = NextRun::after_minutes(0)
+        let next = NextRun::after_minutes(0)
             .with_jitter_percent(20)
-            .compute_time();
-        let now = Utc::now();
-        assert!(now.signed_duration_since(sub).abs() < chrono::TimeDelta::milliseconds(10));
+            .compute_duration();
+        assert!(next.is_zero());
 
-        let next = NextRun::after(now);
+        let next = NextRun::after(Utc::now());
         assert_eq!(0, next.after_seconds);
-        assert!(
-            next.with_jitter_percent(0)
-                .compute_time()
-                .signed_duration_since(now)
-                .abs()
-                < chrono::TimeDelta::milliseconds(10)
-        );
-    }
+        assert!(next.with_jitter_percent(0).compute_duration().is_zero());
 
-    #[test]
-    fn test_next_run_no_jitter() {
-        let then = Utc::now() + chrono::Duration::seconds(60);
-        let next = NextRun::after(then).with_jitter_percent(0).compute_time();
-        let diff = next - then;
-        assert_eq!(0, diff.abs().num_seconds());
+        let now = Utc::now();
+        let then = now + chrono::Duration::seconds(60);
+        let duration = NextRun::after(then)
+            .with_jitter_percent(20)
+            .compute_duration();
+        assert!(duration.as_secs() >= 60);
     }
 }

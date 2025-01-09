@@ -23,6 +23,18 @@ type BoxedRaw = Box<serde_json::value::RawValue>;
 #[sqlx(transparent)]
 pub struct TaskType(pub i16);
 
+/// Task types must be globally unique, and very bad things will happen if we
+/// accidentally run two different executors for the same task type. So we
+/// define constants for all in-use task types here so it's easier to avoid
+/// collisions. These must not change once they're in use, as there's also
+/// places where we hard-code them in sql.
+pub mod task_types {
+    use super::TaskType;
+
+    pub const DATA_PLANE_CONTROLLER: TaskType = TaskType(1);
+    pub const LIVE_SPEC_CONTROLLER: TaskType = TaskType(2);
+}
+
 /// Outcome of an `Executor::poll()` for a given task, which encloses
 /// an Action with which it's applied as a single transaction.
 ///
