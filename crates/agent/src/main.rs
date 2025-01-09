@@ -50,6 +50,31 @@ struct Args {
     /// Origin to allow in CORS contexts. May be specified multiple times.
     #[clap(long = "allow-origin")]
     allow_origin: Vec<String>,
+    /// Maximum number of concurrent controller automations to run.
+    /// The default value of 0 disables running controller automations.
+    #[clap(
+        long = "controller-max-jobs",
+        env = "CONTROLLER_MAX_JOBS",
+        default_value = "0"
+    )]
+    max_automations: u32,
+    /// Interval between polls for dequeue-able tasks when otherwise idle.
+    #[clap(
+        long = "dequeue-interval",
+        env = "CONTROLLER_DEQUEUE_INTERVAL",
+        default_value = "5s"
+    )]
+    #[arg(value_parser = humantime::parse_duration)]
+    dequeue_interval: std::time::Duration,
+    /// Interval before a running task poll is presumed to have failed.
+    /// Tasks updated their heartbeats every half of this interval.
+    #[clap(
+        long = "heartbeat-timeout",
+        env = "CONTROLLER_HEARTBEAT_TIMEOUT",
+        default_value = "300s"
+    )]
+    #[arg(value_parser = humantime::parse_duration)]
+    heartbeat_timeout: std::time::Duration,
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -219,18 +244,35 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 Box::new(discover_handler),
                 Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
                 Box::new(agent::EvolutionHandler),
-                Box::new(agent::controllers::ControllerHandler::new(control_plane)),
             ],
             pg_pool.clone(),
-            shutdown,
+            shutdown.clone(),
         )
         .boxed()
     } else {
         futures::future::ready(Ok(())).boxed()
     };
 
+    let automations_fut = if args.max_automations > 0 {
+        automations::Server::new()
+            .register(agent::controllers::LiveSpecControllerExecutor::new(
+                control_plane,
+            ))
+            .serve(
+                args.max_automations,
+                pg_pool.clone(),
+                args.dequeue_interval,
+                args.heartbeat_timeout,
+                shutdown.clone(),
+            )
+            .map(|()| anyhow::Result::<()>::Ok(()))
+            .boxed()
+    } else {
+        futures::future::ready(Ok(())).boxed()
+    };
+
     std::mem::drop(logs_tx);
-    let ((), (), ()) = tokio::try_join!(serve_fut, api_server, logs_sink)?;
+    let ((), (), (), ()) = tokio::try_join!(serve_fut, api_server, logs_sink, automations_fut)?;
 
     Ok(())
 }
