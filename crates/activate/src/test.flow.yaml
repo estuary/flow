@@ -46,3 +46,17 @@ collections:
         # Expect this is reflected in shard specs.
         maxTxnDuration: 60s
         hotStandbys: 3
+
+  example/disabled:
+    schema: *schema
+    key: [/a_key]
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        - name: widget
+          source: example/collection
+          shuffle: any
+          lambda: select JSON(flow_document)
+      shards:
+        disable: true

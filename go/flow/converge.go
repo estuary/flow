@@ -154,6 +154,10 @@ func MapPartitionToSplit(collection *pf.CollectionSpec, journals []pb.ListRespon
 	}
 	var parent = journals[0].Spec
 
+	if parent.Suspend.GetLevel() != pb.JournalSpec_Suspend_NONE {
+		return nil, fmt.Errorf("splits for suspended journals are not implemented")
+	}
+
 	begin, err := labels.ParseHexU32Label(labels.KeyBegin, parent.LabelSet)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", labels.KeyBegin, err)

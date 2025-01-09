@@ -464,6 +464,15 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
             }
             AnyBuiltSpec::Materialization(s) => {
                 let name = models::Materialization::new(catalog_name);
+
+                let initial_splits = if s.connector_type
+                    == proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32
+                {
+                    0 // Dekaf tasks do not have actual shards, but do have ops journals.
+                } else {
+                    INITIAL_SPLITS
+                };
+
                 activate::activate_materialization(
                     &journal_client,
                     &shard_client,
@@ -471,7 +480,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
                     Some(s),
                     Some(&ops_logs_template),
                     Some(&ops_stats_template),
-                    INITIAL_SPLITS,
+                    initial_splits,
                 )
                 .await
             }

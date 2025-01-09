@@ -1,13 +1,12 @@
 ---
 source: crates/activate/src/lib.rs
-expression: "json!([\"splits\", splits, \"partition_changes\", partition_changes])"
+expression: "json!([\"splits\", (lhs, rhs), \"partition_changes\", partition_changes])"
 ---
 [
   "splits",
   [
-    [
-      "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=10000000",
-      {
+    {
+      "labels": {
         "labels": [
           {
             "name": "estuary.dev/field/a_bool",
@@ -31,11 +30,15 @@ expression: "json!([\"splits\", splits, \"partition_changes\", partition_changes
           }
         ]
       },
-      111
-    ],
-    [
-      "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=28000000",
-      {
+      "mod_revision": 111,
+      "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=10000000",
+      "suspend": {
+        "level": "PARTIAL",
+        "offset": "112233"
+      }
+    },
+    {
+      "labels": {
         "labels": [
           {
             "name": "estuary.dev/field/a_bool",
@@ -59,8 +62,10 @@ expression: "json!([\"splits\", splits, \"partition_changes\", partition_changes
           }
         ]
       },
-      0
-    ]
+      "mod_revision": 0,
+      "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=28000000",
+      "suspend": null
+    }
   ],
   "partition_changes",
   [
@@ -117,7 +122,11 @@ expression: "json!([\"splits\", splits, \"partition_changes\", partition_changes
           },
           "maxAppendRate": "4194304",
           "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=10000000",
-          "replication": 3
+          "replication": 3,
+          "suspend": {
+            "level": "PARTIAL",
+            "offset": "112233"
+          }
         }
       }
     },

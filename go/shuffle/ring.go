@@ -370,6 +370,11 @@ func (r *ring) readDocuments(ch chan *pr.ShuffleResponse, req pb.ReadRequest) (_
 				"to", rr.AdjustedOffset(br),
 			)
 			line, err, offset = nil, nil, rr.AdjustedOffset(br)
+		case client.ErrSuspended:
+			r.log(ops.Log_debug, "journal is suspended")
+			// Send an empty ShuffleResponse, which causes subscriber contexts
+			// to be polled (we expect to see a cancellation).
+			line, err = nil, nil
 		default:
 			if errors.Is(err, client.ErrOffsetNotYetAvailable) {
 				// Non-blocking read cannot make further progress.

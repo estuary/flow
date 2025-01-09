@@ -151,7 +151,7 @@ func startWatches(ctx context.Context, jc pb.JournalClient, shuffles []shuffle) 
 // and it's important that this API block to await progress against that partition.
 func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 	var err = walkReads(rb.shardID, rb.members(), rb.shuffles,
-		func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, _ pc.ShardID, filtered bool) {
+		func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, _ pc.ShardID, filtered, suspended bool) {
 			if _, ok := offsets[spec.Name]; ok && filtered {
 				delete(offsets, spec.Name)
 			}
@@ -185,8 +185,8 @@ type read struct {
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
 	var out *read
 	var err = walkReads(rb.shardID, rb.members(), rb.shuffles,
-		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool) {
-			if spec.Name != journal || filtered {
+		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered, suspended bool) {
+			if spec.Name != journal || filtered || suspended {
 				return
 			}
 
@@ -251,8 +251,8 @@ func (rb *ReadBuilder) buildReads(
 	}
 
 	err = walkReads(rb.shardID, rb.members(), rb.shuffles,
-		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool) {
-			if filtered {
+		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered, suspended bool) {
+			if filtered || suspended {
 				return
 			}
 
@@ -576,7 +576,7 @@ func (h *readHeap) Pop() interface{} {
 }
 
 func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, shuffles []shuffle,
-	cb func(_ pf.RangeSpec, _ pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool)) error {
+	cb func(_ pf.RangeSpec, _ pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered, suspended bool)) error {
 
 	var members, err = newShuffleMembers(shardSpecs)
 	if err != nil {
@@ -603,6 +603,8 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, shuffles []shuffle,
 			var start, stop int
 			// filtered indicates that the partition is excluded and not read by this shard.
 			var filtered = !shuffle.sourcePartitions.Matches(source.LabelSet)
+			// suspended indicates that the partition is fully suspended and has no content.
+			var suspended = source.Suspend.GetLevel() == pb.JournalSpec_Suspend_FULL
 
 			if len(shuffle.shuffleKeyPartitionFields) != 0 {
 				// This transform shuffles on a key which is covered by logical partitions.
@@ -658,7 +660,7 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, shuffles []shuffle,
 			source.Name = pb.Journal(fmt.Sprintf("%s;%s", source.Name.String(), shuffle.journalReadSuffix))
 
 			var m = pickHRW(hrwHash(source.Name.String()), members, start, stop)
-			cb(members[index].range_, source, shuffleIndex, members[m].spec.Id, filtered)
+			cb(members[index].range_, source, shuffleIndex, members[m].spec.Id, filtered, suspended)
 		}
 	}
 	return nil
