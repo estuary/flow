@@ -188,6 +188,7 @@ Outcome {
                         ),
                         flags: 4,
                         max_append_rate: 4194304,
+                        suspend: None,
                     },
                 ),
                 derivation: None,
