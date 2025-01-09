@@ -193,13 +193,13 @@ expression: "(partition_changes, task_changes)"
       "Shard": {
         "expectModRevision": "111",
         "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/10000000-60000000",
+          "id": "derivation/example/disabled/2020202020202020/10000000-60000000",
           "recoveryLogPrefix": "recovery",
           "hintPrefix": "/estuary/flow/hints",
           "hintBackups": 2,
-          "maxTxnDuration": "60s",
+          "maxTxnDuration": "1s",
           "minTxnDuration": "0s",
-          "hotStandbys": 3,
+          "disable": true,
           "labels": {
             "labels": [
               {
@@ -240,7 +240,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/task-name",
-                "value": "example/derivation"
+                "value": "example/disabled"
               },
               {
                 "name": "estuary.dev/task-type",
@@ -257,7 +257,7 @@ expression: "(partition_changes, task_changes)"
       "Journal": {
         "expectModRevision": "111",
         "upsert": {
-          "name": "recovery/derivation/example/derivation/2020202020202020/10000000-60000000",
+          "name": "recovery/derivation/example/disabled/2020202020202020/10000000-60000000",
           "replication": 3,
           "labels": {
             "labels": [
@@ -275,7 +275,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/task-name",
-                "value": "example/derivation"
+                "value": "example/disabled"
               },
               {
                 "name": "estuary.dev/task-type",
@@ -294,7 +294,8 @@ expression: "(partition_changes, task_changes)"
           "flags": 4,
           "maxAppendRate": "4194304",
           "suspend": {
-            "offset": "445566"
+            "level": "FULL",
+            "offset": "778899"
           }
         }
       }
@@ -303,13 +304,13 @@ expression: "(partition_changes, task_changes)"
       "Shard": {
         "expectModRevision": "111",
         "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/30000000-60000000",
+          "id": "derivation/example/disabled/2020202020202020/30000000-60000000",
           "recoveryLogPrefix": "recovery",
           "hintPrefix": "/estuary/flow/hints",
           "hintBackups": 2,
-          "maxTxnDuration": "60s",
+          "maxTxnDuration": "1s",
           "minTxnDuration": "0s",
-          "hotStandbys": 3,
+          "disable": true,
           "labels": {
             "labels": [
               {
@@ -350,7 +351,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/task-name",
-                "value": "example/derivation"
+                "value": "example/disabled"
               },
               {
                 "name": "estuary.dev/task-type",
@@ -367,7 +368,7 @@ expression: "(partition_changes, task_changes)"
       "Journal": {
         "expectModRevision": "111",
         "upsert": {
-          "name": "recovery/derivation/example/derivation/2020202020202020/30000000-60000000",
+          "name": "recovery/derivation/example/disabled/2020202020202020/30000000-60000000",
           "replication": 3,
           "labels": {
             "labels": [
@@ -385,7 +386,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/task-name",
-                "value": "example/derivation"
+                "value": "example/disabled"
               },
               {
                 "name": "estuary.dev/task-type",
@@ -404,7 +405,8 @@ expression: "(partition_changes, task_changes)"
           "flags": 4,
           "maxAppendRate": "4194304",
           "suspend": {
-            "offset": "445566"
+            "level": "FULL",
+            "offset": "778899"
           }
         }
       }
@@ -413,13 +415,13 @@ expression: "(partition_changes, task_changes)"
       "Shard": {
         "expectModRevision": "111",
         "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/30000000-80000000",
+          "id": "derivation/example/disabled/2020202020202020/30000000-80000000",
           "recoveryLogPrefix": "recovery",
           "hintPrefix": "/estuary/flow/hints",
           "hintBackups": 2,
-          "maxTxnDuration": "60s",
+          "maxTxnDuration": "1s",
           "minTxnDuration": "0s",
-          "hotStandbys": 3,
+          "disable": true,
           "labels": {
             "labels": [
               {
@@ -460,7 +462,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/task-name",
-                "value": "example/derivation"
+                "value": "example/disabled"
               },
               {
                 "name": "estuary.dev/task-type",
@@ -477,7 +479,7 @@ expression: "(partition_changes, task_changes)"
       "Journal": {
         "expectModRevision": "111",
         "upsert": {
-          "name": "recovery/derivation/example/derivation/2020202020202020/30000000-80000000",
+          "name": "recovery/derivation/example/disabled/2020202020202020/30000000-80000000",
           "replication": 3,
           "labels": {
             "labels": [
@@ -495,7 +497,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/task-name",
-                "value": "example/derivation"
+                "value": "example/disabled"
               },
               {
                 "name": "estuary.dev/task-type",
@@ -514,7 +516,8 @@ expression: "(partition_changes, task_changes)"
           "flags": 4,
           "maxAppendRate": "4194304",
           "suspend": {
-            "offset": "445566"
+            "level": "FULL",
+            "offset": "778899"
           }
         }
       }

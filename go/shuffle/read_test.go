@@ -381,40 +381,48 @@ func TestWalkingReads(t *testing.T) {
 			source      string
 			coordinator pc.ShardID
 			filtered    bool
+			suspended   bool
 		}
 
 		var expect = []expectRow{
 			// Expect all shards see these identical reads:
-			{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/2", false}, // Honors journal range.
-			{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/1", false}, // Honors journal range.
-			{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0", false}, // Honors journal range.
-			{"foo/bar=2/baz=def/part=00;transform/der/bar-one", "foo", "shard/2", true},
-			{"foo/bar=2/baz=def/part=01;transform/der/bar-one", "foo", "shard/2", true},
-			{"foo/bar=1/baz=abc/part=00;transform/der/baz-def", "foo", "shard/1", true},
-			{"foo/bar=1/baz=abc/part=01;transform/der/baz-def", "foo", "shard/2", true},
-			{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/0", false}, // Ignores journal range.
-			{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/1", false}, // Ignores journal range.
-			{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2", false}, // Ignores journal range.
-			{"foo/bar=1/baz=abc/part=00;transform/der/unmatched", "foo", "shard/2", true},
-			{"foo/bar=1/baz=abc/part=01;transform/der/unmatched", "foo", "shard/2", true},
-			{"foo/bar=1/baz=def/part=00;transform/der/unmatched", "foo", "shard/0", true},
-			{"foo/bar=2/baz=def/part=00;transform/der/unmatched", "foo", "shard/0", true},
-			{"foo/bar=2/baz=def/part=01;transform/der/unmatched", "foo", "shard/2", true},
+			{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/2", false, false}, // Honors journal range.
+			{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/1", false, false}, // Honors journal range.
+			{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0", false, false}, // Honors journal range.
+			{"foo/bar=2/baz=def/part=00;transform/der/bar-one", "foo", "shard/2", true, false},
+			{"foo/bar=2/baz=def/part=01;transform/der/bar-one", "foo", "shard/2", true, false},
+			{"foo/bar=3/baz=ghi/part=00;transform/der/bar-one", "foo", "shard/2", true, true}, // Suspended.
+			{"foo/bar=1/baz=abc/part=00;transform/der/baz-def", "foo", "shard/1", true, false},
+			{"foo/bar=1/baz=abc/part=01;transform/der/baz-def", "foo", "shard/2", true, false},
+			{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/0", false, false}, // Ignores journal range.
+			{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/1", false, false}, // Ignores journal range.
+			{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2", false, false}, // Ignores journal range.
+			{"foo/bar=3/baz=ghi/part=00;transform/der/baz-def", "foo", "shard/2", true, true},   // Suspended.
+			{"foo/bar=1/baz=abc/part=00;transform/der/unmatched", "foo", "shard/2", true, false},
+			{"foo/bar=1/baz=abc/part=01;transform/der/unmatched", "foo", "shard/2", true, false},
+			{"foo/bar=1/baz=def/part=00;transform/der/unmatched", "foo", "shard/0", true, false},
+			{"foo/bar=2/baz=def/part=00;transform/der/unmatched", "foo", "shard/0", true, false},
+			{"foo/bar=2/baz=def/part=01;transform/der/unmatched", "foo", "shard/2", true, false},
+			{"foo/bar=3/baz=ghi/part=00;transform/der/unmatched", "foo", "shard/1", true, true}, // Suspended.
 
 			// Partition-covered reads are different for each shard:
-			{"foo/bar=1/baz=abc/part=00;transform/der/partitions-cover", "foo", "shard/0", index != 0},
-			{"foo/bar=1/baz=abc/part=01;transform/der/partitions-cover", "foo", "shard/0", index != 0},
-			{"foo/bar=1/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/1", index != 1},
-			{"foo/bar=2/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/0", index != 0},
-			{"foo/bar=2/baz=def/part=01;transform/der/partitions-cover", "foo", "shard/0", index != 0},
+			{"foo/bar=1/baz=abc/part=00;transform/der/partitions-cover", "foo", "shard/0", index != 0, false},
+			{"foo/bar=1/baz=abc/part=01;transform/der/partitions-cover", "foo", "shard/0", index != 0, false},
+			{"foo/bar=1/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/1", index != 1, false},
+			{"foo/bar=2/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/0", index != 0, false},
+			{"foo/bar=2/baz=def/part=01;transform/der/partitions-cover", "foo", "shard/0", index != 0, false},
+			{"foo/bar=3/baz=ghi/part=00;transform/der/partitions-cover", "foo", "shard/0", index != 0, true},
 		}
 
 		var err = walkReads(shards[index].Id, shards, shuffles,
-			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered bool) {
+			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID, filtered, suspended bool) {
+				t.Log("expect", expect[0])
+				t.Log("actual", spec.Name, coordinator, filtered, suspended)
 				require.Equal(t, expect[0].journal, spec.Name.String())
 				require.Equal(t, expect[0].source, shuffles[shuffleIndex].sourceSpec.Name.String())
 				require.Equal(t, expect[0].coordinator, coordinator)
 				require.Equal(t, expect[0].filtered, filtered)
+				require.Equal(t, expect[0].suspended, suspended)
 				expect = expect[1:]
 			})
 		require.NoError(t, err)
@@ -425,17 +433,17 @@ func TestWalkingReads(t *testing.T) {
 	// portion of the key range is not covered by any shard.
 	// This results in an error when walking with shuffle "bar-one" which uses the source key.
 	err = walkReads(shards[0].Id, shards[0:2], shuffles[:1],
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _ bool) {})
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _, _ bool) {})
 	require.EqualError(t, err,
 		"none of 2 shards overlap the key-range of journal foo/bar=1/baz=abc/part=00, aaaaaaaa-ffffffff")
 	// But is not an error with shuffle "baz-def", which *doesn't* use the source key.
 	err = walkReads(shards[0].Id, shards[0:2], shuffles[1:2],
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _ bool) {})
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _, _ bool) {})
 	require.NoError(t, err)
 
 	// Case: shard doesn't exist. walkReads is a no-op.
 	err = walkReads("shard/deleted", shards, shuffles,
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _ bool) { panic("not called") })
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID, _, _ bool) { panic("not called") })
 	require.NoError(t, err)
 }
 
@@ -527,6 +535,7 @@ func buildReadTestJournalsAndTransforms() ([]*pb.JournalSpec, []*pc.ShardSpec, *
 		{"1", "def", "00000000", "55555554", 0}, // foo/bar=1/baz=def/part=00
 		{"2", "def", "aaaaaaaa", "bbbbbbba", 0}, // foo/bar=2/baz=def/part=00
 		{"2", "def", "bbbbbbbb", "ffffffff", 1}, // foo/bar=2/baz=def/part=01
+		{"3", "ghi", "aaaaaaaa", "ffffffff", 0}, // foo/bar=3/baz=ghi/part=00
 	} {
 		var name = fmt.Sprintf("foo/bar=%s/baz=%s/part=%02d", j.bar, j.baz, j.part)
 
@@ -547,6 +556,13 @@ func buildReadTestJournalsAndTransforms() ([]*pb.JournalSpec, []*pc.ShardSpec, *
 			},
 		})
 	}
+
+	// Last journal is fully suspended and is not read.
+	journals[len(journals)-1].Suspend = &pb.JournalSpec_Suspend{
+		Level:  pb.JournalSpec_Suspend_FULL,
+		Offset: 112233,
+	}
+
 	var shards = []*pc.ShardSpec{
 		{Id: "shard/0", LabelSet: pb.MustLabelSet(
 			labels.KeyBegin, "00000000",
