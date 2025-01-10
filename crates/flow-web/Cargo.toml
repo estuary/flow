@@ -32,6 +32,7 @@ default = ["console_error_panic_hook"]
 doc = { path = "../doc", default-features = false } # `combine` feature requires `lz4`, which doesn't WASM.
 json = { path = "../json" }
 models = { path = "../models" }
+tables = { path = "../tables" }
 
 url = { workspace = true }
 thiserror = { workspace = true }

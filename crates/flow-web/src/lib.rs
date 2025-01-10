@@ -18,6 +18,10 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen]
 extern "C" {
     fn alert(s: &str);
+
+    // You can use log and call _kind of_ line `console.log`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str, b: JsValue);
 }
 
 #[derive(Serialize, Deserialize)]
@@ -147,4 +151,30 @@ pub fn extend_read_bundle(input: JsValue) -> Result<JsValue, JsValue> {
     let output = models::Schema::extend_read_bundle(&read, Some(&write), inferred.as_ref());
 
     serde_wasm_bindgen::to_value(&output).map_err(|err| JsValue::from_str(&format!("{err:?}")))
+}
+
+#[derive(Serialize, Deserialize)]
+struct InputSchema {
+    spec: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct OutputSchema {
+    pointers: tables::utils::ResourceSpecPointers,
+}
+
+#[wasm_bindgen]
+pub fn get_resource_config_pointers(input: JsValue) -> Result<JsValue, JsValue> {
+    log(
+        "get_resource_config_points is running with input",
+        input.clone(),
+    );
+
+    let input: InputSchema = serde_wasm_bindgen::from_value(input)
+        .map_err(|err| JsValue::from_str(&format!("Invalid JSON: {:?}", err)))?;
+
+    let pointers = tables::utils::pointer_for_schema(&input.spec.as_ref()).unwrap();
+
+    serde_wasm_bindgen::to_value(&OutputSchema { pointers })
+        .map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }
