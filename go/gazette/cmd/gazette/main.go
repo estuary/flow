@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,10 +33,10 @@ var Config = new(struct {
 		mbp.ServiceConfig
 		Limit          uint32        `long:"limit" env:"LIMIT" default:"1024" description:"Maximum number of Journals the broker will allocate"`
 		FileRoot       string        `long:"file-root" env:"FILE_ROOT" description:"Local path which roots file:// fragment stores (optional)"`
+		FileOnly       bool          `long:"file-only" env:"FILE_ONLY" description:"Use the local file:// store for all journal fragments, ignoring cloud bucket storage configuration (for example, S3)"`
 		MaxAppendRate  uint32        `long:"max-append-rate" env:"MAX_APPEND_RATE" default:"0" description:"Max rate (in bytes-per-sec) that any one journal may be appended to. If zero, there is no max rate"`
 		MaxReplication uint32        `long:"max-replication" env:"MAX_REPLICATION" default:"9" description:"Maximum effective replication of any one journal, which upper-bounds its stated replication."`
 		MinAppendRate  uint32        `long:"min-append-rate" env:"MIN_APPEND_RATE" default:"65536" description:"Min rate (in bytes-per-sec) at which a client may stream Append RPC content. RPCs unable to sustain this rate are aborted"`
-		DisableStores  bool          `long:"disable-stores" env:"DISABLE_STORES" description:"Disable use of any configured journal fragment stores. The broker will neither list or persist remote fragments, and all data is discarded on broker exit."`
 		WatchDelay     time.Duration `long:"watch-delay" env:"WATCH_DELAY" default:"30ms" description:"Delay applied to the application of watched Etcd events. Larger values amortize the processing of fast-changing Etcd keys."`
 		AuthKeys       string        `long:"auth-keys" env:"AUTH_KEYS" description:"Whitespace or comma separated, base64-encoded keys used to sign (first key) and verify (all keys) Authorization tokens." json:"-"`
 		AutoSuspend    bool          `long:"auto-suspend" env:"AUTO_SUSPEND" description:"Automatically suspend journals which have persisted all fragments"`
@@ -104,12 +105,14 @@ func (cmdServe) Execute(args []string) error {
 		_, err = os.Stat(Config.Broker.FileRoot)
 		mbp.Must(err, "configured local file:// root failed")
 		fragment.FileSystemStoreRoot = Config.Broker.FileRoot
+	} else if Config.Broker.FileOnly {
+		mbp.Must(fmt.Errorf("--file-root is not configured"), "a file root must be defined when using --file-only")
 	}
 
 	broker.AutoSuspend = Config.Broker.AutoSuspend
 	broker.MaxAppendRate = int64(Config.Broker.MaxAppendRate)
 	broker.MinAppendRate = int64(Config.Broker.MinAppendRate)
-	fragment.DisableStores = Config.Broker.DisableStores
+	fragment.ForceFileStore = Config.Broker.FileOnly
 	pb.MaxReplication = int32(Config.Broker.MaxReplication)
 
 	var (
