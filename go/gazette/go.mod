@@ -29,7 +29,7 @@ require (
 	github.com/jgraettinger/urkel v0.1.2
 	github.com/klauspost/compress v1.13.5
 	github.com/lib/pq v1.10.2
-	github.com/mattn/go-sqlite3 v2.0.3+incompatible
+	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.1

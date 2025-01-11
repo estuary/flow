@@ -21,10 +21,10 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/jgraettinger/gorocksdb"
 	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"github.com/jgraettinger/gorocksdb"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -168,21 +168,20 @@ func NewStore(recorder *recoverylog.Recorder) (*Store, error) {
 // The "gazette_checkpoint" table is then created, and any provided statements
 // are prepared and added to Store.Stmts in the same order as provided to Open.
 //
-//      store.Open(
-//          // Create myTable if it doesn't yet exist:
-//          `CREATE TABLE IF NOT EXISTS myTable (
-//              id BLOB PRIMARY KEY NOT NULL,
-//              valueOne  INTEGER,
-//              valueTwo  TEXT
-//          );`,
-//          // Statement for querying on valueOne:
-//          `SELECT id, valueTwo FROM myTable WHERE valueOne > ?;`,
-//          // Statement for upserting into myTable:
-//          `INSERT INTO myTable(id, valueOne, valueTwo) VALUES(:id, :one, :two)
-//              ON CONFLICT(id) DO UPDATE SET valueOne = valueOne + :one, valueTwo = :two`,
-//      )
-//      // store.Stmts[0] is now prepared for queries, and store.Stmts[1] for upserts.
-//
+//	store.Open(
+//	    // Create myTable if it doesn't yet exist:
+//	    `CREATE TABLE IF NOT EXISTS myTable (
+//	        id BLOB PRIMARY KEY NOT NULL,
+//	        valueOne  INTEGER,
+//	        valueTwo  TEXT
+//	    );`,
+//	    // Statement for querying on valueOne:
+//	    `SELECT id, valueTwo FROM myTable WHERE valueOne > ?;`,
+//	    // Statement for upserting into myTable:
+//	    `INSERT INTO myTable(id, valueOne, valueTwo) VALUES(:id, :one, :two)
+//	        ON CONFLICT(id) DO UPDATE SET valueOne = valueOne + :one, valueTwo = :two`,
+//	)
+//	// store.Stmts[0] is now prepared for queries, and store.Stmts[1] for upserts.
 func (s *Store) Open(bootstrapSQL string, statements ...string) error {
 	// Finish initialization and open page DB.
 	s.PageDBOptions.SetEnv(s.PageDBEnv)
@@ -253,8 +252,9 @@ func (s *Store) Open(bootstrapSQL string, statements ...string) error {
 // database name (which is held constant across Store recoveries) to a URI
 // specific to this *Store instance and which is suited for ATTACH-ing to the
 // primary database. Eg:
-//   URIForDB("sept_2019.db") =>
-//     "file:sept_2019.db?_journal_mode=WAL&other-setting=bar&vfs=store-123456&..."
+//
+//	URIForDB("sept_2019.db") =>
+//	  "file:sept_2019.db?_journal_mode=WAL&other-setting=bar&vfs=store-123456&..."
 func (s *Store) URIForDB(name string) string {
 	return "file:" + name + "?" + s.SQLiteURIValues.Encode()
 }
@@ -339,6 +339,12 @@ func (s *Store) Destroy() {
 		C.recFSFree(s.vfs)
 	}
 
+	// Column family handles must be closed before the DB is.
+	for _, c := range s.PageDBColumns {
+		c.Destroy()
+	}
+	s.PageDBColumns = nil
+
 	if s.pages != nil {
 		s.pages.Close()
 	}
@@ -362,14 +368,13 @@ func (s *Store) pageDBPath() string {
 // the linked SQLite library was built with. See https://www.sqlite.org/compile.html
 // for a full listing. Note the "SQLITE_" prefix is dropped in the returned set:
 //
-//      map[string]struct{
-//          "COMPILER=gcc-8.3.0": {},
-//          "ENABLE_BATCH_ATOMIC_WRITE": {},
-//          "ENABLE_COLUMN_METADATA": {},
-//          "ENABLE_DBSTAT_VTAB": {},
-//          ... etc ...
-//      }
-//
+//	map[string]struct{
+//	    "COMPILER=gcc-8.3.0": {},
+//	    "ENABLE_BATCH_ATOMIC_WRITE": {},
+//	    "ENABLE_COLUMN_METADATA": {},
+//	    "ENABLE_DBSTAT_VTAB": {},
+//	    ... etc ...
+//	}
 func SQLiteCompiledOptions() (map[string]struct{}, error) {
 	var db, err = sql.Open("sqlite3", ":memory:")
 	if err != nil {
