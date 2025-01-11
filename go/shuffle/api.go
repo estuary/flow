@@ -45,15 +45,14 @@ func (api *API) Shuffle(claims pb.Claims, req *pr.ShuffleRequest, stream pr.Shuf
 		MayProxy:    false,
 		ProxyHeader: req.Resolution,
 	})
-	var resp = pr.ShuffleResponse{
-		Status: res.Status,
-		Header: &res.Header,
-	}
 
 	if err != nil {
 		return err
-	} else if resp.Status != pc.Status_OK {
-		return stream.SendMsg(&resp)
+	} else if res.Status != pc.Status_OK {
+		return stream.Send(&pr.ShuffleResponse{
+			Status: res.Status,
+			Header: &res.Header,
+		})
 	}
 	defer res.Done()
 
