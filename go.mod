@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/jgraettinger/gorocksdb v0.0.0-20240221161858-8f4873ee26e0
-	github.com/mattn/go-sqlite3 v2.0.3+incompatible
+	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/minio/highwayhash v1.0.2
 	github.com/nsf/jsondiff v0.0.0-20210303162244-6ea32392771e
 	github.com/prometheus/client_golang v1.11.1
