@@ -190,25 +190,30 @@ async fn do_create_data_plane(
     let draft: tables::DraftCatalog = serde_json::from_str::<models::Catalog>(&draft_str)
         .unwrap()
         .into();
+
     let publication = DraftPublication {
         user_id,
         logs_token: insert.logs_token,
         draft,
         dry_run: false,
         detail: Some(format!("publication for data-plane {base_name}")),
-        // We've already validated that the user can admin `ops/`, so further authZ checks are
-        // unnecessary.
+        // We've already validated that the user can admin `ops/`,
+        // so further authZ checks are unnecessary.
         verify_user_authz: false,
         default_data_plane_name: Some(data_plane_name.clone()),
         initialize: NoExpansion,
         finalize: PruneUnboundCollections,
         retry: DoNotRetry,
     };
-    publisher
+    let result = publisher
         .publish(publication)
         .await
-        .context("publishing ops catalog")?
-        .error_for_status()?;
+        .context("publishing ops catalog")?;
+
+    for err in result.draft_errors() {
+        tracing::error!(error = ?err, "create-data-plane build error");
+    }
+    let result = result.error_for_status()?;
 
     tracing::info!(
         data_plane_fqdn,
