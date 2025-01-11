@@ -181,8 +181,8 @@ export class Derivation extends Types.IDerivation {"#
         dry_run,
         detail: Some(format!("publication for updating L2 reporting")),
         default_data_plane_name: Some(default_data_plane.clone()),
-        // We've already validated that the user can admin `ops/`, so further authZ checks are
-        // unnecessary.
+        // We've already validated that the user can admin `ops/`,
+        // so further authZ checks are unnecessary.
         verify_user_authz: false,
         initialize: NoExpansion,
         finalize: NoopFinalize,
@@ -192,12 +192,11 @@ export class Derivation extends Types.IDerivation {"#
         .publish(publication)
         .await
         .context("publishing L2 reporting catalog")?;
-    if !result.status.is_success() {
-        for err in result.draft_errors() {
-            tracing::error!(error = ?err, "data-plane-template build error");
-        }
-        anyhow::bail!("data-plane-template build failed");
+
+    for err in result.draft_errors() {
+        tracing::error!(error = ?err, "update-l2-reporting build error");
     }
+    let result = result.error_for_status()?;
 
     let (live, draft) = (result.live.collections, result.draft.collections);
     tracing::info!(%logs_token, %dry_run, "updated L2 reporting");
