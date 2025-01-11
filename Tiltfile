@@ -88,66 +88,65 @@ local_resource(
     )
 )
 
-local_resource(
-    'gazette',
-    serve_cmd='%s/flow/.build/package/bin/gazette serve \
-    --broker.allow-origin http://localhost:3000 \
-    --broker.disable-stores \
-    --broker.host gazette.flow.localhost \
-    --broker.max-replication 1 \
-    --broker.port 8080 \
-    --etcd.address http://etcd.flow.localhost:2379 \
-    --log.level=info \
-    ' % REPO_BASE,
+[local_resource(
+    'gazette-%d' % port,
+    serve_cmd='%s/flow/.build/package/bin/gazette serve' % REPO_BASE,
     serve_env={
+        "BROKER_ALLOW_ORIGIN": "http://localhost:3000",
         "BROKER_AUTH_KEYS": AUTH_KEYS,
+        "BROKER_AUTO_SUSPEND": "true",
+        "BROKER_FILE_ONLY": "true",
+        "BROKER_FILE_ROOT": FLOW_DIR,
+        "BROKER_HOST": "gazette.flow.localhost",
         "BROKER_PEER_CA_FILE": CA_CERT_PATH,
+        "BROKER_PORT": "%d" % port,
         "BROKER_SERVER_CERT_FILE": TLS_CERT_PATH,
         "BROKER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
+        "ETCD_ADDRESS": "http://etcd.flow.localhost:2379",
+        "LOG_LEVEL": "info",
     },
-    links='https://gazette.flow.localhost:8080/debug/pprof',
+    links='https://gazette.flow.localhost:%d/debug/pprof' % port,
     resource_deps=['etcd'],
     readiness_probe=probe(
         initial_delay_secs=5,
-        http_get=http_get_action(port=8080, path='/debug/ready', scheme='https')
+        http_get=http_get_action(port=port, path='/debug/ready', scheme='https')
     )
-)
+) for port in range(8080, 8084)]
 
-local_resource(
-    'reactor',
-    serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
-    --broker.address https://gazette.flow.localhost:8080 \
-    --broker.cache.size 128 \
-    --consumer.allow-origin http://localhost:3000 \
-    --consumer.host reactor.flow.localhost \
-    --consumer.limit 1024 \
-    --consumer.max-hot-standbys 0 \
-    --consumer.port 9000 \
-    --etcd.address http://etcd.flow.localhost:2379 \
-    --flow.allow-local \
-    --flow.control-api http://agent.flow.localhost:8675 \
-    --flow.dashboard   http://localhost:3000 \
-    --flow.data-plane-fqdn local-cluster.dp.estuary-data.com \
-    --flow.network supabase_network_flow \
-    --log.level info \
-    ' % (REPO_BASE),
+[local_resource(
+    'reactor-%d' % port,
+    serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer' % (REPO_BASE),
     serve_env={
+        "BROKER_ADDRESS": "https://gazette.flow.localhost:8080",
         "BROKER_AUTH_KEYS": AUTH_KEYS,
+        "BROKER_CACHE_SIZE": "128",
+        "BROKER_FILE_ROOT": FLOW_DIR,
         "BROKER_TRUSTED_CA_FILE": CA_CERT_PATH,
+        "CONSUMER_ALLOW_ORIGIN": "http://localhost:3000",
         "CONSUMER_AUTH_KEYS": AUTH_KEYS,
+        "CONSUMER_HOST": "reactor.flow.localhost",
+        "CONSUMER_LIMIT": "1024",
         "CONSUMER_PEER_CA_FILE": CA_CERT_PATH,
+        "CONSUMER_PORT": "%d" % port,
         "CONSUMER_SERVER_CERT_FILE": TLS_CERT_PATH,
         "CONSUMER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
         "DOCKER_DEFAULT_PLATFORM": "linux/amd64",
+        "ETCD_ADDRESS": "http://etcd.flow.localhost:2379",
+        "FLOW_ALLOW_LOCAL": "true",
         "FLOW_BUILDS_ROOT": FLOW_BUILDS_ROOT,
+        "FLOW_CONTROL_API": "http://agent.flow.localhost:8675",
+        "FLOW_DASHBOARD": "http://localhost:3000",
+        "FLOW_DATA_PLANE_FQDN": "local-cluster.dp.estuary-data.com",
+        "FLOW_NETWORK": "supabase_network_flow",
+        "LOG_LEVEL": "info",
     },
     links='https://reactor.flow.localhost:9000/debug/pprof',
     resource_deps=['etcd'],
     readiness_probe=probe(
         initial_delay_secs=5,
-        http_get=http_get_action(port=9000, path='/debug/ready', scheme='https')
+        http_get=http_get_action(port=port, path='/debug/ready', scheme='https')
     ),
-)
+) for port in range(9000, 9001)]
 
 local_resource(
     'agent',
@@ -166,7 +165,7 @@ local_resource(
         "SSL_CERT_FILE": CA_CERT_PATH,
         "CONTROL_PLANE_JWT_SECRET": "super-secret-jwt-token-with-at-least-32-characters-long",
     },
-    resource_deps=['reactor', 'gazette']
+    resource_deps=['reactor-9000', 'gazette-8080']
 )
 
 local_resource(

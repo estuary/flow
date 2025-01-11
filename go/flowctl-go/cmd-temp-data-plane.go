@@ -155,7 +155,8 @@ func (cmd cmdTempDataPlane) gazetteCmd(ctx context.Context, tempdir string, etcd
 	var out = exec.CommandContext(ctx,
 		pkgbin.MustLocate("gazette"),
 		"serve",
-		"--broker.disable-stores",
+		"--broker.file-root", tempdir,
+		"--broker.file-only",
 		"--broker.max-replication", "1",
 		"--broker.port", port,
 		"--broker.watch-delay", "0ms", // Speed test execution.
