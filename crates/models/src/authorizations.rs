@@ -160,9 +160,10 @@ pub struct DekafAuthResponse {
     // Name of the journal that contains the stats for the specified task
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ops_stats_journal: String,
-    // Spec of the task
+    // The built spec of the materialization. This is actually proto_flow::flow::MaterializationSpec
+    // but we can't depend on `proto_flow` here, so `RawValue` it is
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_spec: Option<crate::materializations::MaterializationDef>,
+    pub task_spec: Option<crate::RawValue>,
     /// # Number of milliseconds to wait before retrying the request.
     /// Non-zero if and only if token is not set.
     pub retry_millis: u64,

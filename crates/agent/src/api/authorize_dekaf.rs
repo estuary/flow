@@ -81,7 +81,7 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
             let materialization_spec = sqlx::query!(
                 r#"
                     select
-                        spec as "spec: sqlx::types::Json<models::MaterializationDef>",
+                        built_spec as "spec: sqlx::types::Json<models::RawValue>",
                         spec_type as "spec_type: models::CatalogType"
                     from live_specs
                     where live_specs.catalog_name = $1
