@@ -11,7 +11,7 @@ It's available for use in the Flow web application. For local development or ope
 
 ## Prerequisites
 
-You'll need a AlloyDB database setup with the following:
+You'll need an AlloyDB database setup with the following:
 
 * Logical decoding enabled
 * User role with `REPLICATION` attribute
@@ -50,12 +50,12 @@ in the same Google Cloud project as your instance.
 
 ## Backfills and performance considerations
 
-When the a AlloyDB capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the AlloyDB capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
-In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
+In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
 

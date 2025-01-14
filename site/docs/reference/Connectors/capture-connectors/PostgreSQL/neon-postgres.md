@@ -108,7 +108,7 @@ For information about configuring allowed IPs in Neon, see [Configure IP Allow](
    postgres://cdc_role:AbC123dEf@ep-cool-darkness-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
    ```
    Enter the details for **your connection string** into the source connector fields. Based on the sample connection string above, the values would be specified as shown below. Your values will differ.
-   
+
    - Name: Name of the Capture connector
    - Server Address: ep-cool-darkness-123456.us-east-2.aws.neon.tech:5432
    - User: cdc_role
@@ -122,12 +122,12 @@ Optionally, you can change the name of the destination name for each table. You 
 
 ## Backfills and performance considerations
 
-When the a PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the PostgreSQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
-This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
+This is desirable in most cases, as it ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
-In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
+In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
 
