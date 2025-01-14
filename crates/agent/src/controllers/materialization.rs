@@ -17,10 +17,7 @@ use models::{
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use tables::{
-    utils::{pointer_for_schema, update_linked_materialization},
-    LiveRow,
-};
+use tables::{utils::pointer_for_schema, LiveRow};
 
 pub async fn update<C: ControlPlane>(
     status: &mut MaterializationStatus,
@@ -370,4 +367,34 @@ fn get_bindings_to_add(
         bindings_to_add.remove(mat_binding.source.collection());
     }
     bindings_to_add
+}
+
+fn update_linked_materialization(
+    source_capture: &SourceCapture,
+    resource_spec_pointers: ResourceSpecPointers,
+    bindings_to_add: &BTreeSet<models::Collection>,
+    materialization: &mut models::MaterializationDef,
+) -> anyhow::Result<()> {
+    for collection_name in bindings_to_add {
+        let mut resource_spec = serde_json::json!({});
+        crate::resource_configs::update_materialization_resource_spec(
+            source_capture,
+            &mut resource_spec,
+            &resource_spec_pointers,
+            &collection_name,
+        )?;
+
+        let binding = models::MaterializationBinding {
+            resource: models::RawValue::from_value(&resource_spec),
+            source: models::Source::Collection(collection_name.clone()),
+            disable: false,
+            fields: Default::default(),
+            priority: Default::default(),
+            backfill: 0,
+            on_incompatible_schema_change: None,
+        };
+        materialization.bindings.push(binding);
+    }
+
+    Ok(())
 }
