@@ -172,7 +172,6 @@ pub fn get_resource_config_pointers(input: JsValue) -> Result<JsValue, JsValue> 
     struct Output {
         pointers: ResourceSpecPointers,
     }
-
     serde_wasm_bindgen::to_value(&Output { pointers })
         .map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }
@@ -186,7 +185,7 @@ pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, J
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Input {
         source_capture: SourceCapture,
-        resource_spec: serde_json::Value, // MaterializationBinding
+        resource_spec: serde_json::Value,
         resource_spec_pointers: ResourceSpecPointers,
         collection_name: String,
     }
@@ -208,6 +207,7 @@ pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, J
     )
     .map_err(|err| JsValue::from_str(&format!("Failed updating resource spec: {:?}", err)))?;
 
+    // Outputting as a string as I just could NOT get it to return JSON correctly
     let output = serde_json::to_string(&resource_spec).unwrap();
     serde_wasm_bindgen::to_value(&{ output }).map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }
