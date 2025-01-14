@@ -160,13 +160,14 @@ pub fn get_resource_config_pointers(input: JsValue) -> Result<JsValue, JsValue> 
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Input {
-        spec: String,
+        spec: serde_json::Value,
     }
     let Input { spec } = serde_wasm_bindgen::from_value(input)
         .map_err(|err| JsValue::from_str(&format!("Invalid JSON: {:?}", err)))?;
 
-    let pointers = tables::utils::pointer_for_schema(&spec.as_ref())
-        .map_err(|err| JsValue::from_str(&format!("Failed getting pointers: {:?}", err)))?;
+    let pointers =
+        tables::utils::pointer_for_schema(&serde_json::to_string(&spec).unwrap().as_ref())
+            .map_err(|err| JsValue::from_str(&format!("Failed getting pointers: {:?}", err)))?;
 
     #[derive(Serialize, Deserialize)]
     struct Output {
