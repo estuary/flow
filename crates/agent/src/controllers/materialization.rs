@@ -12,7 +12,7 @@ use models::{
         materialization::{MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
-    ModelDef, OnIncompatibleSchemaChange,
+    ModelDef, OnIncompatibleSchemaChange, SourceCapture,
 };
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use serde::{Deserialize, Serialize};
@@ -371,13 +371,13 @@ fn get_bindings_to_add(
 
 fn update_linked_materialization(
     source_capture: &SourceCapture,
-    resource_spec_pointers: ResourceSpecPointers,
+    resource_spec_pointers: tables::utils::ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
     materialization: &mut models::MaterializationDef,
 ) -> anyhow::Result<()> {
     for collection_name in bindings_to_add {
         let mut resource_spec = serde_json::json!({});
-        crate::resource_configs::update_materialization_resource_spec(
+        tables::utils::update_materialization_resource_spec(
             source_capture,
             &mut resource_spec,
             &resource_spec_pointers,
