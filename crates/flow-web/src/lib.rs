@@ -155,69 +155,59 @@ pub fn extend_read_bundle(input: JsValue) -> Result<JsValue, JsValue> {
     serde_wasm_bindgen::to_value(&output).map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-// get_resource_config_pointers
-#[derive(Serialize, Deserialize)]
-struct ResourceConfigPointersInputSchema {
-    spec: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ResourceConfigOutputSchema {
-    pointers: ResourceSpecPointers,
-}
-
 #[wasm_bindgen]
 pub fn get_resource_config_pointers(input: JsValue) -> Result<JsValue, JsValue> {
-    let input: ResourceConfigPointersInputSchema = serde_wasm_bindgen::from_value(input)
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Input {
+        spec: String,
+    }
+    let Input { spec } = serde_wasm_bindgen::from_value(input)
         .map_err(|err| JsValue::from_str(&format!("Invalid JSON: {:?}", err)))?;
 
-    let pointers = tables::utils::pointer_for_schema(&input.spec.as_ref())
+    let pointers = tables::utils::pointer_for_schema(&spec.as_ref())
         .map_err(|err| JsValue::from_str(&format!("Failed getting pointers: {:?}", err)))?;
 
-    serde_wasm_bindgen::to_value(&ResourceConfigOutputSchema { pointers })
+    #[derive(Serialize, Deserialize)]
+    struct Output {
+        pointers: ResourceSpecPointers,
+    }
+
+    serde_wasm_bindgen::to_value(&Output { pointers })
         .map_err(|err| JsValue::from_str(&format!("{err:?}")))
-}
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-// update_materialization_resource_spec
-#[derive(Serialize, Deserialize)]
-struct UpdateMaterializationResourceSpecInputSchema {
-    source_capture: SourceCapture,
-    resource_spec: serde_json::Value, // MaterializationBinding
-    resource_spec_pointers: ResourceSpecPointers,
-    collection_name: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct UpdateMaterializationResourceSpecOutputSchema {
-    // updated_schema: serde_json::Value, // MaterializationBinding,
-    updated_schema: models::RawValue, // MaterializationBinding,
 }
 
 #[wasm_bindgen]
 pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, JsValue> {
-    let input: UpdateMaterializationResourceSpecInputSchema = serde_wasm_bindgen::from_value(input)
-        .map_err(|err| JsValue::from_str(&format!("Invalid JSON: {:?}", err)))?;
+    let input: serde_json::Value = ::serde_wasm_bindgen::from_value(input)
+        .map_err(|err| JsValue::from_str(&format!("invalid JSON: {:?}", err)))?;
 
-    let mut new_model = input.resource_spec.clone();
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Input {
+        source_capture: SourceCapture,
+        resource_spec: serde_json::Value, // MaterializationBinding
+        resource_spec_pointers: ResourceSpecPointers,
+        collection_name: String,
+    }
+
+    let Input {
+        source_capture,
+        resource_spec,
+        resource_spec_pointers,
+        collection_name,
+    } = serde_json::from_value(input)
+        .map_err(|err| JsValue::from_str(&format!("invalid input: {:?}", err)))?;
+
+    let mut resource_spec = resource_spec.clone();
     tables::utils::update_materialization_resource_spec(
-        &input.source_capture,
-        &mut new_model,
-        &input.resource_spec_pointers,
-        input.collection_name.as_ref(),
+        &source_capture,
+        &mut resource_spec,
+        &resource_spec_pointers,
+        collection_name.as_ref(),
     )
     .map_err(|err| JsValue::from_str(&format!("Failed updating resource spec: {:?}", err)))?;
 
-    match serde_json::to_string(&new_model) {
-        Ok(json_string) => {
-            // Return the serialized JSON string as JsValue
-            Ok(JsValue::from_str(&json_string))
-        }
-        Err(err) => {
-            // If serialization fails, return an error message as JsValue
-            let error_message = format!("Serialization error: {}", err);
-            Err(JsValue::from_str(&error_message))
-        }
-    }
+    let output = serde_json::to_string(&resource_spec).unwrap();
+    serde_wasm_bindgen::to_value(&{ output }).map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }

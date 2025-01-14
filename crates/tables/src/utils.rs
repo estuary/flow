@@ -1,7 +1,6 @@
 use models::{SourceCapture, SourceCaptureSchemaMode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeSet;
 
 #[derive(Serialize, Deserialize)]
 pub struct ResourceSpecPointers {
