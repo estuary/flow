@@ -38,7 +38,7 @@ For example, Postgres currently deletes or requires users to drop logical replic
 
 ## Backfill modes
 
-Some connectors, such as those working with SQL sources, allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
+The connectors that use CDC (Change Data Capture) allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
 
 ```yaml
 "bindings": [
@@ -54,17 +54,33 @@ Some connectors, such as those working with SQL sources, allow fine-grained cont
 ```
 
 :::warning
-In general, you should not change this setting. Make sure you understand your use case, such as preventing backfills, as discussed above.
+In general, you should not change this setting. Make sure you understand your use case, such as [preventing backfills](#preventing-backfills-during-database-upgrades).
 :::
 
 The following modes are available:
 
 * **Normal:** backfills chunks of the table and emits all replication events regardless of whether they occur within the backfilled portion of the table or not.
 
+   In Normal mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
+   All WAL changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
+
 * **Precise:** backfills chunks of the table and filters replication events in portions of the table which haven't yet been reached.
+
+   In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
+   Any WAL changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, WAL changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
+
+   WAL changes and backfill chunks get stitched together to produce a fully consistent logical sequence of changes for each key. For example, you are guaranteed to see an insert before an update or delete.
+
+   Note that Precise backfill is not possible in some cases due to equality comparison challenges when using varying character encodings.
 
 * **Only Changes:** skips backfilling the table entirely and jumps directly to replication streaming for the entire dataset.
 
-* **Without Primary Key:** can be used to capture tables without any form of unique primary key, but lacks the exact correctness properties of the normal backfill mode.
+   No backfill of the table content is performed at all. Only WAL changes are emitted.
+
+* **Without Primary Key:** can be used to capture tables without any form of unique primary key.
+
+   The connector uses an alternative physical row identifier (such as a Postgres `ctid`) to scan backfill chunks, rather than walking the table in key order.
+
+   This mode lacks the exact correctness properties of the Normal backfill mode.
 
 If you do not choose a specific backfill mode, Flow will default to an automatic mode.
