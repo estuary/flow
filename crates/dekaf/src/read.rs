@@ -119,7 +119,7 @@ impl Read {
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions,
         };
 
-        let mut alloc = bumpalo::Bump::new();
+        let alloc = bumpalo::Bump::new();
 
         let mut records: Vec<Record> = Vec::new();
         let mut records_bytes: usize = 0;
