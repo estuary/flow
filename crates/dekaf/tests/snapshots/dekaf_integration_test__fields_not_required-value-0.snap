@@ -1,0 +1,11 @@
+---
+source: crates/dekaf/tests/dekaf_integration_test.rs
+expression: "&decoded_payload"
+---
+{
+  "field_a": null,
+  "flow_published_at": {
+    "json": "[timestamp]"
+  },
+  "key": "first"
+}
