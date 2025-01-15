@@ -1,0 +1,10 @@
+---
+source: crates/dekaf/tests/dekaf_integration_test.rs
+assertion_line: 435
+expression: "&decoded_key"
+---
+{
+  "_flow_key": {
+    "p1": "first"
+  }
+}

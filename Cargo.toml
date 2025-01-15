@@ -228,7 +228,14 @@ insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
 pretty_assertions = "1.4.0"
 rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = { version = "0.4" }
+rdkafka = "0.37"
+schema_registry_converter = { version = "4.2.0", features = [
+    "easy",
+    "avro",
+    "json",
+] }
 serial_test = "0.9"
+tracing-test = "0.2.5"
 wasm-bindgen-test = "0.3.13"
 
 # Used exclusively as build-dependencies

@@ -14,7 +14,6 @@ allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
-tuple = { path = "../tuple" }
 flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -24,6 +23,7 @@ ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 simd-doc = { path = "../simd-doc" }
+tuple = { path = "../tuple" }
 unseal = { path = "../unseal" }
 
 aes-siv = { workspace = true }
