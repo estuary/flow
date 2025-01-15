@@ -76,6 +76,17 @@ begin
   insert into public.connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
   insert into public.connectors (image_name, title, short_description, logo_url, external_url, recommended) values (
+    'ghcr.io/estuary/source-http-ingest',
+    json_build_object('en-US','HTTP Webhook'),
+    json_build_object('en-US','Captures HTTP requests sent by webhooks or other clients'),
+    json_build_object('en-US','https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//61de33_Group_22481_150x150_bdfc5a186d/61de33_Group_22481_150x150_bdfc5a186d.png'),
+    'https://estuary.dev',
+    true
+  )
+  returning id strict into connector_id;
+  insert into public.connector_tags (connector_id, image_tag) values (connector_id, ':dev');
+
+  insert into public.connectors (image_name, title, short_description, logo_url, external_url, recommended) values (
     'ghcr.io/estuary/source-postgres',
     json_build_object('en-US','PostgreSQL'),
     json_build_object('en-US','Capture PostgreSQL tables into collections'),
