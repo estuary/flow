@@ -15,6 +15,7 @@ mod poll;
 mod preview;
 mod raw;
 
+pub use config::Config;
 use flow_client::client::refresh_authorizations;
 pub(crate) use flow_client::client::Client;
 pub(crate) use flow_client::{api_exec, api_exec_paginated};

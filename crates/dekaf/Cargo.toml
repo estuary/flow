@@ -14,7 +14,6 @@ allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
-tuple = { path = "../tuple" }
 flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -24,6 +23,7 @@ ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 simd-doc = { path = "../simd-doc" }
+tuple = { path = "../tuple" }
 unseal = { path = "../unseal" }
 
 aes-siv = { workspace = true }
@@ -72,3 +72,15 @@ tracing-subscriber = { workspace = true }
 typestate = { workspace = true }
 url = { workspace = true }
 webpki = { workspace = true }
+
+[dev-dependencies]
+apache-avro = { workspace = true }
+async-process = { path = "../async-process" }
+flowctl = { path = "../flowctl" }
+insta = { workspace = true }
+locate-bin = { path = "../locate-bin" }
+rdkafka = { workspace = true }
+reqwest = { workspace = true }
+schema_registry_converter = { workspace = true }
+tempfile = { workspace = true }
+tracing-test = { workspace = true }
