@@ -19,6 +19,8 @@ To use this connector, you'll need:
     * [`roles/bigquery.dataEditor`](https://cloud.google.com/bigquery/docs/access-control#bigquery.dataEditor) on the destination dataset
     * [`roles/bigquery.jobUser`](https://cloud.google.com/bigquery/docs/access-control#bigquery.jobUser) on the
     project with which the BigQuery destination dataset is associated
+    * [`roles/bigquery.readSessionUser`](https://cloud.google.com/bigquery/docs/access-control#bigquery.readSessionUser) on the
+    project with which the BigQuery destination dataset is associated
     * [`roles/storage.objectAdmin`](https://cloud.google.com/storage/docs/access-control/iam-roles#standard-roles)
     on the GCS bucket created above
 
@@ -35,7 +37,7 @@ To configure your service account, complete the following steps.
 1. Log into the Google Cloud console and [create a service account](https://cloud.google.com/docs/authentication/getting-started#creating_a_service_account).
 During account creation:
    1. Grant the user access to the project.
-   2. Grant the user roles `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, and `roles/storage.objectAdmin`.
+   2. Grant the user roles `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, `roles/bigquery.readSessionUser` and `roles/storage.objectAdmin`.
    3. Click **Done**.
 
 2. Select the new service account from the list of service accounts. On the Keys tab, click **Add key** and create a new JSON key.
@@ -100,6 +102,17 @@ materializations:
 
 This connector supports configuring a schedule for sync frequency. You can read
 about how to configure this [here](../../materialization-sync-schedule.md).
+
+## Storage Read API
+
+This connector is able to use the [BigQuery Storage Read
+API](https://cloud.google.com/bigquery/docs/reference/storage) for reading
+results of queries executed for standard updates bindings. For optimal
+performance, the **BigQuery Read Session User** role should be granted to the
+configured service account to enable using the storage read API.
+
+If the **BigQuery Read Session User** role is not available, slower mechanisms
+will be used to read query results.
 
 ## Delta updates
 
