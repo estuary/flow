@@ -9,7 +9,7 @@ use gazette::{broker, journal, uuid};
 use itertools::Itertools;
 use models::RawValue;
 use proto_flow::flow;
-use std::{iter, time::Duration};
+use std::time::Duration;
 
 impl UserAuth {
     /// Fetch the names of all collections which the current user may read.
@@ -521,7 +521,6 @@ async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
 // Claims returned by `/authorize/dekaf`
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct AccessTokenClaims {
-    pub iat: u64,
     pub exp: u64,
 }
 #[tracing::instrument(skip(client, data_plane_signer), err)]
