@@ -6,6 +6,8 @@ This connector materializes Flow collections into Apache Kafka topics.
 provides the latest connector image. You can also follow the link in your browser to see past image
 versions.
 
+Messages with this connector are currently delivered using an at-least-once non-transactional mode of operation rather than exactly-once. [Let us know](mailto:support@estuary.dev) if your use case requires transaction support.
+
 ## Supported message formats
 
 This connectors supports materializing Kafka messages encoded in Avro or JSON
@@ -72,6 +74,8 @@ this connector. Other connection security methods may be enabled in the future.
 
 Use the below properties to configure the Apache Kafka materialization, which
 will direct one or more of your Flow collections to your desired topics.
+
+Note that, by default, all top-level fields are recommended for materialization. You can also de-select unnecessary top-level fields or include additional nested fields in the "Field Selection" section of the resource configuration.
 
 ### Properties
 
