@@ -28,6 +28,7 @@ unseal = { path = "../unseal" }
 
 aes-siv = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
 axum-server = { workspace = true }
@@ -74,11 +75,12 @@ url = { workspace = true }
 webpki = { workspace = true }
 
 [dev-dependencies]
-apache-avro = { workspace = true }
 async-process = { path = "../async-process" }
 flowctl = { path = "../flowctl" }
-insta = { workspace = true }
 locate-bin = { path = "../locate-bin" }
+
+apache-avro = { workspace = true }
+insta = { workspace = true }
 rdkafka = { workspace = true }
 reqwest = { workspace = true }
 schema_registry_converter = { workspace = true }

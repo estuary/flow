@@ -179,8 +179,8 @@ async fn main() -> anyhow::Result<()> {
         .with(ops::tracing::Layer::new(|_| {}, std::time::SystemTime::now))
         .with(
             dekaf::SessionSubscriberLayer::new(
-                app.clone(),
                 gazette::uuid::Producer::from_bytes(producer_id),
+                dekaf::log_journal::GazetteLogAppender::new(app.clone()),
             )
             .with_filter(env_filter_builder()),
         )

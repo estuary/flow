@@ -1970,6 +1970,7 @@ dependencies = [
  "anyhow",
  "apache-avro",
  "async-process",
+ "async-trait",
  "avro",
  "axum",
  "axum-extra",

@@ -1,0 +1,145 @@
+---
+source: crates/dekaf/src/log_journal.rs
+assertion_line: 457
+expression: captured_logs
+---
+[
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_journal::tests"
+    },
+    "level": "info",
+    "message": "From inside session but before task_name, should be visible",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "dekaf_session",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_journal::tests"
+    },
+    "level": "info",
+    "message": "From inside nested span but before task_name, should be visible",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "dekaf_session",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "nested",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_journal::tests"
+    },
+    "level": "info",
+    "message": "Log from nested span after task name marker",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "dekaf_session",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "nested",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests",
+          "session_task_name": "test_task"
+        },
+        "level": "info",
+        "message": "task",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_journal::tests"
+    },
+    "level": "info",
+    "message": "Back in session span after task name",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "dekaf_session",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_journal::tests"
+    },
+    "level": "info",
+    "message": "In child of session span after task name",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "dekaf_session",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests"
+        },
+        "level": "info",
+        "message": "new_nested",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  }
+]
