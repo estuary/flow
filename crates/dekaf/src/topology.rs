@@ -1,6 +1,6 @@
 use crate::{
     connector::{DekafConfig, DekafResourceConfig, DeletionMode},
-    dekaf_shard_template_id, App, SessionAuthentication, TaskAuth, UserAuth,
+    dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
 use flow_client::fetch_task_authorization;
@@ -9,7 +9,7 @@ use gazette::{broker, journal, uuid};
 use itertools::Itertools;
 use models::RawValue;
 use proto_flow::flow;
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 
 impl UserAuth {
     /// Fetch the names of all collections which the current user may read.
@@ -67,11 +67,10 @@ impl TaskAuth {
                 serde_json::from_str::<crate::connector::DekafResourceConfig>(
                     &b.resource_config_json,
                 )
-                .map(|parsed| (b, parsed))
+                .map(|parsed| (parsed.topic_name.to_owned(), (b, parsed)))
             })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .find(|(_, parsed_config)| parsed_config.topic_name == topic_name)
+            .collect::<Result<BTreeMap<_, _>, _>>()?
+            .remove(topic_name)
             .map(|(binding, config)| (binding.clone(), config)))
     }
 }
@@ -133,7 +132,7 @@ pub struct PartitionOffset {
 }
 
 impl Collection {
-    /// Build a Collection by fetching its spec, a authenticated data-plane access token, and its partitions.
+    /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
     pub async fn new(
         app: &App,
         auth: &SessionAuthentication,
@@ -210,7 +209,7 @@ impl Collection {
                 .field_selection
                 .context("missing field selection in materialization binding")?;
 
-            build_field_selection_shape(
+            utils::build_field_selection_shape(
                 collection_schema_shape.clone(),
                 selection
                     .keys
@@ -227,9 +226,9 @@ impl Collection {
         };
 
         let field_selected_shape = if matches!(auth.deletions(), DeletionMode::CDC) {
-            let nested_shape = build_shape_at_pointer(
+            let nested_shape = utils::build_shape_at_pointer(
                 &doc::Pointer::from_str("/_meta/is_deleted"),
-                &doc::Shape {
+                doc::Shape {
                     type_: json::schema::types::INTEGER,
                     ..doc::Shape::nothing()
                 },
@@ -595,113 +594,4 @@ pub async fn extract_dekaf_config(
 
     let dekaf_config = serde_json::from_str::<DekafConfig>(&decrypted_endpoint_config.to_string())?;
     Ok(dekaf_config)
-}
-
-/// Nests the provided shape under a JSON pointer path by creating the necessary object hierarchy.
-/// For example, given pointer "/a/b/c" and a field shape, creates an object structure:
-/// { "a": { "b": { "c": field_shape } } }
-fn build_shape_at_pointer(ptr: &doc::Pointer, shape: &doc::Shape) -> doc::Shape {
-    // Return the original shape if pointer is empty
-    if ptr.0.is_empty() {
-        return shape.clone();
-    }
-
-    tracing::debug!(?ptr, "Building shape");
-    let mut current_shape = doc::Shape::nothing();
-    let mut current = &mut current_shape;
-
-    // For each component in the pointer path except the last one,
-    // create the object structure
-    for token in ptr.iter().take(ptr.0.len() - 1) {
-        match token {
-            doc::ptr::Token::Property(name) => {
-                let mut obj = doc::Shape::nothing();
-                obj.type_ = json::schema::types::OBJECT;
-
-                current.type_ = json::schema::types::OBJECT;
-                current.object.properties.push(doc::shape::ObjProperty {
-                    name: Box::from(name.as_str()),
-                    is_required: true,
-                    shape: obj,
-                });
-
-                // Move to the newly created object
-                current = &mut current.object.properties.last_mut().unwrap().shape;
-            }
-            doc::ptr::Token::Index(_) => {
-                // Create an array shape with the next level nested inside
-                let mut array = doc::Shape::nothing();
-                array.type_ = json::schema::types::ARRAY;
-                array.array.additional_items = Some(Box::new(doc::Shape::nothing()));
-
-                current.type_ = json::schema::types::ARRAY;
-                *current = array;
-
-                // Move to the array items shape for the next iteration
-                current = current.array.additional_items.as_mut().unwrap();
-            }
-            _ => unreachable!("NextIndex/NextProperty shouldn't appear in concrete pointers"),
-        }
-    }
-
-    // Add the actual field shape at the final position
-    if let Some(doc::ptr::Token::Property(name)) = ptr.iter().last() {
-        current.type_ = json::schema::types::OBJECT;
-        current.object.properties.push(doc::shape::ObjProperty {
-            name: Box::from(name.as_str()),
-            is_required: true,
-            shape: shape.clone(),
-        });
-    }
-
-    current_shape
-}
-
-fn build_field_selection_shape(
-    source_shape: doc::Shape,
-    fields: Vec<String>,
-    projections: Vec<flow::Projection>,
-) -> anyhow::Result<(doc::Shape, Vec<flow::Projection>)> {
-    let selected_projections = fields
-        .iter()
-        .filter(|f| f.len() > 0)
-        .map(|field| {
-            let projection = projections.iter().find(|proj| proj.field == *field);
-            if let Some(projection) = projection {
-                Some(projection.clone())
-            } else {
-                tracing::warn!(
-                    ?field,
-                    "Missing projection for field on materialization built spec"
-                );
-                None
-            }
-        })
-        .flatten(); // transform from Option<T> to T by filtering out Nones
-
-    let mut starting_shape = doc::Shape::nothing();
-    starting_shape.type_ = json::schema::types::OBJECT;
-
-    let mapped_shape =
-        selected_projections
-            .clone()
-            .fold(starting_shape, |value_shape, projection| {
-                let source_ptr = doc::Pointer::from_str(&projection.ptr);
-                let (source_shape, exists) = source_shape.locate(&source_ptr);
-                if exists.cannot() {
-                    tracing::warn!(
-                        projection = ?source_ptr,
-                        "Projection field not found in schema"
-                    );
-                    value_shape
-                } else {
-                    let nested_shape = build_shape_at_pointer(
-                        &doc::Pointer::from_str(&format!("/{}", projection.field)),
-                        source_shape,
-                    );
-                    doc::Shape::intersect(value_shape, nested_shape)
-                }
-            });
-
-    Ok((mapped_shape, selected_projections.collect_vec()))
 }

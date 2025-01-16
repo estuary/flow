@@ -15,6 +15,8 @@ use topology::{Collection, Partition};
 mod read;
 use read::Read;
 
+mod utils;
+
 mod session;
 pub use session::Session;
 
