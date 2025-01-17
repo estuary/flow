@@ -32,6 +32,7 @@ impl Task {
         // See go/runtime/materialize.go:135
         let ser_policy = if [
             "ghcr.io/estuary/materialize-bigquery",
+            "ghcr.io/estuary/materialize-kafka",
             "ghcr.io/estuary/materialize-snowflake",
             "ghcr.io/estuary/materialize-redshift",
             "ghcr.io/estuary/materialize-sqlite",
