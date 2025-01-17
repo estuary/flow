@@ -20,6 +20,7 @@ The following data resources are supported through the Intercom API:
 * [Segments](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/segments/listsegments)
 * [Tags](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/tags/listtags)
 * [Teams](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/teams/listteams)
+* [Tickets](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/tickets/searchtickets)
 
 By default, each resource is mapped to a Flow collection through a separate binding.
 
@@ -107,4 +108,7 @@ captures:
       - resource:
           name: teams
         target: ${PREFIX}/teams
+      - resource:
+          name: tickets
+        target: ${PREFIX}/tickets
 ```
