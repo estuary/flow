@@ -68,22 +68,27 @@ func Allocate(args AllocateArgs) error {
 			// Do we need to re-solve for a maximum assignment?
 			if state.NetworkHash != lastNetworkHash {
 				var startTime = time.Now()
-				desired = solveDesiredAssignments(state, desired[:0])
+				desired = SolveDesiredAssignments(state, desired[:0])
 				var dur = time.Since(startTime)
 				allocatorMaxFlowRuntimeSeconds.Observe(dur.Seconds())
 
+				var added, removed, unchanged = ChangeSummary(state.Assignments, desired)
+
 				log.WithFields(log.Fields{
-					"dur":             dur,
-					"hash":            state.NetworkHash,
-					"itemSlots":       state.ItemSlots,
-					"items":           len(state.Items),
-					"lastHash":        lastNetworkHash,
-					"memberSlots":     state.MemberSlots,
-					"members":         len(state.Members),
-					"nextAssignments": len(desired),
-					"prevAssignments": len(state.Assignments),
-					"rev":             state.KS.Header.Revision,
-					"root":            state.KS.Root,
+					"asn.last":      len(state.Assignments),
+					"asn.next":      len(desired),
+					"asn.next.add":  added,
+					"asn.next.rem":  removed,
+					"asn.next.same": unchanged,
+					"dur":           dur,
+					"hash.last":     lastNetworkHash,
+					"hash.next":     state.NetworkHash,
+					"item.slots":    state.ItemSlots,
+					"item.total":    len(state.Items),
+					"mem.slots":     state.MemberSlots,
+					"mem.total":     len(state.Members),
+					"rev":           state.KS.Header.Revision,
+					"root":          state.KS.Root,
 				}).Info("solved for maximum assignment")
 
 				if len(desired) < state.ItemSlots {
@@ -205,7 +210,7 @@ func removeDeadAssignments(txn checkpointTxn, ks *keyspace.KeySpace, asn keyspac
 	return nil
 }
 
-func solveDesiredAssignments(s *State, desired []Assignment) []Assignment {
+func SolveDesiredAssignments(s *State, desired []Assignment) []Assignment {
 	// Number of items to lump into each invocation of push/relabel.
 	// This is an arbitrary number which is empirically fast to solve,
 	// but is large enough that we're unlikely to see further improvements
@@ -228,6 +233,39 @@ func solveDesiredAssignments(s *State, desired []Assignment) []Assignment {
 		desired = network.extractAssignments(maxFlow, desired)
 	}
 	return desired
+}
+
+// Compute the total number of additions, removals, and unchanged assignments
+// if `current` assignments are shifted to `desired`.
+func ChangeSummary(current keyspace.KeyValues, desired []Assignment) (added, removed, unchanged int) {
+	for lhs, rhs := current, desired; len(lhs) != 0 || len(rhs) != 0; {
+		var cmp int
+
+		if len(lhs) == 0 {
+			cmp = 1
+		} else if len(rhs) == 0 {
+			cmp = -1
+		} else if lh, rh := lhs[0].Decoded.(Assignment), rhs[0]; lh.ItemID != rh.ItemID {
+			cmp = strings.Compare(lh.ItemID, rh.ItemID)
+		} else if lh.MemberZone != rh.MemberZone {
+			cmp = strings.Compare(lh.MemberZone, rh.MemberZone)
+		} else {
+			cmp = strings.Compare(lh.MemberSuffix, rh.MemberSuffix)
+		}
+
+		switch cmp {
+		case -1:
+			removed += 1
+			lhs = lhs[1:]
+		case 1:
+			added += 1
+			rhs = rhs[1:]
+		case 0:
+			unchanged += 1
+			lhs, rhs = lhs[1:], rhs[1:]
+		}
+	}
+	return
 }
 
 // modRevisionUnchanged returns a Cmp which verifies the key has not changed

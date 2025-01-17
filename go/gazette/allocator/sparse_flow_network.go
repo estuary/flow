@@ -61,7 +61,8 @@ import (
 // relaxed until a maximal assignment is achieved.
 type sparseFlowNetwork struct {
 	*State
-	myItems keyspace.KeyValues // Slice of State.Items included in this network.
+	myItems     keyspace.KeyValues // Slice of State.Items included in this network.
+	myItemSlots int                // Summed of replication slots attributable just to myItems.
 
 	firstItemNodeID     pr.NodeID // First Item NodeID in the graph.
 	firstZoneItemNodeID pr.NodeID // First Zone-Item NodeID in the graph.
@@ -141,6 +142,7 @@ func newSparseFlowNetwork(s *State, myItems keyspace.KeyValues) *sparseFlowNetwo
 	// Accelerate our left-join by skipping to the first assignment of `myItems` via binary search.
 	var pivot, _ = s.Assignments.Search(ItemAssignmentsPrefix(s.KS, itemAt(myItems, 0).ID))
 	var myAssignments = s.Assignments[pivot:]
+	var myItemSlots int
 
 	var it = LeftJoin{
 		LenL: len(myItems),
@@ -152,6 +154,7 @@ func newSparseFlowNetwork(s *State, myItems keyspace.KeyValues) *sparseFlowNetwo
 	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
 		var item = cur.Left
 		var assignments = myAssignments[cur.RightBegin:cur.RightEnd]
+		myItemSlots += myItems[item].Decoded.(Item).DesiredReplication()
 
 		// Left-join zones with |assignments| of this |item|.
 		var it2 = LeftJoin{
@@ -196,6 +199,7 @@ func newSparseFlowNetwork(s *State, myItems keyspace.KeyValues) *sparseFlowNetwo
 	var fs = &sparseFlowNetwork{
 		State:                 s,
 		myItems:               myItems,
+		myItemSlots:           myItemSlots,
 		firstItemNodeID:       firstItemNodeID,
 		firstZoneItemNodeID:   firstZoneItemNodeID,
 		firstMemberNodeID:     firstMemberNodeID,
@@ -348,8 +352,10 @@ func (fs *sparseFlowNetwork) buildCurrentItemArcs(item int, bound int) []pr.Arc 
 // buildMemberArc from member `member` to the sink.
 func (fs *sparseFlowNetwork) buildMemberArc(mf *pr.MaxFlow, id pr.NodeID, member int) []pr.Arc {
 	var c = memberAt(fs.Members, member).ItemLimit()
-	// Constrain to the scaled ItemLimit for our portion of the global assignment problem.
-	c = scaleAndRound(c, len(fs.myItems), len(fs.Items))
+
+	// Scale ItemLimit by the relative share of ItemSlots within
+	// our subset of the global assignment problem.
+	c = scaleAndRound(c, fs.myItemSlots, fs.ItemSlots)
 
 	if mf.RelativeHeight(id) < memberOverflowThreshold {
 		// Further scale to our relative "fair share" items.

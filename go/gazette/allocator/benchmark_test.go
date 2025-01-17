@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +29,7 @@ func (s *BenchmarkHealthSuite) TestBenchmarkHealth(c *gc.C) {
 	var fakeB = testing.B{N: 1}
 
 	benchmarkSimulatedDeploy(&fakeB)
+	BenchmarkChangingReplication(&fakeB)
 }
 
 var _ = gc.Suite(&BenchmarkHealthSuite{})
@@ -146,6 +148,122 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 		"adds":    counterVal(allocatorAssignmentAddedTotal),
 		"removes": counterVal(allocatorAssignmentRemovedTotal),
 		"packs":   counterVal(allocatorAssignmentPackedTotal),
+	}).Info("final metrics")
+}
+
+func BenchmarkChangingReplication(b *testing.B) {
+	var client = etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var ctx = context.Background()
+	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
+	var state = NewObservedState(ks, MemberKey(ks, "zone", "leader"), isConsistent)
+
+	var NMembers = 10
+	var NItems = 323 // Or: 32303
+	var NMaxRun = 200
+	var rng = rand.NewPCG(8675, 309)
+
+	b.Logf("Benchmarking with %d items, %d members", NItems, NMembers)
+
+	// fill inserts (if `asInsert`) or modifies keys/values defined by `kvcb` and the range [begin, end).
+	var fill = func(begin, end int, asInsert bool, kvcb func(i int) (string, string)) {
+		var kv = make([]string, 0, 2*(end-begin))
+
+		for i := begin; i != end; i++ {
+			var k, v = kvcb(i)
+			kv = append(kv, k)
+			kv = append(kv, v)
+		}
+		if asInsert {
+			require.NoError(b, insert(ctx, client, kv...))
+		} else {
+			require.NoError(b, update(ctx, client, kv...))
+		}
+	}
+
+	// Insert a Member key which will act as the leader.
+	require.NoError(b, insert(ctx, client, state.LocalKey, `{"R": 1}`))
+
+	// Announce all Members.
+	fill(0, NMembers, true, func(i int) (string, string) {
+		return MemberKey(ks, "zone-a", fmt.Sprintf("m%05d", i)), `{"R": 10000}`
+	})
+	// Announce all Items with full replication.
+	fill(0, NItems, true, func(i int) (string, string) {
+		return ItemKey(ks, fmt.Sprintf("i%05d", i)), `{"R":2}`
+	})
+
+	var testState = struct {
+		step  int
+		total int
+	}{step: 0, total: 0}
+
+	var testHook = func(round int, idle bool) {
+		if !idle {
+			return
+		} else if err := markAllConsistent(ctx, client, ks, ""); err == nil {
+			return
+		} else if err == io.ErrNoProgress {
+			// Continue the next test step below.
+		} else {
+			log.WithField("err", err).Warn("failed to mark all consistent (will retry)")
+			return
+		}
+
+		// Pick a run of contiguous items, and update each to a random replication.
+		// This strategy is designed to excercise imbalances of the number of
+		// replication slots across allocation sub-problems.
+		var r = rng.Uint64() % 3
+		var run = 1 + int(rng.Uint64()%(uint64(NMaxRun)-1))
+		var start = int(rng.Uint64() % uint64((NItems - run)))
+
+		if r == 2 {
+			r = 3 // All items begin with R=2.
+		}
+
+		log.WithFields(log.Fields{
+			"r":     r,
+			"run":   run,
+			"start": start,
+			"step":  testState.step,
+		}).Info("next test step")
+
+		if testState.step == b.N {
+			// Begin a graceful exit.
+			update(ctx, client, state.LocalKey, `{"R": 0}`)
+			return
+		}
+		testState.step += 1
+		testState.total += run
+
+		var value = fmt.Sprintf(`{"R":%d}`, r)
+		fill(start, start+run, false, func(i int) (string, string) {
+			return ItemKey(ks, fmt.Sprintf("i%05d", i)), value
+		})
+	}
+
+	require.NoError(b, ks.Load(ctx, client, 0))
+	go ks.Watch(ctx, client)
+
+	require.NoError(b, Allocate(AllocateArgs{
+		Context:  ctx,
+		Etcd:     client,
+		State:    state,
+		TestHook: testHook,
+	}))
+
+	var adds = counterVal(allocatorAssignmentAddedTotal)
+	var packs = counterVal(allocatorAssignmentPackedTotal)
+	var removes = counterVal(allocatorAssignmentRemovedTotal)
+	var ratio = (float64(adds-2*float64(NItems)) + float64(removes)) / float64(testState.total)
+
+	log.WithFields(log.Fields{
+		"adds":      adds,
+		"packs":     packs,
+		"removes":   removes,
+		"run.ratio": ratio,
+		"run.total": testState.total,
 	}).Info("final metrics")
 }
 
