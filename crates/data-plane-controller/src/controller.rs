@@ -106,7 +106,7 @@ pub struct Outcome {
 }
 
 impl automations::Executor for Controller {
-    const TASK_TYPE: automations::TaskType = automations::TaskType(1);
+    const TASK_TYPE: automations::TaskType = automations::task_types::DATA_PLANE_CONTROLLER;
 
     type Receive = Message;
     type State = Option<State>;

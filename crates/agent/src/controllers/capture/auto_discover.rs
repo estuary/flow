@@ -19,7 +19,7 @@ use crate::{
 
 async fn try_connector_spec<C: ControlPlane>(
     model: &models::CaptureDef,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> anyhow::Result<ConnectorSpec> {
     let models::CaptureEndpoint::Connector(cfg) = &model.endpoint else {
         anyhow::bail!("only connector endpoints are supported for auto-discovery");
@@ -42,7 +42,7 @@ pub async fn update<C: ControlPlane>(
     status: &mut AutoDiscoverStatus,
     state: &ControllerState,
     model: &models::CaptureDef,
-    control_plane: &mut C,
+    control_plane: &C,
     pub_status: &mut PublicationStatus,
 ) -> anyhow::Result<bool> {
     update_next_run(status, state, model, control_plane).await?;
@@ -90,7 +90,7 @@ async fn update_next_run<C: ControlPlane>(
     status: &mut AutoDiscoverStatus,
     state: &ControllerState,
     model: &models::CaptureDef,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> anyhow::Result<()> {
     if model.shards.disable {
         status.next_at = None;
@@ -143,7 +143,7 @@ async fn publication_finished<C: ControlPlane>(
     mut pub_result: PublicationResult,
     history: &mut PublicationStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
     model: &models::CaptureDef,
     pending_outcome: &mut AutoDiscoverOutcome,
 ) -> anyhow::Result<()> {
@@ -256,7 +256,7 @@ pub fn new_outcome(
 async fn try_auto_discover<C: ControlPlane>(
     state: &ControllerState,
     model: &models::CaptureDef,
-    control_plane: &mut C,
+    control_plane: &C,
     pub_status: &mut PublicationStatus,
 ) -> anyhow::Result<AutoDiscoverOutcome> {
     let update_only = !model.auto_discover.as_ref().unwrap().add_new_bindings;

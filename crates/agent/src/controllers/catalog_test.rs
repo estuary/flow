@@ -6,7 +6,7 @@ use models::status::catalog_test::TestStatus;
 pub async fn update<C: ControlPlane>(
     status: &mut TestStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
     _model: &models::TestDef,
 ) -> anyhow::Result<Option<NextRun>> {
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;

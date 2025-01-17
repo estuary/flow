@@ -34,7 +34,7 @@ pub fn next_periodic_publish(state: &ControllerState) -> Option<NextRun> {
 pub async fn update_periodic_publish<C: ControlPlane>(
     state: &ControllerState,
     pub_status: &mut PublicationStatus,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> anyhow::Result<bool> {
     let mut pending = start_periodic_publish_update(state, control_plane);
     if !pending.has_pending() {
@@ -54,7 +54,7 @@ pub async fn update_periodic_publish<C: ControlPlane>(
 /// will contain a touch publication of the spec.
 pub fn start_periodic_publish_update<C: ControlPlane>(
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> PendingPublication {
     let mut pending = PendingPublication::new();
     if is_enabled_task(state)

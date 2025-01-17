@@ -156,7 +156,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         update_only = %req.update_only,
         image
     ))]
-    pub async fn discover(&mut self, db: &PgPool, req: Discover) -> anyhow::Result<DiscoverOutput> {
+    pub async fn discover(&self, db: &PgPool, req: Discover) -> anyhow::Result<DiscoverOutput> {
         let Discover {
             capture_name,
             data_plane,

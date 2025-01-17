@@ -146,9 +146,9 @@ async fn specs_are_published_periodically() {
 
     for name in expect_touched_names {
         tracing::info!(%name, "expecting to be touched");
-        let before_state = harness.run_pending_controller(&name).await;
+        let before_state = harness.get_controller_state(&name).await;
+        let after_state = harness.run_pending_controller(&name).await;
 
-        let after_state = harness.get_controller_state(&name).await;
         let pub_status = match after_state.current_status {
             ControllerStatus::Capture(cap) => cap.publications,
             ControllerStatus::Materialization(m) => m.publications,

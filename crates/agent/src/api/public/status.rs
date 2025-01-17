@@ -49,7 +49,7 @@ async fn fetch_status(
         coalesce(ls.spec->'shards'->>'disable', ls.spec->'derive'->'shards'->>'disable', 'false') = 'true' as "disabled!: bool",
         ls.last_pub_id as "last_pub_id: Id",
         ls.last_build_id as "last_build_id: Id",
-        ls.controller_next_run,
+        t.wake_at as "controller_next_run: DateTime<Utc>",
         ls.updated_at as "live_spec_updated_at: DateTime<Utc>",
         cj.updated_at as "controller_updated_at: DateTime<Utc>",
         cj.status as "controller_status: status::ControllerStatus",
@@ -57,6 +57,7 @@ async fn fetch_status(
         cj.failures as "controller_failures: i32"
     from live_specs ls
     join controller_jobs cj on ls.id = cj.live_spec_id
+    join internal.tasks t on ls.controller_task_id = t.task_id
     where ls.catalog_name::text = any($1::text[])
         "#,
         catalog_names as &[String],

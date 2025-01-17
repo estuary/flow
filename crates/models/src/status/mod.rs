@@ -60,6 +60,12 @@ pub enum ControllerStatus {
     Uninitialized,
 }
 
+impl Default for ControllerStatus {
+    fn default() -> Self {
+        ControllerStatus::Uninitialized
+    }
+}
+
 // Status types are serialized as plain json columns.
 crate::sqlx_json::sqlx_json!(ControllerStatus);
 
