@@ -2,7 +2,8 @@ use anyhow::Context;
 
 pub mod client;
 pub use client::{
-    fetch_collection_authorization, fetch_task_authorization, fetch_user_task_authorization, Client,
+    fetch_task_authorization, fetch_user_collection_authorization, fetch_user_task_authorization,
+    Client,
 };
 
 pub mod pagination;
@@ -65,3 +66,6 @@ lazy_static::lazy_static! {
 
 pub const DEFAULT_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
 pub const LOCAL_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
+pub const LOCAL_DATA_PLANE_HMAC: &str = "c3VwZXJzZWNyZXQ=";
+pub const LOCAL_DATA_PLANE_FQDN: &str = "local-cluster.dp.estuary-data.com";
+pub const DEFAULT_DATA_PLANE_FQDN: &str = "gcp-us-central1-c1.dp.estuary-data.com";

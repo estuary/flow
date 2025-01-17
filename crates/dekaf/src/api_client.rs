@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context};
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
-use gazette::broker;
 use kafka_protocol::{
     error::ParseResponseErrorCode,
     messages::{self, ApiKey},
@@ -11,7 +10,6 @@ use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
 use rustls::RootCertStore;
 use std::{
     boxed::Box,
-    cell::Cell,
     collections::HashMap,
     fmt::Debug,
     io,
@@ -19,9 +17,8 @@ use std::{
 };
 use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
-use tokio::sync::RwLock;
 use tokio_rustls::rustls;
-use tokio_util::{codec, task::AbortOnDropHandle};
+use tokio_util::codec;
 use tracing::instrument;
 use url::Url;
 

@@ -1,0 +1,13 @@
+---
+source: crates/dekaf/tests/dekaf_integration_test.rs
+assertion_line: 445
+expression: "&decoded_payload"
+---
+{
+  "_flow_extra": {},
+  "_meta": {
+    "_flow_extra": {},
+    "is_deleted": 1
+  },
+  "key": "first"
+}
