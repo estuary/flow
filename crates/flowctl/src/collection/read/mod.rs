@@ -3,6 +3,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use gazette::journal::ReadJsonLine;
 use proto_gazette::broker;
+use rand::Rng;
 use std::io::Write;
 use time::OffsetDateTime;
 
@@ -135,7 +136,19 @@ pub async fn read_collection_journal(
                 v.push(b'\n');
                 () = stdout.write_all(&v)?;
             }
-            Err(gazette::Error::BrokerStatus(broker::Status::OffsetNotYetAvailable)) => {
+            Err(gazette::Error::BrokerStatus(broker::Status::Suspended)) if bounds.follow => {
+                // The journal is fully suspended, so we use a pretty long delay
+                // here because it's unlikely to be resumed quickly and also
+                // unlikely that anyone will care about the little bit of extra
+                // latency in this case.
+                let delay_secs = rand::thread_rng().gen_range(30..=60);
+                tracing::info!(delay_secs, "journal suspended, will retry");
+                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+            }
+            Err(gazette::Error::BrokerStatus(
+                status @ broker::Status::OffsetNotYetAvailable | status @ broker::Status::Suspended,
+            )) => {
+                tracing::debug!(?status, "stopping read at end of journal content");
                 break; // Graceful EOF of non-blocking read.
             }
             Err(err) if err.is_transient() => {
