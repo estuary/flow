@@ -159,9 +159,7 @@ func (s *AllocatorSuite) TestTxnBatching(c *gc.C) {
 	))
 
 	// Final commit. Expect it flushes the last checkpoint.
-	var r, err = txn.Commit()
-	c.Check(r, gc.Equals, txnResp)
-	c.Check(err, gc.IsNil)
+	c.Check(txn.Flush(), gc.IsNil)
 
 	c.Check(txnOp, gc.DeepEquals, clientv3.OpTxn(
 		[]clientv3.Cmp{fixedCmp, testCmp},
@@ -172,17 +170,13 @@ func (s *AllocatorSuite) TestTxnBatching(c *gc.C) {
 	// Empty Checkpoint, then Commit. Expect it's treated as a no-op.
 	c.Check(txn.Checkpoint(), gc.IsNil)
 
-	r, err = txn.Commit()
-	c.Check(r, gc.IsNil)
-	c.Check(err, gc.IsNil)
+	c.Check(txn.Flush(), gc.IsNil)
 
 	// Non-empty commit that fails checks. Expect it's mapped to an error.
 	c.Check(txn.Then(testOp).Checkpoint(), gc.IsNil)
 	txnResp.Succeeded = false
 
-	r, err = txn.Commit()
-	c.Check(r, gc.Equals, txnResp)
-	c.Check(err, gc.ErrorMatches, "transaction checks did not succeed")
+	c.Check(txn.Flush(), gc.ErrorMatches, "transaction checks did not succeed")
 }
 
 var _ = gc.Suite(&AllocatorSuite{})

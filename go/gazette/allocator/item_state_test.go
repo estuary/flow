@@ -424,9 +424,10 @@ type mockTxnBuilder struct {
 	ops  []clientv3.Op
 }
 
-func (b *mockTxnBuilder) If(c ...clientv3.Cmp) checkpointTxn     { b.cmps = append(b.cmps, c...); return b }
-func (b *mockTxnBuilder) Then(o ...clientv3.Op) checkpointTxn    { b.ops = append(b.ops, o...); return b }
-func (b *mockTxnBuilder) Checkpoint() error                      { return nil }
-func (b *mockTxnBuilder) Commit() (*clientv3.TxnResponse, error) { panic("not supported") }
+func (b *mockTxnBuilder) If(c ...clientv3.Cmp) checkpointTxn  { b.cmps = append(b.cmps, c...); return b }
+func (b *mockTxnBuilder) Then(o ...clientv3.Op) checkpointTxn { b.ops = append(b.ops, o...); return b }
+func (b *mockTxnBuilder) Checkpoint() error                   { return nil }
+func (b *mockTxnBuilder) Flush() error                        { panic("not supported") }
+func (b *mockTxnBuilder) Revision() int64                     { panic("not supported") }
 
 var _ = gc.Suite(&ItemStateSuite{})

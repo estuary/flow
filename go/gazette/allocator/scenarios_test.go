@@ -890,8 +890,7 @@ func insert(ctx context.Context, client *clientv3.Client, keyValues ...string) e
 			return err
 		}
 	}
-	var _, err = txn.Commit()
-	return err
+	return txn.Flush()
 }
 
 // update updates keys with values, requiring that the key already exist.
@@ -906,8 +905,7 @@ func update(ctx context.Context, client *clientv3.Client, keyValues ...string) e
 			return err
 		}
 	}
-	var _, err = txn.Commit()
-	return err
+	return txn.Flush()
 }
 
 // markAllConsistent which updates all Assignments to have a value of "consistent".
@@ -928,9 +926,9 @@ func markAllConsistent(ctx context.Context, client *clientv3.Client, ks *keyspac
 		}
 	}
 
-	if _, err := txn.Commit(); err != nil {
+	if err := txn.Flush(); err != nil {
 		return err
-	} else if txn.noop {
+	} else if txn.Revision() == 0 {
 		return io.ErrNoProgress
 	} else {
 		return nil
