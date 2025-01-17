@@ -154,11 +154,7 @@ func (b *appendFSM) onResolve() {
 		b.state = stateError
 	} else if b.resolved.ProcessId != b.resolved.localID {
 		// If we hold the pipeline from a previous resolution but are no longer
-		// primary, we must tear it down to release replica spools.
-		if b.pln != nil {
-			go b.pln.shutdown(false)
-			b.pln = nil
-		}
+		// primary, we must release it.
 		b.returnPipeline()
 		b.state = stateAwaitDesiredReplicas // We must proxy.
 	} else if b.plnReturnCh != nil {
