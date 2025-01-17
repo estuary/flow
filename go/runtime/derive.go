@@ -21,8 +21,8 @@ import (
 	"go.gazette.dev/core/message"
 )
 
-// Derive is a top-level Application which implements the derivation workflow.
-type Derive struct {
+// deriveApp is a top-level Application which implements the derivation workflow.
+type deriveApp struct {
 	*taskReader[*pf.CollectionSpec]
 	client      pd.Connector_DeriveClient
 	sqlite      *store_sqlite.Store
@@ -30,14 +30,15 @@ type Derive struct {
 	watchCancel context.CancelFunc
 }
 
-var _ Application = (*Derive)(nil)
+var _ application = (*deriveApp)(nil)
 
-// NewDeriveApp builds and returns a *Derive Application.
-func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Derive, error) {
+// newDeriveApp builds and returns a *Derive Application.
+func newDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*deriveApp, error) {
 	var base, err = newTaskBase[*pf.CollectionSpec](host, shard, recorder, extractCollectionSpec)
 	if err != nil {
 		return nil, err
 	}
+	go base.heartbeatLoop(shard)
 
 	var sqlite *store_sqlite.Store
 
@@ -69,14 +70,14 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 		return nil, fmt.Errorf("starting derivation stream: %w", err)
 	}
 
-	return &Derive{
+	return &deriveApp{
 		taskReader: newTaskReader[*pf.CollectionSpec](base, shard),
 		client:     client,
 		sqlite:     sqlite,
 	}, nil
 }
 
-func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
+func (d *deriveApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
 	defer func() {
 		if _err != nil {
 			d.term.cancel()
@@ -134,16 +135,12 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err 
 	}
 	var openedExt = pr.FromInternal[pr.DeriveResponseExt](opened.Internal)
 	d.container.Store(openedExt.Container)
-	if d.termCount == 1 {
-		// See comment in capture.go
-		d.taskBase.StartTaskHeartbeatLoop(shard, openedExt.Container)
-	}
 
 	return *openedExt.Opened.RuntimeCheckpoint, nil
 }
 
 // ConsumeMessage forwards a Read to the derive runtime.
-func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *message.Publisher) error {
+func (d *deriveApp) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *message.Publisher) error {
 	var isr = env.Message.(pr.IndexedShuffleResponse)
 	var uuid = isr.UuidParts[isr.Index]
 	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
@@ -161,7 +158,7 @@ func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 
 // FinalizeTxn finishes and drains the derive runtime transaction,
 // and publishes each document to the derived collection.
-func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
+func (d *deriveApp) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
 	var mapper = flow.NewMapper(shard.Context(), shard.JournalClient())
 
 	_ = d.client.Send(&pd.Request{Flush: &pd.Request_Flush{}})
@@ -197,7 +194,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 	}
 }
 
-func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.OpFutures) client.OpFuture {
+func (d *deriveApp) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.OpFutures) client.OpFuture {
 	ops.PublishLog(d.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"derivation", d.term.labels.TaskName,
@@ -227,7 +224,7 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.
 
 // Destroy releases the API binding delegate, which also cleans up the associated
 // Rust-held RocksDB and its files.
-func (d *Derive) Destroy() {
+func (d *deriveApp) Destroy() {
 	if d.client != nil {
 		_ = d.client.CloseSend()
 	}
@@ -240,13 +237,13 @@ func (d *Derive) Destroy() {
 	d.taskBase.opsCancel()
 }
 
-func (d *Derive) ClearRegistersForTest() error {
+func (d *deriveApp) ClearRegistersForTest() error {
 	_ = d.client.Send(&pd.Request{Reset_: &pd.Request_Reset{}})
 	return nil
 }
 
-func (d *Derive) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.
-func (d *Derive) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}             // No-op.
+func (d *deriveApp) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.
+func (d *deriveApp) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}             // No-op.
 
 func extractCollectionSpec(db *sql.DB, taskName string) (*pf.CollectionSpec, error) {
 	return catalog.LoadCollection(db, taskName)
