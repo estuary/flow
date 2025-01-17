@@ -31,6 +31,7 @@ type resolver struct {
 type resolverReplica struct {
 	*replica
 	assignments keyspace.KeyValues
+	primary     bool
 	signalCh    chan struct{}
 }
 
@@ -227,12 +228,22 @@ func (r *resolver) updateResolutions() {
 	for _, li := range r.state.LocalItems {
 		var item = li.Item.Decoded.(allocator.Item)
 		var name = pb.Journal(item.ID)
-
+		var primary = li.Assignments[li.Index].Decoded.(allocator.Assignment).Slot == 0
 		var replica, ok = r.replicas[name]
-		if !ok {
+
+		if _, ok := next[name]; ok {
+			// TODO(johnny): This SHOULD not happen, but sometimes does.
+			// If it does, we don't want to create extra replicas that are unlinked.
+			continue
+		}
+
+		// If the replica is not found, or if it's `primary` but we have been demoted,
+		// then create a new replica and tear down the old (if there is one).
+		if !ok || !primary && replica.primary {
 			r.wg.Add(1)
 			replica = &resolverReplica{
 				replica:     r.newReplica(name), // Newly assigned journal.
+				primary:     primary,
 				assignments: li.Assignments.Copy(),
 				signalCh:    make(chan struct{}),
 			}
@@ -241,11 +252,12 @@ func (r *resolver) updateResolutions() {
 			pbx.Init(&rt, li.Assignments)
 
 			log.WithFields(log.Fields{
-				"name":  replica.journal,
-				"route": rt,
+				"name":    replica.journal,
+				"primary": primary,
 			}).Info("starting local journal replica")
 
 		} else {
+			replica.primary = primary
 			delete(r.replicas, name)
 		}
 		next[name] = replica
@@ -277,7 +289,10 @@ func (r *resolver) stopServingLocalReplicas() {
 
 func (r *resolver) cancelReplicas(m map[pb.Journal]*resolverReplica) {
 	for _, replica := range m {
-		log.WithField("name", replica.journal).Info("stopping local journal replica")
+		log.WithFields(log.Fields{
+			"name":    replica.journal,
+			"primary": replica.primary,
+		}).Info("stopping local journal replica")
 
 		// Close |signalCh| to unblock any Replicate or Append RPCs which would
 		// otherwise race shutDownReplica() to the |spoolCh| or |pipelineCh|.

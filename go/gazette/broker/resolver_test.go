@@ -158,7 +158,6 @@ func TestResolverLocalReplicaStopping(t *testing.T) {
 	var peer = newMockBroker(t, etcd, pb.ProcessSpec_ID{Zone: "peer", Suffix: "broker"})
 
 	setTestJournal(broker, pb.JournalSpec{Name: "a/journal", Replication: 1}, broker.id)
-	setTestJournal(broker, pb.JournalSpec{Name: "peer/journal", Replication: 1}, peer.id)
 
 	// Precondition: journal & replica resolve as per expectation.
 	var r, _ = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{})
@@ -166,6 +165,28 @@ func TestResolverLocalReplicaStopping(t *testing.T) {
 	require.Equal(t, broker.id, r.Header.ProcessId)
 	require.NotNil(t, r.replica)
 	require.NoError(t, r.replica.ctx.Err())
+
+	// Initially, we're primary for `peer/journal`.
+	setTestJournal(broker, pb.JournalSpec{Name: "peer/journal", Replication: 1}, broker.id)
+
+	r, _ = broker.svc.resolver.resolve(ctx, allClaims, "peer/journal", resolveOpts{})
+	require.Equal(t, pb.Status_OK, r.status)
+	require.Equal(t, broker.id, r.Header.ProcessId)
+	require.NotNil(t, r.replica)
+
+	var prevReplica = r.replica
+
+	// We're demoted to replica for `peer/journal`.
+	setTestJournal(broker, pb.JournalSpec{Name: "peer/journal", Replication: 1}, peer.id, broker.id)
+
+	r, _ = broker.svc.resolver.resolve(ctx, allClaims, "peer/journal", resolveOpts{})
+	require.Equal(t, pb.Status_OK, r.status)
+	require.Equal(t, broker.id, r.Header.ProcessId)
+	require.NotNil(t, r.replica)
+	require.False(t, prevReplica == r.replica) // Expect a new replica was created.
+
+	// Peer is wholly responsible for `peer/journal`.
+	setTestJournal(broker, pb.JournalSpec{Name: "peer/journal", Replication: 1}, peer.id)
 
 	broker.svc.resolver.stopServingLocalReplicas()
 
