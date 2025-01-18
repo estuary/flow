@@ -288,7 +288,7 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	<-ind.FirstRefreshCh()
 
 	c.Check(ind.set, gc.HasLen, 3)
-	var bo, eo, _ = ind.OffsetRange()
+	var bo, eo, _ = ind.Summary()
 	c.Check(bo, gc.Equals, int64(0x0))
 	c.Check(eo, gc.Equals, int64(0x255))
 
@@ -306,7 +306,7 @@ func (s *IndexSuite) TestWalkStoresAndURLSigning(c *gc.C) {
 	ind.ReplaceRemote(set)
 
 	c.Check(ind.set, gc.HasLen, 4) // Combined Fragments are reflected.
-	bo, eo, _ = ind.OffsetRange()
+	bo, eo, _ = ind.Summary()
 	c.Check(bo, gc.Equals, int64(0x0))
 	c.Check(eo, gc.Equals, int64(0x555))
 

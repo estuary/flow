@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -435,8 +436,25 @@ func (b *appendFSM) onValidatePreconditions() {
 	// reflected in our index, if a commit wasn't accepted by all peers.
 	// Such writes are reported as failed to the client and are retried
 	// (this failure mode is what makes journals at-least-once).
-	var indexMin, indexMax, indexDirty = b.resolved.replica.index.OffsetRange()
+	var indexMin, indexMax, indexModTime = b.resolved.replica.index.Summary()
 	var suspend = b.resolved.journalSpec.Suspend
+
+	// The index is "clean" if all fragments have been remote for the journal's
+	// flush interval, where the flush interval is interpreted as an upper-bound
+	// expectation of the period between appends if the journal remains "in use".
+	// Thus, if a journal doesn't recieve an append for more than its interval,
+	// it's presumed to be idle and is eligible for suspension.
+	//
+	// To see why, consider a group of journals which are appended to at midnight,
+	// configured with a 24h flush interval. These journals will not auto-suspend
+	// ordinarily. If we instead used a more aggressive policy, they might trigger
+	// storms of suspensions and re-activations which could impact other journals
+	// due to assignment churn.
+	var flushInterval = int64(b.resolved.journalSpec.Fragment.FlushInterval.Seconds())
+	if flushInterval == 0 {
+		flushInterval = 24 * 60 * 60 // Default to 24h.
+	}
+	var indexDirty = indexModTime == 0 || indexModTime > time.Now().Unix()-flushInterval
 
 	var maxOffset = b.pln.spool.End
 	if indexMax > maxOffset {
