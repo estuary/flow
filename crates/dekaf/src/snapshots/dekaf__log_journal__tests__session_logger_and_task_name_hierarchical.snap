@@ -9,10 +9,10 @@ expression: captured_logs
     },
     "fields": {
       "module": "dekaf::log_journal::tests",
-      "session_task_name": "test_task"
+      "session_task_name": "my-task"
     },
     "level": "info",
-    "message": "From inside session but before task_name, should be visible",
+    "message": "Test log data but with a SessionLogger, still should see me",
     "spans": [
       {
         "fields": {
@@ -31,10 +31,10 @@ expression: captured_logs
     },
     "fields": {
       "module": "dekaf::log_journal::tests",
-      "session_task_name": "test_task"
+      "session_task_name": "my-task"
     },
     "level": "info",
-    "message": "From inside nested span but before task_name, should be visible",
+    "message": "Test log data without a task name yet!",
     "spans": [
       {
         "fields": {
@@ -49,7 +49,7 @@ expression: captured_logs
           "module": "dekaf::log_journal::tests"
         },
         "level": "info",
-        "message": "nested",
+        "message": "child_span",
         "ts": "[ts]"
       }
     ],
@@ -61,75 +61,17 @@ expression: captured_logs
     },
     "fields": {
       "module": "dekaf::log_journal::tests",
-      "session_task_name": "test_task"
+      "session_client_id": "my-client-id",
+      "session_task_name": "my-task"
     },
     "level": "info",
-    "message": "Log from nested span after task name marker",
+    "message": "I should have a client ID",
     "spans": [
-      {
-        "fields": {
-          "module": "dekaf::log_journal::tests"
-        },
-        "level": "info",
-        "message": "dekaf_session",
-        "ts": "[ts]"
-      },
-      {
-        "fields": {
-          "module": "dekaf::log_journal::tests"
-        },
-        "level": "info",
-        "message": "nested",
-        "ts": "[ts]"
-      },
       {
         "fields": {
           "module": "dekaf::log_journal::tests",
-          "session_task_name": "test_task"
-        },
-        "level": "info",
-        "message": "task",
-        "ts": "[ts]"
-      }
-    ],
-    "ts": "[ts]"
-  },
-  {
-    "_meta": {
-      "uuid": "[uuid]"
-    },
-    "fields": {
-      "module": "dekaf::log_journal::tests",
-      "session_task_name": "test_task"
-    },
-    "level": "info",
-    "message": "Back in session span after task name",
-    "spans": [
-      {
-        "fields": {
-          "module": "dekaf::log_journal::tests"
-        },
-        "level": "info",
-        "message": "dekaf_session",
-        "ts": "[ts]"
-      }
-    ],
-    "ts": "[ts]"
-  },
-  {
-    "_meta": {
-      "uuid": "[uuid]"
-    },
-    "fields": {
-      "module": "dekaf::log_journal::tests",
-      "session_task_name": "test_task"
-    },
-    "level": "info",
-    "message": "In child of session span after task name",
-    "spans": [
-      {
-        "fields": {
-          "module": "dekaf::log_journal::tests"
+          "session_client_id": "my-client-id",
+          "session_task_name": "my-task"
         },
         "level": "info",
         "message": "dekaf_session",
@@ -140,7 +82,32 @@ expression: captured_logs
           "module": "dekaf::log_journal::tests"
         },
         "level": "info",
-        "message": "new_nested",
+        "message": "child_span",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_journal::tests",
+      "session_client_id": "my-client-id",
+      "session_task_name": "my-task"
+    },
+    "level": "info",
+    "message": "I should also have a client ID",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_journal::tests",
+          "session_client_id": "my-client-id",
+          "session_task_name": "my-task"
+        },
+        "level": "info",
+        "message": "dekaf_session",
         "ts": "[ts]"
       }
     ],

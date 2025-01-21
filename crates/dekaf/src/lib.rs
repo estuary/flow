@@ -30,10 +30,13 @@ pub use api_client::KafkaApiClient;
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use connector::{DekafConfig, DeletionMode};
 use flow_client::client::{refresh_authorizations, RefreshToken};
-use log_journal::{SESSION_TASKLESS_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER};
+use log_journal::{
+    SESSION_CLIENT_ID_FIELD_MARKER, SESSION_TASKLESS_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER,
+};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
+use tracing_record_hierarchical::SpanExt;
 
 pub struct App {
     /// Hostname which is advertised for Kafka access.
@@ -184,10 +187,8 @@ impl App {
             && !username.starts_with("{")
         {
             // This marks this Session as being associated with the task name contained in `username`.
-            tracing::info_span!(
-                "login",
-                { SESSION_TASK_NAME_FIELD_MARKER } = username.clone()
-            );
+            tracing::Span::current()
+                .record_hierarchical(SESSION_TASK_NAME_FIELD_MARKER, username.clone());
 
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
@@ -219,7 +220,7 @@ impl App {
         } else if username.contains("{") {
             // Since we don't have a task, we also don't have a logs journal to write to,
             // so we should isable log forwarding for this session.
-            tracing::info_span!("login", { SESSION_TASKLESS_FIELD_MARKER } = true);
+            tracing::Span::current().record_hierarchical(SESSION_TASKLESS_FIELD_MARKER, true);
 
             let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
             let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
@@ -313,8 +314,11 @@ async fn handle_api(
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(frame, version)?;
-            tracing::debug!(client_id=?header.client_id, "Got client ID!");
-            session.client_id = header.client_id.clone().map(|id| id.to_string());
+            if let Some(client_id) = &header.client_id {
+                tracing::Span::current()
+                    .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, client_id.to_string());
+                tracing::info!("Got client ID!");
+            }
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
         ApiKey::SaslHandshakeKey => {

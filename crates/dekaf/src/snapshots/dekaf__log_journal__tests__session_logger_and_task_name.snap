@@ -1,6 +1,5 @@
 ---
 source: crates/dekaf/src/log_journal.rs
-assertion_line: 457
 expression: captured_logs
 ---
 [
@@ -9,7 +8,8 @@ expression: captured_logs
       "uuid": "[uuid]"
     },
     "fields": {
-      "module": "dekaf::log_journal::tests"
+      "module": "dekaf::log_journal::tests",
+      "session_task_name": "my_task"
     },
     "level": "info",
     "message": "Test log data but with a SessionLogger, still should see me",
@@ -30,7 +30,8 @@ expression: captured_logs
       "uuid": "[uuid]"
     },
     "fields": {
-      "module": "dekaf::log_journal::tests"
+      "module": "dekaf::log_journal::tests",
+      "session_task_name": "my_task"
     },
     "level": "info",
     "message": "Test log data with a task name!",

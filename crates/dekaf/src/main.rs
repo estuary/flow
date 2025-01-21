@@ -6,7 +6,8 @@ use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
 use dekaf::{
     log_journal::{
-        SESSION_SPAN_NAME_MARKER, SESSION_TASKLESS_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER,
+        SESSION_CLIENT_ID_FIELD_MARKER, SESSION_SPAN_NAME_MARKER, SESSION_TASKLESS_FIELD_MARKER,
+        SESSION_TASK_NAME_FIELD_MARKER,
     },
     Session,
 };
@@ -175,6 +176,7 @@ async fn main() -> anyhow::Result<()> {
     producer_id[0] |= 0x01;
 
     let registry = tracing_subscriber::registry()
+        .with(tracing_record_hierarchical::HierarchicalRecord::default())
         // We attach `ops::tracing::Layer` so we can use the `Log` structs it attaches to spans
         .with(ops::tracing::Layer::new(|_| {}, std::time::SystemTime::now))
         .with(
@@ -286,6 +288,7 @@ async fn main() -> anyhow::Result<()> {
                             tracing::info_span!(
                                 SESSION_SPAN_NAME_MARKER,
                                 {SESSION_TASK_NAME_FIELD_MARKER}=tracing::field::Empty,
+                                {SESSION_CLIENT_ID_FIELD_MARKER}=tracing::field::Empty,
                                 {SESSION_TASKLESS_FIELD_MARKER}=false
                             )
                         )
@@ -327,6 +330,7 @@ async fn main() -> anyhow::Result<()> {
                             tracing::info_span!(
                                 SESSION_SPAN_NAME_MARKER,
                                 {SESSION_TASK_NAME_FIELD_MARKER}=tracing::field::Empty,
+                                {SESSION_CLIENT_ID_FIELD_MARKER}=tracing::field::Empty,
                                 {SESSION_TASKLESS_FIELD_MARKER}=false
                             )
                         )
@@ -340,7 +344,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(level = "info", ret, err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
+#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
 async fn serve<S>(
     mut session: Session,
     socket: S,

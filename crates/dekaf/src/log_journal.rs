@@ -2,7 +2,7 @@ use crate::{dekaf_shard_template_id, topology::fetch_dekaf_task_auth, App};
 use async_trait::async_trait;
 use bytes::Bytes;
 use flow_client::fetch_task_authorization;
-use futures::TryStreamExt;
+use futures::{Stream, StreamExt, TryStreamExt};
 use gazette::{
     journal,
     uuid::{self, Producer},
@@ -11,6 +11,7 @@ use proto_gazette::message_flags;
 use serde_json::json;
 use std::{collections::VecDeque, sync::Arc};
 use tokio::task::JoinHandle;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{span, Event, Id};
 use tracing_subscriber::layer::{Context, Layer};
 
@@ -28,6 +29,9 @@ pub const SESSION_TASK_NAME_FIELD_MARKER: &str = "session_task_name";
 /// This marker indicates that its Session is not and will never be associated with a
 /// task, and we should stop buffering logs as we'll never have anywhere to write them.
 pub const SESSION_TASKLESS_FIELD_MARKER: &str = "session_is_taskless";
+
+pub const SESSION_CLIENT_ID_FIELD_MARKER: &str = "session_client_id";
+const WELL_KNOWN_LOG_FIELDS: &'static [&'static str] = &[SESSION_CLIENT_ID_FIELD_MARKER];
 
 #[derive(Debug)]
 enum LoggingMessage {
@@ -175,41 +179,57 @@ impl<A: LogAppender> LogForwarder<A> {
         mut self,
         mut logs_rx: tokio::sync::mpsc::Receiver<LoggingMessage>,
     ) -> anyhow::Result<()> {
-        let mut log_data = VecDeque::new();
+        let mut pending_logs = VecDeque::new();
 
-        loop {
+        let task_name = loop {
             match logs_rx.recv().await {
                 Some(LoggingMessage::SetTaskName(name)) => {
-                    self.appender.set_task_name(name).await?;
-                    break;
+                    self.appender.set_task_name(name.to_owned()).await?;
+                    break name;
                 }
                 Some(LoggingMessage::Log(log)) => {
-                    log_data.push_front(self.serialize_log(log));
+                    pending_logs.push_front(log);
                     // Keep at most the latest 100 log messages when in this pending state
-                    log_data.truncate(100);
+                    pending_logs.truncate(100);
                 }
                 Some(LoggingMessage::Shutdown) | None => return Ok(()),
             }
-        }
+        };
 
-        self.appender
-            .append_log_data(
-                log_data
-                    .into_iter()
-                    // VecDeque::truncate keeps the first N items, so we use `push_front` + `truncate` to
-                    // store the most recent items in the front of the queue. We need to reverse
-                    // that when sending, as logs should be sent in oldest-first order.
-                    .rev()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .into(),
-            )
-            .await?;
+        let mut event_stream = futures::stream::iter(
+            pending_logs
+                .into_iter()
+                // VecDeque::truncate keeps the first N items, so we use `push_front` + `truncate` to
+                // store the most recent items in the front of the queue. We need to reverse
+                // that when sending, as logs should be sent in oldest-first order.
+                .rev()
+                .map(|log| LoggingMessage::Log(log)),
+        )
+        .chain(ReceiverStream::new(logs_rx));
 
-        while let Some(msg) = logs_rx.recv().await {
+        while let Some(msg) = event_stream.next().await {
             match msg {
                 LoggingMessage::SetTaskName(_) => {}
-                LoggingMessage::Log(log) => {
+                LoggingMessage::Log(mut log) => {
+                    // Attach the task name to every log from the session, even those that
+                    // were emitted before it was known
+                    log.fields_json_map.insert(
+                        SESSION_TASK_NAME_FIELD_MARKER.to_string(),
+                        json!(task_name).to_string(),
+                    );
+
+                    // Attach any other present well known fields to the top-level Log's fields
+                    for well_known in WELL_KNOWN_LOG_FIELDS {
+                        if let Some(value) = log
+                            .spans
+                            .iter()
+                            .find_map(|l| l.fields_json_map.get(&well_known.to_string()))
+                        {
+                            log.fields_json_map
+                                .insert(well_known.to_string(), value.to_string());
+                        }
+                    }
+
                     self.appender
                         .append_log_data(self.serialize_log(log).into())
                         .await?;
@@ -408,6 +428,7 @@ mod tests {
     use tracing::instrument::WithSubscriber;
     use tracing::{info, info_span};
 
+    use tracing_record_hierarchical::SpanExt;
     use tracing_subscriber::prelude::*;
 
     fn gen_producer() -> Producer {
@@ -429,6 +450,7 @@ mod tests {
         let layer = SessionSubscriberLayer::new(producer, mock_appender);
 
         let subscriber = tracing_subscriber::registry()
+            .with(tracing_record_hierarchical::HierarchicalRecord::default())
             .with(ops::tracing::Layer::new(|_| {}, std::time::SystemTime::now))
             .with(layer)
             .with(tracing_subscriber::fmt::Layer::default());
@@ -518,6 +540,45 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("session_logger_and_task_name", logs).await;
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_session_subscriber_layer_with_session_logger_and_task_name_hierarchical() {
+        setup(|logs| async move {
+            {
+                info!(
+                "Test log data, not associated with any session, you should not be able to see me"
+            );
+
+                let session_span = info_span!(
+                    SESSION_SPAN_NAME_MARKER,
+                    { SESSION_TASK_NAME_FIELD_MARKER } = tracing::field::Empty,
+                    { SESSION_CLIENT_ID_FIELD_MARKER } = tracing::field::Empty
+                );
+                let _guard = session_span.enter();
+
+                info!("Test log data but with a SessionLogger, still should see me");
+
+                let session_span = info_span!("child_span");
+                let session_guard = session_span.enter();
+
+                info!("Test log data without a task name yet!");
+
+                tracing::Span::current()
+                    .record_hierarchical(SESSION_TASK_NAME_FIELD_MARKER, "my-task");
+                tracing::Span::current()
+                    .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, "my-client-id");
+
+                info!("I should have a client ID");
+                drop(session_guard);
+                info!("I should also have a client ID");
+            };
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            assert_output("session_logger_and_task_name_hierarchical", logs).await;
         })
         .await;
     }

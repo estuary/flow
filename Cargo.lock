@@ -2027,9 +2027,11 @@ dependencies = [
  "time 0.3.36",
  "tokio",
  "tokio-rustls 0.26.0",
+ "tokio-stream",
  "tokio-util",
  "tower-http",
  "tracing",
+ "tracing-record-hierarchical",
  "tracing-subscriber",
  "tracing-test",
  "tuple",
@@ -6006,6 +6008,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
+name = "sealed"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4a8caec23b7800fb97971a1c6ae365b6239aaeddfb934d6265f8505e795699d"
+dependencies = [
+ "heck 0.4.1",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.74",
+]
+
+[[package]]
 name = "security-framework"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7158,6 +7172,18 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-record-hierarchical"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4870b936b70cfeef3d45599052b53b0c9be6dce769cdb1f2fae5cbf47c3ef9d0"
+dependencies = [
+ "lazy_static",
+ "sealed",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
