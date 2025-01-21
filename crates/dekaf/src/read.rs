@@ -19,16 +19,16 @@ pub struct Read {
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
 
-    key_ptr: Vec<doc::Pointer>,         // Pointers to the document key.
-    key_schema: avro::Schema,           // Avro schema when encoding keys.
-    key_schema_id: u32,                 // Registry ID of the key's schema.
-    meta_op_ptr: doc::Pointer,          // Location of document op (currently always `/_meta/op`).
-    not_before: uuid::Clock,            // Not before this clock.
-    stream: ReadJsonLines,              // Underlying document stream.
-    uuid_ptr: doc::Pointer,             // Location of document UUID.
-    value_schema: avro::Schema,         // Avro schema when encoding values.
-    value_schema_id: u32,               // Registry ID of the value's schema.
-    projections: Vec<flow::Projection>, // Projections to apply
+    key_ptr: Vec<doc::Pointer>, // Pointers to the document key.
+    key_schema: avro::Schema,   // Avro schema when encoding keys.
+    key_schema_id: u32,         // Registry ID of the key's schema.
+    meta_op_ptr: doc::Pointer,  // Location of document op (currently always `/_meta/op`).
+    not_before: uuid::Clock,    // Not before this clock.
+    stream: ReadJsonLines,      // Underlying document stream.
+    uuid_ptr: doc::Pointer,     // Location of document UUID.
+    value_schema: avro::Schema, // Avro schema when encoding values.
+    value_schema_id: u32,       // Registry ID of the value's schema.
+    projections: Vec<(doc::Extractor, flow::Projection)>, // Projections to apply
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
@@ -70,7 +70,7 @@ impl Read {
         value_schema_id: u32,
         rewrite_offsets_from: Option<i64>,
         deletes: DeletionMode,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let (not_before_sec, _) = collection.not_before.to_unix();
 
         let stream = client.clone().read_json_lines(
@@ -87,7 +87,14 @@ impl Read {
             30,
         );
 
-        Self {
+        let policy = doc::SerPolicy::noop();
+        let projections = collection
+            .projections
+            .iter()
+            .map(|proj| extractors::for_projection(proj, &policy).map(|ex| (ex, proj.clone())))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
             offset,
             last_write_head: offset,
 
@@ -100,13 +107,13 @@ impl Read {
             uuid_ptr: collection.uuid_ptr.clone(),
             value_schema: collection.value_schema.clone(),
             value_schema_id,
-            projections: collection.projections.clone(),
+            projections,
 
             journal_name: partition.spec.name.clone(),
             rewrite_offsets_from,
             deletes,
             offset_start: offset,
-        }
+        })
     }
 
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
@@ -277,43 +284,7 @@ impl Read {
                     tmp.push(0);
                     tmp.extend(self.value_schema_id.to_be_bytes());
 
-                    let policy = doc::SerPolicy::noop();
-
-                    let root_node = root.get();
-
-                    let mut extracted = self
-                        .projections
-                        .iter()
-                        .map(|proj| extractors::for_projection(proj, &policy).map(|ex| (ex, proj)))
-                        .try_fold(HeapNode::Object(BumpVec::new()), |mut doc, input| {
-                            match input {
-                                Ok((extractor, projection)) => {
-                                    // This is the value extracted from the original doc
-                                    let extracted = match extractor.query(root_node) {
-                                        Ok(value) => HeapNode::from_node(value, &alloc),
-                                        Err(default) => {
-                                            HeapNode::from_node(&default.into_owned(), &alloc)
-                                        }
-                                    };
-
-                                    // Now we need to put it at proj.field
-                                    match doc::Pointer::from_str(&format!("/{}", projection.field))
-                                        .create_heap_node(&mut doc, &alloc)
-                                    {
-                                        Some(inner_node) => {
-                                            *inner_node = extracted;
-                                        }
-                                        None => anyhow::bail!(
-                                            "Invalid projection field {}",
-                                            projection.field
-                                        ),
-                                    };
-
-                                    return Ok(doc);
-                                }
-                                Err(e) => return Err(anyhow::Error::from(e)),
-                            }
-                        })?;
+                    let mut extracted = self.extract(root.get(), &alloc)?;
 
                     if matches!(self.deletes, DeletionMode::CDC) {
                         let foo = DELETION_INDICATOR_PTR
@@ -405,6 +376,35 @@ impl Read {
                 }
             },
         ))
+    }
+
+    fn extract<'a>(
+        &'a self,
+        original: &'a doc::ArchivedNode,
+        alloc: &'a bumpalo::Bump,
+    ) -> anyhow::Result<HeapNode> {
+        self.projections.iter().try_fold(
+            HeapNode::Object(BumpVec::new()),
+            |mut doc, (extractor, projection)| {
+                // This is the value extracted from the original doc
+                let extracted = match extractor.query(original) {
+                    Ok(value) => HeapNode::from_node(value, &alloc),
+                    Err(default) => HeapNode::from_node(&default.into_owned(), &alloc),
+                };
+
+                // Now we need to put it at proj.field
+                match doc::Pointer::from_str(&format!("/{}", projection.field))
+                    .create_heap_node(&mut doc, &alloc)
+                {
+                    Some(inner_node) => {
+                        *inner_node = extracted;
+                    }
+                    None => anyhow::bail!("Invalid projection field {}", projection.field),
+                };
+
+                return Ok(doc);
+            },
+        )
     }
 }
 

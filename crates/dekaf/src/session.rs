@@ -48,7 +48,6 @@ pub struct Session {
     broker_url: String,
     broker_username: String,
     broker_password: String,
-    pub client_id: Option<String>,
 }
 
 impl Session {
@@ -68,7 +67,6 @@ impl Session {
             reads: HashMap::new(),
             auth: None,
             secret,
-            client_id: None,
             data_preview_state: SessionDataPreviewState::Unknown,
         }
     }
@@ -567,7 +565,7 @@ impl Session {
                                     value_schema_id,
                                     Some(partition_request.fetch_offset - 1),
                                     auth.deletions(),
-                                )
+                                )?
                                 .next_batch(
                                     // Have to read at least 2 docs, as the very last doc
                                     // will probably be a control document and will be
@@ -595,7 +593,7 @@ impl Session {
                                     value_schema_id,
                                     None,
                                     auth.deletions(),
-                                )
+                                )?
                                 .next_batch(
                                     crate::read::ReadTarget::Bytes(
                                         partition_request.partition_max_bytes as usize,
@@ -829,7 +827,7 @@ impl Session {
                 .iter_mut()
                 .for_each(|topic| {
                     let transformed = self.encrypt_topic_name(topic.to_owned().into()).into();
-                    tracing::info!(topic_name = ?topic, encrypted_name=?transformed, "Joining group");
+                    tracing::info!(topic_name = ?topic, "Request to join group");
                     *topic = transformed;
                 });
 
@@ -974,7 +972,7 @@ impl Session {
                 .into_iter()
                 .map(|part| {
                     let transformed_topic = self.encrypt_topic_name(part.topic.to_owned());
-                    tracing::info!(topic_name = ?part.topic, encrypted_name=?transformed_topic, "Syncing group");
+                    tracing::info!(topic_name = ?part.topic, "Syncing group");
                     part.with_topic(transformed_topic)
                 })
                 .collect();
@@ -1070,7 +1068,7 @@ impl Session {
         let mut mutated_req = req.clone();
         for topic in &mut mutated_req.topics {
             let encrypted = self.encrypt_topic_name(topic.name.clone());
-            tracing::info!(topic_name = ?topic.name, encrypted_name=?encrypted, "Committing offset");
+            tracing::info!(topic_name = ?topic.name, partitions = ?topic.partitions, "Committing offset");
             topic.name = encrypted;
         }
 
@@ -1159,9 +1157,7 @@ impl Session {
         let mut mutated_req = req.clone();
         if let Some(ref mut topics) = mutated_req.topics {
             for topic in topics {
-                let encrypted = self.encrypt_topic_name(topic.name.clone());
-                tracing::info!(topic_name = ?topic.name, encrypted_name = ?encrypted, "Fetching offset");
-                topic.name = encrypted;
+                topic.name = self.encrypt_topic_name(topic.name.clone());
             }
         }
 
