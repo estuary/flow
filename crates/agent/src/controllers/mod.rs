@@ -407,13 +407,11 @@ mod test {
         assert_eq!(0, next.after_seconds);
         assert!(next.with_jitter_percent(0).compute_duration().is_zero());
 
-        let now = Utc::now();
-        let then = now + chrono::Duration::seconds(60);
-        let millis = NextRun::after(then)
+        let millis = NextRun::after_minutes(1)
             .with_jitter_percent(20)
             .compute_duration()
             .as_millis();
-        assert!(millis > 59900, "duration too small, got: {millis}ms");
-        assert!(millis < 72000, "duration too big, got: {millis}ms");
+        assert!(millis >= 60000, "duration too small, got: {millis}ms");
+        assert!(millis <= 72000, "duration too big, got: {millis}ms");
     }
 }
