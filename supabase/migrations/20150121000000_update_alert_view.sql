@@ -1,3 +1,6 @@
+-- Tenants with external payment methods do not need to give us a CC
+-- so we do not want to alert them they are missing a payment method
+
 CREATE OR REPLACE VIEW internal.alert_free_trial_stalled AS
  SELECT 'free_trial_stalled'::public.alert_type AS alert_type,
     (((tenants.tenant)::text || 'alerts/free_trial_stalled'::text))::public.catalog_name AS catalog_name,
