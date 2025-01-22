@@ -14,6 +14,7 @@ activate = { path = "../activate" }
 agent-sql = { path = "../agent-sql" }
 allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
+automations = { path = "../automations" }
 build = { path = "../build" }
 dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }

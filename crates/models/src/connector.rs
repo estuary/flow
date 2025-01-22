@@ -17,6 +17,16 @@ pub fn split_image_tag(image_full: &str) -> (String, String) {
     }
 }
 
+/// Connectors with an image name starting with this value are Dekaf-type materializations. No image with this
+/// name exists, instead we use it to identify which connectors get marked as `connector_type: ConnectorType::Dekaf`,
+/// causing the runtime to invoke Dekaf's in-tree connector logic in `[dekaf::connector]`
+pub const DEKAF_IMAGE_NAME_PREFIX: &str = "ghcr.io/estuary/dekaf-";
+
+/// Dekaf doesn't use images, but important information such as endpoint/resource config schema are associated
+/// with a particular `connector_tags` row. Rather than refactoring this deeply interconnected piece of the system,
+/// we've decided to just give Dekaf a `connector_tags` row. This is its tag.
+pub const DEKAF_IMAGE_TAG: &str = "v1";
+
 /// Dekaf service configuration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 pub struct DekafConfig {
@@ -24,6 +34,15 @@ pub struct DekafConfig {
     pub variant: String,
     /// # Dekaf endpoint config.
     pub config: RawValue,
+}
+
+impl DekafConfig {
+    pub fn image_name(&self) -> String {
+        format!(
+            "{DEKAF_IMAGE_NAME_PREFIX}{}:{DEKAF_IMAGE_TAG}",
+            self.variant
+        )
+    }
 }
 
 /// Connector image and configuration specification.

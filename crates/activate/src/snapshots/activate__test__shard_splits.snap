@@ -1,13 +1,13 @@
 ---
 source: crates/activate/src/lib.rs
-expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits, \"key_changes\",\n    key_changes, \"clock_changes\", clock_changes,])"
+expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&clock_lhs, &clock_rhs), \"key_changes\", key_changes, \"clock_changes\",\nclock_changes,])"
 ---
 [
   "key_splits",
   [
-    [
-      "derivation/example/derivation/2020202020202020/10000000-60000000",
-      {
+    {
+      "id": "derivation/example/derivation/2020202020202020/10000000-60000000",
+      "labels": {
         "labels": [
           {
             "name": "estuary.dev/key-begin",
@@ -35,11 +35,11 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           }
         ]
       },
-      111
-    ],
-    [
-      "derivation/example/derivation/2020202020202020/20000000-60000000",
-      {
+      "mod_revision": 111
+    },
+    {
+      "id": "derivation/example/derivation/2020202020202020/20000000-60000000",
+      "labels": {
         "labels": [
           {
             "name": "estuary.dev/key-begin",
@@ -67,14 +67,14 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           }
         ]
       },
-      0
-    ]
+      "mod_revision": 0
+    }
   ],
   "clock_splits",
   [
-    [
-      "derivation/example/derivation/2020202020202020/10000000-60000000",
-      {
+    {
+      "id": "derivation/example/derivation/2020202020202020/10000000-60000000",
+      "labels": {
         "labels": [
           {
             "name": "estuary.dev/key-begin",
@@ -102,11 +102,11 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           }
         ]
       },
-      111
-    ],
-    [
-      "derivation/example/derivation/2020202020202020/10000000-80000000",
-      {
+      "mod_revision": 111
+    },
+    {
+      "id": "derivation/example/derivation/2020202020202020/10000000-80000000",
+      "labels": {
         "labels": [
           {
             "name": "estuary.dev/key-begin",
@@ -134,8 +134,8 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           }
         ]
       },
-      0
-    ]
+      "mod_revision": 0
+    }
   ],
   "key_changes",
   [
@@ -246,7 +246,10 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           },
           "maxAppendRate": "4194304",
           "name": "recovery/derivation/example/derivation/2020202020202020/10000000-60000000",
-          "replication": 3
+          "replication": 3,
+          "suspend": {
+            "offset": "445566"
+          }
         }
       }
     },
@@ -468,7 +471,10 @@ expression: "json!([\"key_splits\", &key_splits, \"clock_splits\", clock_splits,
           },
           "maxAppendRate": "4194304",
           "name": "recovery/derivation/example/derivation/2020202020202020/10000000-60000000",
-          "replication": 3
+          "replication": 3,
+          "suspend": {
+            "offset": "445566"
+          }
         }
       }
     },

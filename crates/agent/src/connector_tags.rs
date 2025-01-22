@@ -23,6 +23,7 @@ pub enum JobStatus {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ValidationError {
     ResourcePathPointersChanged { rejected: Vec<String> },
+    InvalidDekafTag,
 }
 
 impl JobStatus {
@@ -101,8 +102,23 @@ impl TagHandler {
         );
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
+        // A Dekaf connector's tag is meaningless since it'll never get pulled, _except_ that
+        // it must later on match the value in `live_specs.connector_image_tag`. Since we hard-code
+        // that to the value of DEKAF_IMAGE_TAG, we must also ensure that no dekaf `connector_tags` rows
+        // get inserted with a different image_tag value.
+        if row.image_name.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
+            if row.image_tag != models::DEKAF_IMAGE_TAG {
+                return Ok((
+                    row.tag_id,
+                    JobStatus::ValidationFailed {
+                        error: ValidationError::InvalidDekafTag,
+                    },
+                ));
+            }
+        }
+
         if row.image_tag != LOCAL_IMAGE_TAG
-            && !row.image_name.starts_with(runtime::DEKAF_IMAGE_NAME_PREFIX)
+            && !row.image_name.starts_with(models::DEKAF_IMAGE_NAME_PREFIX)
         {
             // Pull the image.
             let pull = jobs::run(
@@ -221,7 +237,7 @@ async fn spec_materialization(
 ) -> anyhow::Result<ConnectorSpec> {
     use proto_flow::materialize;
 
-    let connector_type = if image.starts_with(runtime::DEKAF_IMAGE_NAME_PREFIX) {
+    let connector_type = if image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
         flow::materialization_spec::ConnectorType::Dekaf as i32
     } else {
         flow::materialization_spec::ConnectorType::Image as i32

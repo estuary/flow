@@ -364,19 +364,18 @@ async fn test_dependencies_and_controllers() {
         .assert_live_spec_soft_deleted("owls/hoots", del_result.pub_id)
         .await;
 
-    // All the controllers ought to run now. The collection controller should run first and notfiy
-    // the others.
-    let runs = harness.run_pending_controllers(Some(1)).await;
-    assert_eq!("owls/hoots", &runs[0].catalog_name);
-    harness
-        .control_plane()
-        .assert_activations("hoots deletion", vec![("owls/hoots", None)]);
+    // All the controllers ought to run now. The collection controller should
+    // run first and notfiy the others. Note that `run_pending_controllers`
+    // cannot return anything when the spec is deleted since the rows will have
+    // been deleted from the database.
+    harness.run_pending_controllers(None).await;
     harness.assert_live_spec_hard_deleted("owls/hoots").await;
 
     let _ = harness.run_pending_controllers(None).await;
     harness.control_plane().assert_activations(
         "after hoots deleted",
         vec![
+            ("owls/hoots", None),
             ("owls/capture", Some(CatalogType::Capture)),
             ("owls/materialize", Some(CatalogType::Materialization)),
             ("owls/nests", Some(CatalogType::Collection)),
@@ -496,7 +495,7 @@ async fn test_dependencies_and_controllers() {
     );
     harness.control_plane().reset_activations();
     let runs = harness.run_pending_controllers(None).await;
-    assert_controllers_ran(&["owls/capture", "owls/materialize"], runs);
+    assert_controllers_ran(&["owls/materialize"], runs);
 
     harness.assert_live_spec_hard_deleted("owls/capture").await;
     harness
@@ -510,7 +509,7 @@ async fn test_dependencies_and_controllers() {
         .publications
         .history[0];
     assert_eq!("simulated build failure", &failed_pub.errors[0].detail);
-    assert!(materialization_state.next_run.is_some());
+    harness.assert_controller_pending("owls/materialize").await;
 
     // The materialization should now successfully retry and then activate
     harness.run_pending_controller("owls/materialize").await;
@@ -563,12 +562,7 @@ async fn test_dependencies_and_controllers() {
         .assert_live_spec_soft_deleted("owls/test-test", del_result.pub_id)
         .await;
 
-    let runs = harness.run_pending_controllers(None).await;
-    assert_eq!(
-        3,
-        runs.len(),
-        "expected one run of each controller, got: {runs:?}"
-    );
+    harness.run_pending_controllers(None).await;
     harness
         .assert_live_spec_hard_deleted("owls/materialize")
         .await;

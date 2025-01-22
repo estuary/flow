@@ -14,7 +14,7 @@ use super::{backoff_data_plane_activate, ControllerState};
 pub async fn update_activation<C: ControlPlane>(
     status: &mut ActivationStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> anyhow::Result<()> {
     if state.last_build_id > status.last_activated {
         let name = state.catalog_name.clone();
@@ -164,7 +164,7 @@ impl PendingPublication {
         &mut self,
         state: &ControllerState,
         status: &mut PublicationStatus,
-        control_plane: &mut C,
+        control_plane: &C,
     ) -> anyhow::Result<PublicationResult> {
         let is_touch = is_touch_pub(&self.draft);
         let PendingPublication { draft, details } =
@@ -184,7 +184,7 @@ impl PendingPublication {
                 record_result(status, pub_info(r));
                 if r.status.is_success() {
                     control_plane
-                        .notify_dependents(state.catalog_name.clone())
+                        .notify_dependents(state.live_spec_id)
                         .await
                         .context("notifying dependents after successful publication")?;
                     status.max_observed_pub_id = r.pub_id;
@@ -216,12 +216,10 @@ const MAX_HISTORY: usize = 5;
 pub async fn update_notify_dependents<C: ControlPlane>(
     status: &mut PublicationStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> anyhow::Result<()> {
     if state.last_pub_id > status.max_observed_pub_id {
-        control_plane
-            .notify_dependents(state.catalog_name.clone())
-            .await?;
+        control_plane.notify_dependents(state.live_spec_id).await?;
         status.max_observed_pub_id = state.last_pub_id;
     }
     Ok(())

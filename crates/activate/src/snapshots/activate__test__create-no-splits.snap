@@ -1,0 +1,8 @@
+---
+source: crates/activate/src/lib.rs
+expression: "(partition_changes, task_changes)"
+---
+[
+  [],
+  []
+]

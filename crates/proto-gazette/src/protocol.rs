@@ -68,6 +68,8 @@ pub struct JournalSpec {
     /// smaller of the journal vs global rate.
     #[prost(int64, tag = "7")]
     pub max_append_rate: i64,
+    #[prost(message, optional, tag = "8")]
+    pub suspend: ::core::option::Option<journal_spec::Suspend>,
 }
 /// Nested message and enum types in `JournalSpec`.
 pub mod journal_spec {
@@ -147,6 +149,76 @@ pub mod journal_spec {
         /// Which will produce a path postfix like "date=2019-11-19/hour=22".
         #[prost(string, tag = "7")]
         pub path_postfix_template: ::prost::alloc::string::String,
+    }
+    /// Suspension control for this journal.
+    /// If unset the suspension level is implicitly NONE, with an offset of zero.
+    ///
+    /// The Suspend field is managed by Gazette, and is updated when an Append RPC
+    /// suspends a journal or if auto-suspension is enabled. Operators should
+    /// not set it directly. However when utilizing suspension, operators MUST
+    /// take care to pass-through Suspend when applying updates to JournalSpecs.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct Suspend {
+        #[prost(enumeration = "suspend::Level", tag = "1")]
+        pub level: i32,
+        /// The lower-bound journal offset at which appends should proceed,
+        /// once this journal is resumed.
+        #[prost(int64, tag = "2")]
+        pub offset: i64,
+    }
+    /// Nested message and enum types in `Suspend`.
+    pub mod suspend {
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            ::prost::Enumeration
+        )]
+        #[repr(i32)]
+        pub enum Level {
+            /// When NONE, the journal is not suspended and is fully replicated.
+            None = 0,
+            /// When PARTIAL, the journal is scaled down to a single replica
+            /// which monitors the fragment index and serves reads.
+            Partial = 1,
+            /// When FULL, the journal's fragment index MUST be empty and the journal
+            /// is scaled down to zero replicas. Operations other than Append,
+            /// which resumes the journal, will fail with status SUSPENDED.
+            ///
+            /// Clients should identify and filter requests which would otherwise be
+            /// directed at suspended journals. For example, a client may watch a
+            /// journal listing and filter to read journals which have a suspension
+            /// level of ACTIVE or PARTIAL.
+            Full = 2,
+        }
+        impl Level {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Level::None => "NONE",
+                    Level::Partial => "PARTIAL",
+                    Level::Full => "FULL",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "NONE" => Some(Self::None),
+                    "PARTIAL" => Some(Self::Partial),
+                    "FULL" => Some(Self::Full),
+                    _ => None,
+                }
+            }
+        }
     }
     /// Flags define Journal IO control behaviors. Where possible, flags are named
     /// after an equivalent POSIX flag.
@@ -446,12 +518,74 @@ pub struct AppendRequest {
     /// at least one byte.
     #[prost(message, optional, tag = "8")]
     pub subtract_registers: ::core::option::Option<LabelSet>,
+    #[prost(enumeration = "append_request::Suspend", tag = "9")]
+    pub suspend: i32,
     /// Content chunks to be appended. Immediately prior to closing the stream,
     /// the client must send an empty chunk (eg, zero-valued AppendRequest) to
     /// indicate the Append should be committed. Absence of this empty chunk
     /// prior to EOF is interpreted by the broker as a rollback of the Append.
     #[prost(bytes = "vec", tag = "4")]
     pub content: ::prost::alloc::vec::Vec<u8>,
+}
+/// Nested message and enum types in `AppendRequest`.
+pub mod append_request {
+    /// Suspension control for this request.
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Suspend {
+        /// SUSPEND_RESUME (the default) will resume a suspended journal.
+        Resume = 0,
+        /// SUSPEND_NO_RESUME fails with status SUSPENDED if the journal is suspended.
+        NoResume = 1,
+        /// SUSPEND_IF_FLUSHED potentially suspends the requested journal:
+        /// - If the journal has local content which is not yet available in the
+        ///    remote fragment store, the operation has no effect.
+        /// - If the journal has not content at all, it is fully suspended.
+        /// - Otherwise, the journal is partially suspended.
+        IfFlushed = 2,
+        /// SUSPEND_NOW is similar to SUSPEND_IF_FLUSHED, but will also
+        /// partially suspend the journal even if it has local content which
+        /// is not yet available in the remote fragment store.
+        ///
+        /// This operation is always safe -- even once suspended, all former replicas
+        /// persist content to the remote store as per usual -- but it can result in
+        /// many small files if a journal is repeatedly suspended and resumed.
+        Now = 3,
+    }
+    impl Suspend {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Suspend::Resume => "SUSPEND_RESUME",
+                Suspend::NoResume => "SUSPEND_NO_RESUME",
+                Suspend::IfFlushed => "SUSPEND_IF_FLUSHED",
+                Suspend::Now => "SUSPEND_NOW",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "SUSPEND_RESUME" => Some(Self::Resume),
+                "SUSPEND_NO_RESUME" => Some(Self::NoResume),
+                "SUSPEND_IF_FLUSHED" => Some(Self::IfFlushed),
+                "SUSPEND_NOW" => Some(Self::Now),
+                _ => None,
+            }
+        }
+    }
 }
 /// AppendResponse is the unary response message of the broker Append RPC.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -801,6 +935,11 @@ pub enum Status {
     /// The Append is refused because a registers selector was provided with the
     /// request, but it was not matched by current register values of the journal.
     RegisterMismatch = 13,
+    /// The operation cannot complete because the journal has been suspended.
+    /// This implicitly means the journal has no available content to read.
+    /// An Append will resume the journal, or the client may want to filter
+    /// further requests directed to suspended journals.
+    Suspended = 14,
 }
 impl Status {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -823,6 +962,7 @@ impl Status {
             Status::WrongAppendOffset => "WRONG_APPEND_OFFSET",
             Status::IndexHasGreaterOffset => "INDEX_HAS_GREATER_OFFSET",
             Status::RegisterMismatch => "REGISTER_MISMATCH",
+            Status::Suspended => "SUSPENDED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -842,6 +982,7 @@ impl Status {
             "WRONG_APPEND_OFFSET" => Some(Self::WrongAppendOffset),
             "INDEX_HAS_GREATER_OFFSET" => Some(Self::IndexHasGreaterOffset),
             "REGISTER_MISMATCH" => Some(Self::RegisterMismatch),
+            "SUSPENDED" => Some(Self::Suspended),
             _ => None,
         }
     }

@@ -313,7 +313,7 @@ pub async fn check_source_capture_annotations(
         let Some(image) = model.connector_image() else {
             continue;
         };
-        let (image_name, image_tag) = split_image_tag(image);
+        let (image_name, image_tag) = split_image_tag(&image);
 
         let Some(source_capture) = &model.source_capture else {
             continue;
@@ -417,7 +417,7 @@ async fn check_connector_image(
     let Some(image) = model.connector_image() else {
         return Ok(None);
     };
-    let (image_name, _) = split_image_tag(image);
+    let (image_name, _) = split_image_tag(&image);
     if !cached.contains_key(&image_name) {
         let exists = agent_sql::connector_tags::does_connector_exist(&image_name, pool).await?;
         cached.insert(image_name.clone(), exists);
@@ -436,7 +436,7 @@ fn image_and_tag<M: ModelDef>(model: Option<&M>) -> (Option<String>, Option<Stri
     let Some(full_image) = model.and_then(ModelDef::connector_image) else {
         return (None, None);
     };
-    let (image_name, image_tag) = split_image_tag(full_image);
+    let (image_name, image_tag) = split_image_tag(&full_image);
     (Some(image_name), Some(image_tag))
 }
 

@@ -22,7 +22,7 @@ use tables::{utils::pointer_for_schema, LiveRow};
 pub async fn update<C: ControlPlane>(
     status: &mut MaterializationStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<Option<NextRun>> {
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
@@ -102,7 +102,7 @@ async fn do_publication<C: ControlPlane>(
     pub_status: &mut PublicationStatus,
     state: &ControllerState,
     mut pending_pub: PendingPublication,
-    control_plane: &mut C,
+    control_plane: &C,
 ) -> anyhow::Result<()> {
     let mut result = pending_pub
         .finish(state, pub_status, control_plane)
@@ -289,7 +289,7 @@ pub async fn update_source_capture<C: ControlPlane>(
     status: &mut SourceCaptureStatus,
     pub_status: &mut PublicationStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
     live_capture: &tables::LiveCapture,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<bool> {

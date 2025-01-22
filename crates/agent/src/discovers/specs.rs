@@ -1,6 +1,7 @@
 use crate::discovers::Changed;
 
 use anyhow::Context;
+use itertools::Itertools;
 use models::{discovers::Changes, ResourcePath};
 use proto_flow::capture::{self, response::discovered};
 use serde::{Deserialize, Serialize};
@@ -95,7 +96,7 @@ fn resource_path(
 fn index_fetched_bindings<'a>(
     resource_path_pointers: &'_ [doc::Pointer],
     bindings: &'a [models::CaptureBinding],
-) -> Result<HashMap<ResourcePath, &'a models::CaptureBinding>, InvalidResource> {
+) -> anyhow::Result<HashMap<ResourcePath, &'a models::CaptureBinding>> {
     let mut map = HashMap::new();
     for binding in bindings.iter() {
         let resource = serde_json::from_str(binding.resource.get())
@@ -109,7 +110,10 @@ fn index_fetched_bindings<'a>(
                 }
             })?;
         if map.contains_key(&path) {
-            tracing::warn!(resource_path = ?path, ?binding, "existing capture model contains bindings with duplicate resource path");
+            anyhow::bail!(
+                "existing capture model contains multiple bindings with the same resource path ({})",
+                path.iter().join("/")
+            );
         }
         map.insert(path, binding);
     }
@@ -173,13 +177,10 @@ pub fn update_capture_bindings(
             },
         )?;
         if !discovered_resource_paths.insert(resource_path.clone()) {
-            // For now we just want to warn if this is happening, but in the future this may become an error.
-            tracing::warn!(
-                ?resource_path,
-                %resource_config_json,
-                %document_schema_json,
-                ?key,
-                "connector discover response includes multiple bindings with the same resource path");
+            anyhow::bail!(
+                "connector discover response includes multiple bindings with the same resource path ({})",
+                resource_path.iter().join("/")
+            );
         }
 
         // Remove matched bindings from the existing map, so we can tell which ones are being removed.
@@ -844,23 +845,16 @@ mod tests {
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .finish();
         let _ = tracing::subscriber::set_global_default(subscriber);
-        let out = super::update_capture_bindings(
+        let error = super::update_capture_bindings(
             "acmeCo/my-capture",
             &mut fetched_capture,
             discovered_bindings.clone(),
             true,
             &resource_path_ptrs,
         )
-        .unwrap();
+        .unwrap_err();
 
-        // What do we expect to happen here? I don't know! I'd like to have
-        // discover merge return an error if either the model or the discover
-        // repsonse contain duplicate resource paths. But for now I'm just
-        // adding some logging so we can see how widespread that is currently.
-        // We'll need to update this test once we figure out a more long term
-        // expected behavior.
-        insta::assert_debug_snapshot!(out);
-        insta::assert_json_snapshot!(fetched_capture);
+        insta::assert_snapshot!(error);
     }
 
     #[test]

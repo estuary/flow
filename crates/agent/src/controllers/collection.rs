@@ -16,7 +16,7 @@ use models::status::{
 pub async fn update<C: ControlPlane>(
     status: &mut CollectionStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
     model: &models::CollectionDef,
 ) -> anyhow::Result<Option<NextRun>> {
     let uses_inferred_schema = uses_inferred_schema(model);
@@ -100,7 +100,7 @@ fn handle_deleted_dependencies(
 pub async fn update_inferred_schema<C: ControlPlane>(
     status: &mut InferredSchemaStatus,
     state: &ControllerState,
-    control_plane: &mut C,
+    control_plane: &C,
     collection_def: &models::CollectionDef,
     publication_status: &mut PublicationStatus,
 ) -> anyhow::Result<bool> {

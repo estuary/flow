@@ -1,9 +1,12 @@
-# Stripe
+# Stripe (Deprecated)
 
 This connector captures data from Stripe into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-stripe:dev`](https://ghcr.io/estuary/source-stripe:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
+:::warning
+This connector is deprecated. See the [Stripe Real-time](./stripe-realtime.md) connector for the latest Stripe integration.
+:::
 
 ## Supported data resources
 

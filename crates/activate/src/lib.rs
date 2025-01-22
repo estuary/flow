@@ -1,5 +1,6 @@
 use anyhow::Context;
-use proto_flow::flow::{self, materialization_spec};
+use gazette::broker::journal_spec;
+use proto_flow::flow;
 use proto_gazette::{
     broker::{self, JournalSpec, Label, LabelSelector, LabelSet},
     consumer::{self, ShardSpec},
@@ -7,10 +8,34 @@ use proto_gazette::{
 use serde_json::json;
 use std::collections::BTreeMap;
 
+// A Shard or Journal change to be applied.
 #[derive(serde::Serialize)]
-pub enum Change {
+enum Change {
     Shard(consumer::apply_request::Change),
     Journal(broker::apply_request::Change),
+}
+
+// JournalSplit describes a collection partition or a shard recovery log.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+struct JournalSplit {
+    name: String,
+    labels: LabelSet,
+    mod_revision: i64,
+    suspend: Option<journal_spec::Suspend>,
+}
+
+// ShardSplit describes a task partition.
+#[derive(Debug, Clone, serde::Serialize)]
+struct ShardSplit {
+    id: String,
+    labels: LabelSet,
+    mod_revision: i64,
+}
+
+#[derive(Copy, Clone, Debug)]
+struct TaskTemplate<'a> {
+    shard: &'a ShardSpec,
+    recovery: &'a JournalSpec,
 }
 
 /// Activate a capture into a data-plane.
@@ -34,12 +59,12 @@ pub async fn activate_capture(
             .as_ref()
             .context("CaptureSpec missing recovery_log_template")?;
 
-        TaskTemplate::UpsertReal {
+        Some(TaskTemplate {
             shard: shard_template,
-            recovery_journal: recovery_template,
-        }
+            recovery: recovery_template,
+        })
     } else {
-        TaskTemplate::Delete
+        None
     };
 
     let changes = converge_task_changes(
@@ -84,17 +109,17 @@ pub async fn activate_collection(
                 .as_ref()
                 .context("CollectionSpec.Derivation missing recovery_log_template")?;
 
-            TaskTemplate::UpsertReal {
+            Some(TaskTemplate {
                 shard: shard_template,
-                recovery_journal: recovery_template,
-            }
+                recovery: recovery_template,
+            })
         } else {
-            TaskTemplate::Delete
+            None
         };
 
         (task_template, Some(partition_template))
     } else {
-        (TaskTemplate::Delete, None)
+        (None, None)
     };
 
     let (changes_1, changes_2) = futures::try_join!(
@@ -129,29 +154,23 @@ pub async fn activate_materialization(
     ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<()> {
-    let task_template = match task_spec {
-        Some(task_spec)
-            if task_spec.connector_type == materialization_spec::ConnectorType::Dekaf as i32 =>
-        {
-            TaskTemplate::UpsertVirtual
-        }
-        Some(task_spec) => {
-            let shard_template = task_spec
-                .shard_template
-                .as_ref()
-                .context("MaterializationSpec missing shard_template")?;
+    let task_template = if let Some(task_spec) = task_spec {
+        let shard_template = task_spec
+            .shard_template
+            .as_ref()
+            .context("MaterializationSpec missing shard_template")?;
 
-            let recovery_template = task_spec
-                .recovery_log_template
-                .as_ref()
-                .context("MaterializationSpec missing recovery_log_template")?;
+        let recovery_template = task_spec
+            .recovery_log_template
+            .as_ref()
+            .context("MaterializationSpec missing recovery_log_template")?;
 
-            TaskTemplate::UpsertReal {
-                shard: shard_template,
-                recovery_journal: recovery_template,
-            }
-        }
-        None => TaskTemplate::Delete,
+        Some(TaskTemplate {
+            shard: shard_template,
+            recovery: recovery_template,
+        })
+    } else {
+        None
     };
 
     let changes = converge_task_changes(
@@ -268,21 +287,6 @@ async fn apply_changes(
     Ok(())
 }
 
-/// Describes the desired future state of a task.
-/// Virtual tasks get logs and stats journals,
-/// but are otherwise purely descriptive and
-/// do not get shards and recovery log journals
-/// created for them like real tasks do.
-#[derive(Clone, Copy, Debug)]
-enum TaskTemplate<'a> {
-    UpsertReal {
-        shard: &'a ShardSpec,
-        recovery_journal: &'a JournalSpec,
-    },
-    UpsertVirtual,
-    Delete,
-}
-
 /// Converge a task by listing data-plane ShardSpecs and recovery log
 /// JournalSpecs, and then applying updates to bring them into alignment
 /// with the templated task configuration.
@@ -291,46 +295,42 @@ async fn converge_task_changes<'a>(
     shard_client: &gazette::shard::Client,
     task_type: ops::TaskType,
     task_name: &str,
-    template: TaskTemplate<'a>,
+    template: Option<TaskTemplate<'a>>,
     ops_logs_template: Option<&broker::JournalSpec>,
     ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<Vec<Change>> {
     let (list_shards, list_recovery) = list_task_request(task_type, task_name);
+    let list_logs = list_ops_journal(journal_client, task_type, task_name, ops_logs_template);
+    let list_stats = list_ops_journal(journal_client, task_type, task_name, ops_stats_template);
 
-    let (ops_logs_name, ops_logs_change) =
-        converge_ops_journal(journal_client, task_type, task_name, ops_logs_template);
-    let (ops_stats_name, ops_stats_change) =
-        converge_ops_journal(journal_client, task_type, task_name, ops_stats_template);
-
-    let (shards, recovery, ops_logs_change, ops_stats_change) = futures::join!(
+    // List task shards, shard recovery logs, task ops logs, and task ops stats concurrently.
+    let (shards, recovery, logs, stats) = futures::join!(
         shard_client.list(list_shards),
         journal_client.list(list_recovery),
-        ops_logs_change,
-        ops_stats_change,
+        list_logs,
+        list_stats,
     );
+
+    // Unpack list responses.
     let shards = unpack_shard_listing(shards?)?;
     let recovery = unpack_journal_listing(recovery?)?;
-    let ops_logs_change = ops_logs_change?;
-    let ops_stats_change = ops_stats_change?;
+    let (ops_logs_name, ops_logs_spec, ops_logs_splits) = logs?;
+    let (ops_stats_name, ops_stats_spec, ops_stats_splits) = stats?;
 
     let mut changes = task_changes(
         template,
-        &shards,
-        &recovery,
+        shards,
+        recovery,
         initial_splits,
         &ops_logs_name,
         &ops_stats_name,
     )?;
 
-    // If (and only if) the task is being upserted,
-    // then ensure the creation of its ops collection partitions.
-    if matches!(
-        template,
-        TaskTemplate::UpsertVirtual | TaskTemplate::UpsertReal { .. }
-    ) {
-        changes.extend(ops_logs_change.into_iter());
-        changes.extend(ops_stats_change.into_iter());
+    // Apply ops partitions iff the task is active.
+    if matches!(template, Some(template) if !template.shard.disable) {
+        changes.extend(ops_journal_changes(ops_logs_spec, ops_logs_splits));
+        changes.extend(ops_journal_changes(ops_stats_spec, ops_stats_splits));
     }
 
     Ok(changes)
@@ -349,7 +349,7 @@ async fn converge_partition_changes(
     let partitions = journal_client.list(list_partitions).await?;
     let partitions = unpack_journal_listing(partitions)?;
 
-    partition_changes(template, &partitions)
+    partition_changes(template, partitions)
 }
 
 /// Build ListRequests of a Task's shard splits and recovery logs.
@@ -396,9 +396,7 @@ fn list_partitions_request(collection: &models::Collection) -> broker::ListReque
 }
 
 /// Unpack a consumer ListResponse into its structured task splits.
-fn unpack_shard_listing(
-    resp: consumer::ListResponse,
-) -> anyhow::Result<Vec<(String, LabelSet, i64)>> {
+fn unpack_shard_listing(resp: consumer::ListResponse) -> anyhow::Result<Vec<ShardSplit>> {
     let mut v = Vec::new();
 
     for resp in resp.shards {
@@ -408,15 +406,17 @@ fn unpack_shard_listing(
         let Some(set) = spec.labels.take() else {
             anyhow::bail!("listing response spec is missing labels");
         };
-        v.push((spec.id, set, resp.mod_revision));
+        v.push(ShardSplit {
+            id: spec.id,
+            labels: set,
+            mod_revision: resp.mod_revision,
+        });
     }
     Ok(v)
 }
 
 /// Unpack a broker ListResponse into its structured collection splits.
-fn unpack_journal_listing(
-    resp: broker::ListResponse,
-) -> anyhow::Result<Vec<(String, LabelSet, i64)>> {
+fn unpack_journal_listing(resp: broker::ListResponse) -> anyhow::Result<Vec<JournalSplit>> {
     let mut v = Vec::new();
 
     for resp in resp.journals {
@@ -426,127 +426,149 @@ fn unpack_journal_listing(
         let Some(set) = spec.labels.take() else {
             anyhow::bail!("listing response spec is missing labels");
         };
-        v.push((spec.name, set, resp.mod_revision));
+        v.push(JournalSplit {
+            name: spec.name,
+            labels: set,
+            mod_revision: resp.mod_revision,
+            suspend: spec.suspend,
+        });
     }
     Ok(v)
 }
 
 /// Determine the consumer shard and broker recovery log changes required to
 /// converge from current `shards` and `recovery` splits into the desired state.
-fn task_changes(
-    template: TaskTemplate,
-    shards: &[(String, LabelSet, i64)],
-    recovery: &[(String, LabelSet, i64)],
+fn task_changes<'a>(
+    template: Option<TaskTemplate<'a>>,
+    mut shards: Vec<ShardSplit>,
+    recovery: Vec<JournalSplit>,
     initial_splits: usize,
     ops_logs_name: &str,
     ops_stats_name: &str,
 ) -> anyhow::Result<Vec<Change>> {
-    let mut shards = shards.to_vec();
-
-    // If the template is Some and no current shards match its prefix,
-    // then instantiate `initial_splits` new shards to create.
-    if let TaskTemplate::UpsertReal {
-        shard: shard_template,
-        ..
-    } = template
-    {
-        if !shards
-            .iter()
-            .any(|(id, _, _)| id.starts_with(&shard_template.id))
+    // If the task is being upsert-ed, no current shards have its template prefix,
+    // and it's not disabled, then create `initial_splits` new shards.
+    if let Some(template) = template {
+        if !template.shard.disable
+            && !shards
+                .iter()
+                .any(|split| split.id.starts_with(&template.shard.id))
         {
             // Invent initial splits.
             for pivot in 0..initial_splits {
-                let set = labels::shard::encode_range_spec(
-                    LabelSet::default(),
-                    &flow::RangeSpec {
-                        key_begin: ((1 << 32) * (pivot + 0) / initial_splits) as u32,
-                        key_end: (((1 << 32) * (pivot + 1) / initial_splits) - 1) as u32,
-                        r_clock_begin: 0,
-                        r_clock_end: u32::MAX,
-                    },
+                let range = flow::RangeSpec {
+                    key_begin: ((1 << 32) * (pivot + 0) / initial_splits) as u32,
+                    key_end: (((1 << 32) * (pivot + 1) / initial_splits) - 1) as u32,
+                    r_clock_begin: 0,
+                    r_clock_end: u32::MAX,
+                };
+                let labels = labels::shard::encode_range_spec(LabelSet::default(), &range);
+                let id = format!(
+                    "{}/{}",
+                    template.shard.id,
+                    labels::shard::id_suffix(&labels)?
                 );
-                shards.push((shard_template.id.clone(), set, 0));
+                shards.push(ShardSplit {
+                    id,
+                    labels,
+                    mod_revision: 0,
+                });
             }
         }
     }
 
     let mut recovery: BTreeMap<_, _> = recovery
-        .iter()
-        .map(|(recovery, set, revision)| (recovery, (set, revision)))
+        .into_iter()
+        .map(|mut split| (std::mem::take(&mut split.name), split))
         .collect();
 
     let mut changes = Vec::new();
 
-    for (id, split, shard_revision) in shards {
-        match template {
-            TaskTemplate::UpsertReal {
-                shard: shard_template,
-                recovery_journal: recovery_template,
-            } if id.starts_with(&shard_template.id) => {
-                let mut shard_spec = shard_template.clone();
-                let mut shard_set = shard_spec.labels.take().unwrap_or_default();
+    for ShardSplit {
+        id,
+        labels: split,
+        mod_revision: shard_revision,
+    } in shards
+    {
+        let template = match template {
+            Some(template) if id.starts_with(&template.shard.id) => template,
 
-                for label in &split.labels {
-                    if !labels::is_data_plane_label(&label.name) {
-                        continue;
-                    }
-                    shard_set = labels::add_value(shard_set, &label.name, &label.value);
-
-                    // A shard which is actively being split from another
-                    // parent (source) shard should not have hot standbys,
-                    // since we must complete the split workflow to even know
-                    // what hints they should begin recovery log replay from.
-                    if label.name == labels::SPLIT_SOURCE {
-                        shard_spec.hot_standbys = 0
-                    }
-                }
-
-                shard_set = labels::set_value(shard_set, labels::LOGS_JOURNAL, ops_logs_name);
-                shard_set = labels::set_value(shard_set, labels::STATS_JOURNAL, ops_stats_name);
-
-                shard_spec.id = format!(
-                    "{}/{}",
-                    shard_spec.id,
-                    labels::shard::id_suffix(&shard_set)?
-                );
-                shard_spec.labels = Some(shard_set);
-
-                let mut recovery_spec = recovery_template.clone();
-                recovery_spec.name =
-                    format!("{}/{}", shard_spec.recovery_log_prefix, shard_spec.id);
-
-                let recovery_revision = recovery
-                    .remove(&recovery_spec.name)
-                    .map(|(_, r)| *r)
-                    .unwrap_or_default();
-
-                changes.push(Change::Shard(consumer::apply_request::Change {
-                    expect_mod_revision: shard_revision,
-                    upsert: Some(shard_spec),
-                    delete: String::new(),
-                }));
-                changes.push(Change::Journal(broker::apply_request::Change {
-                    expect_mod_revision: recovery_revision,
-                    upsert: Some(recovery_spec),
-                    delete: String::new(),
-                }));
-            }
+            // Delete shards where `template` is None or the template prefix isn't matched.
             _ => {
                 changes.push(Change::Shard(consumer::apply_request::Change {
                     expect_mod_revision: shard_revision,
                     upsert: None,
                     delete: id,
                 }));
+                continue;
+            }
+        };
+
+        // Sanity-check that the current split matches its implied shard Id.
+        let expect_id = format!(
+            "{}/{}",
+            template.shard.id,
+            labels::shard::id_suffix(&split)?
+        );
+        if id != expect_id {
+            anyhow::bail!("shard {id} doesn't match its expected Id, which is {expect_id}");
+        }
+
+        let mut shard_spec = ShardSpec {
+            id,
+            ..template.shard.clone()
+        };
+
+        // Resolve the labels of the ShardSpec by merging labels managed the
+        // control-plane versus the data-plane.
+        let mut shard_labels = shard_spec.labels.take().unwrap_or_default();
+
+        for label in &split.labels {
+            if !labels::is_data_plane_label(&label.name) {
+                continue;
+            }
+            shard_labels = labels::add_value(shard_labels, &label.name, &label.value);
+
+            // A shard which is actively being split from another
+            // parent (source) shard should not have hot standbys,
+            // since we must complete the split workflow to even know
+            // what hints they should begin recovery log replay from.
+            if label.name == labels::SPLIT_SOURCE {
+                shard_spec.hot_standbys = 0
             }
         }
+        shard_labels = labels::set_value(shard_labels, labels::LOGS_JOURNAL, ops_logs_name);
+        shard_labels = labels::set_value(shard_labels, labels::STATS_JOURNAL, ops_stats_name);
+        shard_spec.labels = Some(shard_labels);
+
+        // Next resolve the shard's recovery-log JournalSpec.
+        let recovery_name = format!("{}/{}", shard_spec.recovery_log_prefix, shard_spec.id);
+        let recovery_split = recovery.remove(&recovery_name).unwrap_or_default();
+
+        let recovery_spec = JournalSpec {
+            name: recovery_name,
+            suspend: recovery_split.suspend, // Must be passed through.
+            ..template.recovery.clone()
+        };
+
+        changes.push(Change::Shard(consumer::apply_request::Change {
+            expect_mod_revision: shard_revision,
+            upsert: Some(shard_spec),
+            delete: String::new(),
+        }));
+        changes.push(Change::Journal(broker::apply_request::Change {
+            expect_mod_revision: recovery_split.mod_revision,
+            upsert: Some(recovery_spec),
+            delete: String::new(),
+        }));
     }
 
-    // Any remaining recovery logs are not paired with a shard, and are deleted.
-    for (recovery, (_set, mod_revision)) in recovery {
+    // Any remaining recovery logs are not paired with an active shard, and are deleted.
+    for (name, JournalSplit { mod_revision, .. }) in recovery {
         changes.push(Change::Journal(broker::apply_request::Change {
-            expect_mod_revision: *mod_revision,
+            expect_mod_revision: mod_revision,
             upsert: None,
-            delete: recovery.clone(),
+            delete: name,
         }));
     }
 
@@ -557,82 +579,64 @@ fn task_changes(
 /// from current `partitions` into the desired state.
 fn partition_changes(
     template: Option<&broker::JournalSpec>,
-    partitions: &[(String, LabelSet, i64)],
+    partitions: Vec<JournalSplit>,
 ) -> anyhow::Result<Vec<Change>> {
     let mut changes = Vec::new();
 
-    for (journal, split, mod_revision) in partitions {
-        match template {
-            Some(template) if journal.starts_with(&template.name) => {
-                let mut partition_spec = template.clone();
-                let mut partition_set = partition_spec.labels.take().unwrap_or_default();
+    for JournalSplit {
+        name,
+        labels: split,
+        mod_revision,
+        suspend,
+    } in partitions
+    {
+        let template = match template {
+            Some(template) if name.starts_with(&template.name) => template,
 
-                for label in &split.labels {
-                    if !labels::is_data_plane_label(&label.name) {
-                        continue;
-                    }
-                    partition_set = labels::add_value(partition_set, &label.name, &label.value);
-                }
-                partition_spec.name = format!(
-                    "{}/{}",
-                    partition_spec.name,
-                    labels::partition::name_suffix(&partition_set)?
-                );
-                partition_spec.labels = Some(partition_set);
-
-                changes.push(Change::Journal(broker::apply_request::Change {
-                    expect_mod_revision: *mod_revision,
-                    upsert: Some(partition_spec),
-                    delete: String::new(),
-                }));
-            }
+            // Delete journals where `template` is None or the template prefix isn't matched.
             _ => {
                 changes.push(Change::Journal(broker::apply_request::Change {
-                    expect_mod_revision: *mod_revision,
+                    expect_mod_revision: mod_revision,
                     upsert: None,
-                    delete: journal.clone(),
+                    delete: name.clone(),
                 }));
+                continue;
             }
+        };
+
+        // Sanity-check that the current split matches its implied journal name.
+        let expect_name = format!(
+            "{}/{}",
+            template.name,
+            labels::partition::name_suffix(&split)?
+        );
+        if name != expect_name {
+            anyhow::bail!("journal {name} doesn't match its expected name, which is {expect_name}");
         }
+
+        let mut spec = JournalSpec {
+            name,
+            suspend, // Must be passed through.
+            ..template.clone()
+        };
+        let mut spec_labels = spec.labels.take().unwrap_or_default();
+
+        for label in &split.labels {
+            if !labels::is_data_plane_label(&label.name) {
+                continue;
+            }
+            spec_labels = labels::add_value(spec_labels, &label.name, &label.value);
+        }
+        spec.labels = Some(spec_labels);
+
+        changes.push(Change::Journal(broker::apply_request::Change {
+            expect_mod_revision: mod_revision,
+            upsert: Some(spec),
+            delete: String::new(),
+        }));
     }
 
     Ok(changes)
-}
-
-fn converge_ops_journal<'c>(
-    journal_client: &'c gazette::journal::Client,
-    task_type: ops::TaskType,
-    task_name: &str,
-    template: Option<&broker::JournalSpec>,
-) -> (
-    String,
-    impl std::future::Future<Output = anyhow::Result<Vec<Change>>> + 'c,
-) {
-    let maybe_list =
-        template.map(|template| list_ops_journal_request(task_type, task_name, template));
-
-    let name = if let Some((_list, spec)) = &maybe_list {
-        spec.name.clone()
-    } else {
-        "local".to_string() // Direct to reactor-level logs (for testing contexts).
-    };
-
-    let fut = async move {
-        let Some((list_req, spec)) = maybe_list else {
-            return Ok(Vec::new());
-        };
-        // If the journal exists then there's nothing to do (we don't update it).
-        if !journal_client.list(list_req).await?.journals.is_empty() {
-            return Ok(Vec::new());
-        }
-        Ok(vec![Change::Journal(broker::apply_request::Change {
-            upsert: Some(spec),
-            expect_mod_revision: 0, // Will be created.
-            delete: String::new(),
-        })])
-    };
-
-    (name, fut)
 }
 
 fn list_ops_journal_request(
@@ -664,52 +668,92 @@ fn list_ops_journal_request(
     (list_req, spec)
 }
 
-/// Map a parent partition, identified by its name and current LabelSet & Etcd
-/// ModRevision, into desired splits (which can then be converged to changes).
+async fn list_ops_journal(
+    journal_client: &gazette::journal::Client,
+    task_type: ops::TaskType,
+    task_name: &str,
+    template: Option<&JournalSpec>,
+) -> anyhow::Result<(String, Option<JournalSpec>, Vec<JournalSplit>)> {
+    let Some(template) = template else {
+        // `local` redirects task logs to application logs (for testing contexts).
+        return Ok(("local".to_string(), None, Vec::new()));
+    };
+
+    let (request, spec) = list_ops_journal_request(task_type, task_name, template);
+    let splits = unpack_journal_listing(journal_client.list(request).await?)?;
+    Ok((spec.name.clone(), Some(spec), splits))
+}
+
+fn ops_journal_changes(spec: Option<JournalSpec>, splits: Vec<JournalSplit>) -> Option<Change> {
+    let Some(spec) = spec else {
+        return None;
+    };
+
+    // If the journal exists then there's nothing to do (we don't update it).
+    if !splits.is_empty() {
+        return None;
+    }
+    Some(Change::Journal(broker::apply_request::Change {
+        upsert: Some(spec),
+        expect_mod_revision: 0, // Will be created.
+        delete: String::new(),
+    }))
+}
+
+/// Map a parent JournalSplit into two subdivided splits.
 #[allow(dead_code)]
-fn map_partition_to_split(
-    parent_name: &str,
-    parent_set: &LabelSet,
-    parent_revision: i64,
-) -> anyhow::Result<Vec<(String, LabelSet, i64)>> {
-    let (parent_begin, parent_end) = labels::partition::decode_key_range(&parent_set)?;
+fn map_partition_to_split(parent: &JournalSplit) -> anyhow::Result<(JournalSplit, JournalSplit)> {
+    let (parent_begin, parent_end) = labels::partition::decode_key_range(&parent.labels)?;
 
     let pivot = ((parent_begin as u64 + parent_end as u64 + 1) / 2) as u32;
-    let lhs_set = labels::partition::encode_key_range(parent_set.clone(), parent_begin, pivot - 1);
-    let rhs_set = labels::partition::encode_key_range(parent_set.clone(), pivot, parent_end);
+    let lhs_labels =
+        labels::partition::encode_key_range(parent.labels.clone(), parent_begin, pivot - 1);
+    let rhs_labels = labels::partition::encode_key_range(parent.labels.clone(), pivot, parent_end);
 
     // Extract the journal name prefix and map into a new RHS journal name.
-    let name_prefix = labels::partition::name_prefix(parent_name, &parent_set)
+    let name_prefix = labels::partition::name_prefix(&parent.name, &parent.labels)
         .context("failed to split journal name into prefix and suffix")?;
 
     let rhs_name = format!(
         "{name_prefix}/{}",
-        labels::partition::name_suffix(&rhs_set).expect("we encoded the key range")
+        labels::partition::name_suffix(&rhs_labels).expect("we encoded the key range")
     );
 
-    Ok(vec![
-        (parent_name.to_string(), lhs_set, parent_revision),
-        (rhs_name, rhs_set, 0),
-    ])
+    Ok((
+        JournalSplit {
+            name: parent.name.clone(),
+            labels: lhs_labels,
+            mod_revision: parent.mod_revision,
+            suspend: parent.suspend, // LHS continues the parent's physical journal.
+        },
+        JournalSplit {
+            name: rhs_name,
+            labels: rhs_labels,
+            mod_revision: 0,
+            suspend: None,
+        },
+    ))
 }
 
-/// Map a parent task split, identified by its ID and current LabelSet & Etcd
-/// ModRevision, into desired splits (which can then be converged to changes).
+/// Map a parent ShardSplit into two splits subdivided on either key or r-clock.
 #[allow(dead_code)]
 fn map_shard_to_split(
-    parent_id: &str,
-    parent_set: &LabelSet,
-    parent_revision: i64,
+    parent: &ShardSplit,
     split_on_key: bool,
-) -> anyhow::Result<Vec<(String, LabelSet, i64)>> {
-    let parent_range = labels::shard::decode_range_spec(&parent_set)?;
+) -> anyhow::Result<(ShardSplit, ShardSplit)> {
+    let parent_range = labels::shard::decode_range_spec(&parent.labels)?;
 
     // Confirm the shard doesn't have an ongoing split.
-    if let Some(Label { value, .. }) = labels::values(&parent_set, labels::SPLIT_SOURCE).first() {
-        anyhow::bail!("shard {parent_id} is already splitting from source {value}");
+    if let Some(Label { value, .. }) = labels::values(&parent.labels, labels::SPLIT_SOURCE).first()
+    {
+        anyhow::bail!(
+            "shard {} is already splitting from source {value}",
+            parent.id
+        );
     }
-    if let Some(Label { value, .. }) = labels::values(&parent_set, labels::SPLIT_TARGET).first() {
-        anyhow::bail!("shard {parent_id} is already splitting to target {value}");
+    if let Some(Label { value, .. }) = labels::values(&parent.labels, labels::SPLIT_TARGET).first()
+    {
+        anyhow::bail!("shard {} is already splitting to target {value}", parent.id);
     }
 
     // Pick a split point of the parent range, which will divide the future
@@ -726,30 +770,38 @@ fn map_shard_to_split(
     }
 
     // Deep-copy parent labels for the desired LHS / RHS updates.
-    let (mut lhs_set, mut rhs_set) = (parent_set.clone(), parent_set.clone());
+    let (mut lhs_labels, mut rhs_labels) = (parent.labels.clone(), parent.labels.clone());
 
     // Update the `rhs` range but not the `lhs` range at this time.
     // That will happen when the `rhs` shard finishes playback
     // and completes the split workflow.
-    rhs_set = labels::shard::encode_range_spec(rhs_set, &rhs_range);
+    rhs_labels = labels::shard::encode_range_spec(rhs_labels, &rhs_range);
 
     // Extract the Shard ID prefix and map into a new RHS Shard ID.
-    let id_prefix = labels::shard::id_prefix(&parent_id)
+    let id_prefix = labels::shard::id_prefix(&parent.id)
         .context("failed to split shard ID into prefix and suffix")?;
 
     let rhs_id = format!(
         "{id_prefix}/{}",
-        labels::shard::id_suffix(&rhs_set).expect("we encoded the range spec")
+        labels::shard::id_suffix(&rhs_labels).expect("we encoded the range spec")
     );
 
     // Mark the parent & child specs as having an in-progress split.
-    lhs_set = labels::set_value(lhs_set, labels::SPLIT_TARGET, &rhs_id);
-    rhs_set = labels::set_value(rhs_set, labels::SPLIT_SOURCE, &parent_id);
+    lhs_labels = labels::set_value(lhs_labels, labels::SPLIT_TARGET, &rhs_id);
+    rhs_labels = labels::set_value(rhs_labels, labels::SPLIT_SOURCE, &parent.id);
 
-    Ok(vec![
-        (parent_id.to_string(), lhs_set, parent_revision),
-        (rhs_id, rhs_set, 0),
-    ])
+    Ok((
+        ShardSplit {
+            id: parent.id.clone(),
+            labels: lhs_labels,
+            mod_revision: parent.mod_revision,
+        },
+        ShardSplit {
+            id: rhs_id,
+            labels: rhs_labels,
+            mod_revision: 0,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -842,6 +894,24 @@ mod test {
 
         let tables::BuiltCollection { spec, .. } = built
             .built_collections
+            .get_key(&models::Collection::new("example/disabled"))
+            .unwrap();
+
+        let Some(flow::CollectionSpec {
+            derivation:
+                Some(flow::collection_spec::Derivation {
+                    recovery_log_template: Some(disabled_recovery_template),
+                    shard_template: Some(disabled_shard_template),
+                    ..
+                }),
+            ..
+        }) = spec
+        else {
+            unreachable!()
+        };
+
+        let tables::BuiltCollection { spec, .. } = built
+            .built_collections
             .get_key(&models::Collection::new("ops/tasks/BASE_NAME/logs"))
             .unwrap();
 
@@ -858,10 +928,12 @@ mod test {
 
         let mut all_partitions = Vec::new();
         let mut all_shards = Vec::new();
+        let mut all_shards_disabled = Vec::new();
         let mut all_recovery = Vec::new();
+        let mut all_recovery_disabled = Vec::new();
 
         let mut make_partition = |key_begin, key_end, doc: serde_json::Value| {
-            let set = labels::partition::encode_field_range(
+            let labels = labels::partition::encode_field_range(
                 labels::build_set([("extra", "1")]),
                 key_begin,
                 key_end,
@@ -871,31 +943,65 @@ mod test {
             )
             .unwrap();
 
-            all_partitions.push((
-                format!(
+            all_partitions.push(JournalSplit {
+                name: format!(
                     "{}/{}",
                     partition_template.name,
-                    labels::partition::name_suffix(&set).unwrap()
+                    labels::partition::name_suffix(&labels).unwrap()
                 ),
-                set,
-                111,
-            ));
+                labels,
+                mod_revision: 111,
+                suspend: Some(journal_spec::Suspend {
+                    level: journal_spec::suspend::Level::Partial as i32,
+                    offset: 112233,
+                }),
+            });
         };
 
         let mut make_task = |range_spec| {
-            let set =
+            let labels =
                 labels::shard::encode_range_spec(labels::build_set([("extra", "1")]), range_spec);
             let shard_id = format!(
                 "{}/{}",
                 shard_template.id,
-                labels::shard::id_suffix(&set).unwrap()
+                labels::shard::id_suffix(&labels).unwrap()
             );
-            all_recovery.push((
-                format!("{}/{}", shard_template.recovery_log_prefix, shard_id),
-                LabelSet::default(),
-                111,
-            ));
-            all_shards.push((shard_id, set, 111));
+            let disabled_shard_id = format!(
+                "{}/{}",
+                disabled_shard_template.id,
+                labels::shard::id_suffix(&labels).unwrap()
+            );
+            all_recovery.push(JournalSplit {
+                name: format!("{}/{}", shard_template.recovery_log_prefix, shard_id),
+                labels: LabelSet::default(),
+                mod_revision: 111,
+                suspend: Some(journal_spec::Suspend {
+                    level: journal_spec::suspend::Level::None as i32,
+                    offset: 445566,
+                }),
+            });
+            all_recovery_disabled.push(JournalSplit {
+                name: format!(
+                    "{}/{}",
+                    disabled_shard_template.recovery_log_prefix, disabled_shard_id
+                ),
+                labels: LabelSet::default(),
+                mod_revision: 111,
+                suspend: Some(journal_spec::Suspend {
+                    level: journal_spec::suspend::Level::Full as i32,
+                    offset: 778899,
+                }),
+            });
+            all_shards.push(ShardSplit {
+                id: shard_id,
+                labels: labels.clone(),
+                mod_revision: 111,
+            });
+            all_shards_disabled.push(ShardSplit {
+                id: disabled_shard_id,
+                labels: labels,
+                mod_revision: 111,
+            });
         };
 
         make_partition(
@@ -932,14 +1038,14 @@ mod test {
         // Case: test update of existing specs.
         {
             let partition_changes =
-                partition_changes(Some(&partition_template), &all_partitions).unwrap();
+                partition_changes(Some(&partition_template), all_partitions.clone()).unwrap();
             let task_changes = task_changes(
-                TaskTemplate::UpsertReal {
+                Some(TaskTemplate {
                     shard: shard_template,
-                    recovery_journal: recovery_template,
-                },
-                &all_shards,
-                &all_recovery,
+                    recovery: recovery_template,
+                }),
+                all_shards.clone(),
+                all_recovery.clone(),
                 4,
                 "ops/logs/name",
                 "ops/stats/name",
@@ -951,14 +1057,15 @@ mod test {
 
         // Case: test creation of new specs.
         {
-            let partition_changes = partition_changes(Some(&partition_template), &[]).unwrap();
+            let partition_changes =
+                partition_changes(Some(&partition_template), Vec::new()).unwrap();
             let task_changes = task_changes(
-                TaskTemplate::UpsertReal {
+                Some(TaskTemplate {
                     shard: shard_template,
-                    recovery_journal: recovery_template,
-                },
-                &[],
-                &[],
+                    recovery: recovery_template,
+                }),
+                Vec::new(),
+                Vec::new(),
                 4,
                 "ops/logs/name",
                 "ops/stats/name",
@@ -968,13 +1075,73 @@ mod test {
             insta::assert_json_snapshot!("create", (partition_changes, task_changes));
         }
 
+        // Case: test creation of new specs with no initial splits.
+        {
+            let partition_changes =
+                partition_changes(Some(&partition_template), Vec::new()).unwrap();
+            let task_changes = task_changes(
+                Some(TaskTemplate {
+                    shard: shard_template,
+                    recovery: recovery_template,
+                }),
+                Vec::new(),
+                Vec::new(),
+                0,
+                "ops/logs/name",
+                "ops/stats/name",
+            )
+            .unwrap();
+
+            insta::assert_json_snapshot!("create-no-splits", (partition_changes, task_changes));
+        }
+
+        // Case: test update of existing specs when disabled.
+        {
+            let partition_changes =
+                partition_changes(Some(&partition_template), all_partitions.clone()).unwrap();
+            let task_changes = task_changes(
+                Some(TaskTemplate {
+                    shard: disabled_shard_template,
+                    recovery: disabled_recovery_template,
+                }),
+                all_shards_disabled.clone(),
+                all_recovery_disabled.clone(),
+                4,
+                "ops/logs/name",
+                "ops/stats/name",
+            )
+            .unwrap();
+
+            insta::assert_json_snapshot!("update-disabled", (partition_changes, task_changes));
+        }
+
+        // Case: test creation of new specs when disabled.
+        {
+            let partition_changes =
+                partition_changes(Some(&partition_template), Vec::new()).unwrap();
+            let task_changes = task_changes(
+                Some(TaskTemplate {
+                    shard: disabled_shard_template,
+                    recovery: disabled_recovery_template,
+                }),
+                Vec::new(),
+                Vec::new(),
+                4,
+                "ops/logs/name",
+                "ops/stats/name",
+            )
+            .unwrap();
+
+            insta::assert_json_snapshot!("create-disabled", (partition_changes, task_changes));
+        }
+
         // Case: test deletion of existing specs.
         {
-            let partition_changes = partition_changes(None, &all_partitions).unwrap();
+            let partition_changes = partition_changes(None, all_partitions.clone()).unwrap();
             let task_changes = task_changes(
-                TaskTemplate::Delete,
-                &all_shards,
-                &all_recovery,
+                None,
+                all_shards.clone(),
+                all_recovery.clone(),
                 4,
                 "ops/logs/name",
                 "ops/stats/name",
@@ -994,25 +1161,25 @@ mod test {
             let mut all_shards = all_shards.clone();
             let mut all_recovery = all_recovery.clone();
 
-            for (name, _, _) in all_partitions.iter_mut() {
+            for JournalSplit { name, .. } in all_partitions.iter_mut() {
                 *name = name.replace("2020202020202020", "replaced-pub-id");
             }
-            for (id, _, _) in all_shards.iter_mut() {
+            for ShardSplit { id, .. } in all_shards.iter_mut() {
                 *id = id.replace("2020202020202020", "replaced-pub-id");
             }
-            for (name, _, _) in all_recovery.iter_mut() {
+            for JournalSplit { name, .. } in all_recovery.iter_mut() {
                 *name = name.replace("2020202020202020", "replaced-pub-id");
             }
 
             let partition_changes =
-                partition_changes(Some(&partition_template), &all_partitions).unwrap();
+                partition_changes(Some(&partition_template), all_partitions).unwrap();
             let task_changes = task_changes(
-                TaskTemplate::UpsertReal {
+                Some(TaskTemplate {
                     shard: shard_template,
-                    recovery_journal: recovery_template,
-                },
-                &all_shards,
-                &all_recovery,
+                    recovery: recovery_template,
+                }),
+                all_shards,
+                all_recovery,
                 4,
                 "ops/logs/name",
                 "ops/stats/name",
@@ -1024,20 +1191,18 @@ mod test {
 
         // Case: split a shard on its key or clock.
         {
-            let (parent_id, parent_set, parent_revision) = all_shards.first().unwrap();
+            let parent = all_shards.first().unwrap();
 
-            let key_splits =
-                map_shard_to_split(parent_id, parent_set, *parent_revision, true).unwrap();
-            let clock_splits =
-                map_shard_to_split(parent_id, parent_set, *parent_revision, false).unwrap();
+            let (key_lhs, key_rhs) = map_shard_to_split(parent, true).unwrap();
+            let (clock_lhs, clock_rhs) = map_shard_to_split(parent, false).unwrap();
 
             let key_changes = task_changes(
-                TaskTemplate::UpsertReal {
+                Some(TaskTemplate {
                     shard: shard_template,
-                    recovery_journal: recovery_template,
-                },
-                &key_splits,
-                &all_recovery[..1],
+                    recovery: recovery_template,
+                }),
+                vec![key_lhs.clone(), key_rhs.clone()],
+                vec![all_recovery[0].clone()],
                 4,
                 "ops/logs/name",
                 "ops/stats/name",
@@ -1045,12 +1210,12 @@ mod test {
             .unwrap();
 
             let clock_changes = task_changes(
-                TaskTemplate::UpsertReal {
+                Some(TaskTemplate {
                     shard: shard_template,
-                    recovery_journal: recovery_template,
-                },
-                &clock_splits,
-                &all_recovery[..1],
+                    recovery: recovery_template,
+                }),
+                vec![clock_lhs.clone(), clock_rhs.clone()],
+                vec![all_recovery[0].clone()],
                 4,
                 "ops/logs/name",
                 "ops/stats/name",
@@ -1061,9 +1226,9 @@ mod test {
                 "shard_splits",
                 json!([
                     "key_splits",
-                    &key_splits,
+                    (&key_lhs, &key_rhs),
                     "clock_splits",
-                    clock_splits,
+                    (&clock_lhs, &clock_rhs),
                     "key_changes",
                     key_changes,
                     "clock_changes",
@@ -1072,41 +1237,52 @@ mod test {
             );
 
             // Expect that an attempt to split an already-splitting parent fails.
-            let (parent_id, parent_set, parent_revision) = key_splits.first().unwrap();
-            let err =
-                map_shard_to_split(parent_id, parent_set, *parent_revision, true).unwrap_err();
+            let err = map_shard_to_split(&key_lhs, true).unwrap_err();
             assert_eq!(err.to_string(), "shard derivation/example/derivation/2020202020202020/10000000-60000000 is already splitting to target derivation/example/derivation/2020202020202020/20000000-60000000");
 
-            let (parent_id, parent_set, parent_revision) = key_splits.last().unwrap();
-            let err =
-                map_shard_to_split(parent_id, parent_set, *parent_revision, true).unwrap_err();
+            let err = map_shard_to_split(&key_rhs, true).unwrap_err();
             assert_eq!(err.to_string(), "shard derivation/example/derivation/2020202020202020/20000000-60000000 is already splitting from source derivation/example/derivation/2020202020202020/10000000-60000000");
         }
 
         // Case: split a partition on its key.
         {
-            let (parent_name, parent_set, parent_revision) = all_partitions.first().unwrap();
+            let parent = all_partitions.first().unwrap();
 
-            let splits = map_partition_to_split(parent_name, parent_set, *parent_revision).unwrap();
-            let partition_changes = partition_changes(Some(partition_template), &splits).unwrap();
+            let (lhs, rhs) = map_partition_to_split(parent).unwrap();
+            let partition_changes =
+                partition_changes(Some(partition_template), vec![lhs.clone(), rhs.clone()])
+                    .unwrap();
 
             insta::assert_json_snapshot!(
                 "partition_splits",
-                json!(["splits", splits, "partition_changes", partition_changes])
+                json!(["splits", (lhs, rhs), "partition_changes", partition_changes])
             );
         }
 
-        // Case: generation of ops collection partition.
+        // Case: creation and updates of ops collection partitions.
         {
             let (list_req, spec) = list_ops_journal_request(
                 ops::TaskType::Capture,
                 "the/task/name",
                 ops_logs_template,
             );
+            let exists = JournalSplit {
+                mod_revision: 123,
+                ..Default::default()
+            };
 
             insta::assert_json_snapshot!(
                 "ops_collection_partition",
-                json!(["list_req", list_req, "spec", spec])
+                json!([
+                    "list_req",
+                    list_req,
+                    "spec",
+                    spec,
+                    "create",
+                    ops_journal_changes(Some(spec.clone()), Vec::new()),
+                    "update-exists",
+                    ops_journal_changes(Some(spec.clone()), vec![exists]),
+                ])
             );
         }
     }

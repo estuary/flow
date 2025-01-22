@@ -21,17 +21,12 @@ const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
 const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.5.7-119-g552f6c0ee2";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
-/// Connectors with an image name starting with this value are Dekaf-type materializations and we should
-/// not pull the image, as it won't exist. Instead, we mark them as having `connector_type: ConnectorType::Dekaf`
-/// so that `Runtime` will invoke Dekaf's in-tree connector implementation
-pub const DEKAF_IMAGE_NAME_PREFIX: &str = "ghcr.io/estuary/dekaf-";
-
 /// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
 /// then it's value is used. Otherwise, this will apply a simple heuristic based on the image name,
 /// for backward compatibility purposes. An error will be returned if it fails to inspect the image
 /// or parse the label. The image must already have been pulled before calling this function.
 pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtocol> {
-    if image.starts_with(DEKAF_IMAGE_NAME_PREFIX) {
+    if image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
         return Ok(RuntimeProtocol::Materialize);
     }
 
@@ -126,7 +121,6 @@ pub async fn start(
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
         // Cgroup memory / CPU resource limits.
-        // TODO(johnny): we intend to tighten these down further, over time.
         "--memory=1g".to_string(),
         "--cpus=2".to_string(),
         // For now, we support only Linux amd64 connectors.
@@ -153,6 +147,10 @@ pub async fn start(
             format!("--publish=0.0.0.0:{port}:{CONNECTOR_INIT_PORT}"),
             "--publish-all".to_string(),
         ])
+    }
+
+    if let Some(cgroup_parent) = std::env::var("CONNECTOR_CGROUP_PARENT").ok() {
+        docker_args.append(&mut vec!["--cgroup-parent".to_string(), cgroup_parent]);
     }
 
     docker_args.append(&mut vec![

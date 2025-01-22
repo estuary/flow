@@ -57,7 +57,11 @@ expression: "(partition_changes, task_changes)"
             "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
           },
           "flags": 4,
-          "maxAppendRate": "4194304"
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "PARTIAL",
+            "offset": "112233"
+          }
         }
       }
     },
@@ -114,7 +118,11 @@ expression: "(partition_changes, task_changes)"
             "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
           },
           "flags": 4,
-          "maxAppendRate": "4194304"
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "PARTIAL",
+            "offset": "112233"
+          }
         }
       }
     },
@@ -171,7 +179,11 @@ expression: "(partition_changes, task_changes)"
             "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
           },
           "flags": 4,
-          "maxAppendRate": "4194304"
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "PARTIAL",
+            "offset": "112233"
+          }
         }
       }
     }
@@ -280,7 +292,10 @@ expression: "(partition_changes, task_changes)"
             "refreshInterval": "300s"
           },
           "flags": 4,
-          "maxAppendRate": "4194304"
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "offset": "445566"
+          }
         }
       }
     },
@@ -387,7 +402,10 @@ expression: "(partition_changes, task_changes)"
             "refreshInterval": "300s"
           },
           "flags": 4,
-          "maxAppendRate": "4194304"
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "offset": "445566"
+          }
         }
       }
     },
@@ -494,7 +512,10 @@ expression: "(partition_changes, task_changes)"
             "refreshInterval": "300s"
           },
           "flags": 4,
-          "maxAppendRate": "4194304"
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "offset": "445566"
+          }
         }
       }
     }

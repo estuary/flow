@@ -24,6 +24,8 @@ pub struct DataPlane {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fqdn: Option<String>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aws_assume_role: Option<AWSAssumeRole>,
     pub builds_root: url::Url,
     pub builds_kms_keys: Vec<String>,
     pub control_plane_api: url::Url,
@@ -33,6 +35,12 @@ pub struct DataPlane {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub private_links: Vec<AWSPrivateLink>,
     pub deployments: Vec<Deployment>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AWSAssumeRole {
+    pub role_arn: String,
+    pub external_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

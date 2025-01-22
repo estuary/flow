@@ -103,7 +103,7 @@ func (s *connectorProxy) Capture(stream pc.Connector_CaptureServer) error {
 	if proxy, err := pc.NewConnectorClient(conn).Capture(ctx); err != nil {
 		return err
 	} else {
-		return runProxy(stream, proxy, new(pc.Request), new(pc.Response))
+		return runProxy(stream, proxy)
 	}
 }
 
@@ -117,7 +117,7 @@ func (s *connectorProxy) Derive(stream pd.Connector_DeriveServer) error {
 	if proxy, err := pd.NewConnectorClient(conn).Derive(ctx); err != nil {
 		return err
 	} else {
-		return runProxy(stream, proxy, new(pd.Request), new(pd.Response))
+		return runProxy(stream, proxy)
 	}
 }
 
@@ -131,7 +131,7 @@ func (s *connectorProxy) Materialize(stream pm.Connector_MaterializeServer) erro
 	if proxy, err := pm.NewConnectorClient(conn).Materialize(ctx); err != nil {
 		return err
 	} else {
-		return runProxy(stream, proxy, new(pm.Request), new(pm.Response))
+		return runProxy(stream, proxy)
 	}
 }
 
@@ -160,7 +160,19 @@ func (s *connectorProxy) verify(ctx context.Context) (context.Context, context.C
 	}
 }
 
-func runProxy(server grpc.ServerStream, client grpc.ClientStream, req, resp any) error {
+func runProxy[
+	Response any,
+	Request any,
+	ServerStream interface {
+		Send(*Response) error
+		Recv() (*Request, error)
+	},
+	ClientStream interface {
+		Send(*Request) error
+		Recv() (*Response, error)
+		CloseSend() error
+	},
+](server ServerStream, client ClientStream) error {
 	var fwdCh = make(chan error, 1)
 
 	// Start a forwarding loop, which sends client messages into the proxied client.
@@ -168,15 +180,14 @@ func runProxy(server grpc.ServerStream, client grpc.ClientStream, req, resp any)
 		defer func() { fwdCh <- _err }()
 
 		for {
-			if err := server.RecvMsg(req); err != nil {
+			if req, err := server.Recv(); err != nil {
 				if err == io.EOF {
 					return client.CloseSend() // Graceful EOF.
 				} else {
 					_ = client.CloseSend()
 					return err
 				}
-			}
-			if err := client.SendMsg(req); err != nil {
+			} else if err := client.Send(req); err != nil {
 				return err
 			}
 		}
@@ -184,14 +195,13 @@ func runProxy(server grpc.ServerStream, client grpc.ClientStream, req, resp any)
 
 	// Run the reverse loop synchronously.
 	for {
-		if err := client.RecvMsg(resp); err != nil {
+		if resp, err := client.Recv(); err != nil {
 			if err == io.EOF {
 				return <-fwdCh // Await and return an error from the forward loop.
 			} else {
 				return err
 			}
-		}
-		if err := server.SendMsg(resp); err != nil {
+		} else if err := server.Send(resp); err != nil {
 			return err
 		}
 	}

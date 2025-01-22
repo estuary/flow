@@ -105,14 +105,15 @@ pub async fn insert_errors(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
     for err in errors {
-        drafts_sql::insert_error(
-            draft_id,
-            err.scope.unwrap_or(err.catalog_name),
-            err.detail,
-            txn,
-        )
-        .await
-        .context("inserting error")?;
+        let mut detail = err.detail;
+        // Replace null bytes with the Unicode replacement character because
+        // postgres chokes on them.
+        if detail.contains('\0') {
+            detail = detail.replace('\0', "\u{FFFD}")
+        }
+        drafts_sql::insert_error(draft_id, err.scope.unwrap_or(err.catalog_name), detail, txn)
+            .await
+            .context("inserting error")?;
     }
     Ok(())
 }

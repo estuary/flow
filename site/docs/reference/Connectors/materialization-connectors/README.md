@@ -17,6 +17,12 @@ In the future, other open-source materialization connectors from third parties c
 * Amazon DynamoDB
   * [Configuration](./amazon-dynamodb.md)
   * Package - ghcr.io/estuary/materialize-dynamodb:dev
+* Amazon MySQL
+  * [Configuration](./MySQL/amazon-rds-mysql.md)
+  * Package - ghcr.io/estuary/materialize-amazon-rds-mysql:dev
+* Amazon PostgreSQL
+  * [Configuration](./PostgreSQL/amazon-rds-postgres.md)
+  * Package - ghcr.io/estuary/materialize-amazon-rds-postgres:dev
 * Amazon Redshift
   * [Configuration](./amazon-redshift.md)
   * Package - ghcr.io/estuary/materialize-redshift:dev
@@ -28,7 +34,7 @@ In the future, other open-source materialization connectors from third parties c
   * Package — ghcr.io/estuary/materialize-s3-iceberg:dev
 * Apache Kafka
   * [Configuration](./apache-kafka.md)
-  * Package — ghcr.io/estuary/apache-kafka:dev
+  * Package — ghcr.io/estuary/materialize-kafka:dev
 * Apache Parquet Files in GCS
   * [Configuration](./google-gcs-parquet.md)
   * Package — ghcr.io/estuary/materialize-gcs-parquet:dev
@@ -37,6 +43,7 @@ In the future, other open-source materialization connectors from third parties c
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
 * Azure SQL Server
   * [Configuration](./SQLServer/)
+  * Package - ghcr.io/estuary/materialize-sqlserver:dev
 * CSV Files in GCS
   * [Configuration](./google-gcs-csv.md)
   * Package — ghcr.io/estuary/materialize-gcs-csv:dev
@@ -55,12 +62,24 @@ In the future, other open-source materialization connectors from third parties c
 * Google BigQuery
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:dev
+* Google Cloud MySQL
+  * [Configuration](./MySQL/google-cloud-sql-mysql.md)
+  * Package - ghcr.io/estuary/materialize-google-cloud-sql-mysql:dev
+* Google Cloud PostgreSQL
+  * [Configuration](./PostgreSQL/google-cloud-sql-postgres.md)
+  * Package - ghcr.io/estuary/materialize-google-cloud-sql-postgres:dev
 * Google Cloud Pub/Sub
   * [Configuration](./google-pubsub.md)
   * Package - ghcr.io/estuary/materialize-google-pubsub:dev
 * Google Cloud SQL Server
   * [Configuration](./SQLServer/google-cloud-sql-sqlserver.md)
-  * Package = ghcr.io/estuary/materialize-google-cloud-sql-sqlserver:dev
+  * Package - ghcr.io/estuary/materialize-google-cloud-sql-sqlserver:dev
+* Google Sheets
+  * [Configuration](./Google-sheets.md)
+  * Package - ghcr.io/estuary/materialize-google-sheets:dev
+* HTTP Webhook
+  * [Configuration](./http-webhook.md)
+  * Package - ghcr.io/estuary/materialize-webhook:dev
 * MongoDB
   * [Configuration](./mongodb.md)
   * Package - ghcr.io/estuary/materialize-mongodb:dev
@@ -70,6 +89,9 @@ In the future, other open-source materialization connectors from third parties c
 * MySQL
   * [Configuration](./MySQL/)
   * Package - ghcr.io/estuary/materialize-mysql:dev
+* MySQL Heatwave
+  * [Configuration](./mysql-heatwave.md)
+  * Package - ghcr.io/estuary/materialize-mysql-heatwave:dev
 * Pinecone
   * [Configuration](./pinecone.md)
   * Package — ghcr.io/estuary/materialize-pinecone:dev
@@ -79,6 +101,9 @@ In the future, other open-source materialization connectors from third parties c
 * Rockset
   * [Configuration](./Rockset.md)
   * Package — ghcr.io/estuary/materialize-rockset:dev
+* Slack
+  * [Configuration](./slack.md)
+  * Package - ghcr.io/estuary/materialize-slack:dev
 * Snowflake
   * [Configuration](./Snowflake.md)
   * Package — ghcr.io/estuary/materialize-snowflake:dev
@@ -88,6 +113,9 @@ In the future, other open-source materialization connectors from third parties c
 * SQL Server
   * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/materialize-sqlserver:dev
+* Starburst
+  * [Configuration](./starburst.md)
+  * Package - ghcr.io/estuary/materialize-starburst:dev
 * TimescaleDB
   * [Configuration](./timescaledb.md)
   * Package - ghcr.io/estuary/materialize-timescaledb:dev

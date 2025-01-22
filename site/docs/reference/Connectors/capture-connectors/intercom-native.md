@@ -3,23 +3,23 @@
 
 This connector captures data from Intercom into Flow collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-intercom:dev`](https://ghcr.io/estuary/source-intercom-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-intercom-native:dev`](https://ghcr.io/estuary/source-intercom-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data resources
 
 The following data resources are supported through the Intercom API:
 
-* [Admins](https://developers.intercom.com/intercom-api-reference/reference/list-admins)
-* [Companies](https://developers.intercom.com/intercom-api-reference/reference/list-companies)
-* [Company attributes](https://developers.intercom.com/intercom-api-reference/reference/list-data-attributes)
-* [Company segments](https://developers.intercom.com/intercom-api-reference/reference/list-attached-segments-1)
-* [Contacts](https://developers.intercom.com/intercom-api-reference/reference/list-contacts)
-* [Contact attributes](https://developers.intercom.com/intercom-api-reference/reference/list-data-attributes)
-* [Conversations](https://developers.intercom.com/intercom-api-reference/reference/list-conversations)
-* [Conversation parts](https://developers.intercom.com/intercom-api-reference/reference/retrieve-a-conversation)
-* [Segments](https://developers.intercom.com/intercom-api-reference/reference/list-segments)
-* [Tags](https://developers.intercom.com/intercom-api-reference/reference/list-tags-for-an-app)
-* [Teams](https://developers.intercom.com/intercom-api-reference/reference/list-teams)
+* [Admins](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/admins/listadmins)
+* [Companies](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/companies/scrolloverallcompanies)
+* [Company attributes](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/data-attributes/lisdataattributes)
+* [Company segments](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/companies/listattachedsegmentsforcompanies)
+* [Contacts](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/contacts/searchcontacts)
+* [Contact attributes](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/data-attributes/lisdataattributes)
+* [Conversations](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/conversations/searchconversations)
+* [Conversation parts](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/conversations/retrieveconversatio)
+* [Segments](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/segments/listsegments)
+* [Tags](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/tags/listtags)
+* [Teams](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/teams/listteams)
 
 By default, each resource is mapped to a Flow collection through a separate binding.
 
@@ -46,6 +46,7 @@ you'll sign in directly and won't need the access token.
 | **`/credentials/access_token`** | Access Token | Intercom Access token. | string | Required |
 | **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
 | `/start_date` | Start date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | 30 days before the present date |
+| `/advanced/use_companies_list_endpoint` | Use `/companies/list` endpoint | If TRUE, the [`/companies/list`](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/companies/listallcompanies) endpoint is used instead of the [`/companies/scroll`](https://developers.intercom.com/docs/references/rest-api/api.intercom.io/companies/scrolloverallcompanies) endpoint for the Companies and Company Segments bindings. Typically left as the default unless the connector indicates a different setting is needed. | boolean | False |
 | `/advanced/window_size` | Window size | Window size in days for incrementals streams. Typically left as the default unless more frequent checkpoints are desired. | integer | 5 |
 
 #### Bindings
@@ -65,6 +66,9 @@ captures:
       connector:
         image: ghcr.io/estuary/source-intercom-native:dev
         config:
+            advanced:
+                use_companies_list_endpoint: false
+                window_size: 5
             credentials:
                 credentials_title: Private App Credentials
                 access_token: <secret>

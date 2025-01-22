@@ -1,0 +1,526 @@
+---
+source: crates/activate/src/lib.rs
+expression: "(partition_changes, task_changes)"
+---
+[
+  [
+    {
+      "Journal": {
+        "expectModRevision": "111",
+        "upsert": {
+          "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=10000000",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-ndjson"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/collection",
+                "value": "example/collection"
+              },
+              {
+                "name": "estuary.dev/field/a_bool",
+                "value": "%_true"
+              },
+              {
+                "name": "estuary.dev/field/a_str",
+                "value": "a-val"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "10000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "3fffffff"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "536870912",
+            "compressionCodec": "GZIP",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s",
+            "flushInterval": "900s",
+            "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "PARTIAL",
+            "offset": "112233"
+          }
+        }
+      }
+    },
+    {
+      "Journal": {
+        "expectModRevision": "111",
+        "upsert": {
+          "name": "example/collection/2020202020202020/a_bool=%_true/a_str=a-val/pivot=40000000",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-ndjson"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/collection",
+                "value": "example/collection"
+              },
+              {
+                "name": "estuary.dev/field/a_bool",
+                "value": "%_true"
+              },
+              {
+                "name": "estuary.dev/field/a_str",
+                "value": "a-val"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "40000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "5fffffff"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "536870912",
+            "compressionCodec": "GZIP",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s",
+            "flushInterval": "900s",
+            "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "PARTIAL",
+            "offset": "112233"
+          }
+        }
+      }
+    },
+    {
+      "Journal": {
+        "expectModRevision": "111",
+        "upsert": {
+          "name": "example/collection/2020202020202020/a_bool=%_false/a_str=other-val/pivot=00",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-ndjson"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/collection",
+                "value": "example/collection"
+              },
+              {
+                "name": "estuary.dev/field/a_bool",
+                "value": "%_false"
+              },
+              {
+                "name": "estuary.dev/field/a_str",
+                "value": "other-val"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "00000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "ffffffff"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "536870912",
+            "compressionCodec": "GZIP",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s",
+            "flushInterval": "900s",
+            "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "PARTIAL",
+            "offset": "112233"
+          }
+        }
+      }
+    }
+  ],
+  [
+    {
+      "Shard": {
+        "expectModRevision": "111",
+        "upsert": {
+          "id": "derivation/example/disabled/2020202020202020/10000000-60000000",
+          "recoveryLogPrefix": "recovery",
+          "hintPrefix": "/estuary/flow/hints",
+          "hintBackups": 2,
+          "maxTxnDuration": "1s",
+          "minTxnDuration": "0s",
+          "disable": true,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "10000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "2fffffff"
+              },
+              {
+                "name": "estuary.dev/log-level",
+                "value": "info"
+              },
+              {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
+                "name": "estuary.dev/rclock-begin",
+                "value": "60000000"
+              },
+              {
+                "name": "estuary.dev/rclock-end",
+                "value": "9fffffff"
+              },
+              {
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/disabled"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "ringBufferSize": 65536,
+          "readChannelSize": 4096
+        }
+      }
+    },
+    {
+      "Journal": {
+        "expectModRevision": "111",
+        "upsert": {
+          "name": "recovery/derivation/example/disabled/2020202020202020/10000000-60000000",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-gazette-recoverylog"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/disabled"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "268435456",
+            "compressionCodec": "SNAPPY",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "FULL",
+            "offset": "778899"
+          }
+        }
+      }
+    },
+    {
+      "Shard": {
+        "expectModRevision": "111",
+        "upsert": {
+          "id": "derivation/example/disabled/2020202020202020/30000000-60000000",
+          "recoveryLogPrefix": "recovery",
+          "hintPrefix": "/estuary/flow/hints",
+          "hintBackups": 2,
+          "maxTxnDuration": "1s",
+          "minTxnDuration": "0s",
+          "disable": true,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "30000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "3fffffff"
+              },
+              {
+                "name": "estuary.dev/log-level",
+                "value": "info"
+              },
+              {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
+                "name": "estuary.dev/rclock-begin",
+                "value": "60000000"
+              },
+              {
+                "name": "estuary.dev/rclock-end",
+                "value": "7fffffff"
+              },
+              {
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/disabled"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "ringBufferSize": 65536,
+          "readChannelSize": 4096
+        }
+      }
+    },
+    {
+      "Journal": {
+        "expectModRevision": "111",
+        "upsert": {
+          "name": "recovery/derivation/example/disabled/2020202020202020/30000000-60000000",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-gazette-recoverylog"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/disabled"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "268435456",
+            "compressionCodec": "SNAPPY",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "FULL",
+            "offset": "778899"
+          }
+        }
+      }
+    },
+    {
+      "Shard": {
+        "expectModRevision": "111",
+        "upsert": {
+          "id": "derivation/example/disabled/2020202020202020/30000000-80000000",
+          "recoveryLogPrefix": "recovery",
+          "hintPrefix": "/estuary/flow/hints",
+          "hintBackups": 2,
+          "maxTxnDuration": "1s",
+          "minTxnDuration": "0s",
+          "disable": true,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "30000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "3fffffff"
+              },
+              {
+                "name": "estuary.dev/log-level",
+                "value": "info"
+              },
+              {
+                "name": "estuary.dev/logs-journal",
+                "value": "ops/logs/name"
+              },
+              {
+                "name": "estuary.dev/rclock-begin",
+                "value": "80000000"
+              },
+              {
+                "name": "estuary.dev/rclock-end",
+                "value": "9fffffff"
+              },
+              {
+                "name": "estuary.dev/stats-journal",
+                "value": "ops/stats/name"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/disabled"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "ringBufferSize": 65536,
+          "readChannelSize": 4096
+        }
+      }
+    },
+    {
+      "Journal": {
+        "expectModRevision": "111",
+        "upsert": {
+          "name": "recovery/derivation/example/disabled/2020202020202020/30000000-80000000",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-gazette-recoverylog"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/task-name",
+                "value": "example/disabled"
+              },
+              {
+                "name": "estuary.dev/task-type",
+                "value": "derivation"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "268435456",
+            "compressionCodec": "SNAPPY",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304",
+          "suspend": {
+            "level": "FULL",
+            "offset": "778899"
+          }
+        }
+      }
+    }
+  ]
+]

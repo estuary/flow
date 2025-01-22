@@ -166,11 +166,12 @@ async fn test_schema_evolution() {
     assert!(pasture_spec
         .read_schema_json
         .contains("inferredSchemaIsNotAvailable"));
-    // A collection that uses schema inferrence should always have a next_run scheduled
-    assert!(pasture_state.next_run.is_some());
+    // A collection that uses schema inferrence should always have a wake_at scheduled
+    harness.assert_controller_pending("goats/pasture").await;
 
     // Assert that the totes collection has _not_ had the inferred schema placeholder added
     let totes_state = harness.get_controller_state("goats/totes").await;
+    harness.assert_controller_pending("goats/totes").await;
     let totes_spec = unwrap_built_collection(&totes_state);
     assert!(totes_spec
         .read_schema_json
@@ -203,7 +204,6 @@ async fn test_schema_evolution() {
             .matches(models::Schema::REF_WRITE_SCHEMA_URL)
             .count()
     );
-    assert!(totes_state.next_run.is_some());
 
     harness.control_plane().reset_activations();
     harness
@@ -373,7 +373,10 @@ async fn test_schema_evolution() {
         .as_ref()
         .expect("expected error to be Some");
     assert!(error.contains("incompatible schema changes observed for binding [binding-0] and onIncompatibleSchemaChange is 'abort'"));
-    assert!(mixed_state.next_run.is_some()); // should have scheduled a re-try
+    // should have scheduled a re-try
+    harness
+        .assert_controller_pending("goats/materializeMixed")
+        .await;
 
     // Now re-try materializeMixed, and this time there is no unsatisfiable constraint. IRL, this
     // might happen if someone was manually updating the destination table.
