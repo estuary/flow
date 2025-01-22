@@ -109,6 +109,11 @@ create view public.live_specs_ext as
           where ((pg_roles.rolname = current_role) and (pg_roles.rolbypassrls = true)))) or ((l.id)::macaddr8 in ( select authorized_specs.id
            from authorized_specs)));
 
+grant select on public.live_specs_ext to authenticated;
+-- Dekaf currently also queries this view, though we do plan to eventually change
+-- it to query live_specs directly.
+grant select on public.live_specs_ext to dekaf;
+
 
 CREATE VIEW public.draft_specs_ext AS
  WITH authorized_drafts AS (
@@ -147,6 +152,8 @@ CREATE VIEW public.draft_specs_ext AS
           WHERE ((pg_roles.rolname = CURRENT_ROLE) AND (pg_roles.rolbypassrls = true)))) OR ((d.draft_id)::macaddr8 IN ( SELECT authorized_drafts.id
            FROM authorized_drafts)));
 
+grant select on public.draft_specs_ext to authenticated;
+
 CREATE VIEW public.unchanged_draft_specs AS
  SELECT d.draft_id,
     d.catalog_name,
@@ -157,5 +164,7 @@ CREATE VIEW public.unchanged_draft_specs AS
     d.live_inferred_schema_md5
    FROM public.draft_specs_ext d
   WHERE (d.draft_spec_md5 = d.live_spec_md5);
+
+grant select on public.unchanged_draft_specs to authenticated;
 
 commit;
