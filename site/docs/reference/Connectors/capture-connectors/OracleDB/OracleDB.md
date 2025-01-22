@@ -83,16 +83,17 @@ GRANT CREATE SESSION TO c##estuary_flow_user CONTAINER=ALL;
 GRANT SELECT ANY TABLE TO c##estuary_flow_user CONTAINER=ALL;
 ```
 
-3. Alternatively, you can be more granular and grant access to specific tables in different schemas:
+3. Alternatively, you can be more granular and grant access to specific tables in different schemas (run in the root container):
 
 ```sql
 GRANT SELECT ON "<schema_a>"."<table_1>" TO c##estuary_flow_user CONTAINER=ALL;
 GRANT SELECT ON "<schema_b>"."<table_2>" TO c##estuary_flow_user CONTAINER=ALL;
 ```
 
-4. Create a watermarks table.
+4. Create a watermarks table (run in the root container)
 ```sql
 CREATE TABLE c##estuary_flow_user.FLOW_WATERMARKS(SLOT varchar(1000) PRIMARY KEY, WATERMARK varchar(4000));
+GRANT INSERT, UPDATE ON c##estuary_flow_user.FLOW_WATERMARKS TO c##estuary_flow_user;
 ```
 
 5. Finally you need to grant the user access to use logminer, read metadata from the database and write to the watermarks table:
@@ -100,13 +101,9 @@ CREATE TABLE c##estuary_flow_user.FLOW_WATERMARKS(SLOT varchar(1000) PRIMARY KEY
 ```sql
 GRANT SELECT_CATALOG_ROLE TO c##estuary_flow_user CONTAINER=ALL;
 GRANT EXECUTE_CATALOG_ROLE TO c##estuary_flow_user CONTAINER=ALL;
-GRANT SELECT ON V$DATABASE TO c##estuary_flow_user CONTAINER=ALL;
-GRANT SELECT ON V$LOG TO c##estuary_flow_user CONTAINER=ALL;
 GRANT LOGMINING TO c##estuary_flow_user CONTAINER=ALL;
 GRANT ALTER SESSION TO c##estuary_flow_user CONTAINER=ALL;
 GRANT SET CONTAINER TO c##estuary_flow_user CONTAINER=ALL;
-
-GRANT INSERT, UPDATE ON c##estuary_flow_user.FLOW_WATERMARKS TO c##estuary_flow_user CONTAINER=ALL;
 ```
 
 5. Enable supplemental logging:
