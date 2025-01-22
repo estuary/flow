@@ -263,8 +263,14 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         resource_path_pointers: Vec<String>,
         db: &PgPool,
     ) -> anyhow::Result<DiscoverOutput> {
-        let discovered_bindings =
-            specs::parse_response(response).context("converting discovery response into specs")?;
+        let discovered_bindings = match specs::parse_response(response)
+            .context("converting connector discovery response into specs")
+        {
+            Ok(b) => b,
+            Err(err) => {
+                return Ok(DiscoverOutput::failed(capture_name, err));
+            }
+        };
 
         let tables::DraftCatalog {
             ref mut captures,
