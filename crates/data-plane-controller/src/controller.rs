@@ -162,6 +162,14 @@ impl automations::Executor for Controller {
 }
 
 impl Controller {
+    fn pulumi_secret_envs(&self) -> Vec<(&str, String)> {
+        ["ARM_CLIENT_ID", "ARM_CLIENT_SECRET", "ARM_TENANT_ID", "ARM_SUBSCRIPTION_ID", "VULTR_API_KEY"]
+            .iter()
+            .map(|key|
+                (*key, std::env::var(format!("DPC_{key}")).unwrap_or_default())
+            ).collect()
+    }
+
     async fn on_start(
         &self,
         pool: &sqlx::PgPool,
@@ -416,6 +424,7 @@ impl Controller {
                 .arg("--non-interactive")
                 .arg("--cwd")
                 .arg(&checkout.path())
+                .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
             "pulumi-preview",
@@ -449,6 +458,7 @@ impl Controller {
                 .arg(&checkout.path())
                 .arg("--yes")
                 .arg("--expect-no-changes")
+                .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
             "pulumi-refresh",
@@ -470,6 +480,7 @@ impl Controller {
                     .arg("--cwd")
                     .arg(&checkout.path())
                     .arg("--yes")
+                    .envs(self.pulumi_secret_envs())
                     .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                     .env("VIRTUAL_ENV", checkout.path().join("venv")),
                 "pulumi-refresh-changed",
@@ -509,6 +520,7 @@ impl Controller {
                 .arg("--cwd")
                 .arg(&checkout.path())
                 .arg("--yes")
+                .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
             "pulumi-up-one",
@@ -570,6 +582,7 @@ impl Controller {
                 .arg("--show-secrets")
                 .arg("--cwd")
                 .arg(&checkout.path())
+                .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
         )
@@ -672,6 +685,7 @@ impl Controller {
                 .arg("--cwd")
                 .arg(&checkout.path())
                 .arg("--yes")
+                .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
             "pulumi-up-two",
