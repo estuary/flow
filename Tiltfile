@@ -151,6 +151,7 @@ local_resource(
 local_resource(
     'agent',
     serve_cmd='%s/flow/.build/package/bin/agent \
+    --controller-max-jobs 1 \
     --connector-network supabase_network_flow \
     --allow-local \
     --allow-origin http://localhost:3000 \
