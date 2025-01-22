@@ -54,8 +54,12 @@ jobs:
             DPC_GITHUB_SSH_KEY=DPC_GITHUB_SSH_KEY:latest
             DPC_IAM_CREDENTIALS=DPC_IAM_CREDENTIALS:latest
             DPC_SERVICE_ACCOUNT=DPC_SERVICE_ACCOUNT:latest
+            DPC_ARM_CLIENT_ID=DPC_ARM_CLIENT_ID:latest
+            DPC_ARM_CLIENT_SECRET=DPC_ARM_CLIENT_SECRET:latest
+            DPC_ARM_TENANT_ID=DPC_ARM_TENANT_ID:latest
+            DPC_ARM_SUBSCRIPTION_ID=DPC_ARM_SUBSCRIPTION_ID:latest
+            DPC_VULTR_API_KEY=DPC_VULTR_API_KEY:latest
             PGPASSWORD=POSTGRES_PASSWORD:latest
-            VULTR_API_KEY=DPC_VULTR_API_KEY:latest
 
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite
