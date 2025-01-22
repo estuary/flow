@@ -21,9 +21,9 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 extern "C" {
     fn alert(s: &str);
 
-    // You can use log and call _kind of_ line `console.log`
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str, b: JsValue);
+    // Uncomment if you would like to log in JS with a call _kind of_ line `console.log`
+    // #[wasm_bindgen(js_namespace = console)]
+    // fn log(s: &str, b: JsValue);
 }
 
 #[derive(Serialize, Deserialize)]
