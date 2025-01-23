@@ -16,6 +16,7 @@ type FreeTrialEndingRecord = AlertRecord<"free_trial_ending", FreeTrialEnding>;
 const freeTrialEnding = (req: FreeTrialEndingRecord): EmailConfig[] => {
     return req.arguments.recipients.map((recipient) => ({
         emails: [recipient.email],
+        bcc: !req.arguments.has_credit_card ? ["dave@estuary.dev", "elif@estuary.dev"] : undefined,
         subject: "Estuary Flow: Paid Tier",
         content: req.arguments.has_credit_card
             ? commonTemplate(

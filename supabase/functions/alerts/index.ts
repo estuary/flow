@@ -75,10 +75,7 @@ const emailNotifications = (
                 },
                 body: JSON.stringify({
                     from: senderAddress,
-                    // to: email,
-                    // TODO: Remove this line after we make sure alerts are going out correctly
                     to: email,
-                    bcc: "joseph@estuary.dev",
                     subject,
                     html: content,
                 }),
