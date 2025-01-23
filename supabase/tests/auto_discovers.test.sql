@@ -18,75 +18,80 @@ begin
 	('12:34:56:78:87:65:43:21', 'captureImage', '{"en-US":"a title"}', '{"en-US":"a desc"}', '{"en-US":"a logo"}', 'http://foo.test', true);
   insert into connector_tags (connector_id, image_tag) values
 	('12:34:56:78:87:65:43:21', ':v0');
-  insert into live_specs (catalog_name, spec_type, spec, connector_image_name, connector_image_tag, updated_at) values
-	('aliceCo/test-capture', 'capture', '{
-      "autoDiscover": {"addNewBindings": true},
-      "endpoint": {
-        "connector": {
-          "image": "does not matter",
-            "config": {"some": "config"}
-          }
-      },
-      "bindings": []
-    }', 'captureImage', ':v0', now() - '3h'::interval),
+	with insert_live as (
+        insert into live_specs (catalog_name, spec_type, spec, connector_image_name, connector_image_tag, updated_at) values
+       	('aliceCo/test-capture', 'capture', '{
+            "autoDiscover": {"addNewBindings": true},
+            "endpoint": {
+                "connector": {
+                "image": "does not matter",
+                    "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+            }', 'captureImage', ':v0', now() - '3h'::interval),
 
-	-- This should show up in the initial next_auto_discovers output, but not after
-	-- we bump the updated_at timestamp
-	('aliceCo/test-capture-recently-updated', 'capture', '{
-      "autoDiscover": {"evolveIncompatibleCollections": true},
-      "endpoint": {
-        "connector": {
-          "image": "does not matter",
-            "config": {"other": "config"}
-          }
-      },
-      "bindings": []
-    }', 'captureImage', ':v0', now() - '3h'::interval),
-	-- This should show up in the initial next_auto_discovers output, but not after
-	-- we create a discover
-	('aliceCo/test-capture-recently-discovered', 'capture', '{
-      "autoDiscover": {"evolveIncompatibleCollections": true},
-      "endpoint": {
-        "connector": {
-          "image": "does not matter",
-            "config": {"other": "config"}
-          }
-      },
-      "bindings": []
-    }', 'captureImage', ':v0', now() - '3h'::interval),
-	-- These should not show up in the output at all
-	('aliceCo/test-capture-shards-disabled', 'capture', '{
-	  "shards": {
-        "disable": true
-      },
-      "autoDiscover": {"addNewBindings": true},
-      "endpoint": {
-        "connector": {
-          "image": "does not matter",
-            "config": {"other": "config"}
-          }
-      },
-      "bindings": []
-    }', 'captureImage', ':v0', now() - '3h'::interval),
-	('aliceCo/test-capture-discover-disabled', 'capture', '{
-      "autoDiscover": null,
-      "endpoint": {
-        "connector": {
-          "image": "does not matter",
-            "config": {"some": "config"}
-          }
-      },
-      "bindings": []
-    }', 'captureImage', ':v0', now() - '3h'::interval),
-	('aliceCo/test-capture-discover-disabled-too', 'capture', '{
-      "endpoint": {
-        "connector": {
-          "image": "does not matter",
-            "config": {"some": "config"}
-          }
-      },
-      "bindings": []
-    }', 'captureImage', ':v0', now() - '3h'::interval);
+       	-- This should show up in the initial next_auto_discovers output, but not after
+       	-- we bump the updated_at timestamp
+       	('aliceCo/test-capture-recently-updated', 'capture', '{
+            "autoDiscover": {"evolveIncompatibleCollections": true},
+            "endpoint": {
+                "connector": {
+                "image": "does not matter",
+                    "config": {"other": "config"}
+                }
+            },
+            "bindings": []
+            }', 'captureImage', ':v0', now() - '3h'::interval),
+       	-- This should show up in the initial next_auto_discovers output, but not after
+       	-- we create a discover
+       	('aliceCo/test-capture-recently-discovered', 'capture', '{
+            "autoDiscover": {"evolveIncompatibleCollections": true},
+            "endpoint": {
+                "connector": {
+                "image": "does not matter",
+                    "config": {"other": "config"}
+                }
+            },
+            "bindings": []
+            }', 'captureImage', ':v0', now() - '3h'::interval),
+       	-- These should not show up in the output at all
+       	('aliceCo/test-capture-shards-disabled', 'capture', '{
+     	  "shards": {
+                "disable": true
+            },
+            "autoDiscover": {"addNewBindings": true},
+            "endpoint": {
+                "connector": {
+                "image": "does not matter",
+                    "config": {"other": "config"}
+                }
+            },
+            "bindings": []
+            }', 'captureImage', ':v0', now() - '3h'::interval),
+       	('aliceCo/test-capture-discover-disabled', 'capture', '{
+            "autoDiscover": null,
+            "endpoint": {
+                "connector": {
+                "image": "does not matter",
+                    "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+            }', 'captureImage', ':v0', now() - '3h'::interval),
+       	('aliceCo/test-capture-discover-disabled-too', 'capture', '{
+            "endpoint": {
+                "connector": {
+                "image": "does not matter",
+                    "config": {"some": "config"}
+                }
+            },
+            "bindings": []
+            }', 'captureImage', ':v0', now() - '3h'::interval)
+    returning controller_task_id
+  )
+  insert into internal.tasks (task_id, task_type)
+  select controller_task_id, 2 from insert_live;
 
   -- assert that the recently-updated capture shows up in the view before we
   -- insert the recent discover.

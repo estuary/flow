@@ -141,29 +141,48 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             pool,
         )
         .await?;
-        let output = self.discover(pool, disco).await?;
-        if !output.is_success() {
-            let draft_errors = output
-                .draft
-                .errors
-                .iter()
-                .map(tables::Error::to_draft_error)
-                .collect();
-            crate::draft::insert_errors(row.draft_id, draft_errors, txn).await?;
-            return Ok((row.id, JobStatus::DiscoverFailed));
-        }
 
-        draft::upsert_draft_catalog(row.draft_id, &output.draft, txn)
+        let result = self
+            .discover(pool, disco)
             .await
-            .context("inserting draft specs")?;
+            .map_err(|err| {
+                vec![models::draft_error::Error {
+                    scope: None,
+                    catalog_name: row.capture_name.clone(),
+                    detail: format!("{:#}", err),
+                }]
+            })
+            .and_then(|outcome| {
+                if outcome.is_success() {
+                    Ok(outcome.draft)
+                } else {
+                    Err(outcome
+                        .draft
+                        .errors
+                        .iter()
+                        .map(tables::Error::to_draft_error)
+                        .collect::<Vec<_>>())
+                }
+            });
 
-        Ok((
-            row.id,
-            JobStatus::Success {
-                publication_id: None,
-                specs_unchanged: false,
-            },
-        ))
+        match result {
+            Ok(draft) => {
+                draft::upsert_draft_catalog(row.draft_id, &draft, txn)
+                    .await
+                    .context("inserting draft specs")?;
+                Ok((
+                    row.id,
+                    JobStatus::Success {
+                        publication_id: None,
+                        specs_unchanged: false,
+                    },
+                ))
+            }
+            Err(draft_errors) => {
+                crate::draft::insert_errors(row.draft_id, draft_errors, txn).await?;
+                Ok((row.id, JobStatus::DiscoverFailed))
+            }
+        }
     }
 }
 

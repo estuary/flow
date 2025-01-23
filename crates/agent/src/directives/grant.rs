@@ -86,6 +86,15 @@ mod test {
             .unwrap();
         let mut txn = conn.begin().await.unwrap();
 
+        sqlx::query("delete from user_grants;")
+            .execute(&mut txn)
+            .await
+            .unwrap();
+        sqlx::query("delete from role_grants;")
+            .execute(&mut txn)
+            .await
+            .unwrap();
+
         sqlx::query(
             r#"
         with p1 as (
