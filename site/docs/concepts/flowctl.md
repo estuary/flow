@@ -304,3 +304,9 @@ If you're developing locally with `flowctl`, watch out for these errors:
 * `Failed to locate sops`: sops may not be installed correctly. See these [installation instructions](https://github.com/getsops/sops/releases) and ensure sops is on your PATH. For details on working with sops, see [Protecting secrets](#protecting-secrets) above.
 
 * `Decrypting sops document failed`: ensure you have correctly applied a KMS key using sops to your configuration file. See above for [examples](#example-protect-a-configuration). Note that you will not be able to decrypt credentials entered via the Flow web app.
+
+Since updates are released regularly, make sure you're using the latest version of `flowctl`. You can see the latest versions and changelogs on the [Flow releases](https://github.com/estuary/flow/releases) page.
+
+To check your current version, run: `flowctl --version`
+
+If you installed `flowctl` with Homebrew, you can upgrade with: `brew update && brew upgrade flowctl`
