@@ -11,13 +11,6 @@ use std::fmt;
 use std::sync::LazyLock;
 use tables::DraftCollection;
 
-static MAX_DISCOVER_BINDINGS: LazyLock<usize> = LazyLock::new(|| {
-    std::env::var("MAX_DISCOVER_BINDINGS")
-        .ok()
-        .map(|s| s.parse().expect("MAX_DISCOVER_BINDINGS must be a number"))
-        .unwrap_or(3000)
-});
-
 pub fn parse_response(response: capture::Response) -> anyhow::Result<Vec<discovered::Binding>> {
     let capture::Response {
         discovered: Some(capture::response::Discovered { mut bindings }),
@@ -26,14 +19,6 @@ pub fn parse_response(response: capture::Response) -> anyhow::Result<Vec<discove
     else {
         anyhow::bail!("response is not a discovered");
     };
-
-    anyhow::ensure!(
-        bindings.len() <= *MAX_DISCOVER_BINDINGS,
-        "The connector discovered {} bindings, which is over our limit of {}. Please consider \
-        changing the endpoint configuration to restrict the number of resources to discover from",
-        bindings.len(),
-        *MAX_DISCOVER_BINDINGS
-    );
 
     // Sort bindings so they're consistently ordered on their recommended name.
     // This reduces potential churn if an established capture is refreshed.
