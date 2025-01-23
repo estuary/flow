@@ -16,8 +16,7 @@ type FreeTrialStalledRecord = AlertRecord<"free_trial_stalled", FreeTrialStalled
 // So this alert resolving implicitly means they entered a CC.
 const freeTrialStalled = (req: FreeTrialStalledRecord, started: boolean): EmailConfig[] => {
     return req.arguments.recipients.map((recipient) => ({
-        // TODO(jshearer): Remove joseph@estuary.dev after testing
-        emails: ["dave@estuary.dev", "joseph@estuary.dev"],
+        emails: ["dave@estuary.dev"],
         subject: `Free Tier Grace Period for ${req.arguments.tenant}: ${started ? "No CC 💳❌" : "CC Entered 💳✅"}`,
         content: commonTemplate(
             `
