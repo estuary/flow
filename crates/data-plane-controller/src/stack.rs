@@ -101,6 +101,7 @@ pub struct AnsibleHost {
     pub local_private_key_pem: String,
     pub oci_image: String,
     pub private_ip4: Option<std::net::Ipv4Addr>,
+    pub private_ip6: Option<std::net::Ipv6Addr>,
     pub provider: String,
     pub public_ip4: std::net::Ipv4Addr,
     pub public_ip6: std::net::Ipv6Addr,
