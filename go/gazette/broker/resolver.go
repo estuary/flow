@@ -103,15 +103,15 @@ func (r *resolver) resolve(ctx context.Context, claims pb.Claims, journal pb.Jou
 	}
 
 	if hdr := opts.proxyHeader; hdr != nil {
-		// Sanity check the proxy broker is using our same Etcd cluster.
+		// Verify the requestor is using our same Etcd cluster.
 		if hdr.Etcd.ClusterId != ks.Header.ClusterId {
-			err = fmt.Errorf("proxied request Etcd ClusterId doesn't match our own (%d vs %d)",
+			err = fmt.Errorf("request Etcd ClusterId doesn't match our own (%d vs %d)",
 				hdr.Etcd.ClusterId, ks.Header.ClusterId)
 			return
 		}
-		// Sanity-check that the proxy broker reached the intended recipient.
+		// Verify the requestor reached the intended member.
 		if hdr.ProcessId != (pb.ProcessSpec_ID{}) && hdr.ProcessId != res.localID {
-			err = fmt.Errorf("proxied request ProcessId doesn't match our own (%s vs %s)",
+			err = fmt.Errorf("request ProcessId doesn't match our own (%s vs %s)",
 				&hdr.ProcessId, &res.localID)
 			return
 		}

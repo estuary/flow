@@ -183,7 +183,7 @@ func TestResolverErrorCases(t *testing.T) {
 			},
 		},
 	})
-	require.Regexp(t, `proxied request Etcd ClusterId doesn't match our own \(\d+ vs \d+\)`, err)
+	require.Regexp(t, `request Etcd ClusterId doesn't match our own \(\d+ vs \d+\)`, err)
 
 	// Case: ProxyHeader has wrong ProcessID.
 	_, err = tf.resolver.Resolve(ResolveArgs{
@@ -196,7 +196,7 @@ func TestResolverErrorCases(t *testing.T) {
 			},
 		},
 	})
-	require.Regexp(t, `proxied request ProcessId doesn't match our own \(zone.*\)`, err)
+	require.Regexp(t, `request ProcessId doesn't match our own \(zone.*\)`, err)
 
 	// Case: Context cancelled while waiting for a future revision.
 	var ctx, cancel = context.WithCancel(context.Background())

@@ -282,13 +282,13 @@ func TestResolveProxyHeaderErrorCases(t *testing.T) {
 
 	// Case: proxy header references a broker other than this one.
 	var _, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{proxyHeader: &proxy})
-	require.Regexp(t, `proxied request ProcessId doesn't match our own \(zone.*`, err)
+	require.Regexp(t, `request ProcessId doesn't match our own \(zone.*`, err)
 	proxy.ProcessId = broker.id
 
 	// Case: proxy header references a ClusterId other than our own.
 	proxy.Etcd.ClusterId = 8675309
 	_, err = broker.svc.resolver.resolve(ctx, allClaims, "a/journal", resolveOpts{proxyHeader: &proxy})
-	require.Regexp(t, `proxied request Etcd ClusterId doesn't match our own \(\d+.*`, err)
+	require.Regexp(t, `request Etcd ClusterId doesn't match our own \(\d+.*`, err)
 
 	broker.cleanup()
 }
