@@ -524,8 +524,8 @@ pub struct AppendRequest {
     /// the client must send an empty chunk (eg, zero-valued AppendRequest) to
     /// indicate the Append should be committed. Absence of this empty chunk
     /// prior to EOF is interpreted by the broker as a rollback of the Append.
-    #[prost(bytes = "vec", tag = "4")]
-    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "4")]
+    pub content: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `AppendRequest`.
 pub mod append_request {

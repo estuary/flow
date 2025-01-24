@@ -1,5 +1,5 @@
 use super::{check_ok, Client};
-use crate::Error;
+use crate::{router, Error};
 use futures::TryStreamExt;
 use proto_gazette::broker;
 
@@ -16,32 +16,42 @@ impl Client {
     pub fn list_watch(
         self,
         mut req: broker::ListRequest,
-    ) -> impl futures::Stream<Item = crate::Result<broker::ListResponse>> + 'static {
+    ) -> impl futures::Stream<Item = crate::RetryResult<broker::ListResponse>> + 'static {
         assert!(req.watch, "list_watch() requires ListRequest.watch is set");
 
         coroutines::coroutine(move |mut co| async move {
+            let mut attempt = 0;
+            let mut maybe_stream = None;
+
             loop {
-                let mut stream = match self.start_list(&self.router, &req).await {
-                    Ok(stream) => stream,
-                    Err(err) => {
-                        () = co.yield_(Err(err)).await;
-                        continue;
-                    }
+                let err = match maybe_stream.take() {
+                    Some(mut stream) => match recv_snapshot(&mut req, &mut stream).await {
+                        Ok(resp) => {
+                            () = co.yield_(Ok(resp)).await;
+                            attempt = 0;
+                            maybe_stream = Some(stream);
+                            continue;
+                        }
+                        Err(err) => err,
+                    },
+                    None => match self.start_list(&self.router, &req).await {
+                        Ok(stream) => {
+                            maybe_stream = Some(stream);
+                            continue;
+                        }
+                        Err(err) => err,
+                    },
                 };
 
-                loop {
-                    match recv_snapshot(&mut req, &mut stream).await {
-                        Ok(resp) => co.yield_(Ok(resp)).await,
-                        Err(err) => {
-                            if matches!(err, Error::UnexpectedEof if req.watch_resume.is_some()) {
-                                // Server stopped an ongoing watch. Expected and not an error.
-                            } else {
-                                co.yield_(Err(err)).await;
-                            }
-                            break; // Start new stream on next poll.
-                        }
-                    }
+                if matches!(err, Error::UnexpectedEof if req.watch_resume.is_some()) {
+                    // Server stopped an ongoing watch. Expected and not an error.
+                    continue;
                 }
+
+                // Surface error to the caller, who can either drop to cancel or poll to retry.
+                () = co.yield_(Err(err.with_attempt(attempt))).await;
+                () = tokio::time::sleep(crate::backoff(attempt)).await;
+                attempt += 1;
             }
         })
     }
@@ -51,7 +61,7 @@ impl Client {
         router: &crate::Router,
         req: &broker::ListRequest,
     ) -> crate::Result<tonic::Streaming<broker::ListResponse>> {
-        let mut client = self.into_sub(router.route(None, false, &self.default)?);
+        let mut client = self.into_sub(router.route(None, router::Mode::Default, &self.default)?);
         Ok(client.list(req.clone()).await?.into_inner())
     }
 }
