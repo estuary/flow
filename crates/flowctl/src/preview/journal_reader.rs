@@ -196,6 +196,7 @@ impl Reader {
                 offset,
                 block: true,
                 begin_mod_time,
+                // TODO(johnny): Set `do_not_proxy: true` once cronut is migrated.
                 ..Default::default()
             },
             1,
@@ -211,12 +212,14 @@ impl Reader {
                         offset = meta.offset;
                         continue;
                     }
-                    Err(err) if err.is_transient() => {
-                        tracing::warn!(%err, %journal, %binding, "transient error reading journal (will retry)");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    Err(gazette::RetryError {
+                        attempt,
+                        inner: err,
+                    }) if err.is_transient() => {
+                        tracing::warn!(?err, %attempt, %journal, %binding, "transient error reading journal (will retry)");
                         continue;
                     }
-                    Err(err) => return Err(err),
+                    Err(gazette::RetryError { inner, .. }) => return Err(inner),
                 };
 
                 // TODO(johnny): plumb through OwnedArchivedNode end-to-end.

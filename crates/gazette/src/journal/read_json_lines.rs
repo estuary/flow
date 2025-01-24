@@ -47,23 +47,25 @@ impl Client {
         };
 
         ReadJsonLines {
+            inner,
+            attempts: 0,
             parsed: simd_doc::transcoded::OwnedIterOut::empty(),
             parser: simd_doc::Parser::new(),
-            inner,
         }
     }
 }
 
 pin_project_lite::pin_project! {
     pub struct ReadJsonLines {
-        inner: BoxStream<'static, crate::Result<broker::ReadResponse>>,
+        inner: BoxStream<'static, crate::RetryResult<broker::ReadResponse>>,
+        attempts: usize,
         parsed: simd_doc::transcoded::OwnedIterOut,
         parser: simd_doc::Parser,
     }
 }
 
 impl futures::Stream for ReadJsonLines {
-    type Item = crate::Result<ReadJsonLine>;
+    type Item = crate::RetryResult<ReadJsonLine>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -80,10 +82,13 @@ impl futures::Stream for ReadJsonLines {
             match me.parser.transcode_many(Default::default()) {
                 Ok(out) if !out.is_empty() => {
                     *me.parsed = out.into_iter();
+                    *me.attempts = 0;
                     continue;
                 }
                 Err((err, location)) => {
-                    return Poll::Ready(Some(Err(Error::Parsing { location, err })))
+                    let err = Error::Parsing { location, err }.with_attempt(*me.attempts);
+                    *me.attempts += 1;
+                    return Poll::Ready(Some(Err(err)));
                 }
                 Ok(_out) => {} // Requires more chunks.
             }
@@ -101,12 +106,15 @@ impl futures::Stream for ReadJsonLines {
                         return Poll::Ready(Some(Ok(ReadJsonLine::Meta(response))));
                     }
 
-                    me.parser
-                        .chunk(&response.content, response.offset)
-                        .map_err(|err| Error::Parsing {
+                    if let Err(err) = me.parser.chunk(&response.content, response.offset) {
+                        let err = Error::Parsing {
                             location: response.offset..response.offset,
                             err,
-                        })?;
+                        }
+                        .with_attempt(*me.attempts);
+                        *me.attempts += 1;
+                        return Poll::Ready(Some(Err(err)));
+                    }
                 }
                 std::task::Poll::Ready(None) => return std::task::Poll::Ready(None),
                 std::task::Poll::Pending => return std::task::Poll::Pending,

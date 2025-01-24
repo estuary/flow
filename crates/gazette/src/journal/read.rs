@@ -1,5 +1,5 @@
 use super::Client;
-use crate::Error;
+use crate::{router, Error};
 use futures::TryStreamExt;
 use proto_gazette::broker;
 
@@ -10,9 +10,10 @@ impl Client {
     pub fn read(
         self,
         mut req: broker::ReadRequest,
-    ) -> impl futures::Stream<Item = crate::Result<broker::ReadResponse>> + 'static {
+    ) -> impl futures::Stream<Item = crate::RetryResult<broker::ReadResponse>> + 'static {
         coroutines::coroutine(move |mut co| async move {
             let mut write_head = i64::MAX;
+            let mut attempt = 0;
 
             loop {
                 // Have we read through requested `end_offset`?
@@ -24,40 +25,53 @@ impl Client {
                     return;
                 }
 
-                match self.read_some(&mut co, &mut req, &mut write_head).await {
-                    Ok(()) => (),
-                    Err(Error::BrokerStatus(broker::Status::NotJournalBroker))
-                        if req.do_not_proxy =>
-                    {
-                        // Expected error which drives dynamic route discovery.
-                        // `req.header` has updated route topology and we restart the request.
+                let err = match self.read_some(&mut co, &mut req, &mut write_head).await {
+                    Ok(()) => {
+                        attempt = 0;
+                        continue;
                     }
-                    Err(err) => {
-                        // Surface error to the caller, which can either drop us
-                        // or poll us again to retry.
-                        () = co.yield_(Err(err)).await;
-                        // Restart route discovery.
-                        req.header = None;
-                    }
+                    Err(err) => err,
+                };
+
+                if matches!(err, Error::BrokerStatus(broker::Status::NotJournalBroker) if req.do_not_proxy)
+                {
+                    // This is an expected error which drives dynamic route discovery.
+                    // `req.header` has updated route topology and we restart the request.
+                    continue;
                 }
+
+                // Surface error to the caller, who can either drop to cancel or poll to retry.
+                () = co.yield_(Err(err.with_attempt(attempt))).await;
+                () = tokio::time::sleep(crate::backoff(attempt)).await;
+                attempt += 1;
+
+                // Restart route discovery.
+                req.header = None;
             }
         })
     }
 
     async fn read_some(
         &self,
-        co: &mut coroutines::Suspend<crate::Result<broker::ReadResponse>, ()>,
+        co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
         req: &mut broker::ReadRequest,
         write_head: &mut i64,
     ) -> crate::Result<()> {
-        let route = req.header.as_ref().and_then(|hdr| hdr.route.as_ref());
-        let mut client = self.into_sub(self.router.route(route, false, &self.default)?);
+        let mut client = self.into_sub(self.router.route(
+            req.header.as_mut(),
+            if req.do_not_proxy {
+                router::Mode::Replica
+            } else {
+                router::Mode::Default
+            },
+            &self.default,
+        )?);
 
         // Fetch metadata first before we start the actual read.
         req.metadata_only = true;
 
         let mut stream = client.read(req.clone()).await?.into_inner();
-        let metadata = stream.try_next().await?.ok_or(Error::UnexpectedEof)?;
+        let mut metadata = stream.try_next().await?.ok_or(Error::UnexpectedEof)?;
         let _eof = stream.try_next().await?; // Broker sends EOF.
         std::mem::drop(stream);
 
@@ -73,6 +87,8 @@ impl Client {
                 tracing::info!(req.journal, req.offset, metadata.offset, "offset jump");
                 req.offset = metadata.offset;
             }
+            req.header = metadata.header.take();
+
             *write_head = metadata.write_head;
             let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
             () = co.yield_(Ok(metadata)).await;
@@ -118,7 +134,7 @@ impl Client {
 }
 
 async fn read_fragment_url(
-    co: &mut coroutines::Suspend<crate::Result<broker::ReadResponse>, ()>,
+    co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
     fragment: broker::Fragment,
     fragment_url: String,
     http: &reqwest::Client,
@@ -174,7 +190,7 @@ async fn read_fragment_url(
 }
 
 async fn read_fragment_url_body(
-    co: &mut coroutines::Suspend<crate::Result<broker::ReadResponse>, ()>,
+    co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
     fragment: broker::Fragment,
     r: impl futures::io::AsyncRead,
     req: &mut broker::ReadRequest,

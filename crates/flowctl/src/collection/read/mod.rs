@@ -3,7 +3,6 @@ use anyhow::Context;
 use futures::StreamExt;
 use gazette::journal::ReadJsonLine;
 use proto_gazette::broker;
-use rand::Rng;
 use std::io::Write;
 use time::OffsetDateTime;
 
@@ -116,6 +115,7 @@ pub async fn read_collection_journal(
             offset: 0,
             block: bounds.follow,
             begin_mod_time,
+            // TODO(johnny): Set `do_not_proxy: true` once cronut is migrated.
             ..Default::default()
         },
         1,
@@ -127,7 +127,13 @@ pub async fn read_collection_journal(
 
     while let Some(line) = lines.next().await {
         match line {
-            Ok(ReadJsonLine::Meta(_)) => (),
+            Ok(ReadJsonLine::Meta(broker::ReadResponse {
+                fragment,
+                write_head,
+                ..
+            })) => {
+                tracing::debug!(?fragment, %write_head, "journal metadata");
+            }
             Ok(ReadJsonLine::Doc {
                 root,
                 next_offset: _,
@@ -136,26 +142,25 @@ pub async fn read_collection_journal(
                 v.push(b'\n');
                 () = stdout.write_all(&v)?;
             }
-            Err(gazette::Error::BrokerStatus(broker::Status::Suspended)) if bounds.follow => {
-                // The journal is fully suspended, so we use a pretty long delay
-                // here because it's unlikely to be resumed quickly and also
-                // unlikely that anyone will care about the little bit of extra
-                // latency in this case.
-                let delay_secs = rand::thread_rng().gen_range(30..=60);
-                tracing::info!(delay_secs, "journal suspended, will retry");
-                tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
-            }
-            Err(gazette::Error::BrokerStatus(
-                status @ broker::Status::OffsetNotYetAvailable | status @ broker::Status::Suspended,
-            )) => {
-                tracing::debug!(?status, "stopping read at end of journal content");
-                break; // Graceful EOF of non-blocking read.
-            }
-            Err(err) if err.is_transient() => {
-                tracing::warn!(%err, "error reading collection (will retry)");
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-            Err(err) => anyhow::bail!(err),
+            Err(gazette::RetryError {
+                inner: err,
+                attempt,
+            }) => match err {
+                err if err.is_transient() => {
+                    tracing::warn!(?err, %attempt, "error reading collection (will retry)");
+                }
+                gazette::Error::BrokerStatus(broker::Status::Suspended) if bounds.follow => {
+                    tracing::debug!(?err, %attempt, "journal is suspended (will retry)");
+                }
+                gazette::Error::BrokerStatus(
+                    status @ broker::Status::OffsetNotYetAvailable
+                    | status @ broker::Status::Suspended,
+                ) => {
+                    tracing::debug!(?status, "stopping read at end of journal content");
+                    break; // Graceful EOF of non-blocking read.
+                }
+                err => anyhow::bail!(err),
+            },
         }
     }
 
