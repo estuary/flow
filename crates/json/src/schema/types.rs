@@ -274,9 +274,9 @@ impl Set {
     ///
     /// assert!(STRING.is_keyable_type());
     /// assert!(INTEGER.is_keyable_type());
-    /// assert!(!FRACTIONAL.is_keyable_type());
+    /// assert!(FRACTIONAL.is_keyable_type());
     /// assert!(BOOLEAN.is_keyable_type());
-    /// assert!(!INT_OR_FRAC.is_keyable_type());
+    /// assert!(INT_OR_FRAC.is_keyable_type());
     /// assert!((STRING | NULL).is_keyable_type());
     ///
     /// assert!(!(NULL.is_keyable_type()));
@@ -289,7 +289,7 @@ impl Set {
     /// ```
     pub fn is_keyable_type(&self) -> bool {
         match *self - NULL {
-            BOOLEAN | INTEGER | STRING => true,
+            BOOLEAN | INTEGER | INT_OR_FRAC | FRACTIONAL | STRING => true,
             _ => false,
         }
     }
