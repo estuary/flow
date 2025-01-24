@@ -1,3 +1,4 @@
+use crate::router;
 use proto_gazette::{broker, consumer};
 use tonic::transport::Channel;
 
@@ -44,7 +45,11 @@ impl Client {
         &self,
         req: consumer::ListRequest,
     ) -> Result<consumer::ListResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
+        let mut client = self.into_sub(self.router.route(
+            None,
+            router::Mode::Default,
+            &self.default,
+        )?);
 
         let resp = client
             .list(req)
@@ -60,7 +65,11 @@ impl Client {
         &self,
         req: consumer::ApplyRequest,
     ) -> Result<consumer::ApplyResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
+        let mut client = self.into_sub(self.router.route(
+            None,
+            router::Mode::Default,
+            &self.default,
+        )?);
 
         let resp = client
             .apply(req)
@@ -76,7 +85,11 @@ impl Client {
         &self,
         req: consumer::UnassignRequest,
     ) -> Result<consumer::UnassignResponse, crate::Error> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
+        let mut client = self.into_sub(self.router.route(
+            None,
+            router::Mode::Default,
+            &self.default,
+        )?);
 
         let resp = client
             .unassign(req)

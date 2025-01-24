@@ -5,7 +5,7 @@ fn main() {
 
     prost_build::Config::new()
         .out_dir(&b.src_dir)
-        .bytes(&["ReadResponse.content"])
+        .bytes(&["AppendRequest.content", "ReadResponse.content"])
         .file_descriptor_set_path(&b.descriptor_path)
         .compile_well_known_types()
         .extern_path(".google.protobuf", "::pbjson_types")

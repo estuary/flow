@@ -1,3 +1,4 @@
+use crate::router;
 use proto_gazette::broker;
 use tonic::transport::Channel;
 
@@ -51,7 +52,11 @@ impl Client {
 
     /// Invoke the Gazette journal Apply API.
     pub async fn apply(&self, req: broker::ApplyRequest) -> crate::Result<broker::ApplyResponse> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
+        let mut client = self.into_sub(self.router.route(
+            None,
+            router::Mode::Default,
+            &self.default,
+        )?);
 
         let resp = client
             .apply(req)
@@ -67,7 +72,11 @@ impl Client {
         &self,
         req: broker::FragmentsRequest,
     ) -> crate::Result<broker::FragmentsResponse> {
-        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
+        let mut client = self.into_sub(self.router.route(
+            None,
+            router::Mode::Default,
+            &self.default,
+        )?);
 
         let resp = client
             .list_fragments(req)
