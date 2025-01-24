@@ -97,17 +97,34 @@ impl Snapshot {
         }
     }
 
-    pub fn task_by_catalog_name<'s>(&'s self, name: &models::Name) -> Option<&'s SnapshotTask> {
+    // Retrieve task having the exact catalog `name`.
+    pub fn task_by_catalog_name<'s>(&'s self, name: &str) -> Option<&'s SnapshotTask> {
         self.tasks_idx_name
             .binary_search_by(|i| self.tasks[*i].task_name.as_str().cmp(name))
             .ok()
             .map(|index| {
                 let task = &self.tasks[self.tasks_idx_name[index]];
-                assert_eq!(&task.task_name, name);
+                assert_eq!(task.task_name.as_str(), name);
                 task
             })
     }
 
+    // Retrieve the task having a template ID matching `shard_id`.
+    // `shard_id` must equal or have a *more* specific suffix than `shard_template_id`.
+    pub fn task_by_shard_id<'s>(&'s self, shard_id: &str) -> Option<&'s SnapshotTask> {
+        self.tasks
+            .binary_search_by(|task| {
+                if shard_id.starts_with(&task.shard_template_id) {
+                    std::cmp::Ordering::Equal
+                } else {
+                    task.shard_template_id.as_str().cmp(shard_id)
+                }
+            })
+            .ok()
+            .map(|index| &self.tasks[index])
+    }
+
+    // Retrieve the collection having the exact catalog `name`.
     pub fn collection_by_catalog_name<'s>(&'s self, name: &str) -> Option<&'s SnapshotCollection> {
         self.collections_idx_name
             .binary_search_by(|i| self.collections[*i].collection_name.as_str().cmp(name))
@@ -117,6 +134,24 @@ impl Snapshot {
                 assert_eq!(collection.collection_name.as_str(), name);
                 collection
             })
+    }
+
+    // Retrieve the collection having a template name matching `journal_name`.
+    // `journal_name` must equal or have a *more* specific suffix than `journal_template_name`.
+    pub fn collection_by_journal_name<'s>(
+        &'s self,
+        journal_name: &str,
+    ) -> Option<&'s SnapshotCollection> {
+        self.collections
+            .binary_search_by(|collection| {
+                if journal_name.starts_with(&collection.journal_template_name) {
+                    std::cmp::Ordering::Equal
+                } else {
+                    collection.journal_template_name.as_str().cmp(journal_name)
+                }
+            })
+            .ok()
+            .map(|index| &self.collections[index])
     }
 
     fn begin_refresh<'m>(

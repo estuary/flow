@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::api::error::ApiErrorExt;
 use crate::api::{ApiError, App, ControlClaims};
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 // axum_extra's `Query` is needed here because unlike the one from `axum`, it

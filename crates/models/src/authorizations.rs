@@ -1,4 +1,3 @@
-use std::{cmp::max, fmt};
 use validator::Validate;
 
 /// ControlClaims are claims encoded within control-plane access tokens.
@@ -17,7 +16,7 @@ impl ControlClaims {
         let now = time::OffsetDateTime::now_utc();
         let exp = time::OffsetDateTime::from_unix_timestamp(self.exp as i64).unwrap();
 
-        max(exp - now, time::Duration::ZERO)
+        std::cmp::max(exp - now, time::Duration::ZERO)
     }
 }
 

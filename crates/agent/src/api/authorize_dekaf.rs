@@ -49,26 +49,10 @@ const DEKAF_ROLE: &str = "dekaf";
 ///      write ops logs and stats.
 #[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
 async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
-    let jsonwebtoken::TokenData { header, claims }: jsonwebtoken::TokenData<proto_gazette::Claims> =
-        {
-            // In this pass we do not validate the signature,
-            // because we don't yet know which data-plane the JWT is signed by.
-            let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
-            let mut validation = jsonwebtoken::Validation::default();
-            validation.insecure_disable_signature_validation();
-            jsonwebtoken::decode(token, &empty_key, &validation)
-        }?;
-    tracing::debug!(?claims, ?header, "decoded authorization request");
+    let (_header, claims) = super::parse_untrusted_data_plane_claims(token)?;
 
     let task_name = claims.sub.as_str();
-    if task_name.is_empty() {
-        anyhow::bail!("missing required materialization name (`sub` claim)");
-    }
-
     let shard_data_plane_fqdn = claims.iss.as_str();
-    if shard_data_plane_fqdn.is_empty() {
-        anyhow::bail!("missing required task data-plane FQDN (`iss` claim)");
-    }
 
     if claims.cap != proto_flow::capability::AUTHORIZE {
         anyhow::bail!("invalid capability, must be AUTHORIZE only: {}", claims.cap);
@@ -85,7 +69,7 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
                         spec_type as "spec_type: models::CatalogType"
                     from live_specs
                     where live_specs.catalog_name = $1
-                    "#,
+                "#,
                 task_name
             )
             .fetch_one(&app.pg_pool)
@@ -102,21 +86,20 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
                 anyhow::bail!("Unexpected spec type {:?}", spec_type);
             }
 
-            let unix_ts = jsonwebtoken::get_current_timestamp();
             let claims = AccessTokenClaims {
-                iat: unix_ts,
-                exp: unix_ts + (60 * 60),
+                iat: claims.iat,
+                exp: claims.iat + super::exp_seconds(),
                 role: DEKAF_ROLE.to_string(),
             };
-
-            let signed = jsonwebtoken::encode(
+            let token = jsonwebtoken::encode(
                 &jsonwebtoken::Header::default(),
                 &claims,
                 &app.control_plane_jwt_signer,
-            )?;
+            )
+            .context("failed to encode authorized JWT")?;
 
             Ok(Response {
-                token: signed,
+                token,
                 ops_logs_journal,
                 ops_stats_journal,
                 task_spec: Some(materialization_spec.0),
@@ -137,14 +120,11 @@ fn evaluate_authorization(
     shard_data_plane_fqdn: &str,
     token: &str,
 ) -> anyhow::Result<(String, String)> {
-    tracing::debug!(?task_name, "Task name");
-    // Map `claims.sub`, a task name, into its task.
-    let task = snapshot.task_by_catalog_name(&models::Name::new(task_name.to_string()));
+    let Snapshot { data_planes, .. } = snapshot;
 
-    // Map `claims.iss`, a data-plane FQDN, into its task-matched data-plane.
+    let task = snapshot.task_by_catalog_name(task_name);
     let task_data_plane = task.and_then(|task| {
-        snapshot
-            .data_planes
+        data_planes
             .get_by_key(&task.data_plane_id)
             .filter(|data_plane| data_plane.data_plane_fqdn == shard_data_plane_fqdn)
     });
@@ -152,29 +132,13 @@ fn evaluate_authorization(
     let (Some(task), Some(task_data_plane)) = (task, task_data_plane) else {
         anyhow::bail!("task {task_name} within data-plane {shard_data_plane_fqdn} is not known")
     };
+    () = super::verify_signature(token, task_data_plane)?;
 
     if task.spec_type != CatalogType::Materialization {
         anyhow::bail!(
             "task {task_name} must be a materialization, but is {:?} instead",
             task.spec_type
         )
-    }
-
-    // Attempt to find an HMAC key of this data-plane which validates against the request token.
-    let validation = jsonwebtoken::Validation::default();
-    let mut verified = false;
-
-    for hmac_key in &task_data_plane.hmac_keys {
-        let key = jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)
-            .context("invalid data-plane hmac key")?;
-
-        if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
-            verified = true;
-            break;
-        }
-    }
-    if !verified {
-        anyhow::bail!("no data-plane keys validated against the token signature");
     }
 
     let (Some(ops_logs), Some(ops_stats)) = (

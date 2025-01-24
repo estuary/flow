@@ -213,7 +213,7 @@ async fn do_create_data_plane(
     for err in result.draft_errors() {
         tracing::error!(error = ?err, "create-data-plane build error");
     }
-    let result = result.error_for_status()?;
+    let _ok = result.error_for_status()?;
 
     tracing::info!(
         data_plane_fqdn,

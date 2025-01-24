@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::sync::LazyLock;
 use tables::DraftCollection;
 
 pub fn parse_response(response: capture::Response) -> anyhow::Result<Vec<discovered::Binding>> {

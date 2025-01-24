@@ -47,7 +47,7 @@ pub enum Rejection {
 }
 
 struct App {
-    id_generator: Mutex<models::IdGenerator>,
+    _id_generator: Mutex<models::IdGenerator>,
     control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
     control_plane_jwt_signer: jsonwebtoken::EncodingKey,
     jwt_validation: jsonwebtoken::Validation,
@@ -110,7 +110,7 @@ pub fn build_router(
     let (snapshot, seed_rx) = snapshot::seed();
 
     let app = Arc::new(App {
-        id_generator: Mutex::new(id_generator),
+        _id_generator: Mutex::new(id_generator),
         control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
         control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
         jwt_validation,
@@ -293,17 +293,48 @@ fn maybe_rewrite_address(external: bool, address: &str) -> String {
     }
 }
 
-fn optional_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
-        "type": ["string", "null"],
-        "format": "date-time",
-    }))
-    .unwrap()
+// Parse a data-plane claims token without verifying it's signature.
+fn parse_untrusted_data_plane_claims(
+    token: &str,
+) -> anyhow::Result<(jsonwebtoken::Header, proto_gazette::Claims)> {
+    let jsonwebtoken::TokenData { header, claims }: jsonwebtoken::TokenData<proto_gazette::Claims> =
+        {
+            // In this pass we do not validate the signature,
+            // because we don't yet know which data-plane the JWT is signed by.
+            let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
+            let mut validation = jsonwebtoken::Validation::default();
+            validation.insecure_disable_signature_validation();
+            jsonwebtoken::decode(token, &empty_key, &validation)
+        }?;
+    tracing::debug!(?claims, ?header, "decoded authorization request");
+
+    if claims.sub.is_empty() {
+        anyhow::bail!("missing required `sub` claim (task or shard ID)");
+    }
+    if claims.iss.is_empty() {
+        anyhow::bail!("missing required `iss` claim (data-plane FQDN)");
+    }
+
+    Ok((header, claims))
 }
-fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
-        "type": "string",
-        "format": "date-time",
-    }))
-    .unwrap()
+
+// Verify that the signature of a data-plane claims token matches its expectation.
+fn verify_signature(token: &str, data_plane: &tables::DataPlane) -> anyhow::Result<()> {
+    // Attempt to find an HMAC key of this data-plane which validates against the request token.
+    let validation = jsonwebtoken::Validation::default();
+    let mut verified = false;
+
+    for hmac_key in &data_plane.hmac_keys {
+        let key = jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)
+            .context("invalid data-plane hmac key")?;
+
+        if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
+            verified = true;
+            break;
+        }
+    }
+    if !verified {
+        anyhow::bail!("no data-plane keys validated against the token signature");
+    }
+    Ok(())
 }
