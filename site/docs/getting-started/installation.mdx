@@ -5,6 +5,9 @@ slug: installation
 sidebar_position: 5
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 {/*
 Do not move this file as it contains the Azure auth snippet, which is configured to
 redirect to the path /getting-started/installation
@@ -46,10 +49,12 @@ You'll need to grant Estuary Flow access to your S3 bucket.
    if you haven't already.
 
 2. Follow the steps
-   to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting the
-   policy below. The policy below will work for the US Data Plane. If you're on the EU Data Plane, [get in touch].
+   to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting in one of the
+   policies below. Policies are available for the US and EU Data Planes.
    Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
 
+<Tabs>
+<TabItem value="US Data Plane policy" default>
 ```json
 {
   "Version": "2012-10-17",
@@ -86,6 +91,55 @@ You'll need to grant Estuary Flow access to your S3 bucket.
   ]
 }
 ```
+</TabItem>
+<TabItem value="EU Data Plane policy" default>
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowUsersToAccessObjectsUnderPrefix",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::770785070253:user/data-planes/data-plane-342o84ecos0opkov",
+          "arn:aws:iam::789740162118:user/flow-aws"
+        ]
+      },
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET/*"
+    },
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::770785070253:user/data-planes/data-plane-342o84ecos0opkov",
+          "arn:aws:iam::789740162118:user/flow-aws"
+        ]
+      },
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::YOUR_BUCKET"
+    },
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::770785070253:user/data-planes/data-plane-342o84ecos0opkov",
+          "arn:aws:iam::789740162118:user/flow-aws"
+        ]
+      },
+      "Action": "s3:GetBucketPolicy",
+      "Resource": "arn:aws:s3:::YOUR_BUCKET"
+    }
+  ]
+}
+```
+</TabItem>
+</Tabs>
 
 ## Azure Blob Storage
 
@@ -148,9 +202,9 @@ We'll be in touch when it's done!
 
 ## Migrating your existing data to the new storage mapping
 
-Once you've created your new storage mapping, your collections will be updated to pick up the new storage mapping, 
+Once you've created your new storage mapping, your collections will be updated to pick up the new storage mapping,
 so new data will be written there. Existing data from your previous storage mapping is not automatically migrated,
-to do so you should backfill all of your captures after configuring a storage mapping. Most tenants will have been 
-using the estuary-public storage mapping on the Free plan to begin with, which expires data after 20 days. By 
-backfilling all of your captures you guarantee that even though the data from estuary-public will expire, you’ll 
+to do so you should backfill all of your captures after configuring a storage mapping. Most tenants will have been
+using the estuary-public storage mapping on the Free plan to begin with, which expires data after 20 days. By
+backfilling all of your captures you guarantee that even though the data from estuary-public will expire, you’ll
 still have a full view of your data available on your new storage mapping.
