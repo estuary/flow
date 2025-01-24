@@ -5,34 +5,34 @@ expression: errors
 [
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/key/0,
-        error: location /int accepts "number", "object" in schema test://example/canonical/int-string-len.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://example/canonical/int-string-len.schema, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-ref-write-schema/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string#/collections/testing~1int-string-ref-write-schema/readSchema, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://example/int-string#/collections/testing~1int-string-ref-write-schema/readSchema, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
-        error: location /int accepts "number", "object" in schema test://example/canonical/int-string-len.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://example/canonical/int-string-len.schema, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string.v2/key/0,
-        error: location /int accepts "number", "object" in schema test://inlined/canonical/id, but locations used as keys may only be null-able integers, strings, or booleans,
+        error: location /int accepts "number", "object" in schema test://inlined/canonical/id, but locations used as keys may only be null-able numbers, strings, or booleans,
     },
 ]
