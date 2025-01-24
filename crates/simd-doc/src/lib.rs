@@ -110,22 +110,32 @@ impl Parser {
     pub fn chunk(&mut self, chunk: &[u8], chunk_offset: i64) -> Result<(), std::io::Error> {
         let enqueued = self.whole.len() + self.partial.len();
 
-        if enqueued == 0 {
+        let result = if enqueued == 0 {
             self.offset = chunk_offset; // We're empty. Allow the offset to jump.
-        } else if chunk_offset != self.offset + enqueued as i64 {
-            return Err(std::io::Error::new(
+            Ok(())
+        } else if chunk_offset == self.offset + enqueued as i64 {
+            Ok(()) // Chunk is contiguous.
+        } else {
+            let err = std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
                     "parser has {enqueued} bytes of document prefix starting at offset {}, but got {}-byte chunk at unexpected input offset {chunk_offset}",
                     self.offset, chunk.len(),
                 ),
-            ));
-        }
+            );
+
+            // Clear previous state to allow best-effort continuation.
+            self.whole.clear();
+            self.partial.clear();
+            self.offset = chunk_offset;
+
+            Err(err)
+        };
 
         let Some(last_newline) = memchr::memrchr(b'\n', &chunk) else {
             // If `chunk` doesn't contain a newline, it cannot complete a document.
             self.partial.extend_from_slice(chunk);
-            return Ok(());
+            return result;
         };
 
         if self.whole.is_empty() {
@@ -140,11 +150,11 @@ impl Parser {
             self.partial.extend_from_slice(&chunk[last_newline + 1..]);
         }
 
-        Ok(())
+        result
     }
 
     /// Transcode newline-delimited JSON documents into equivalent
-    /// doc::ArchivedNode representations. `pre_allocated` is a potentially
+    /// doc::ArchivedNode representations. `buffer` is a potentially
     /// pre-allocated buffer which is cleared and used within the returned
     /// Transcoded instance.
     ///
@@ -154,10 +164,10 @@ impl Parser {
     /// documents and errors.
     pub fn transcode_many(
         &mut self,
-        pre_allocated: rkyv::AlignedVec,
+        buffer: rkyv::AlignedVec,
     ) -> Result<Transcoded, (std::io::Error, std::ops::Range<i64>)> {
         let mut output = Transcoded {
-            v: pre_allocated,
+            v: buffer,
             offset: self.offset,
         };
         output.v.clear();
@@ -165,6 +175,8 @@ impl Parser {
         if self.whole.is_empty() {
             return Ok(output);
         }
+        // Reserve 2x because transcodings use more bytes then raw JSON.
+        output.v.reserve(2 * self.whole.len());
 
         let (consumed, maybe_err) =
             match transcode_simd(&mut self.whole, &mut output, &mut self.ffi) {

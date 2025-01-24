@@ -5,6 +5,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tonic::transport::Channel;
 
+/// Mode controls how Router maps a current request to an member Channel.
+pub enum Mode {
+    /// Prefer the primary of the current topology.
+    Primary,
+    /// Prefer the closest replica of the current topology.
+    Replica,
+    /// Use the default service address, ignoring the current topology.
+    /// This is appropriate for un-routed RPCs or when running
+    /// behind a proxy.
+    Default,
+}
+
 /// Router facilitates dispatching requests to designated members of
 /// a dynamic serving topology, by maintaining ready Channels to
 /// member endpoints which may be dynamically discovered over time.
@@ -31,24 +43,51 @@ impl Router {
         }
     }
 
-    /// Map an optional broker::Route and indication of whether the "primary"
-    /// member is required into a ready Channel for use in the dispatch of an RPC,
-    /// and a boolean which is set if and only if the Channel is in our local zone.
+    /// Map an Option<&mut Header>, Mode, and `default` service address into a
+    /// Channel for use in the dispatch of an RPC, and a boolean which is set
+    /// if and only if the Channel is in our local zone.
     ///
-    /// route() dial new Channels as required by the `route` and `primary` requirement.
-    /// Use sweep() to periodically clean up Channels which are no longer in use.
+    /// `default.suffix` must be the dial-able endpoint of the service,
+    /// while `default.zone` should be its zone (if known).
+    ///
+    /// route() dials Channels as required, and users MUST call sweep()
+    /// to periodically clean up Channels which are no longer in use.
+    ///
+    /// route() mutates `header` by clearing its `process_id` if set.
+    /// This facilitates passing forward the Header of an RPC response into
+    /// a next RPC request, in order to leverage route topology and Etcd
+    /// metadata of that response. `process_id` must be cleared because it
+    /// represents the handling server in a response context, but in a
+    /// request context it denotes the server to which the request is directed,
+    /// which is not our intention here. Rather, we wish to use a prior response
+    /// Header to pick a *better* member to which we'll route the next request.
     pub fn route(
         &self,
-        route: Option<&broker::Route>,
-        primary: bool,
+        header: Option<&mut broker::Header>,
+        mode: Mode,
         default: &MemberId,
     ) -> Result<(Channel, bool), Error> {
+        let (route, primary) = match header {
+            Some(header) => {
+                header.process_id = None;
+
+                match mode {
+                    Mode::Primary => (header.route.as_ref(), true),
+                    Mode::Replica => (header.route.as_ref(), false),
+                    Mode::Default => (None, false),
+                }
+            }
+            None => (None, false),
+        };
         let index = pick(route, primary, &self.inner.zone);
 
         let id = match index {
             Some(index) => &route.unwrap().members[index],
             None => default,
         };
+        let local = id.zone == self.inner.zone;
+        tracing::debug!(?id, %local, "picked member");
+
         let mut states = self.inner.states.lock().unwrap();
 
         // Is the channel already started?
@@ -64,7 +103,7 @@ impl Router {
         })?;
         states.insert(id.clone(), (channel.clone(), true));
 
-        Ok((channel, id.zone == self.inner.zone))
+        Ok((channel, local))
     }
 
     // Identify Channels which have not been used since the preceding sweep, and close them.

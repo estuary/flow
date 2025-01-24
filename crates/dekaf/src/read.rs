@@ -128,9 +128,6 @@ impl Read {
         let mut tmp = Vec::new();
         let mut buf = bytes::BytesMut::new();
 
-        let mut has_had_parsing_error = false;
-        let mut transient_errors = 0;
-
         let timeout = tokio::time::sleep_until(timeout.into());
         let timeout = futures::future::maybe_done(timeout);
         tokio::pin!(timeout);
@@ -167,30 +164,26 @@ impl Read {
                             continue;
                         }
                     },
-                    Err(err) if err.is_transient() && transient_errors < 5 => {
-                        use rand::Rng;
-
-                        transient_errors = transient_errors + 1;
-
-                        tracing::warn!(error = ?err, "Retrying transient read error");
-                        let delay = std::time::Duration::from_millis(
-                            rand::thread_rng().gen_range(300..2000),
-                        );
-                        tokio::time::sleep(delay).await;
+                    Err(gazette::RetryError { attempt, inner })
+                        if inner.is_transient() && attempt < 5 =>
+                    {
+                        tracing::warn!(error = ?inner, "Retrying transient read error");
                         // We can retry transient errors just by continuing to poll the stream
                         continue;
                     }
-                    Err(err @ gazette::Error::Parsing { .. }) if !has_had_parsing_error => {
-                        tracing::debug!(%err, "Ignoring first parse error to skip past partial document");
-                        has_had_parsing_error = true;
-
-                        continue;
+                    Err(gazette::RetryError {
+                        attempt,
+                        inner: err @ gazette::Error::Parsing { .. },
+                    }) => {
+                        if attempt == 0 {
+                            tracing::debug!(%err, "Ignoring first parse error to skip past partial document");
+                            continue;
+                        } else {
+                            tracing::warn!(%err, "Got a second parse error, something is wrong");
+                            Err(err)
+                        }
                     }
-                    Err(err @ gazette::Error::Parsing { .. }) => {
-                        tracing::warn!(%err, "Got a second parse error, something is wrong");
-                        Err(err)
-                    }
-                    Err(e) => Err(e),
+                    Err(gazette::RetryError { inner, .. }) => Err(inner),
                 }?,
             };
 

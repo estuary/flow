@@ -45,7 +45,22 @@ pub enum Error {
     JWT(#[from] jsonwebtoken::errors::Error),
 }
 
+/// RetryError is an Error encountered during a retry-able operation.
+pub struct RetryError {
+    /// Number of operation attempts since the last success.
+    pub attempt: usize,
+    /// Error encountered with this attempt.
+    pub inner: Error,
+}
+
 impl Error {
+    pub fn with_attempt(self, attempt: usize) -> RetryError {
+        RetryError {
+            attempt: attempt,
+            inner: self,
+        }
+    }
+
     pub fn is_transient(&self) -> bool {
         match self {
             // These errors are generally failure of a transport, and can be retried.
@@ -79,6 +94,9 @@ impl Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// RetryResult is a single Result of a retry-able operation.
+pub type RetryResult<T> = std::result::Result<T, RetryError>;
 
 /// Lazily dial a gRPC endpoint with opinionated defaults and
 /// support for TLS and Unix Domain Sockets.
@@ -135,4 +153,18 @@ async fn connect_unix(
     Ok(hyper_util::rt::TokioIo::new(
         tokio::net::UnixStream::connect(path).await?,
     ))
+}
+
+fn backoff(attempt: usize) -> std::time::Duration {
+    // The choices of backoff duration reflect that we're usually waiting for
+    // the cluster to converge on a shared understanding of ownership, and that
+    // involves a couple of Nagle-like read delays (~30ms) as Etcd watch
+    // updates are applied by participants.
+    match attempt {
+        0 => std::time::Duration::ZERO,
+        1 => std::time::Duration::from_millis(50),
+        2 | 3 => std::time::Duration::from_millis(100),
+        4 | 5 => std::time::Duration::from_secs(1),
+        _ => std::time::Duration::from_secs(5),
+    }
 }

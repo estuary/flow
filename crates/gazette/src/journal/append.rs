@@ -1,8 +1,7 @@
 use super::Client;
-use crate::{journal::check_ok, Error};
+use crate::{router, Error};
 use futures::{FutureExt, Stream, StreamExt};
 use proto_gazette::broker::{self, AppendResponse};
-use std::sync::Arc;
 
 impl Client {
     /// Append the contents of a byte stream to the specified journal.
@@ -13,59 +12,81 @@ impl Client {
     /// retries the request from the beginning.
     pub fn append<'a, S>(
         &'a self,
-        request: broker::AppendRequest,
+        mut req: broker::AppendRequest,
         source: impl Fn() -> S + Send + Sync + 'a,
-    ) -> impl Stream<Item = crate::Result<broker::AppendResponse>> + '_
+    ) -> impl Stream<Item = crate::RetryResult<broker::AppendResponse>> + '_
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
     {
         coroutines::coroutine(move |mut co| async move {
-            loop {
-                let input_stream = source();
+            let mut attempt = 0;
 
-                match self.try_append(request.clone(), input_stream).await {
+            loop {
+                let err = match self.try_append(&mut req, source()).await {
                     Ok(resp) => {
                         () = co.yield_(Ok(resp)).await;
                         return;
                     }
-                    Err(err) => {
-                        () = co.yield_(Err(err)).await;
-                        // Polling after an error indicates the caller would like to retry,
-                        // so continue the loop to re-generate the input stream and try again.
-                    }
+                    Err(err) => err,
+                };
+
+                if matches!(err, Error::BrokerStatus(broker::Status::NotJournalPrimaryBroker) if req.do_not_proxy)
+                {
+                    // This is an expected error which drives dynamic route discovery.
+                    // Route topology in `req.header` has been updated, and we restart the request.
+                    continue;
                 }
+
+                // Surface error to the caller, who can either drop to cancel or poll to retry.
+                () = co.yield_(Err(err.with_attempt(attempt))).await;
+                () = tokio::time::sleep(crate::backoff(attempt)).await;
+                attempt += 1;
+
+                // Restart route discovery.
+                req.header = None;
             }
         })
     }
 
     async fn try_append<S>(
         &self,
-        request: broker::AppendRequest,
+        req: &mut broker::AppendRequest,
         source: S,
     ) -> crate::Result<AppendResponse>
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
     {
-        let (input_err_tx, input_err_rx) = tokio::sync::oneshot::channel();
+        let mut client = self.into_sub(self.router.route(
+            req.header.as_mut(),
+            if req.do_not_proxy {
+                router::Mode::Primary
+            } else {
+                router::Mode::Default
+            },
+            &self.default,
+        )?);
+        let req_clone = req.clone();
+
+        let (source_err_tx, source_err_rx) = tokio::sync::oneshot::channel();
 
         // `JournalClient::append()` wants a stream of `AppendRequest`s, so let's compose one starting with
         // the initial metadata request containing the journal name and any other request metadata, then
         // "data" requests that contain chunks of data to write, then the final EOF indicating completion.
-        let request_stream = futures::stream::once(async move { Ok(request) })
+        let source = futures::stream::once(async move { Ok(req_clone) })
             .chain(source.filter_map(|input| {
                 futures::future::ready(match input {
                     // It's technically possible to get an empty set of bytes when reading
                     // from the input stream. Filter these out as otherwise they would look
                     // like EOFs to the append RPC and cause confusion.
-                    Ok(input_bytes) if input_bytes.len() == 0 => None,
-                    Ok(input_bytes) => Some(Ok(broker::AppendRequest {
-                        content: input_bytes.to_vec(),
+                    Ok(content) if content.len() == 0 => None,
+                    Ok(content) => Some(Ok(broker::AppendRequest {
+                        content,
                         ..Default::default()
                     })),
                     Err(err) => Some(Err(err)),
                 })
             }))
-            // Final empty chunk / EOF to signal we're done
+            // Final empty chunk signals the broker to commit (rather than rollback).
             .chain(futures::stream::once(async {
                 Ok(broker::AppendRequest {
                     ..Default::default()
@@ -74,11 +95,11 @@ impl Client {
             // Since it's possible to error when reading input data, we handle an error by stopping
             // the stream and storing the error. Later, we first check if we have hit an input error
             // and if so we bubble it up, otherwise proceeding with handling the output of the RPC
-            .scan(Some(input_err_tx), |input_err_tx, input_res| {
-                futures::future::ready(match input_res {
-                    Ok(input) => Some(input),
+            .scan(Some(source_err_tx), |err_tx, result| {
+                futures::future::ready(match result {
+                    Ok(request) => Some(request),
                     Err(err) => {
-                        input_err_tx
+                        err_tx
                             .take()
                             .expect("we should reach this point at most once")
                             .send(err)
@@ -87,21 +108,20 @@ impl Client {
                     }
                 })
             });
+        let result = client.append(source).await;
 
-        let mut client = self.into_sub(self.router.route(None, false, &self.default)?);
+        // An error reading `source` has precedence,
+        // as it's likely causal if the broker *also* errored.
+        if let Ok(err) = source_err_rx.now_or_never().expect("tx has been dropped") {
+            return Err(Error::AppendRead(err));
+        }
+        let mut resp = result?.into_inner();
 
-        let resp = client.append(request_stream).await;
-
-        if let Some(Ok(input_err)) = input_err_rx.now_or_never() {
-            return Err(Error::AppendRead(input_err));
+        if resp.status() == broker::Status::Ok {
+            Ok(resp)
         } else {
-            match resp {
-                Ok(resp) => {
-                    let resp = resp.into_inner();
-                    check_ok(resp.status(), resp)
-                }
-                Err(err) => Err(err.into()),
-            }
+            req.header = resp.header.take();
+            Err(Error::BrokerStatus(resp.status()))
         }
     }
 }
