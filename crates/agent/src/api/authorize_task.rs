@@ -27,7 +27,7 @@ pub async fn authorize_task(
 ///     * The requested collection may be in a different data plane than the issuer.
 #[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
 async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
-    let (header, mut claims) = super::parse_untrusted_data_plane_claims(token)?;
+    let (_header, mut claims) = super::parse_untrusted_data_plane_claims(token)?;
     let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")?.to_owned();
 
     // Require the request was signed with the AUTHORIZE capability,
@@ -62,22 +62,27 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
         cap => anyhow::bail!("capability {cap} cannot be authorized by this service"),
     };
 
-    match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
-        evaluate_authorization(
-            snapshot,
-            &claims.sub,
-            &claims.iss,
-            token,
-            &journal_name_or_prefix,
-            required_role,
-        )
-    }) {
-        Ok((encoding_key, data_plane_fqdn, broker_address)) => {
+    match Snapshot::evaluate(
+        &app.snapshot,
+        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
+        |snapshot: &Snapshot| {
+            evaluate_authorization(
+                snapshot,
+                &claims.sub,
+                &claims.iss,
+                token,
+                &journal_name_or_prefix,
+                required_role,
+            )
+        },
+    ) {
+        Ok((exp, (encoding_key, data_plane_fqdn, broker_address))) => {
             claims.iss = data_plane_fqdn;
-            claims.exp = claims.iat + super::exp_seconds();
+            claims.exp = exp.timestamp() as u64;
 
-            let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
-                .context("failed to encode authorized JWT")?;
+            let token =
+                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
+                    .context("failed to encode authorized JWT")?;
 
             Ok(Response {
                 broker_address,
@@ -85,8 +90,8 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
                 retry_millis: 0,
             })
         }
-        Err(Ok(retry_millis)) => Ok(Response {
-            retry_millis,
+        Err(Ok(backoff)) => Ok(Response {
+            retry_millis: backoff.as_millis() as u64,
             ..Default::default()
         }),
         Err(Err(err)) => Err(err),
@@ -100,7 +105,10 @@ fn evaluate_authorization(
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
-) -> anyhow::Result<(jsonwebtoken::EncodingKey, String, String)> {
+) -> anyhow::Result<(
+    Option<chrono::DateTime<chrono::Utc>>,
+    (jsonwebtoken::EncodingKey, String, String),
+)> {
     let Snapshot {
         data_planes,
         role_grants,
@@ -170,12 +178,24 @@ fn evaluate_authorization(
     };
     let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)?;
 
+    let cordon_at = match (
+        snapshot.cordon_at(&task.task_name, task_data_plane),
+        snapshot.cordon_at(&collection.collection_name, collection_data_plane),
+    ) {
+        (Some(l), Some(r)) => Some(l.min(r)),
+        (Some(i), None) | (None, Some(i)) => Some(i),
+        (None, None) => None,
+    };
+
     Ok((
-        encoding_key,
-        collection_data_plane.data_plane_fqdn.clone(),
-        super::maybe_rewrite_address(
-            task.data_plane_id != collection.data_plane_id,
-            &collection_data_plane.broker_address,
+        cordon_at,
+        (
+            encoding_key,
+            collection_data_plane.data_plane_fqdn.clone(),
+            super::maybe_rewrite_address(
+                task.data_plane_id != collection.data_plane_id,
+                &collection_data_plane.broker_address,
+            ),
         ),
     ))
 }

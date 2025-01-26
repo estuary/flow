@@ -6,13 +6,15 @@ use std::sync::Arc;
 // that influences authorization decisions.
 pub struct Snapshot {
     // Time immediately before the snapshot was taken.
-    pub taken: std::time::SystemTime,
+    pub taken: chrono::DateTime<chrono::Utc>,
     // Platform collections, indexed on `journal_template_name`.
     pub collections: Vec<SnapshotCollection>,
     // Indices of `collections`, indexed on `collection_name`.
     pub collections_idx_name: Vec<usize>,
     // Platform data-planes.
     pub data_planes: tables::DataPlanes,
+    // Data-plane migrations underway.
+    pub migrations: Vec<SnapshotMigration>,
     // Platform role grants.
     pub role_grants: tables::RoleGrants,
     // Platform user grants.
@@ -35,6 +37,7 @@ pub struct SnapshotCollection {
     // Data-plane where this collection lives.
     pub data_plane_id: models::Id,
 }
+
 // SnapshotTask is the state of a live task which influences authorization.
 // It's indexed on `shard_template_id`.
 #[derive(Debug)]
@@ -49,52 +52,112 @@ pub struct SnapshotTask {
     pub data_plane_id: models::Id,
 }
 
+// SnapshotMigration is the state of an underway data-plane migration.
+#[derive(Debug)]
+pub struct SnapshotMigration {
+    // Catalog prefix to be migrated. This is *not* always slash terminated,
+    // so that we can bulk migrate (for example) all tenants that start with 'e'.
+    pub catalog_prefix: String,
+    // Cordoning cutoff for this migration.
+    // No authorizations are allowed to extend beyond `cordon_at`.
+    pub cordon_at: chrono::DateTime<chrono::Utc>,
+    // Data-plane being migrated from.
+    pub src_plane_id: models::Id,
+    // Data-plane being migrated to.
+    pub tgt_plane_id: models::Id,
+}
+
 impl Snapshot {
+    pub fn empty() -> Self {
+        Self {
+            taken: chrono::DateTime::UNIX_EPOCH,
+            collections: Vec::new(),
+            collections_idx_name: Vec::new(),
+            data_planes: tables::DataPlanes::default(),
+            migrations: Vec::new(),
+            role_grants: tables::RoleGrants::default(),
+            user_grants: tables::UserGrants::default(),
+            tasks: Vec::new(),
+            tasks_idx_name: Vec::new(),
+            refresh_tx: None,
+        }
+    }
+
+    /// Evaluate an authorization requested at time `iat`, which is evaluated
+    /// according to `policy`, and returning one of:
+    ///
+    /// - `Ok((expiration, ok))`
+    /// The authorization is valid through the given expiration.
+    /// - `Err(Ok(retry_after))`
+    /// The status of the authorization is not yet know, and should be retried
+    /// after the returned TimeDelta.
+    /// - Err(Err(err)):
+    /// The authorization is invalid.
+    ///
+    /// The Policy function must return one of:
+    /// - `Ok((None, ok))`
+    /// The authorization is valid.
+    /// - `Ok((Some(cordon_at), ok))`
+    /// The authorization is valid, but is cordoned for migration after `cordon_at`.
+    /// - `Err(err)`
+    /// The authorization is invalid.
+    ///
     pub fn evaluate<P, Ok>(
         mu: &std::sync::RwLock<Self>,
-        iat: u64,
+        started: chrono::DateTime<chrono::Utc>,
         policy: P,
-    ) -> Result<Ok, Result<u64, anyhow::Error>>
+    ) -> Result<(chrono::DateTime<chrono::Utc>, Ok), Result<std::time::Duration, anyhow::Error>>
     where
-        P: FnOnce(&Self) -> anyhow::Result<Ok>,
+        P: FnOnce(&Self) -> anyhow::Result<(Option<chrono::DateTime<chrono::Utc>>, Ok)>,
     {
-        let guard = mu.read().unwrap();
+        let snapshot = mu.read().unwrap();
 
-        let taken_unix = guard
-            .taken
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        // Select an expiration for the evaluated authorization (presuming it succeeds)
+        // which is at-most MAX_AUTHORIZATION in the future relative to the Snapshot time.
+        // Then, jitter to smooth the load of client re-authorizations over time.
+        use rand::Rng;
+        let exp = snapshot.taken
+            + chrono::TimeDelta::seconds(rand::thread_rng().gen_range(
+                (Snapshot::MAX_AUTHORIZATION.num_seconds() / 2)
+                    ..Snapshot::MAX_AUTHORIZATION.num_seconds(),
+            ));
 
-        // If the snapshot is too old then the client MUST retry.
-        if iat > taken_unix + Snapshot::MAX_INTERVAL.as_secs() {
-            Self::begin_refresh(guard, mu);
-
-            return Err(Ok(jitter_millis()));
-        }
-
-        match policy(&guard) {
-            Ok(ok) => Ok(ok),
-            Err(err) if taken_unix > iat => {
-                // The snapshot was taken AFTER the authorization request was minted,
-                // which means the request cannot have prior knowledge of upcoming
-                // state re-configurations, and this is a terminal error.
-                Err(Err(err))
+        match policy(&snapshot) {
+            // Authorization is valid and not cordoned.
+            Ok((None, ok)) => return Ok((exp, ok)),
+            // Authorization is valid but cordoned in the future.
+            Ok((Some(cordon_at), ok)) if cordon_at > started => {
+                return Ok((std::cmp::min(exp, cordon_at), ok))
             }
-            Err(_) => {
-                let retry_millis = if let Some(remaining) =
-                    Snapshot::MIN_INTERVAL.checked_sub(guard.taken.elapsed().unwrap_or_default())
-                {
-                    // Our current snapshot isn't old enough.
-                    remaining.as_millis() as u64
-                } else {
-                    Snapshot::begin_refresh(guard, mu);
-                    0
-                } + jitter_millis();
+            // Authorization is invalid and the Snapshot was taken after the
+            // start of the authorization request. Terminal failure.
+            Err(err) if snapshot.taken > started => return Err(Err(err)),
 
-                Err(Ok(retry_millis))
-            }
-        }
+            // Authorization is valid but is currently cordoned, and we must
+            // hold it in limbo until the cordoned condition is resolved
+            // by a future Snapshot.
+            Ok((Some(_cordon_at), _ok)) => (),
+            // Authorization is invalid but the Snapshot is older than the start
+            // of the authorization request. It's possible that the requestor has
+            // more-recent knowledge that the authorization is valid.
+            Err(_err) => (),
+        };
+
+        // We must await a future Snapshot to determine the definitive outcome.
+
+        let backoff =
+            // Determine the remaining "cool off" time before the next Snapshot starts.
+            std::cmp::max(
+                (snapshot.taken + Snapshot::MIN_REFRESH_INTERVAL) - chrono::Utc::now(),
+                chrono::TimeDelta::zero(),
+            )
+            // We don't know how long a Snapshot fetch will take -- currently it's ~1-5 seconds,
+            // but our real objective here is to smooth the herd of retries awaiting a refresh.
+            + chrono::TimeDelta::milliseconds(rand::thread_rng().gen_range(500..10_000));
+
+        Snapshot::signal_refresh(snapshot, mu);
+
+        Err(Ok(backoff.to_std().unwrap()))
     }
 
     // Retrieve task having the exact catalog `name`.
@@ -154,10 +217,40 @@ impl Snapshot {
             .map(|index| &self.collections[index])
     }
 
-    fn begin_refresh<'m>(
+    // If there is a migration which covers `catalog_name`, running in `data_plane`,
+    // then retrieve the time at which it's cordoned.
+    pub fn cordon_at<'s>(
+        &'s self,
+        catalog_name: &str,
+        data_plane: &tables::DataPlane,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.migrations
+            .binary_search_by(|migration| {
+                if catalog_name.starts_with(&migration.catalog_prefix) {
+                    std::cmp::Ordering::Equal
+                } else {
+                    migration.catalog_prefix.as_str().cmp(catalog_name)
+                }
+            })
+            .ok()
+            .and_then(|index| {
+                let migration = &self.migrations[index];
+
+                if migration.src_plane_id == data_plane.control_id {
+                    Some(migration.cordon_at)
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn signal_refresh<'m>(
         guard: std::sync::RwLockReadGuard<'_, Self>,
         mu: &'m std::sync::RwLock<Self>,
     ) {
+        if guard.refresh_tx.is_none() {
+            return; // Refresh is already underway.
+        }
         // We must release our read-lock before we can acquire a write lock.
         std::mem::drop(guard);
 
@@ -166,32 +259,27 @@ impl Snapshot {
         }
     }
 
-    const MIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(20);
-    const MAX_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300); // 5 minutes.
+    // Minimal interval between Snapshot refreshes.
+    // We will postpone a requested refresh prior to this interval.
+    const MIN_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(20);
+    // Maximum interval between Snapshot refreshes.
+    // We will refresh an older Snapshot in the background.
+    const MAX_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
+    // Maximum lifetime of an authorization produced from a Snapshot,
+    // relative to the timestamp at which the Snapshot was taken.
+    // This upper-bounds the lifetime of an authorization derived from a Snapshot.
+    const MAX_AUTHORIZATION: chrono::TimeDelta = chrono::TimeDelta::minutes(80);
 }
 
-pub fn seed() -> (Snapshot, futures::channel::oneshot::Receiver<()>) {
-    let (next_tx, next_rx) = futures::channel::oneshot::channel();
-
-    (
-        Snapshot {
-            taken: std::time::SystemTime::UNIX_EPOCH,
-            collections: Vec::new(),
-            collections_idx_name: Vec::new(),
-            data_planes: tables::DataPlanes::default(),
-            role_grants: tables::RoleGrants::default(),
-            user_grants: tables::UserGrants::default(),
-            tasks: Vec::new(),
-            tasks_idx_name: Vec::new(),
-            refresh_tx: Some(next_tx),
-        },
-        next_rx,
-    )
-}
-pub async fn fetch_loop(app: Arc<App>, mut refresh_rx: futures::channel::oneshot::Receiver<()>) {
-    while let Ok(()) = refresh_rx.await {
+pub async fn fetch_loop(app: Arc<App>) {
+    loop {
         let (next_tx, next_rx) = futures::channel::oneshot::channel();
-        refresh_rx = next_rx;
+
+        // We'll minimally wait for MIN_REFRESH_INTERVAL each iteration.
+        let cooloff = tokio::time::sleep(Snapshot::MIN_REFRESH_INTERVAL.to_std().unwrap());
+        // We'll wait for the first of `next_rx` or MAX_REFRESH_INTERVAL each iteration.
+        let next_rx =
+            tokio::time::timeout(Snapshot::MAX_REFRESH_INTERVAL.to_std().unwrap(), next_rx);
 
         match try_fetch(&app.pg_pool).await {
             Ok(mut snapshot) => {
@@ -200,16 +288,16 @@ pub async fn fetch_loop(app: Arc<App>, mut refresh_rx: futures::channel::oneshot
             }
             Err(err) => {
                 tracing::error!(?err, "failed to fetch snapshot (will retry)");
-                () = tokio::time::sleep(Snapshot::MIN_INTERVAL).await;
                 _ = next_tx.send(()); // Wake ourselves to retry.
             }
-        };
+        }
+        let ((), _) = futures::join!(cooloff, next_rx);
     }
 }
 
 async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
     tracing::info!("started to fetch authorization snapshot");
-    let taken = std::time::SystemTime::now();
+    let taken = chrono::Utc::now();
 
     let mut collections = sqlx::query_as!(
         SnapshotCollection,
@@ -245,6 +333,21 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
     .fetch_all(pg_pool)
     .await
     .context("failed to fetch data_planes")?;
+
+    let mut migrations = sqlx::query_as!(
+        SnapshotMigration,
+        r#"
+            select
+                catalog_prefix,
+                src_plane_id as "src_plane_id: models::Id",
+                tgt_plane_id as "tgt_plane_id: models::Id",
+                cordon_at
+            from internal.migrations
+            "#,
+    )
+    .fetch_all(pg_pool)
+    .await
+    .context("failed to fetch migrations")?;
 
     let role_grants = sqlx::query_as!(
         tables::RoleGrant,
@@ -294,6 +397,8 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
     let role_grants = tables::RoleGrants::from_iter(role_grants);
     let user_grants = tables::UserGrants::from_iter(user_grants);
 
+    migrations.sort_by(|l, r| l.catalog_prefix.cmp(&r.catalog_prefix));
+
     // Shard ID and journal name templates are prefixes which are always
     // extended with a slash-separated suffix. Avoid inadvertent matches
     // over path component prefixes.
@@ -319,6 +424,7 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
     tracing::info!(
         collections = collections.len(),
         data_planes = data_planes.len(),
+        migrations = migrations.len(),
         role_grants = role_grants.len(),
         tasks = tasks.len(),
         user_grants = user_grants.len(),
@@ -330,18 +436,11 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
         collections,
         collections_idx_name,
         data_planes,
+        migrations,
         role_grants,
         user_grants,
         tasks,
         tasks_idx_name,
         refresh_tx: None,
     })
-}
-
-fn jitter_millis() -> u64 {
-    use rand::Rng;
-
-    // The returned jitter must always be positive.
-    // In production, it can take a few seconds to fetch a snapshot.
-    rand::thread_rng().gen_range(500..10_000)
 }

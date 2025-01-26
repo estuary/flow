@@ -63,9 +63,8 @@ impl App {
         catalog_names: &[impl AsRef<str>],
         capability: Capability,
     ) -> anyhow::Result<bool> {
-        let started_unix = jsonwebtoken::get_current_timestamp();
         loop {
-            match Snapshot::evaluate(&self.snapshot, started_unix, |snapshot: &Snapshot| {
+            match Snapshot::evaluate(&self.snapshot, chrono::Utc::now(), |snapshot: &Snapshot| {
                 for catalog_name in catalog_names {
                     if !tables::UserGrant::is_authorized(
                         &snapshot.role_grants,
@@ -80,15 +79,15 @@ impl App {
                             user_id = %claims.sub,
                             "user is unauthorized"
                         );
-                        return Ok(false);
+                        return Ok((None, false));
                     }
                 }
-                Ok(true)
+                Ok((None, true))
             }) {
-                Ok(authz_result) => return Ok(authz_result),
-                Err(Ok(retry_millis)) => {
-                    tracing::debug!(%retry_millis, "waiting before retrying authZ check");
-                    () = tokio::time::sleep(std::time::Duration::from_millis(retry_millis)).await;
+                Ok((_exp, authz_result)) => return Ok(authz_result),
+                Err(Ok(backoff)) => {
+                    tracing::debug!(?backoff, "waiting before retrying authZ check");
+                    () = tokio::time::sleep(backoff).await;
                 }
                 Err(Err(err)) => return Err(err),
             }
@@ -107,8 +106,6 @@ pub fn build_router(
     let mut jwt_validation = jsonwebtoken::Validation::default();
     jwt_validation.set_audience(&["authenticated"]);
 
-    let (snapshot, seed_rx) = snapshot::seed();
-
     let app = Arc::new(App {
         _id_generator: Mutex::new(id_generator),
         control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
@@ -116,9 +113,9 @@ pub fn build_router(
         jwt_validation,
         pg_pool,
         publisher,
-        snapshot: std::sync::RwLock::new(snapshot),
+        snapshot: std::sync::RwLock::new(Snapshot::empty()),
     });
-    tokio::spawn(snapshot::fetch_loop(app.clone(), seed_rx));
+    tokio::spawn(snapshot::fetch_loop(app.clone()));
 
     use axum::routing::post;
 
@@ -260,14 +257,6 @@ async fn authorize(
 
     req.extensions_mut().insert(token.claims);
     next.run(req).await
-}
-
-fn exp_seconds() -> u64 {
-    use rand::Rng;
-
-    // Select a random expiration time in range [40, 80) minutes,
-    // which spreads out load from re-authorization requests over time.
-    rand::thread_rng().gen_range(40 * 60..80 * 60)
 }
 
 fn ops_suffix(task: &snapshot::SnapshotTask) -> String {

@@ -58,10 +58,14 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
         anyhow::bail!("invalid capability, must be AUTHORIZE only: {}", claims.cap);
     }
 
-    match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
-        evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, token)
-    }) {
-        Ok((ops_logs_journal, ops_stats_journal)) => {
+    match Snapshot::evaluate(
+        &app.snapshot,
+        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
+        |snapshot: &Snapshot| {
+            evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, token)
+        },
+    ) {
+        Ok((exp, (ops_logs_journal, ops_stats_journal))) => {
             let materialization_spec = sqlx::query!(
                 r#"
                     select
@@ -88,7 +92,7 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
 
             let claims = AccessTokenClaims {
                 iat: claims.iat,
-                exp: claims.iat + super::exp_seconds(),
+                exp: exp.timestamp() as u64,
                 role: DEKAF_ROLE.to_string(),
             };
             let token = jsonwebtoken::encode(
@@ -106,8 +110,8 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
                 retry_millis: 0,
             })
         }
-        Err(Ok(retry_millis)) => Ok(Response {
-            retry_millis,
+        Err(Ok(backoff)) => Ok(Response {
+            retry_millis: backoff.as_millis() as u64,
             ..Default::default()
         }),
         Err(Err(err)) => Err(err),
@@ -119,7 +123,7 @@ fn evaluate_authorization(
     task_name: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
-) -> anyhow::Result<(String, String)> {
+) -> anyhow::Result<(Option<chrono::DateTime<chrono::Utc>>, (String, String))> {
     let Snapshot { data_planes, .. } = snapshot;
 
     let task = snapshot.task_by_catalog_name(task_name);
@@ -155,5 +159,8 @@ fn evaluate_authorization(
     let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
     let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
 
-    Ok((ops_logs_journal, ops_stats_journal))
+    Ok((
+        snapshot.cordon_at(&task.task_name, task_data_plane),
+        (ops_logs_journal, ops_stats_journal),
+    ))
 }
