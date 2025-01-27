@@ -20,68 +20,65 @@ impl Handler for Publisher {
         pg_pool: &sqlx::PgPool,
         allow_background: bool,
     ) -> anyhow::Result<HandleResult> {
-        loop {
-            let mut txn = pg_pool.begin().await?;
+        let mut txn = pg_pool.begin().await?;
 
-            let row: Row =
-                match agent_sql::publications::dequeue(&mut txn, allow_background).await? {
-                    None => return Ok(HandleResult::NoJobs),
-                    Some(row) => row,
+        let row: Row = match agent_sql::publications::dequeue(&mut txn, allow_background).await? {
+            None => return Ok(HandleResult::NoJobs),
+            Some(row) => row,
+        };
+
+        let id = row.pub_id;
+        let background = row.background;
+        let dry_run = row.dry_run;
+        let draft_id = row.draft_id;
+
+        // Remove draft errors from a previous publication attempt.
+        agent_sql::drafts::delete_errors(row.draft_id, &mut txn)
+            .await
+            .context("clearing old errors")?;
+
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+
+        let (status, draft_errors, final_pub_id) = match self.process(row).await {
+            Ok(result) => {
+                if dry_run {
+                    specs::add_built_specs_to_draft_specs(draft_id, &result.built, &self.db)
+                        .await
+                        .context("adding built specs to draft")?;
+                }
+                let errors = result.draft_errors();
+                let final_id = if result.status.is_success() {
+                    Some(result.pub_id)
+                } else {
+                    None
                 };
-
-            let id = row.pub_id;
-            let background = row.background;
-            let dry_run = row.dry_run;
-            let draft_id = row.draft_id;
-
-            // Remove draft errors from a previous publication attempt.
-            agent_sql::drafts::delete_errors(row.draft_id, &mut txn)
-                .await
-                .context("clearing old errors")?;
-
-            let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-
-            let (status, draft_errors, final_pub_id) = match self.process(row).await {
-                Ok(result) => {
-                    if dry_run {
-                        specs::add_built_specs_to_draft_specs(draft_id, &result.built, &self.db)
-                            .await
-                            .context("adding built specs to draft")?;
-                    }
-                    let errors = result.draft_errors();
-                    let final_id = if result.status.is_success() {
-                        Some(result.pub_id)
-                    } else {
-                        None
-                    };
-                    (result.status, errors, final_id)
-                }
-                Err(error) => {
-                    tracing::warn!(?error, pub_id = %id, "build finished with error");
-                    let errors = vec![draft_error::Error {
-                        catalog_name: String::new(),
-                        scope: None,
-                        detail: format!("{error:#}"),
-                    }];
-                    (JobStatus::PublishFailed, errors, None)
-                }
-            };
-
-            draft::insert_errors(draft_id, draft_errors, &mut txn).await?;
-
-            info!(%id, %time_queued, %background, ?status, "publication finished");
-            agent_sql::publications::resolve(id, &status, final_pub_id, &mut txn).await?;
-
-            txn.commit().await?;
-
-            // As a separate transaction, delete the draft. Note that the user technically could
-            // have inserted or updated draft specs after we started the publication, and those
-            // would still be removed by this.
-            if status.is_success() && !dry_run {
-                agent_sql::publications::delete_draft(draft_id, pg_pool).await?;
+                (result.status, errors, final_id)
             }
-            return Ok(HandleResult::HadJob);
+            Err(error) => {
+                tracing::warn!(?error, pub_id = %id, "build finished with error");
+                let errors = vec![draft_error::Error {
+                    catalog_name: String::new(),
+                    scope: None,
+                    detail: format!("{error:#}"),
+                }];
+                (JobStatus::PublishFailed, errors, None)
+            }
+        };
+
+        draft::insert_errors(draft_id, draft_errors, &mut txn).await?;
+
+        info!(%id, %time_queued, %background, ?status, "publication finished");
+        agent_sql::publications::resolve(id, &status, final_pub_id, &mut txn).await?;
+
+        txn.commit().await?;
+
+        // As a separate transaction, delete the draft. Note that the user technically could
+        // have inserted or updated draft specs after we started the publication, and those
+        // would still be removed by this.
+        if status.is_success() && !dry_run {
+            agent_sql::publications::delete_draft(draft_id, pg_pool).await?;
         }
+        Ok(HandleResult::HadJob)
     }
 
     fn table_name(&self) -> &'static str {
