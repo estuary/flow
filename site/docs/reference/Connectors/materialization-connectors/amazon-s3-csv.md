@@ -48,8 +48,6 @@ Flow collections to your bucket.
 | `/prefix`                 | Prefix                | Optional prefix that will be used to store objects.                                                                                           | string  |                  |
 | `/fileSizeLimit`          | File Size Limit       | Approximate maximum size of materialized files in bytes. Defaults to 10737418240 (10 GiB) if blank.                                           | integer |                  |
 | `/endpoint`               | Custom S3 Endpoint    | The S3 endpoint URI to connect to. Use if you're materializing to a compatible API that isn't provided by AWS. Should normally be left blank. | string  |                  |
-| `/csvConfig/delimiter`    | Delimiter             | Character to separate columns within a row. Defaults to a comma if blank. Must be a single character with a byte length of 1.                 | integer |                  |
-| `/csvConfig/nullString`   | Null String           | String to use to represent NULL values. Defaults to an empty string if blank.                                                                 | integer |                  |
 | `/csvConfig/skipHeaders`  | Skip Headers          | Do not write headers to files.                                                                                                                | integer |                  |
 
 #### Bindings
