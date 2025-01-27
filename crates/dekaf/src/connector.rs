@@ -1,7 +1,11 @@
 use anyhow::{bail, Context};
 use futures::future::try_join_all;
+use itertools::Itertools;
 use models::RawValue;
-use proto_flow::{flow::materialization_spec, materialize};
+use proto_flow::{
+    flow::{self, materialization_spec},
+    materialize,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -118,53 +122,43 @@ pub async fn unary_materialize(
             parsed_outer_config.variant
         ))?;
 
-        let validated_bindings = try_join_all(
-            std::mem::take(&mut validate.bindings)
-                .into_iter()
-                .map(|binding| {
-                    let resource_config_str = binding.resource_config_json.clone();
-                    let endpoint_config = parsed_outer_config.clone();
-                    async move {
-                        let resource_config = serde_json::from_value::<DekafResourceConfig>(
-                            unseal::decrypt_sops(&RawValue::from_str(&resource_config_str)?)
-                                .await
-                                .context(format!(
-                                    "decrypting dekaf resource config for variant {}",
-                                    endpoint_config.variant
-                                ))?
-                                .to_value(),
+        let validated_bindings = std::mem::take(&mut validate.bindings)
+            .into_iter()
+            .map(|binding| {
+                let resource_config = serde_json::from_str::<DekafResourceConfig>(
+                    binding.resource_config_json.as_str(),
+                )
+                .context(format!(
+                    "validating dekaf resource config for variant {}",
+                    parsed_outer_config.variant.clone()
+                ))?;
+
+                let constraints = binding
+                    .collection
+                    .context("collection must exist")?
+                    .projections
+                    .iter()
+                    .map(|projection| {
+                        (
+                            projection.field.clone(),
+                            constraint_for_projection(
+                                &projection,
+                                &resource_config,
+                                validate.last_materialization.as_ref(),
+                            ),
                         )
-                        .context(format!(
-                            "validating dekaf resource config for variant {}",
-                            endpoint_config.variant
-                        ))?;
+                    })
+                    .collect::<BTreeMap<_, _>>();
 
-                        let collection = binding.collection.expect("collection must exist");
-
-                        let mut constraints = BTreeMap::new();
-
-                        for proj in collection.projections {
-                            constraints.insert(
-                                proj.field,
-                                validated::Constraint {
-                                    r#type: validated::constraint::Type::LocationRecommended as i32,
-                                    reason: "All data are recommended for Dekaf materialization"
-                                        .to_string(),
-                                },
-                            );
-                        }
-
-                        Ok::<proto_flow::materialize::response::validated::Binding, anyhow::Error>(
-                            validated::Binding {
-                                constraints,
-                                resource_path: vec![resource_config.topic_name],
-                                delta_updates: false,
-                            },
-                        )
-                    }
-                }),
-        )
-        .await?;
+                Ok::<proto_flow::materialize::response::validated::Binding, anyhow::Error>(
+                    validated::Binding {
+                        constraints,
+                        resource_path: vec![resource_config.topic_name],
+                        delta_updates: false,
+                    },
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         return Ok(materialize::Response {
             validated: Some(materialize::response::Validated {
@@ -175,4 +169,67 @@ pub async fn unary_materialize(
     } else {
         bail!("Unhandled request type")
     }
+}
+
+// Largely lifted from materialize-kafka
+// TODO(jshearer): Expose this logic somewhere that materialize-kafka can use it
+fn constraint_for_projection(
+    p: &flow::Projection,
+    res: &DekafResourceConfig,
+    last_spec: Option<&flow::MaterializationSpec>,
+) -> materialize::response::validated::Constraint {
+    let mut constraint = if p.is_primary_key {
+        materialize::response::validated::Constraint {
+            r#type: materialize::response::validated::constraint::Type::LocationRecommended.into(),
+            reason: "Primary key locations should usually be materialized".to_string(),
+        }
+    } else if p.ptr.is_empty() {
+        materialize::response::validated::Constraint {
+            r#type: materialize::response::validated::constraint::Type::FieldOptional.into(),
+            reason: "The root document may be materialized".to_string(),
+        }
+    } else if p.field == "flow_published_at" || !p.ptr.strip_prefix("/").unwrap().contains("/") {
+        materialize::response::validated::Constraint {
+            r#type: materialize::response::validated::constraint::Type::LocationRecommended.into(),
+            reason: "Top-level locations should usually be materialized".to_string(),
+        }
+    } else {
+        materialize::response::validated::Constraint {
+            r#type: materialize::response::validated::constraint::Type::FieldOptional.into(),
+            reason: "This field may be materialized".to_string(),
+        }
+    };
+
+    // Continue to recommend previously selected fields even if they would have
+    // otherwise been optional.
+    if let Some(last_spec) = last_spec {
+        let last_binding = last_spec
+            .bindings
+            .iter()
+            .find(|b| b.resource_path[0] == res.topic_name);
+
+        if let Some(last_binding) = last_binding {
+            let last_field_selection = last_binding
+                .field_selection
+                .as_ref()
+                .expect("prior binding must have field selection");
+
+            if p.ptr.is_empty() && !last_field_selection.document.is_empty() {
+                constraint = materialize::response::validated::Constraint {
+                    r#type: materialize::response::validated::constraint::Type::LocationRecommended
+                        .into(),
+                    reason: "This location is the document of the current materialization"
+                        .to_string(),
+                }
+            } else if last_field_selection.values.binary_search(&p.field).is_ok() {
+                constraint = materialize::response::validated::Constraint {
+                    r#type: materialize::response::validated::constraint::Type::LocationRecommended
+                        .into(),
+                    reason: "This location is part of the current materialization".to_string(),
+                }
+            }
+        };
+    };
+
+    constraint
 }
