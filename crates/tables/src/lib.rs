@@ -19,6 +19,7 @@ use prost::Message;
 mod built;
 mod draft;
 mod live;
+pub mod utils;
 pub use built::{BuiltRow, Validations};
 pub use dependencies::Dependencies;
 pub use draft::{DraftCatalog, DraftRow};
