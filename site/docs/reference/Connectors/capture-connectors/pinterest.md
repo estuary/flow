@@ -2,7 +2,7 @@
 # Pinterest
 This connector captures data from Pinterest into Flow collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-pinterest:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-pinterest:dev`](https://ghcr.io/estuary/source-pinterest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 To set up the Pinterest source connector, you'll need the following prerequisites:
@@ -141,5 +141,5 @@ The Pinterest API imposes certain rate limits for the connector. Please take not
 * Boards streams: 10 calls per second per user per app
 
 :::note
-For any additional information or troubleshooting, refer to the official Pinterest API documentation.
+For any additional information or troubleshooting, refer to the official [Pinterest API documentation](https://developers.pinterest.com/docs/overview/welcome/).
 :::

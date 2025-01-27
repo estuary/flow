@@ -31,13 +31,6 @@ To capture change events from SQL Server tables using this connector, you need:
   - Access to the change tables created as part of the SQL Server CDC process.
   - `SELECT`, `INSERT`, and `UPDATE` permissions on the watermarks table
 
-To meet these requirements, follow the steps for your hosting type.
-
-- [Self-hosted SQL Server](#setup-self-hosted-sql-server)
-- [Azure SQL Database](#setup-azure-sql-database)
-- [Amazon RDS for SQL Server](#setup-amazon-rds-for-sql-server)
-- [Google Cloud SQL for SQL Server](#setup-google-cloud-sql-for-sql-server)
-
 ## Setup
 
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
@@ -45,7 +38,7 @@ To meet these requirements, follow the steps for your hosting type.
    1. To allow direct access:
 
       - [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
-      - Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
+      - Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create). Create a new inbound rule and a new outbound rule that allow all traffic from the [Estuary Flow IP addresses](/reference/allow-ip-addresses).
 
    2. To allow secure connections via SSH tunneling:
       - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)

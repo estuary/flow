@@ -2,10 +2,10 @@
 # WooCommerce
 This connector captures data from WooCommerce into Flow collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-woocommerce:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-woocommerce:dev`](https://ghcr.io/estuary/source-woocommerce:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
-To set up the WooCommerce source connector with: you need:
+To set up the WooCommerce source connector you need:
 
 * WooCommerce 3.5+
 * WordPress 4.4+
