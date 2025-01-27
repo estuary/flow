@@ -42,15 +42,15 @@ You'll need a PostgreSQL database setup with the following:
 
 2. Enable logical replication on your RDS PostgreSQL instance.
 
-   1. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
+   1. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.Creating.html).
       Create a unique name and description and set the following properties:
 
       - **Family**: postgres13
       - **Type**: DB Parameter group
 
-   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and set `rds.logical_replication=1`.
+   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.Modifying.html) and set `rds.logical_replication=1`.
 
-   3. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating) with the database.
+   3. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.Associating.html) with the database.
 
    4. Reboot the database to allow the new parameter group to take effect.
 
@@ -155,7 +155,7 @@ store them separately.
 
 TOASTed values can sometimes present a challenge for systems that rely on the PostgreSQL write-ahead log (WAL), like this connector.
 If a change event occurs on a row that contains a TOASTed value, _but the TOASTed value itself is unchanged_, it is omitted from the WAL.
-As a result, the connector emits a row update with the a value omitted, which might cause
+As a result, the connector emits a row update with the value omitted, which might cause
 unexpected results in downstream catalog tasks if adjustments are not made.
 
 The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](/concepts/connectors.md#flowctl-discover)

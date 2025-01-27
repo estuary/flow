@@ -4,6 +4,17 @@
 
 This connector captures data from one LinkedIn Page into Flow collections via the [LinkedIn Marketing API](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/marketing-integrations-overview?view=li-lms-2024-03).
 
+[`ghcr.io/estuary/source-linkedin-pages:dev`](https://ghcr.io/estuary/source-linkedin-pages:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+
+## Supported Streams
+
+- [Organization Lookup](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/organization-lookup-api?tabs=http#retrieve-organizations)
+- [Follower Statistics](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/follower-statistics?tabs=http#retrieve-lifetime-follower-statistics)
+- [Share Statistics](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/share-statistics?tabs=http#retrieve-lifetime-share-statistics)
+- [Total Follower Count](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/organization-lookup-api?tabs=http#retrieve-organization-follower-count)
+
+By default, each resource is mapped to a Flow collection through a separate binding.
+
 ## Prerequisites
 
 * An existing LinkedIn Account
@@ -60,10 +71,3 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/refresh_token`   | Refresh Token   | The token value generated using the LinkedIn Developers [OAuth Token Tools](https://www.linkedin.com/developers/tools/oauth). | string | Required         |
 | `/access_token`    | Access Token    | The token value generated using the LinkedIn Developers [OAuth Token Tools](https://www.linkedin.com/developers/tools/oauth). | string | Required         |
 
-
-## Supported Streams
-
-- [Organization Lookup](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/organization-lookup-api?tabs=http#retrieve-organizations)
-- [Follower Statistics](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/follower-statistics?tabs=http#retrieve-lifetime-follower-statistics)
-- [Share Statistics](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/share-statistics?tabs=http#retrieve-lifetime-share-statistics)
-- [Total Follower Count](https://docs.microsoft.com/en-us/linkedin/marketing/integrations/community-management/organizations/organization-lookup-api?tabs=http#retrieve-organization-follower-count)

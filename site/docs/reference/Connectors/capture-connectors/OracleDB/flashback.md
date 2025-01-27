@@ -2,7 +2,7 @@
 # OracleDB (Flashback)
 This connector captures data from OracleDB into Flow collections using [Oracle Flashback](https://www.oracle.com/database/technologies/flashback/).
 
-It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-oracle-flashback:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-oracle-flashback:dev`](https://ghcr.io/estuary/source-oracle-flashback:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 * Oracle 11g or above
@@ -48,7 +48,7 @@ GRANT SELECT ON V$DATABASE TO estuary_flow_user;
 GRANT SELECT_CATALOG_ROLE TO estuary_flow_user;
 ```
 
-1. Your database user should now be ready for use with Estuary Flow.
+5. Your database user should now be ready for use with Estuary Flow.
 
 ### Recommended Database Configuration
 
@@ -97,7 +97,7 @@ To allow secure connections via SSH tunneling:
 
 ### Sample
 
-```json
+```yaml
 captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
@@ -114,7 +114,7 @@ captures:
             sshForwarding:
               privateKey: -----BEGIN RSA PRIVATE KEY-----\n...
               sshEndpoint: ssh://ec2-user@19.220.21.33:22
-          
+
     bindings:
       - resource:
           name: ${TABLE_NAME}

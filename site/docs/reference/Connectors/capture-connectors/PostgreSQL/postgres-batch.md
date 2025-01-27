@@ -3,6 +3,8 @@
 This connector captures data from Postgres into Flow collections by periodically
 executing queries and translating the results into JSON documents.
 
+For local development or open-source workflows, [`ghcr.io/estuary/source-postgres-batch:dev`](https://ghcr.io/estuary/source-postgres-batch:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
 We recommend using our [PostgreSQL CDC Connector](http://go.estuary.dev/source-postgres) instead
 if possible. Using CDC provides lower latency data capture, delete and update events, and usually
 has a smaller impact on the source database.
