@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::Context;
 use bytes::{BufMut, Bytes};
 use kafka_protocol::{
     messages::{self, ApiKey, TopicName},
@@ -206,7 +206,7 @@ impl App {
 
             // 3. Validate that the provided password matches the task's bearer token
             if password != config.token {
-                bail!("Invalid username or password")
+                anyhow::bail!("Invalid username or password")
             }
 
             Ok(SessionAuthentication::Task(TaskAuth {
