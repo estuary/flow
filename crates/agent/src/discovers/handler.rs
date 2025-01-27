@@ -129,7 +129,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         };
 
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
-        let disco = prepare_discover(
+        let prepared = prepare_discover(
             row.user_id,
             row.draft_id,
             models::Capture::new(&row.capture_name),
@@ -140,11 +140,14 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             data_plane,
             pool,
         )
-        .await?;
+        .await;
 
-        let result = self
-            .discover(pool, disco)
-            .await
+        let result = match prepared {
+            Ok(disco) => self.discover(pool, disco).await,
+            Err(e) => Err(e),
+        };
+
+        let result = result
             .map_err(|err| {
                 vec![models::draft_error::Error {
                     scope: None,
