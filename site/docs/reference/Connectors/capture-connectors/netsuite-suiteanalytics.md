@@ -2,6 +2,9 @@
 
 This connector captures data from Oracle NetSuite into Flow collections. It relies on the SuiteAnalytics Connect feature in order to both load large amounts of data quickly, as well as introspect the available tables, their schemas, keys, and cursor fields.
 
+[`ghcr.io/estuary/source-netsuite:dev`](https://ghcr.io/estuary/source-netsuite:dev) provides the
+latest connector image. You can also follow the link in your browser to see past image versions.
+
 If you don't have SuiteAnalytics Connect, check out our [SuiteTalk REST](../netsuite-suitetalk) connector.
 
 ## Supported data resources
@@ -118,7 +121,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property                      | Title                  | Description                                                                                      | Type   | Required/Default |
 | ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ | ------ | ---------------- |
-| `/account                     | Netsuite Account ID    | Netsuite realm/Account ID e.g. 2344535, as for `production` or 2344535_SB1, as for the `sandbox` | string | Required         |
+| `/account`                     | Netsuite Account ID    | Netsuite realm/Account ID e.g. 2344535, as for `production` or 2344535_SB1, as for `sandbox` | string | Required         |
 | `/role_id`                    | Role ID                | The ID of the role you created. Defaults to 3, which is the ID of the administrator role.        | int    | 3                |
 | `/suiteanalytics_data_source` | Data Source            | Which NetSuite data source to use. Options are `NetSuite.com`, or `NetSuite2.com`                | string | Required         |
 | `/authentication`             | Authentication Details | Credentials to access your NetSuite account                                                      | object | Required         |

@@ -1,7 +1,7 @@
 # OracleDB
 This connector captures data from OracleDB into Flow collections using [Oracle Logminer](https://docs.oracle.com/en/database/oracle/oracle-database/19/sutil/oracle-logminer-utility.html#GUID-2555A155-01E3-483E-9FC6-2BDC2D8A4093).
 
-It is available for use in the Flow web application. For local development or open-source workflows, `ghcr.io/estuary/source-oracle:dev` provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-oracle:dev`](https://ghcr.io/estuary/source-oracle:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 * Oracle 11g or above
@@ -153,7 +153,7 @@ To allow secure connections via SSH tunneling:
 
 ### Sample
 
-```json
+```yaml
 captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
@@ -172,7 +172,7 @@ captures:
             sshForwarding:
               privateKey: -----BEGIN RSA PRIVATE KEY-----\n...
               sshEndpoint: ssh://ec2-user@19.220.21.33:22
-          
+
     bindings:
       - resource:
           namespace: ${TABLE_NAMESPACE}

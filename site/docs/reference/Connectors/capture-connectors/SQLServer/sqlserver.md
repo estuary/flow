@@ -36,7 +36,7 @@ To capture change events from SQL Server tables using this connector, you need:
 - A user role with:
   - `SELECT` permissions on the CDC schema and the schemas that contain tables to be captured.
   - Access to the change tables created as part of the SQL Server CDC process.
-  - `SELECT`, `INSERT`, and `UPDATE` permissions on the watermarks table
+  - `SELECT`, `INSERT`, and `UPDATE` permissions on the watermarks table.
 
 ## Setup
 
@@ -44,7 +44,7 @@ To meet these requirements, follow the steps for your hosting type.
 
 - [Self-hosted SQL Server](#self-hosted-sql-server)
 - [Azure SQL Database](#azure-sql-database)
-- [Amazon RDS for SQL Server](./amazon-rds-sqlserver/))
+- [Amazon RDS for SQL Server](./amazon-rds-sqlserver/)
 - [Google Cloud SQL for SQL Server](./google-cloud-sql-sqlserver/)
 
 ### Self-hosted SQL Server

@@ -2,7 +2,7 @@
 
 This connector lets you capture data from your Google Drive account into Flow collections.
 
-[ghcr.io/estuary/source-google-drive:dev](https://ghcr.io/estuary/source-google-drive:dev) provides the latest connector image. For access to previous image versions, follow the link in your browser.
+[`ghcr.io/estuary/source-google-drive:dev`](https://ghcr.io/estuary/source-google-drive:dev) provides the latest connector image. For access to previous image versions, follow the link in your browser.
 
 ## Prerequisites
 
