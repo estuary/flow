@@ -65,7 +65,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/docker/spdystream v0.0.0-20160310174837-449fdfce4d96 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
-	github.com/golang/glog v1.2.1 // indirect
+	github.com/golang/glog v1.2.4 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/gofuzz v1.0.0 // indirect
 	github.com/google/s2a-go v0.1.4 // indirect
