@@ -13,6 +13,46 @@ pub struct LiveRevision {
     pub last_pub_id: Id,
 }
 
+// Row is the dequeued task shape of a draft build & test operation.
+#[derive(Debug)]
+pub struct Row {
+    pub id: Id,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub detail: Option<String>,
+    pub draft_id: Id,
+    pub dry_run: bool,
+    pub logs_token: Uuid,
+    pub user_id: Uuid,
+    pub data_plane_name: String,
+    pub job_status: Json<Box<RawValue>>,
+}
+
+pub async fn fetch_publication(task_id: Id, database: &sqlx::PgPool) -> anyhow::Result<Row> {
+    let row = sqlx::query_as!(
+        Row,
+        r#"
+        select
+            id as "id!: Id",
+            created_at,
+            updated_at,
+            detail,
+            draft_id as "draft_id!: Id",
+            dry_run,
+            logs_token,
+            user_id,
+            data_plane_name,
+            job_status as "job_status!: Json<Box<RawValue>>"
+        from publications
+        where id = $1::flowid
+        "#,
+        task_id as Id,
+    )
+    .fetch_one(database)
+    .await?;
+    Ok(row)
+}
+
 /// Locks the given live specs rows and returns their current `last_pub_id`s.
 /// This is used for verifying the `last_pub_id`s for specs that were used
 /// during the build, but are not being updated. We verify the revisions
@@ -238,72 +278,21 @@ pub async fn create(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: Uuid,
     draft_id: Id,
-    auto_evolve: bool,
     detail: String,
-    background: bool,
     data_plane_name: String,
 ) -> sqlx::Result<Id> {
     let rec = sqlx::query!(
-        r#"insert into publications (user_id, draft_id, auto_evolve, detail, background, data_plane_name)
-            values ($1, $2, $3, $4, $5, $6) returning id as "id: Id";"#,
+        r#"insert into publications (user_id, draft_id, detail, data_plane_name)
+            values ($1, $2, $3, $4) returning id as "id: Id";"#,
         user_id as Uuid,
         draft_id as Id,
-        auto_evolve,
         detail,
-        background,
         data_plane_name,
     )
     .fetch_one(txn)
     .await?;
 
     Ok(rec.id)
-}
-
-// Row is the dequeued task shape of a draft build & test operation.
-#[derive(Debug)]
-pub struct Row {
-    pub created_at: DateTime<Utc>,
-    pub detail: Option<String>,
-    pub draft_id: Id,
-    pub dry_run: bool,
-    pub logs_token: Uuid,
-    pub pub_id: Id,
-    pub updated_at: DateTime<Utc>,
-    pub user_id: Uuid,
-    pub auto_evolve: bool,
-    pub background: bool,
-    pub data_plane_name: String,
-}
-
-#[tracing::instrument(level = "debug", skip(txn))]
-pub async fn dequeue(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    allow_background: bool,
-) -> sqlx::Result<Option<Row>> {
-    sqlx::query_as!(
-        Row,
-        r#"select
-            created_at,
-            detail,
-            draft_id as "draft_id: Id",
-            dry_run,
-            logs_token,
-            id as "pub_id: Id",
-            updated_at,
-            user_id,
-            auto_evolve,
-            background,
-            data_plane_name
-        from publications
-        where job_status->>'type' = 'queued' and (background = $1 or background = false)
-        order by background asc, id asc
-        limit 1
-        for update of publications skip locked;
-        "#,
-        allow_background
-    )
-    .fetch_optional(txn)
-    .await
 }
 
 pub async fn resolve<S>(

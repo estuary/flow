@@ -33,6 +33,11 @@ pub mod task_types {
 
     pub const DATA_PLANE_CONTROLLER: TaskType = TaskType(1);
     pub const LIVE_SPEC_CONTROLLER: TaskType = TaskType(2);
+    pub const PUBLICATIONS: TaskType = TaskType(3);
+    pub const DISCOVERS: TaskType = TaskType(4);
+    pub const APPLIED_DIRECTIVES: TaskType = TaskType(5);
+    pub const CONNECTOR_TAGS: TaskType = TaskType(6);
+    pub const EVOLUTIONS: TaskType = TaskType(7);
 }
 
 /// Outcome of an `Executor::poll()` for a given task, which encloses
