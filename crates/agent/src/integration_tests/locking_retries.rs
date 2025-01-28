@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::{
     integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
-    publications::{DefaultRetryPolicy, JobStatus, LockFailure, RetryPolicy},
+    publications::{DefaultRetryPolicy, JobStatus, LockFailure, NoopWithCommit, RetryPolicy},
     ControlPlane,
 };
 
@@ -106,14 +106,14 @@ async fn test_publication_optimistic_locking_failures() {
 
     let expect_success_result = harness
         .publisher
-        .commit(will_commit_build)
+        .commit(will_commit_build, &NoopWithCommit)
         .await
         .expect("commit b failed");
     assert!(expect_success_result.status.is_success());
 
     let expect_fail_result = harness
         .publisher
-        .commit(will_fail_build)
+        .commit(will_fail_build, &NoopWithCommit)
         .await
         .expect("commit a failed");
     assert_lock_failures(
@@ -184,7 +184,7 @@ async fn test_publication_optimistic_locking_failures() {
     let will_commit_build_id = will_commit_build.build_id;
     let expect_success_result = harness
         .publisher
-        .commit(will_commit_build)
+        .commit(will_commit_build, &NoopWithCommit)
         .await
         .expect("failed to commit seeds");
     assert!(expect_success_result.status.is_success());
@@ -205,7 +205,7 @@ async fn test_publication_optimistic_locking_failures() {
 
     let expect_fail_result = harness
         .publisher
-        .commit(will_fail_build)
+        .commit(will_fail_build, &NoopWithCommit)
         .await
         .expect("failed to commit cheese"); // lol
     assert_lock_failures(
