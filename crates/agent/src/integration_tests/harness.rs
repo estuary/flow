@@ -3,6 +3,7 @@ pub mod connectors;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
+use crate::publications::NoopWithCommit;
 use crate::{
     controllers::ControllerState,
     controlplane::ConnectorSpec,
@@ -119,8 +120,8 @@ pub struct TestHarness {
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
 
-    automations_server: automations::Server,
-    automations_task_types: Vec<i16>,
+    controller_automations: automations::Server,
+    publications_automations: automations::Server,
 }
 
 impl TestHarness {
@@ -177,8 +178,8 @@ impl TestHarness {
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
 
-        let automations_server = automations::Server::new().register(controller_exec);
-        let automations_task_types = vec![automations::task_types::LIVE_SPEC_CONTROLLER.0];
+        let controller_automations = automations::Server::new().register(controller_exec);
+        let publications_automations = automations::Server::new().register(publisher.clone());
 
         let mut harness = Self {
             test_name: test_name.to_string(),
@@ -187,8 +188,8 @@ impl TestHarness {
             builds_root,
             discover_handler,
             control_plane,
-            automations_server,
-            automations_task_types,
+            controller_automations,
+            publications_automations,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -747,36 +748,13 @@ impl TestHarness {
         assert!(max > 0, "run_pending_controllers max must be > 0");
         let mut states = Vec::new();
 
-        let semaphor = Arc::new(Semaphore::new(1));
-
         for _ in 0..max {
-            let mut permit = semaphor.clone().acquire_owned().await.unwrap();
-
-            let mut next = automations::server::dequeue_tasks(
-                &mut permit,
-                &self.pool,
-                &self.automations_server,
-                &self.automations_task_types,
-                std::time::Duration::from_secs(10),
-            )
-            .await
-            .expect("failed to dequeue automations tasks");
-            if next.is_empty() {
-                assert_eq!(
-                    1,
-                    permit.num_permits(),
-                    "expect the semaphor permit to still be present"
-                );
+            let ran = self
+                .run_automation_task(automations::task_types::LIVE_SPEC_CONTROLLER)
+                .await;
+            let Some(task_id) = ran else {
                 break;
-            }
-
-            assert_eq!(1, next.len(), "expected at most 1 dequeued task");
-            let task = next.pop().unwrap();
-            let task_id = task.task.id;
-            automations::executors::poll_task(task, std::time::Duration::from_secs(10))
-                .await
-                .expect("failed to polll task");
-
+            };
             let controller_state = crate::controllers::fetch_controller_state(task_id, &self.pool)
                 .await
                 .expect("failed to fetch controller state");
@@ -788,6 +766,44 @@ impl TestHarness {
         }
 
         states
+    }
+
+    /// Runs at most one automation task of the given type, and returns the id of the task that was run.
+    /// Returns None if no eligible task was ready.
+    async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
+        let semaphor = Arc::new(Semaphore::new(1));
+        let mut permit = semaphor.clone().acquire_owned().await.unwrap();
+
+        let server = match task_type {
+            automations::task_types::LIVE_SPEC_CONTROLLER => &self.controller_automations,
+            automations::task_types::PUBLICATIONS => &self.publications_automations,
+            _ => panic!("unsupported task type: {:?}", task_type),
+        };
+        let mut next = automations::server::dequeue_tasks(
+            &mut permit,
+            &self.pool,
+            server,
+            &[task_type.0],
+            std::time::Duration::from_secs(10),
+        )
+        .await
+        .expect("failed to dequeue automations tasks");
+        if next.is_empty() {
+            assert_eq!(
+                1,
+                permit.num_permits(),
+                "expect the semaphor permit to still be present"
+            );
+            return None;
+        }
+
+        assert_eq!(1, next.len(), "expected at most 1 dequeued task");
+        let task = next.pop().unwrap();
+        let task_id = task.task.id;
+        automations::executors::poll_task(task, std::time::Duration::from_secs(10))
+            .await
+            .expect("failed to poll task");
+        Some(task_id)
     }
 
     pub async fn user_discover(
@@ -860,7 +876,7 @@ impl TestHarness {
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::L(draft), false, false)
+        self.async_publication(user_id, detail, Either::L(draft))
             .await
     }
 
@@ -870,7 +886,7 @@ impl TestHarness {
         draft_id: Id,
         detail: impl Into<String>,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::R(draft_id), false, false)
+        self.async_publication(user_id, detail, Either::R(draft_id))
             .await
     }
 
@@ -883,8 +899,6 @@ impl TestHarness {
         user_id: Uuid,
         detail: impl Into<String>,
         draft: Either<tables::DraftCatalog, Id>,
-        auto_evolve: bool,
-        background: bool,
     ) -> ScenarioResult {
         let detail = detail.into();
         let draft_id = match draft {
@@ -900,27 +914,22 @@ impl TestHarness {
             &mut txn,
             user_id,
             draft_id,
-            auto_evolve,
             detail.clone(),
-            background,
             "ops/dp/public/test".to_string(),
         )
         .await
         .expect("failed to create publication");
         txn.commit().await.expect("failed to commit transaction");
 
-        let pool = self.pool.clone();
-        let handler_result = self
-            .publisher
-            .handle(&pool, true)
+        let task_id = self
+            .run_automation_task(automations::task_types::PUBLICATIONS)
             .await
-            .expect("publications handler failed");
-
+            .expect("expected a publication task to have run");
         assert_eq!(
-            crate::HandleResult::HadJob,
-            handler_result,
-            "expected publications handler to have a job"
+            task_id, pub_id,
+            "automations task id should match the publication that was just created"
         );
+
         let pub_result = self.get_publication_result(pub_id.into()).await;
         assert_ne!(publications::JobStatus::Queued, pub_result.status);
         pub_result
@@ -1311,6 +1320,7 @@ impl ControlPlane for TestControlPlane {
             initialize: UpdateInferredSchemas,
             finalize,
             retry: DefaultRetryPolicy,
+            with_commit: NoopWithCommit,
         };
 
         self.inner.publications_handler.publish(publication).await
