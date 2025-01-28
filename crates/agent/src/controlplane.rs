@@ -11,8 +11,8 @@ use crate::{
     discovers::{Discover, DiscoverOutput},
     evolution::{self, EvolutionOutput},
     publications::{
-        DefaultRetryPolicy, DraftPublication, NoopFinalize, PublicationResult, Publisher,
-        UpdateInferredSchemas,
+        DefaultRetryPolicy, DraftPublication, NoopFinalize, NoopWithCommit, PublicationResult,
+        Publisher, UpdateInferredSchemas,
     },
     DiscoverConnectors, DiscoverHandler,
 };
@@ -410,6 +410,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
             initialize: UpdateInferredSchemas,
             finalize: NoopFinalize,
             retry: DefaultRetryPolicy,
+            with_commit: NoopWithCommit,
         };
         self.publications_handler.publish(publication).await
     }

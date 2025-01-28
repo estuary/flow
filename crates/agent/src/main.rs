@@ -235,7 +235,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let serve_fut = if args.serve_handlers {
         agent::serve(
             vec![
-                Box::new(publisher),
                 Box::new(agent::TagHandler::new(
                     &args.connector_network,
                     &logs_tx,
@@ -258,6 +257,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,
             ))
+            .register(publisher)
             .serve(
                 args.max_automations,
                 pg_pool.clone(),
