@@ -79,7 +79,7 @@ pub async fn upsert_spec<S>(
     spec: S,
     spec_type: CatalogType,
     expect_pub_id: Option<Id>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut sqlx::PgConnection,
 ) -> sqlx::Result<()>
 where
     S: serde::Serialize + Send + Sync,
@@ -104,7 +104,7 @@ where
         spec_type as CatalogType,
         expect_pub_id as Option<Id>,
     )
-    .fetch_one(&mut *txn)
+    .fetch_one(txn)
     .await?;
     Ok(())
 }
@@ -137,25 +137,19 @@ where
 }
 
 // touch_draft updates the modification time of the draft to now.
-pub async fn touch(
-    draft_id: Id,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
+pub async fn touch(draft_id: Id, txn: &mut sqlx::PgConnection) -> sqlx::Result<()> {
     sqlx::query!(
         r#"update drafts set updated_at = clock_timestamp() where id = $1
             returning 1 as "must_exist";"#,
         draft_id as Id,
     )
-    .fetch_one(&mut *txn)
+    .fetch_one(txn)
     .await?;
 
     Ok(())
 }
 
-pub async fn delete_errors(
-    draft_id: Id,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
+pub async fn delete_errors(draft_id: Id, txn: &mut sqlx::PgConnection) -> sqlx::Result<()> {
     sqlx::query!(
         "delete from draft_errors where draft_id = $1",
         draft_id as Id
@@ -170,7 +164,7 @@ pub async fn insert_error(
     draft_id: Id,
     scope: String,
     detail: String,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut sqlx::PgConnection,
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"insert into draft_errors (
@@ -183,7 +177,7 @@ pub async fn insert_error(
         scope,
         detail,
     )
-    .execute(&mut *txn)
+    .execute(txn)
     .await?;
 
     Ok(())
