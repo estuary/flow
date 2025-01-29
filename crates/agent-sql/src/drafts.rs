@@ -57,7 +57,7 @@ pub async fn fetch_draft_specs(
 pub async fn delete_specs(
     draft_id: Id,
     catalog_names: &[&str],
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut sqlx::PgConnection,
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"
