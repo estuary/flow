@@ -241,7 +241,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                     args.allow_local,
                 )),
                 Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
-                Box::new(agent::EvolutionHandler),
             ],
             pg_pool.clone(),
             shutdown.clone(),
@@ -258,6 +257,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             ))
             .register(publisher)
             .register(discover_handler)
+            .register(agent::EvolutionExecutor)
             .serve(
                 args.max_automations,
                 pg_pool.clone(),
