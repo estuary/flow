@@ -8,7 +8,7 @@ use models::split_image_tag;
 use proto_flow::{capture, flow::capture_spec};
 use sqlx::{types::Uuid, PgPool};
 
-pub(crate) mod handler;
+pub(crate) mod executor;
 mod specs;
 
 /// Represents the desire to discover an endpoint. The discovered bindings will be merged with
