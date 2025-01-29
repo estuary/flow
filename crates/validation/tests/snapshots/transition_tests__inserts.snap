@@ -49,7 +49,7 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
                                 read_schema_json: "",
                                 key: [
                                     "/f_one",
@@ -132,6 +132,26 @@ Outcome {
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/f_x",
+                                        field: "f_x",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Cannot,
                                                 numeric: None,
                                                 array: None,
                                             },
@@ -387,7 +407,7 @@ Outcome {
             expect_pub_id: "0000000000000000",
             expect_build_id: "0000000000000000",
             model: {
-              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"required":["f_one","f_two"],"type":"object"},
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"},
               "key": [
                 "/f_one"
               ]
@@ -395,7 +415,7 @@ Outcome {
             validated: NULL,
             spec: CollectionSpec {
                 name: "the/collection",
-                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
                 read_schema_json: "",
                 key: [
                     "/f_one",
@@ -478,6 +498,26 @@ Outcome {
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/f_x",
+                        field: "f_x",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Cannot,
                                 numeric: None,
                                 array: None,
                             },
@@ -851,7 +891,7 @@ Outcome {
                                 collection: Some(
                                     CollectionSpec {
                                         name: "the/collection",
-                                        write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                                        write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
                                         read_schema_json: "",
                                         key: [
                                             "/f_one",
@@ -934,6 +974,26 @@ Outcome {
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
+                                                        numeric: None,
+                                                        array: None,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/f_x",
+                                                field: "f_x",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [],
+                                                        string: None,
+                                                        title: "",
+                                                        description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Cannot,
                                                         numeric: None,
                                                         array: None,
                                                     },
@@ -1278,7 +1338,7 @@ Outcome {
                         collection: Some(
                             CollectionSpec {
                                 name: "the/collection",
-                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"}},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
                                 read_schema_json: "",
                                 key: [
                                     "/f_one",
@@ -1361,6 +1421,26 @@ Outcome {
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/f_x",
+                                        field: "f_x",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Cannot,
                                                 numeric: None,
                                                 array: None,
                                             },
@@ -1729,7 +1809,7 @@ Outcome {
             scope: test://example/catalog.yaml#/collections/the~1collection,
             expect_pub_id: "0000000000000000",
             model: {
-              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"required":["f_one","f_two"],"type":"object"},
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"},
               "key": [
                 "/f_one"
               ]
@@ -1807,7 +1887,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"table":"foo"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"00:00:00:00:00:00:00:00"}},"collections":{"the/collection":{"expectPubId":"00:00:00:00:00:00:00:00","key":["/f_one"],"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"00:00:00:00:00:00:00:00","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"resource":{"table":"bar"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"00:00:00:00:00:00:00:00"}},"tests":{"the/test":{"expectPubId":"00:00:00:00:00:00:00:00","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
+            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"table":"foo"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"00:00:00:00:00:00:00:00"}},"collections":{"the/collection":{"expectPubId":"00:00:00:00:00:00:00:00","key":["/f_one"],"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"00:00:00:00:00:00:00:00","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"resource":{"table":"bar"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"00:00:00:00:00:00:00:00"}},"tests":{"the/test":{"expectPubId":"00:00:00:00:00:00:00:00","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
         },
     ],
     storage_mappings: [

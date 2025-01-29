@@ -52,7 +52,7 @@ fn walk_collection(
         data_plane_id,
         expect_pub_id,
         expect_build_id,
-        _live_model,
+        live_model,
         live_spec,
         is_touch,
     ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
@@ -66,7 +66,7 @@ fn walk_collection(
         write_schema,
         read_schema,
         key,
-        projections,
+        projections: projection_models,
         journals,
         derive: _,
         expect_pub_id: _,
@@ -139,18 +139,19 @@ fn walk_collection(
         }
     }
 
-    let projections = walk_collection_projections(
+    let (projection_models, projection_specs) = walk_collection_projections(
         scope.push_prop("projections"),
         &write_schema,
         read_schema_bundle.as_ref(),
         key,
-        projections,
+        projection_models,
+        live_model.as_ref().map(|l| &l.projections),
         errors,
     );
     // Projections should be ascending and unique on field.
-    assert!(projections.windows(2).all(|p| p[0].field < p[1].field));
+    assert!(projection_specs.windows(2).all(|p| p[0].field < p[1].field));
 
-    let partition_fields = projections
+    let partition_fields = projection_specs
         .iter()
         .filter_map(|p| {
             if p.is_partition_key {
@@ -195,13 +196,12 @@ fn walk_collection(
         write_schema_json: bundle_to_string(Some(write_bundle)),
         read_schema_json: bundle_to_string(read_schema_bundle.map(|(_schema, bundle)| bundle)),
         key: key.iter().map(|p| p.to_string()).collect(),
-        projections,
+        projections: projection_specs,
         partition_fields,
         uuid_ptr: UUID_PTR.to_string(),
         ack_template_json: serde_json::json!({
-                "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
-                "ack": true,
-            } })
+            "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef", "ack": true}
+        })
         .to_string(),
         partition_template: Some(partition_template),
         derivation: None,
@@ -214,7 +214,10 @@ fn walk_collection(
         data_plane_id,
         expect_pub_id,
         expect_build_id,
-        model: Some(model.clone()),
+        model: Some(models::CollectionDef {
+            projections: projection_models,
+            ..model.clone()
+        }),
         spec: Some(built_spec),
         validated: None,
         previous_spec: live_spec.cloned(),
@@ -258,8 +261,12 @@ fn walk_collection_projections(
     read_schema_bundle: Option<&(schema::Schema, models::Schema)>,
     key: &models::CompositeKey,
     projections: &BTreeMap<models::Field, models::Projection>,
+    live_projections: Option<&BTreeMap<models::Field, models::Projection>>,
     errors: &mut tables::Errors,
-) -> Vec<flow::Projection> {
+) -> (
+    BTreeMap<models::Field, models::Projection>,
+    Vec<flow::Projection>,
+) {
     let effective_read_schema = if let Some((read_schema, _read_bundle)) = read_schema_bundle {
         read_schema
     } else {
@@ -279,70 +286,93 @@ fn walk_collection_projections(
     let mut saw_root_projection = false;
     let mut saw_uuid_timestamp_projection = false;
 
-    // Map explicit projections into built flow::Projection instances.
-    let mut projections = projections
-        .iter()
-        .filter_map(|(field, projection)| {
-            let scope = scope.push_prop(field);
+    // Map explicit projections into built flow::Projection `specs` and filtered `models`.
+    let (mut specs, mut models) = (Vec::new(), BTreeMap::new());
 
-            let (ptr, partition) = match projection {
-                models::Projection::Pointer(ptr) => (ptr, false),
-                models::Projection::Extended {
-                    location,
-                    partition,
-                } => (location, *partition),
-            };
+    for (field, projection) in projections {
+        let scope = scope.push_prop(field);
 
-            if partition {
-                indexed::walk_name(
-                    scope,
-                    "partition",
-                    field,
-                    models::PartitionField::regex(),
-                    errors,
-                );
-            }
+        let modified = if let Some(live) = live_projections {
+            live.get(field) != Some(projection)
+        } else {
+            true
+        };
 
-            if ptr.as_str() == "" {
-                saw_root_projection = true;
-            } else if ptr.as_str() == UUID_DATE_TIME_PTR && !partition {
-                saw_uuid_timestamp_projection = true;
+        let (ptr, partition) = match projection {
+            models::Projection::Pointer(ptr) => (ptr, false),
+            models::Projection::Extended {
+                location,
+                partition,
+            } => (location, *partition),
+        };
 
-                // UUID_DATE_TIME_PTR is not a location that actually exists.
-                // Return a synthetic projection because walk_ptr() will fail.
-                return Some(flow::Projection {
-                    ptr: UUID_PTR.to_string(),
-                    field: field.to_string(),
-                    explicit: true,
-                    inference: Some(assemble::inference_uuid_v1_date_time()),
-                    ..Default::default()
-                });
-            }
+        if partition {
+            indexed::walk_name(
+                scope,
+                "partition",
+                field,
+                models::PartitionField::regex(),
+                errors,
+            );
+        }
 
-            if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
-                Error::from(err).push(scope, errors);
-            }
-            if matches!(read_schema_bundle, Some(_) if partition) {
-                // Partitioned projections must also be key-able within the write schema.
-                if let Err(err) = write_schema.walk_ptr(ptr, true) {
-                    Error::from(err).push(scope, errors);
-                }
-            }
+        if ptr.as_str() == "" {
+            saw_root_projection = true;
+        } else if ptr.as_str() == UUID_DATE_TIME_PTR && !partition {
+            saw_uuid_timestamp_projection = true;
 
-            let (r_shape, r_exists) = effective_read_schema
-                .shape
-                .locate(&doc::Pointer::from_str(ptr));
-
-            Some(flow::Projection {
-                ptr: ptr.to_string(),
+            // UUID_DATE_TIME_PTR is not a location that actually exists.
+            // Return a synthetic projection because walk_ptr() will fail.
+            specs.push(flow::Projection {
+                ptr: UUID_PTR.to_string(),
                 field: field.to_string(),
                 explicit: true,
-                is_primary_key: key.iter().any(|k| k == ptr),
-                is_partition_key: partition,
-                inference: Some(assemble::inference(r_shape, r_exists)),
-            })
-        })
-        .collect::<Vec<_>>();
+                inference: Some(assemble::inference_uuid_v1_date_time()),
+                ..Default::default()
+            });
+            models.insert(field.clone(), projection.clone());
+
+            continue;
+        }
+
+        if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
+            match err {
+                Error::PtrIsImplicit { .. } if !partition && !modified => {
+                    // Silently ignore a projection which _used_ to exist, but no longer does.
+                    // The goal of this error is to catch user typos and similar mistakes,
+                    // but we don't want to block schema updates.
+                    continue;
+                }
+                Error::PtrCannotExist { .. } if !partition && !modified => {
+                    // Suppress an error if the unchanged explicit projection
+                    // cannot exist due to a schema update, and emit its projection.
+                    // This matches the behavior of the location's corresponding implicit projection.
+                    ()
+                }
+                err => Error::from(err).push(scope, errors),
+            }
+        }
+        if matches!(read_schema_bundle, Some(_) if partition) {
+            // Partitioned projections must also be key-able within the write schema.
+            if let Err(err) = write_schema.walk_ptr(ptr, true) {
+                Error::from(err).push(scope, errors);
+            }
+        }
+
+        let (r_shape, r_exists) = effective_read_schema
+            .shape
+            .locate(&doc::Pointer::from_str(ptr));
+
+        specs.push(flow::Projection {
+            ptr: ptr.to_string(),
+            field: field.to_string(),
+            explicit: true,
+            is_primary_key: key.iter().any(|k| k == ptr),
+            is_partition_key: partition,
+            inference: Some(assemble::inference(r_shape, r_exists)),
+        });
+        models.insert(field.clone(), projection.clone());
+    }
 
     // If we didn't see an explicit projection of the root document,
     // add an implicit projection with field "flow_document".
@@ -351,7 +381,7 @@ fn walk_collection_projections(
             .shape
             .locate(&doc::Pointer::from_str(""));
 
-        projections.push(flow::Projection {
+        specs.push(flow::Projection {
             ptr: "".to_string(),
             field: FLOW_DOCUMENT.to_string(),
             inference: Some(assemble::inference(r_shape, r_exists)),
@@ -361,7 +391,7 @@ fn walk_collection_projections(
     // If we didn't see an explicit projection of the UUID timestamp,
     // and an implicit projection with field "flow_published_at".
     if !saw_uuid_timestamp_projection {
-        projections.push(flow::Projection {
+        specs.push(flow::Projection {
             ptr: UUID_PTR.to_string(),
             field: FLOW_PUBLISHED_AT.to_string(),
             inference: Some(assemble::inference_uuid_v1_date_time()),
@@ -370,7 +400,7 @@ fn walk_collection_projections(
     }
 
     // No conditional because we don't allow re-naming this projection
-    projections.push(flow::Projection {
+    specs.push(flow::Projection {
         ptr: doc::TRUNCATION_INDICATOR_PTR.to_string(),
         field: FLOW_TRUNCATED.to_string(),
         inference: Some(assemble::inference_truncation_indicator()),
@@ -384,7 +414,7 @@ fn walk_collection_projections(
             .shape
             .locate(&doc::Pointer::from_str(ptr));
 
-        projections.push(flow::Projection {
+        specs.push(flow::Projection {
             ptr: ptr.to_string(),
             field: ptr[1..].to_string(), // Canonical-ize by stripping the leading "/".
             explicit: false,
@@ -411,7 +441,7 @@ fn walk_collection_projections(
         if field == FLOW_DOCUMENT {
             continue;
         }
-        projections.push(flow::Projection {
+        specs.push(flow::Projection {
             ptr: ptr.to_string(),
             field,
             explicit: false,
@@ -426,10 +456,10 @@ fn walk_collection_projections(
     // * An explicit projection is first, then
     // * A keyed location, then
     // * An inferred location
-    projections.sort_by(|l, r| l.field.cmp(&r.field));
+    specs.sort_by(|l, r| l.field.cmp(&r.field));
 
     // Look for projections which re-map canonical projections (which is disallowed).
-    for (lhs, rhs) in projections.windows(2).map(|pair| (&pair[0], &pair[1])) {
+    for (lhs, rhs) in specs.windows(2).map(|pair| (&pair[0], &pair[1])) {
         if lhs.field == rhs.field && lhs.ptr != rhs.ptr {
             Error::ProjectionRemapsCanonicalField {
                 field: lhs.field.clone(),
@@ -441,9 +471,9 @@ fn walk_collection_projections(
     }
 
     // Now de-duplicate on field, taking the first entry. Recall that user projections are first.
-    projections.dedup_by(|l, r| l.field.cmp(&r.field).is_eq());
+    specs.dedup_by(|l, r| l.field.cmp(&r.field).is_eq());
 
-    projections
+    (models, specs)
 }
 
 pub fn walk_selector(

@@ -186,15 +186,15 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 )));
 
         let model = models::CollectionDef {
+            delete: false,
             derive: None,
+            expect_pub_id: None,
             journals: Default::default(),
             key: mock.key.clone(),
-            projections: Default::default(),
+            projections: mock.projections.clone(),
             read_schema: None,
             schema: Some(schema.clone()),
             write_schema: None,
-            expect_pub_id: None,
-            delete: false,
         };
         let partition_template = proto_gazette::broker::JournalSpec {
             name: format!("{collection}/pass-through/partition_name_prefix"),
@@ -401,6 +401,8 @@ struct MockLiveCollection {
     derivation: bool,
     #[serde(default)]
     schema: Option<models::Schema>,
+    #[serde(default)]
+    projections: BTreeMap<models::Field, models::Projection>,
 }
 
 #[derive(serde::Deserialize)]
