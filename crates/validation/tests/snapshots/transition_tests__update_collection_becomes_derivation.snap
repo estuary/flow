@@ -16,7 +16,12 @@ Outcome {
               "schema": {"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"}},"type":"object","x-live":"pass-through"},
               "key": [
                 "/f_one"
-              ]
+              ],
+              "projections": {
+                "F2": "/f_two",
+                "FX": "/f_x",
+                "FY": "/f_y"
+              }
             },
             validated: NULL,
             spec: CollectionSpec {

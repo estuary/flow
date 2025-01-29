@@ -7,7 +7,13 @@ test://example/catalog.yaml:
         properties:
           f_one: { type: integer }
           f_two: { type: string }
+          f_x: false
         required: [f_one, f_two]
+      projections:
+        F1: /f_one
+        F2: /f_two
+        FX: /f_x
+        FY: /f_y
       expectPubId: "10:10:10:10:10:10:10:10"
 
     the/derivation:
@@ -81,6 +87,10 @@ driver:
       controlId: "11:11:11:11:11:11:11:02"
       dataPlaneId: "12:12:12:12:12:12:12:02"
       derivation: false
+      projections:
+        F2: /f_two
+        FX: /f_x
+        FY: /f_y
     the/derivation:
       key: [/d_one]
       lastPubId: "10:10:10:10:10:10:10:10"

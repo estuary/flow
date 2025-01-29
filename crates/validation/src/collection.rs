@@ -52,7 +52,7 @@ fn walk_collection(
         data_plane_id,
         expect_pub_id,
         expect_build_id,
-        _live_model,
+        live_model,
         live_spec,
         is_touch,
     ) = match walk_transition(pub_id, build_id, default_plane_id, eob, errors) {
@@ -145,6 +145,7 @@ fn walk_collection(
         read_schema_bundle.as_ref(),
         key,
         projections,
+        live_model.as_ref().map(|l| &l.projections),
         errors,
     );
     // Projections should be ascending and unique on field.
@@ -258,6 +259,7 @@ fn walk_collection_projections(
     read_schema_bundle: Option<&(schema::Schema, models::Schema)>,
     key: &models::CompositeKey,
     projections: &BTreeMap<models::Field, models::Projection>,
+    live_projections: Option<&BTreeMap<models::Field, models::Projection>>,
     errors: &mut tables::Errors,
 ) -> Vec<flow::Projection> {
     let effective_read_schema = if let Some((read_schema, _read_bundle)) = read_schema_bundle {
@@ -284,6 +286,12 @@ fn walk_collection_projections(
         .iter()
         .filter_map(|(field, projection)| {
             let scope = scope.push_prop(field);
+
+            let modified = if let Some(live_projections) = live_projections {
+                live_projections.get(field) != Some(projection)
+            } else {
+                true
+            };
 
             let (ptr, partition) = match projection {
                 models::Projection::Pointer(ptr) => (ptr, false),
@@ -320,7 +328,21 @@ fn walk_collection_projections(
             }
 
             if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
-                Error::from(err).push(scope, errors);
+                match err {
+                    Error::PtrIsImplicit { .. } if !partition && !modified => {
+                        // Silently ignore a projection which _used_ to exist, but no longer does.
+                        // The goal of this error is to catch user typos and similar mistakes,
+                        // but we don't want to block schema updates.
+                        return None;
+                    }
+                    Error::PtrCannotExist { .. } if !partition && !modified => {
+                        // Suppress an error if the unchanged explicit projection
+                        // cannot exist due to a schema update, and emit its projection.
+                        // This matches the behavior of the location's corresponding implicit projection.
+                        ()
+                    }
+                    err => Error::from(err).push(scope, errors),
+                }
             }
             if matches!(read_schema_bundle, Some(_) if partition) {
                 // Partitioned projections must also be key-able within the write schema.

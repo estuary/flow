@@ -154,6 +154,7 @@ test://example/catalog.yaml:
   collections:
     the/collection:
       expectPubId: "00:00:00:00:00:00:00:00"
+      projections: null
     the/derivation:
       expectPubId: "00:00:00:00:00:00:00:00"
   captures:
