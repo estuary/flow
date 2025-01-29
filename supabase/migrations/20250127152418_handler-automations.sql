@@ -43,11 +43,24 @@ for each row
 when (new.job_status->>'type' = 'queued')
 execute function internal.create_discover_task();
 
+create function internal.create_evolution_task() returns trigger
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+begin
+    execute internal.create_handler_task(new.id, 5);
+    return null;
+end;
+$$;
+create trigger create_evolution_task after insert or update on public.evolutions
+for each row
+when (new.job_status->>'type' = 'queued')
+execute function internal.create_evolution_task();
+
 -- create function internal.create_directive_task() returns trigger
 -- LANGUAGE plpgsql SECURITY DEFINER
 -- AS $$
 -- begin
---     execute internal.create_handler_task(new.id, 5);
+--     execute internal.create_handler_task(new.id, 6);
 --     return null;
 -- end;
 -- $$;
@@ -60,7 +73,7 @@ execute function internal.create_discover_task();
 -- LANGUAGE plpgsql SECURITY DEFINER
 -- AS $$
 -- begin
---     execute internal.create_handler_task(new.id, 6);
+--     execute internal.create_handler_task(new.id, 7);
 --     return null;
 -- end;
 -- $$;

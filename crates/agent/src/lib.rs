@@ -22,7 +22,7 @@ pub use connector_tags::TagHandler;
 pub use controlplane::{ControlPlane, PGControlPlane};
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
-pub use evolution::EvolutionHandler;
+pub use evolution::EvolutionExecutor;
 pub use handlers::{serve, HandleResult, Handler};
 use lazy_static::lazy_static;
 pub use proxy_connectors::{DataPlaneConnectors, DiscoverConnectors, ProxyConnectors};
