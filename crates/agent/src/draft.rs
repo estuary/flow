@@ -41,7 +41,7 @@ pub async fn load_draft(
 pub async fn upsert_draft_catalog(
     draft_id: Id,
     catalog: &tables::DraftCatalog,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut sqlx::PgConnection,
 ) -> anyhow::Result<()> {
     let tables::DraftCatalog {
         captures,
@@ -102,7 +102,7 @@ pub async fn upsert_draft_catalog(
 pub async fn insert_errors(
     draft_id: Id,
     errors: Vec<Error>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    txn: &mut sqlx::PgConnection,
 ) -> anyhow::Result<()> {
     for err in errors {
         let mut detail = err.detail;

@@ -13,7 +13,7 @@ use crate::{
         self, DefaultRetryPolicy, DraftPublication, PublicationResult, Publisher, UncommittedBuild,
         UpdateInferredSchemas,
     },
-    ControlPlane, Handler, PGControlPlane,
+    ControlPlane, PGControlPlane,
 };
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
@@ -59,7 +59,7 @@ pub struct ScenarioResult {
 }
 
 pub struct UserDiscoverResult {
-    pub job_status: discovers::handler::JobStatus,
+    pub job_status: discovers::executor::JobStatus,
     pub draft: tables::DraftCatalog,
     pub errors: Vec<(String, String)>,
 }
@@ -69,7 +69,7 @@ impl UserDiscoverResult {
         let discover = sqlx::query!(
             r#"select
                 draft_id as "draft_id: Id",
-                job_status as "job_status: TextJson<discovers::handler::JobStatus>"
+                job_status as "job_status: TextJson<discovers::executor::JobStatus>"
             from discovers
             where id = $1;"#,
             discover_id as Id,
@@ -119,9 +119,7 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
-
-    controller_automations: automations::Server,
-    publications_automations: automations::Server,
+    pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
 }
 
 impl TestHarness {
@@ -178,9 +176,6 @@ impl TestHarness {
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
 
-        let controller_automations = automations::Server::new().register(controller_exec);
-        let publications_automations = automations::Server::new().register(publisher.clone());
-
         let mut harness = Self {
             test_name: test_name.to_string(),
             pool,
@@ -188,8 +183,7 @@ impl TestHarness {
             builds_root,
             discover_handler,
             control_plane,
-            controller_automations,
-            publications_automations,
+            controller_exec,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -771,18 +765,23 @@ impl TestHarness {
     /// Runs at most one automation task of the given type, and returns the id of the task that was run.
     /// Returns None if no eligible task was ready.
     async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
+        use automations::{task_types, Server};
+
         let semaphor = Arc::new(Semaphore::new(1));
         let mut permit = semaphor.clone().acquire_owned().await.unwrap();
 
         let server = match task_type {
-            automations::task_types::LIVE_SPEC_CONTROLLER => &self.controller_automations,
-            automations::task_types::PUBLICATIONS => &self.publications_automations,
+            task_types::LIVE_SPEC_CONTROLLER => {
+                Server::new().register(self.controller_exec.clone())
+            }
+            task_types::PUBLICATIONS => Server::new().register(self.publisher.clone()),
+            task_types::DISCOVERS => Server::new().register(self.discover_handler.clone()),
             _ => panic!("unsupported task type: {:?}", task_type),
         };
         let mut next = automations::server::dequeue_tasks(
             &mut permit,
             &self.pool,
-            server,
+            &server,
             &[task_type.0],
             std::time::Duration::from_secs(10),
         )
@@ -830,7 +829,7 @@ impl TestHarness {
         .expect("querying for connector_tags id");
 
         let config_json = TextJson(models::RawValue::from_str(endpoint_config).unwrap());
-        let disco_id = sqlx::query!(
+        let disco = sqlx::query!(
             r##"insert into discovers (
                 capture_name,
                 connector_tag_id,
@@ -849,23 +848,24 @@ impl TestHarness {
         .fetch_one(&self.pool)
         .await
         .unwrap();
+        let disco_id = disco.id;
 
         self.discover_handler
             .connectors
             .mock_discover(capture_name, mock_discover_resp);
 
-        let result = self
-            .discover_handler
-            .handle(&self.pool, false)
+        let Some(task_id) = self
+            .run_automation_task(automations::task_types::DISCOVERS)
             .await
-            .expect("discover handler failed");
+        else {
+            panic!("expected a discover task to have run");
+        };
         assert_eq!(
-            crate::HandleResult::HadJob,
-            result,
-            "expected discovers handler to handle a job"
+            task_id, disco_id,
+            "expected discover {disco_id} to have run, but {task_id} got ran instead"
         );
 
-        UserDiscoverResult::load(disco_id.id, &self.pool).await
+        UserDiscoverResult::load(disco_id, &self.pool).await
     }
 
     /// Performs a publication as if it were initiated by `flowctl` or the UI,

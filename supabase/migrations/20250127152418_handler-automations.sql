@@ -30,18 +30,18 @@ for each row
 when (new.job_status->>'type' = 'queued')
 execute function internal.create_publication_task();
 
--- create function internal.create_discover_task() returns trigger
--- LANGUAGE plpgsql SECURITY DEFINER
--- AS $$
--- begin
---     execute internal.create_handler_task(new.id, 4);
---     return null;
--- end;
--- $$;
--- create trigger create_discover_task after insert or update on public.discovers
--- for each row
--- when (new.job_status->>'type' = 'queued')
--- execute function internal.create_discover_task();
+create function internal.create_discover_task() returns trigger
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+begin
+    execute internal.create_handler_task(new.id, 4);
+    return null;
+end;
+$$;
+create trigger create_discover_task after insert or update on public.discovers
+for each row
+when (new.job_status->>'type' = 'queued')
+execute function internal.create_discover_task();
 
 -- create function internal.create_directive_task() returns trigger
 -- LANGUAGE plpgsql SECURITY DEFINER
