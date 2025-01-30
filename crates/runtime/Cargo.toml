@@ -15,7 +15,7 @@ connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
 dekaf = { path = "../dekaf" }
 derive-sqlite = { path = "../derive-sqlite" }
-doc = { path = "../doc" }
+doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }

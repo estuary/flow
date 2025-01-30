@@ -84,7 +84,7 @@ js-sys = "0.3.60"
 kafka-protocol = "0.13.0"
 lazy_static = "1.4"
 libc = "0.2"
-librocksdb-sys = { version = "*", default-features = false, features = [
+librocksdb-sys = { version = "0.16.0", default-features = false, features = [
     "snappy",
     "rtti",
 ] }
