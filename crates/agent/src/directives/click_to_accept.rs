@@ -1,6 +1,5 @@
-use super::{extract, JobStatus};
+use super::{extract, JobStatus, Row};
 
-use agent_sql::directives::Row;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
@@ -40,18 +39,14 @@ pub async fn apply(
 
 #[cfg(test)]
 mod test {
-
-    use super::super::DirectiveHandler;
-    use sqlx::{Connection, Row};
-
-    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+    use sqlx::Row;
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_cases() {
-        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
-            .await
-            .unwrap();
-        let mut txn = conn.begin().await.unwrap();
+        let mut harness =
+            crate::integration_tests::harness::TestHarness::init("click-to-accept directives")
+                .await;
 
         sqlx::query(
             r#"
@@ -72,27 +67,23 @@ mod test {
         select 1;
         "#,
         )
-        .execute(&mut txn)
+        .execute(&harness.pool)
         .await
         .unwrap();
 
-        let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(64);
-        let mut handler = DirectiveHandler::new("support@estuary.test".to_owned(), &logs_tx);
-        while let Some(row) = agent_sql::directives::dequeue(&mut txn, true)
+        while harness
+            .run_automation_task(automations::task_types::APPLIED_DIRECTIVES)
             .await
-            .unwrap()
+            .is_some()
         {
-            let (id, status) = handler.process(row, &mut txn).await.unwrap();
-            agent_sql::directives::resolve(id, status, &mut txn)
-                .await
-                .unwrap();
+            // Run tasks until we're done
         }
 
         let applies = sqlx::query(
             r#"select json_build_object('status', d.job_status, 'did', d.directive_id, 'claims', d.user_claims)
             from applied_directives d order by id asc;"#,
         )
-        .fetch_all(&mut txn)
+        .fetch_all(&harness.pool)
         .await
         .unwrap();
 
