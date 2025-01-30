@@ -222,7 +222,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
                         // Schematized field is not present in this object instance.
 
                         if schema.name == FLOW_EXTRA_NAME {
-                            let Schema::Map(value_schema) = &schema.schema else {
+                            let Schema::Map(map_schema) = &schema.schema else {
                                 return Err(Error::ExtraPropertiesMap);
                             };
                             // This field is constructed as the last schematized field of the schema.
@@ -237,7 +237,7 @@ fn maybe_encode<'s, 'n, N: AsNode>(
                                 for (name, value) in extra.iter() {
                                     zig_zag(b, name.len() as i64); // Key length.
                                     b.extend(name.as_bytes()); // Key content.
-                                    encode(loc.push_prop(name), b, &value_schema, *value)?;
+                                    encode(loc.push_prop(name), b, &map_schema.types, *value)?;
                                 }
                             }
                             zig_zag(b, 0); // Close map.
@@ -270,23 +270,28 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             }
             Ok(true)
         }
-        (Schema::Map(schema), Node::Object(fields)) => {
+        (Schema::Map(map_schema), Node::Object(fields)) => {
             if fields.len() != 0 {
                 zig_zag(b, fields.len() as i64);
                 for field in fields.iter() {
                     zig_zag(b, field.property().len() as i64); // Key length.
                     b.extend(field.property().as_bytes()); // Key content.
-                    encode(loc.push_prop(field.property()), b, &schema, field.value())?;
+                    encode(
+                        loc.push_prop(field.property()),
+                        b,
+                        &map_schema.types,
+                        field.value(),
+                    )?;
                 }
             }
             zig_zag(b, 0); // Close map.
             Ok(true)
         }
-        (Schema::Array(schema), Node::Array(items)) => {
+        (Schema::Array(array_schema), Node::Array(items)) => {
             if !items.is_empty() {
                 zig_zag(b, items.len() as i64);
                 for (index, item) in items.iter().enumerate() {
-                    encode(loc.push_item(index), b, schema, item)?;
+                    encode(loc.push_item(index), b, &array_schema.items, item)?;
                 }
             }
             zig_zag(b, 0); // Close array.
