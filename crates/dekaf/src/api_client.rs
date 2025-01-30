@@ -371,8 +371,7 @@ impl KafkaApiClient {
             )
             .await?;
 
-        let (coord_host, coord_port) = if resp.coordinators.len() > 0 {
-            let coord = resp.coordinators.get(0).expect("already checked length");
+        let (coord_host, coord_port) = if let Some(coord) = resp.coordinators.first() {
             (coord.host.as_str(), coord.port)
         } else {
             (resp.host.as_str(), resp.port)
