@@ -42,7 +42,7 @@ GRANT SELECT ON "<schema_b>"."<table_2>" TO estuary_flow_user;
 CREATE TABLE estuary_flow_user.FLOW_WATERMARKS(SLOT varchar(1000) PRIMARY KEY, WATERMARK varchar(4000));
 ```
 
-5. Finally you need to grant the user access to use logminer, read metadata from the database and write to the watermarks table:
+5. Grant the user access to use logminer, read metadata from the database and write to the watermarks table:
 
 ```sql
 GRANT SELECT_CATALOG_ROLE TO estuary_flow_user;
@@ -64,6 +64,12 @@ ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
 For Amazon RDS instances use:
 ```sql
 BEGIN rdsadmin.rdsadmin_util.alter_supplemental_logging(p_action => 'ADD', p_type   => 'ALL'); end;
+```
+
+7. Ensure user has quota on the USERS tablespace:
+
+```sql
+ALTER USER estuary_flow_user QUOTA UNLIMITED ON USERS;
 ```
 
 ## Container Databases
@@ -90,10 +96,10 @@ GRANT SELECT ON "<schema_a>"."<table_1>" TO c##estuary_flow_user CONTAINER=ALL;
 GRANT SELECT ON "<schema_b>"."<table_2>" TO c##estuary_flow_user CONTAINER=ALL;
 ```
 
-4. Create a watermarks table (run in the root container)
+4. Create a watermarks table (the table should be in the PDB)
 ```sql
 CREATE TABLE c##estuary_flow_user.FLOW_WATERMARKS(SLOT varchar(1000) PRIMARY KEY, WATERMARK varchar(4000));
-GRANT INSERT, UPDATE ON c##estuary_flow_user.FLOW_WATERMARKS TO c##estuary_flow_user;
+GRANT INSERT, UPDATE ON c##estuary_flow_user.FLOW_WATERMARKS TO c##estuary_flow_user CONTAINER=ALL;
 ```
 
 5. Finally you need to grant the user access to use logminer, read metadata from the database and write to the watermarks table:
@@ -111,6 +117,12 @@ GRANT SET CONTAINER TO c##estuary_flow_user CONTAINER=ALL;
 For normal instances use:
 ```sql
 ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
+```
+
+6. Ensure user has quota on the USERS tablespace:
+
+```sql
+ALTER USER c##estuary_flow_user QUOTA UNLIMITED ON USERS;
 ```
 
 ### Include Schemas for Discovery
@@ -131,7 +143,7 @@ To allow secure connections via SSH tunneling:
 | `/address`                         | Address                | The host or host:port at which the database can be reached.                                                                                                                                                                                                                                                                                     | string  | Required                       |
 | `/user`                            | Username               | The database user to authenticate as.                                                                                                                                                                                                                                                                                                           | string  | Required                       |
 | `/password`                        | Password               | Password for the specified database user.                                                                                                                                                                                                                                                                                                       | string  | Required                       |
-| `/database`                        | Database               | Logical database name to capture from. Defaults to ORCL.                                                                                                                                                                                                                                                                                        | string  | Required                       |
+| `/database`                        | Database               | Logical database name to capture from. Defaults to ORCL. In multi-container environments use the PDB name.                                                                                                                                                                                                                                      | string  | Required                       |
 | `/historyMode`                     | History Mode           | Capture change events without reducing them to a final state.                                                                                                                                                                                                                                                                                   | boolean | `false`                        |
 | `/advanced/skip_backfills`         | Skip Backfills         | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                           | string  |                                |
 | `/advanced/watermarksTable`        | Watermarks Table       | The name of the table used for watermark writes during backfills. Must be fully-qualified in '&lt;schema&gt;.table' form.                                                                                                                                                                                                                       | string  | `&lt;USER&gt;.FLOW_WATERMARKS` |
