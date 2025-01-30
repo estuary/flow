@@ -56,18 +56,21 @@ for each row
 when (new.job_status->>'type' = 'queued')
 execute function internal.create_evolution_task();
 
--- create function internal.create_directive_task() returns trigger
--- LANGUAGE plpgsql SECURITY DEFINER
--- AS $$
--- begin
---     execute internal.create_handler_task(new.id, 6);
---     return null;
--- end;
--- $$;
--- create trigger create_directive_task after insert or update on public.applied_directives
--- for each row
--- when (new.job_status->>'type' = 'queued')
--- execute function internal.create_directive_task();
+create function internal.create_directive_task() returns trigger
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+begin
+    execute internal.create_handler_task(new.id, 6);
+    return null;
+end;
+$$;
+-- Note that the trigger for applied directives requires that user_claims have been set.
+-- This is important because typically that column will be populated by a separate update
+-- after the row was created.
+create trigger create_directive_task after insert or update on public.applied_directives
+for each row
+when (new.job_status->>'type' = 'queued' and new.user_claims is not null)
+execute function internal.create_directive_task();
 
 -- create function internal.create_connector_tag_task() returns trigger
 -- LANGUAGE plpgsql SECURITY DEFINER

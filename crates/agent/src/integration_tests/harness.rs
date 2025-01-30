@@ -120,6 +120,7 @@ pub struct TestHarness {
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
+    pub directive_exec: crate::directives::DirectiveHandler,
 }
 
 impl TestHarness {
@@ -175,6 +176,8 @@ impl TestHarness {
 
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
+        let directive_exec =
+            crate::directives::DirectiveHandler::new("support@estuary.test".to_string(), &logs_tx);
 
         let mut harness = Self {
             test_name: test_name.to_string(),
@@ -184,6 +187,7 @@ impl TestHarness {
             discover_handler,
             control_plane,
             controller_exec,
+            directive_exec,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -308,6 +312,17 @@ impl TestHarness {
     async fn truncate_tables(&mut self) {
         tracing::warn!("clearing all data before test");
         let system_user_id = self.control_plane().inner.system_user_id;
+
+        // We need to disable this trigger, or else it will prevent us from deleting
+        // applied directives.
+        sqlx::query(
+            r##"alter table applied_directives
+           disable trigger "Verify delete of applied directives";"##,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to disable trigger");
+
         sqlx::query!(
             r#"
             with del_live_specs as (
@@ -350,6 +365,15 @@ impl TestHarness {
             del_role_grants as (
                 delete from role_grants
             ),
+            del_directives as (
+                delete from directives
+            ),
+            del_applied_directives as (
+                delete from applied_directives
+            ),
+            del_tasks as (
+                delete from internal.tasks
+            ),
             del_alert_subs as (
                 delete from alert_subscriptions
             ),
@@ -374,6 +398,14 @@ impl TestHarness {
         .execute(&self.pool)
         .await
         .expect("failed to truncate tables");
+
+        sqlx::query(
+            r##"alter table applied_directives
+           enable trigger "Verify delete of applied directives";"##,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to enable trigger");
     }
 
     /// Returns a mutable reference to the control plane, which can be used for
@@ -764,7 +796,7 @@ impl TestHarness {
 
     /// Runs at most one automation task of the given type, and returns the id of the task that was run.
     /// Returns None if no eligible task was ready.
-    async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
+    pub async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
         use automations::{task_types, Server};
 
         let semaphor = Arc::new(Semaphore::new(1));
@@ -776,6 +808,7 @@ impl TestHarness {
             }
             task_types::PUBLICATIONS => Server::new().register(self.publisher.clone()),
             task_types::DISCOVERS => Server::new().register(self.discover_handler.clone()),
+            task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
             _ => panic!("unsupported task type: {:?}", task_type),
         };
         let mut next = automations::server::dequeue_tasks(
@@ -799,6 +832,7 @@ impl TestHarness {
         assert_eq!(1, next.len(), "expected at most 1 dequeued task");
         let task = next.pop().unwrap();
         let task_id = task.task.id;
+        tracing::debug!(%task_id, "polling automation task");
         automations::executors::poll_task(task, std::time::Duration::from_secs(10))
             .await
             .expect("failed to poll task");
