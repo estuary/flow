@@ -353,36 +353,12 @@ checksum = "b3d1d046238990b9cf5bcde22a3fb3584ee5cf65fb2765f454ed428c7a0063da"
 
 [[package]]
 name = "apache-avro"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ceb7c683b2f8f40970b70e39ff8be514c95b96fcb9c4af87e1ed2cb2e10801a0"
-dependencies = [
- "crc32fast",
- "digest",
- "lazy_static",
- "libflate",
- "log",
- "num-bigint",
- "quad-rand",
- "rand 0.8.5",
- "regex-lite",
- "serde",
- "serde_json",
- "snap",
- "strum 0.25.0",
- "strum_macros 0.25.3",
- "thiserror",
- "typed-builder 0.16.2",
- "uuid 1.10.0",
-]
-
-[[package]]
-name = "apache-avro"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aef82843a0ec9f8b19567445ad2421ceeb1d711514384bdd3d49fe37102ee13"
 dependencies = [
  "bigdecimal 0.4.7",
+ "crc32fast",
  "digest",
  "libflate",
  "log",
@@ -393,10 +369,11 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "snap",
  "strum 0.26.3",
  "strum_macros 0.26.4",
  "thiserror",
- "typed-builder 0.19.1",
+ "typed-builder",
  "uuid 1.10.0",
 ]
 
@@ -721,7 +698,7 @@ dependencies = [
 name = "avro"
 version = "0.0.0"
 dependencies = [
- "apache-avro 0.16.0",
+ "apache-avro",
  "doc",
  "hexdump",
  "insta",
@@ -1992,7 +1969,7 @@ dependencies = [
  "aes-siv",
  "allocator",
  "anyhow",
- "apache-avro 0.16.0",
+ "apache-avro",
  "async-process",
  "async-trait",
  "avro",
@@ -4519,7 +4496,7 @@ dependencies = [
 name = "parser"
 version = "0.0.0"
 dependencies = [
- "apache-avro 0.16.0",
+ "apache-avro",
  "assert_cmd",
  "base64 0.13.1",
  "bytecount",
@@ -5939,7 +5916,7 @@ version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bcc3cf40651cf503827a34bcd7efbbd4750a7e3adc6768bb8089977e4d07303b"
 dependencies = [
- "apache-avro 0.17.0",
+ "apache-avro",
  "byteorder",
  "dashmap 6.1.0",
  "futures",
@@ -6623,12 +6600,6 @@ dependencies = [
 
 [[package]]
 name = "strum"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "290d54ea6f91c969195bdbcd7442c8c2a2ba87da8bf60a7ee86a235d4bc1e125"
-
-[[package]]
-name = "strum"
 version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
@@ -6644,19 +6615,6 @@ dependencies = [
  "quote",
  "rustversion",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.25.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23dc1fa9ac9c169a78ba62f0b841814b7abae11bdd047b9c58f893439e309ea0"
-dependencies = [
- "heck 0.4.1",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 2.0.74",
 ]
 
 [[package]]
@@ -7338,31 +7296,11 @@ dependencies = [
 
 [[package]]
 name = "typed-builder"
-version = "0.16.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34085c17941e36627a879208083e25d357243812c30e7d7387c3b954f30ade16"
-dependencies = [
- "typed-builder-macro 0.16.2",
-]
-
-[[package]]
-name = "typed-builder"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a06fbd5b8de54c5f7c91f6fe4cebb949be2125d7758e630bb58b1d831dbce600"
 dependencies = [
- "typed-builder-macro 0.19.1",
-]
-
-[[package]]
-name = "typed-builder-macro"
-version = "0.16.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f03ca4cb38206e2bef0700092660bb74d696f808514dae47fa1467cbfe26e96e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.74",
+ "typed-builder-macro",
 ]
 
 [[package]]
