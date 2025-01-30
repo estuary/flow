@@ -230,18 +230,16 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
+    let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
 
     // Wire up the agent's job execution loop.
     let serve_fut = if args.serve_handlers {
         agent::serve(
-            vec![
-                Box::new(agent::TagHandler::new(
-                    &args.connector_network,
-                    &logs_tx,
-                    args.allow_local,
-                )),
-                Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
-            ],
+            vec![Box::new(agent::TagHandler::new(
+                &args.connector_network,
+                &logs_tx,
+                args.allow_local,
+            ))],
             pg_pool.clone(),
             shutdown.clone(),
         )
@@ -258,6 +256,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(publisher)
             .register(discover_handler)
             .register(agent::EvolutionExecutor)
+            .register(directive_executor)
             .serve(
                 args.max_automations,
                 pg_pool.clone(),
