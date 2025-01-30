@@ -1,9 +1,9 @@
 # Starburst
 
-This connector materializes transactionally Flow collections into Iceberg or Delta Lake tables using AWS S3 storage in [Starburst Galaxy](https://www.starburst.io/platform/starburst-galaxy/).
-Starburst Galaxy connector supports only standard(merge) updates.
+This connector transactionally materializes Flow collections into Iceberg or Delta Lake tables using AWS S3 storage in [Starburst Galaxy](https://www.starburst.io/platform/starburst-galaxy/).
+The Starburst Galaxy connector supports only standard (merge) updates.
 
-The connector makes use of S3 AWS storage for storing temporarily data during the materialization process.
+The connector makes use of S3 AWS storage for temporarily storing data during the materialization process.
 
 [`ghcr.io/estuary/materialize-starburst:dev`](https://ghcr.io/estuary/materialize-starburst:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
 
@@ -11,18 +11,18 @@ The connector makes use of S3 AWS storage for storing temporarily data during th
 
 To use this connector, you'll need:
 
-* A Starburst Galaxy account (To create one: [Staburst Galaxy start](https://www.starburst.io/platform/starburst-galaxy/start/) that includes:
+* A Starburst Galaxy account (To create one see: [Staburst Galaxy start](https://www.starburst.io/platform/starburst-galaxy/start/)) that includes:
   * A running cluster containing an [Amazon S3](https://docs.starburst.io/starburst-galaxy/working-with-data/create-catalogs/object-storage/s3.html) catalog
   * A [schema](https://docs.starburst.io/starburst-galaxy/data-engineering/working-with-data-lakes/table-formats/index.html#create-schema) which is a logical grouping of tables
-  * Storage on S3 for temporary data with `awsAccessKeyId` and `awsSecretAccessKey` which should correspond to used catalog
-  * A user with a role assigned that grants access to create, modify, drop tables in specified Amazon S3 catalog
+  * Storage on S3 for temporary data with `awsAccessKeyId` and `awsSecretAccessKey` which should correspond to the chosen catalog
+  * A user with a role assigned that grants access to create, modify, and drop tables in the specified Amazon S3 catalog
 * At least one Flow collection
 
 ### Setup
 
-To get host go to your Cluster -> Connection info -> Other clients ([Connect clients](https://docs.starburst.io/starburst-galaxy/working-with-data/query-data/connect-clients.html))
+To get the host, go to your Cluster -> Connection info -> Other clients, as specified in Starburst's [Connect clients](https://docs.starburst.io/starburst-galaxy/working-with-data/query-data/connect-clients.html) docs.
 
-There is also need to grant access to temporary storage (Roles and privileges -> Select specific role -> Privileges -> Add privilege -> Location). "Create schema and table in location" should be selected. [Doc](https://docs.starburst.io/starburst-galaxy/cluster-administration/manage-cluster-access/manage-users-roles-and-tags/account-and-cluster-privileges-and-entities.html#location-privileges-)
+You will also need to grant access to temporary storage (Roles and privileges -> Select specific role -> Privileges -> Add privilege -> Location). "Create schema and table in location" should be selected. See the Starburst [docs](https://docs.starburst.io/starburst-galaxy/cluster-administration/manage-cluster-access/manage-users-roles-and-tags/account-and-cluster-privileges-and-entities.html#location-privileges-) for more.
 
 ## Configuration
 

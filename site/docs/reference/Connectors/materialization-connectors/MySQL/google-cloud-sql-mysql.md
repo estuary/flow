@@ -24,7 +24,7 @@ To use this connector, you'll need:
 
 ## Setup
 
-### Conenecting Directly to Google Cloud SQL
+### Connecting Directly to Google Cloud SQL
 
 1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add the [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
 
@@ -66,6 +66,8 @@ To allow SSH tunneling to a database instance hosted on Google Cloud, you must s
 To configure the connector, you must specify the database address in the format
 `host:port`. (You can also supply `host` only; the connector will use the port `3306` by default, which is correct in many cases.)
 You can find the host and port in the following locations in each platform's console:
+
+- Google Cloud SQL: host as Private IP Address; port is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
 :::
 
 ## Configuration
@@ -180,14 +182,14 @@ materializations:
       - When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. Configure your connector as described in the [configuration](#configuration) section above,
-   with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
+   with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using.
    See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
    for additional details and a sample.
 
 :::tip Configuration Tip
 To configure the connector, you must specify the database address in the format
 `host:port`. (You can also supply `host` only; the connector will use the port `3306` by default, which is correct in many cases.)
-You can find the host host in the GCP console as "Private IP Address". The pport is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
+You can find the host in the GCP console as "Private IP Address". The port is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
 :::
 
 3. Create the `flow_materialize` user with `All` privileges on your database. This user will need the ability to create and update the `flow_materializations` table.

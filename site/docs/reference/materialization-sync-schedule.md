@@ -7,7 +7,7 @@ could reduce your compute charges by running a single large query every 30
 minutes rather than many smaller queries every few seconds.
 
 :::note
-Syncing data less frequently to your destination system does _not_ effect the
+Syncing data less frequently to your destination system does _not_ affect the
 cost for running the materialization connector within Estuary Flow. But it can
 reduce the costs incurred in the destination from the actions the connector
 takes to load data to it.
@@ -80,7 +80,7 @@ disable and then re-enable the materialization.
 
 To use the same schedule for syncing data 24/7, set the value of **Sync
 Frequency** only and leave the other inputs empty. For example, you might set a
-**Sync Frequency** of `15m` to always have you destination sync every 15 minutes
+**Sync Frequency** of `15m` to always have your destination sync every 15 minutes
 instead of the default 30 minutes.
 
 :::tip
@@ -133,7 +133,7 @@ Here are some examples of valid inputs for **Fast Sync Enabled Days**:
 ## Timing of syncs
 
 In technical terms, timing of syncs is controlled by the materialization
-connector sending a transaction acknowledgement to the Flow runtime a computed
+connector sending a transaction acknowledgement to the Flow runtime at computed
 times. Practically this means that at these times the prior transaction will
 complete and have its statistics recorded, and the next transaction will begin.
 
@@ -156,10 +156,10 @@ acknowledgements will occur.
 :::info
 The `jitter` value is deterministic based on the *compute resource* for the
 destination system from the materialization's endpoint configuration. How this
-compute resource is identified various for different systems, but is usually
+compute resource is identified varies for different systems, but is usually
 something like `"account_name" + "warehouse_Name"`.
 
-This means that separate materialization use the same compute resource will
+This means that separate materializations using the same compute resource will
 synchronize their usage of that compute resource if they have the same **Sync
 Schedule** configured.
 :::

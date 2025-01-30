@@ -25,7 +25,7 @@ See the steps below to set up access.
 
 ### Setup: Public buckets
 
-For a public buckets, the bucket access policy must allow anonymous reads on the whole bucket or a specific prefix.
+For a public bucket, the bucket access policy must allow anonymous reads on the whole bucket or a specific prefix.
 
 1. Create a bucket policy using the templates below.
 

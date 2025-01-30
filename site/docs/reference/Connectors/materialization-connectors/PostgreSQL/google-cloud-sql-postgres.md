@@ -21,7 +21,7 @@ To use this connector, you'll need:
 You must configure your database to allow connections from Estuary.
 There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-### Conenecting Directly to Google Cloud SQL
+### Connecting Directly to Google Cloud SQL
 
 1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add the [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses.
 

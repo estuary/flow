@@ -36,6 +36,7 @@ The following data resources are supported through the Harvest APIs:
 * [Uninvoiced Report](https://help.getharvest.com/api-v2/reports-api/reports/uninvoiced-report/)
 * [Time Reports](https://help.getharvest.com/api-v2/reports-api/reports/time-reports/)
 * [Project Budget Report](https://help.getharvest.com/api-v2/reports-api/reports/project-budget-report/)
+
 By default, each resource is mapped to a Flow collection through a separate binding.
 
 ## Prerequisites
@@ -55,7 +56,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | `/account_id` | Account ID | Harvest account ID. Required for all Harvest requests in pair with Personal Access Token. | string | Required |
 | `/start_date` | Start Date | UTC date and time in the format 2021-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
-| `/end_date` | End Date | UTC date and time in the format 2021-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Default |
+| `/end_date` | End Date | UTC date and time in the format 2021-01-25T00:00:00Z. Any data after this date will not be replicated. | string | Default |
 
 #### Bindings
 

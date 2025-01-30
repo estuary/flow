@@ -24,7 +24,7 @@ See [limitations](#limitations) to learn more about reconciling historical and r
 
 ## Supported data resources
 
-Alpaca supports over 8000 stocks and EFTs. You simply supply a list of [symbols](https://eoddata.com/symbols.aspx) to Flow when you configure the connector.
+Alpaca supports over 8000 stocks and ETFs. You simply supply a list of [symbols](https://eoddata.com/symbols.aspx) to Flow when you configure the connector.
 To check whether Alpaca supports a symbol, you can use the [Alpaca Broker API](https://alpaca.markets/docs/api-references/broker-api/assets/#retrieving-an-asset-by-symbol).
 
 You can use this connector to capture data from up to 20 stock symbols into Flow collections in a single capture

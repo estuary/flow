@@ -20,18 +20,18 @@ The Slack connector is available for use in the Flow web application. To learn m
 
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
-| /access_token | Access Token | The Slack API access token for authentication. | string | Required |
-| /client_id | Client ID | Client ID for authentication. | string | Required |
-| /client_secret | Client Secret | The Slack API client secret. | string | Required |
+| `/access_token` | Access Token | The Slack API access token for authentication. | string | Required |
+| `/client_id` | Client ID | Client ID for authentication. | string | Required |
+| `/client_secret` | Client Secret | The Slack API client secret. | string | Required |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
-| /source | Source | Source data in Flow to be sent to Slack. | string | Required |
-| /channel | Channel | The ID of the Slack channel to send messages to. | string | Required |
-| /display_name | Display Name | The display name for the sender in Slack. | string | |
-| /logo_emoji | Logo Emoji | The emoji to be used. | string |  |
+| `/source` | Source | Source data in Flow to be sent to Slack. | string | Required |
+| `/channel` | Channel | The ID of the Slack channel to send messages to. | string | Required |
+| `/display_name` | Display Name | The display name for the sender in Slack. | string | |
+| `/logo_emoji` | Logo Emoji | The emoji to be used. | string |  |
 
 ### Sample
 
