@@ -19,9 +19,9 @@ If the dataset has a natural cursor that can identify only new or updated rows, 
 1. Ensure that [Estuary's IP addresses are allowlisted](/reference/allow-ip-addresses) to allow access. You can do by
    following [these steps](https://docs.singlestore.com/cloud/reference/management-api/#control-access-to-the-api)
 2. Grab the following details from the SingleStore workspace.
-    3. Workspace URL
-    4. Username
-    5. Password
-    6. Database
-7. Configure the Connector with the appropriate values. Make sure to specify the database name under the "Advanced"
+    1. Workspace URL
+    2. Username
+    3. Password
+    4. Database
+3. Configure the Connector with the appropriate values. Make sure to specify the database name under the "Advanced"
    section.

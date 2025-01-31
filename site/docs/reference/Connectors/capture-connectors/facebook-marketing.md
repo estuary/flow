@@ -32,7 +32,7 @@ the manual method is the only supported method using the command line.
 
 ### Signing in with OAuth2
 
-To use OAuth2 in the Flow web app, you'll need A Facebook Business account and its [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
+To use OAuth2 in the Flow web app, you'll need a Facebook Business account and its [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
 
 ### Configuring manually with an access token
 

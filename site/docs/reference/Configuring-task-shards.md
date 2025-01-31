@@ -3,7 +3,7 @@ sidebar_position: 2
 ---
 # Configuring task shards
 
-For some catalog tasks, it's helpful to control the behavior of [shards](../concepts/advanced/shards.md)
+For some catalog tasks, it's helpful to control the behavior of [shards](../concepts/advanced/shards.md).
 You do this by adding the `shards` configuration to the capture or materialization configuration.
 
 ## Properties

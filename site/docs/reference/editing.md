@@ -24,7 +24,7 @@ You do this by pulling the desired specification locally, editing, and re-publis
 
 ## Endpoint configuration changes
 
-A common reason to edit a capture or materialization to fix a broken endpoint configuration:
+A common reason to edit a capture or materialization is to fix a broken endpoint configuration:
 for example, if a database is now accessed through a different port.
 Changes that prevent Flow from finding the source system immediately cause the capture or materialization to fail.
 
@@ -64,5 +64,5 @@ It *is* possible to manually change the names of destination resources (tables o
 You should avoid doing so unless you want to route future data to a new location.
 
 If you do this, a new resource with that name will be created and the old resource will continue to exist.
-Historical data will may not be backfilled into the new resource, depending on the connector used.
+Historical data may not be backfilled into the new resource, depending on the connector used.
 

@@ -23,8 +23,6 @@ This connector can be used to sync the following tables from Snapchat:
 * AdaccountsStatsLifetime
 * AdsStatsHourly
 * AdsStatsDaily
-* AdsStatsHourly
-* AdsStatsDaily
 * AdsStatsLifetime
 * AdsquadsStatsDaily
 * AdsquadsStatsLifetime

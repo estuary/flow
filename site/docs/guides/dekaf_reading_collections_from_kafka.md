@@ -101,7 +101,7 @@ kcat -C \
     -X sasl.username="{}" \
     -X sasl.password="Your_Estuary_Refresh_Token" \
     -b dekaf.estuary-data.com:9092 \
-    -t "full/nameof/estuarycolletion" \
+    -t "full/nameof/estuarycollection" \
     -p 0 \
     -o beginning \
     -s avro \

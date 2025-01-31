@@ -103,7 +103,7 @@ The default is to use standard updates.
 PostgreSQL (and thus TimescaleDB) has a list of reserved words that must be quoted in order to be used as an identifier.
 Flow considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
 
-These reserve words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
 
 |Reserved words| | | | |
 |---|---|---|---|---|

@@ -27,10 +27,10 @@ spreadsheet:
 1. The first row must be frozen and contain header names for each column.
       1. If the first row is not frozen or does not contain header names, header names will
   be set using high-case alphabet letters (A,B,C,D...Z).
-2. Sheet is not a image sheet or contains images.
+2. Sheet is not an image sheet or contains images.
 3. Sheet is not empty.
       1. If a Sheet is empty, the connector will not break and wait for changes
-  inside the Sheet. When new data arrives, you will be prompted by flow to allow
+  inside the Sheet. When new data arrives, you will be prompted by Flow to allow
   for schema changes.
 4. Sheet does not contain `formulaValue` inside any cell.
 

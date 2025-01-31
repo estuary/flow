@@ -328,9 +328,9 @@ Preparing Snowflake for use with Estuary Flow involves the following steps:
 
 1\. Keep the Flow web app open and open a new tab or window to access your Snowflake console.
 
-3\. Create a new SQL worksheet. This provides a platform to execute queries.
+2\. Create a new SQL worksheet. This provides a platform to execute queries.
 
-4\. Paste the provided script into the SQL console, adjusting the value for `estuary_password` to a strong password.
+3\. Paste the provided script into the SQL console, adjusting the value for `estuary_password` to a strong password.
 
 ```sql
 set database_name = 'ESTUARY_DB';
@@ -373,11 +373,11 @@ use role sysadmin;
 COMMIT;
 ```
 
-5\. Execute all the queries by clicking the drop-down arrow next to the Run button and selecting "Run All."
+4\. Execute all the queries by clicking the drop-down arrow next to the Run button and selecting "Run All."
 
-6\. Snowflake will process the queries, setting up the necessary roles, databases, schemas, users, and warehouses for Estuary Flow.
+5\. Snowflake will process the queries, setting up the necessary roles, databases, schemas, users, and warehouses for Estuary Flow.
 
-7\. Once the setup is complete, return to the Flow web application to continue with the integration process.
+6\. Once the setup is complete, return to the Flow web application to continue with the integration process.
 
 Back in Flow, head over to the **Destinations** page, where you can [create a new Materialization](https://dashboard.estuary.dev/materializations/create).
 
