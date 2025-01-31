@@ -84,7 +84,7 @@ pub async fn does_connector_exist(
 pub async fn update_oauth2_spec(
     connector_id: Id,
     oauth2_spec: Box<RawValue>,
-    db: &sqlx::PgPool,
+    db: impl sqlx::PgExecutor<'_>,
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"update connectors set
@@ -113,7 +113,7 @@ pub async fn update_tag_fields(
     protocol: String,
     resource_spec_schema: Box<RawValue>,
     resource_path_pointers: Vec<String>,
-    db: &sqlx::PgPool,
+    db: impl sqlx::PgExecutor<'_>,
 ) -> sqlx::Result<bool> {
     let row = sqlx::query!(
         r#"update connector_tags set
@@ -121,7 +121,8 @@ pub async fn update_tag_fields(
             endpoint_spec_schema = $3,
             protocol = $4,
             resource_spec_schema = $5,
-            resource_path_pointers = $6
+            resource_path_pointers = $6,
+            job_status = '{"type": "updating"}'
         where id = $1
           and (resource_path_pointers is null or resource_path_pointers::text[] = $6)
         returning true as "updated";
