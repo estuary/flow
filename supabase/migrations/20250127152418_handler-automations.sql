@@ -72,18 +72,18 @@ for each row
 when (new.job_status->>'type' = 'queued' and new.user_claims is not null)
 execute function internal.create_directive_task();
 
--- create function internal.create_connector_tag_task() returns trigger
--- LANGUAGE plpgsql SECURITY DEFINER
--- AS $$
--- begin
---     execute internal.create_handler_task(new.id, 7);
---     return null;
--- end;
--- $$;
--- create trigger create_connector_tag_task after insert or update on public.connector_tags
--- for each row
--- when (new.job_status->>'type' = 'queued')
--- execute function internal.create_connector_tag_task();
+create function internal.create_connector_tag_task() returns trigger
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+begin
+    execute internal.create_handler_task(new.id, 7);
+    return null;
+end;
+$$;
+create trigger create_connector_tag_task after insert or update on public.connector_tags
+for each row
+when (new.job_status->>'type' = 'queued')
+execute function internal.create_connector_tag_task();
 
 
 commit;
