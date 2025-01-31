@@ -1,5 +1,13 @@
-use models::{SourceCaptureSchemaMode, SourceCapture};
+use models::{SourceCapture, SourceCaptureSchemaMode};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+#[derive(Serialize, Deserialize)]
+pub struct ResourceSpecPointers {
+    pub x_collection_name: doc::Pointer,
+    pub x_schema_name: Option<doc::Pointer>,
+    pub x_delta_updates: Option<doc::Pointer>,
+}
 
 ///
 /// # Panics
@@ -11,13 +19,12 @@ pub fn update_materialization_resource_spec(
     resource_spec_pointers: &ResourceSpecPointers,
     full_collection_name: &str,
 ) -> anyhow::Result<()> {
-    let split: Vec<&str> = full_collection_name
-        .rsplit('/')
-        .take(2)
-        .collect();
+    let split: Vec<&str> = full_collection_name.rsplit('/').take(2).collect();
 
     if split.len() < 2 {
-        return Err(anyhow::anyhow!("collection name is invalid (does not contain '/')"))
+        return Err(anyhow::anyhow!(
+            "collection name is invalid (does not contain '/')"
+        ));
     }
 
     let x_collection_name = split[0];
@@ -64,12 +71,6 @@ pub fn update_materialization_resource_spec(
     }
 
     Ok(())
-}
-
-pub struct ResourceSpecPointers {
-    pub x_collection_name: doc::Pointer,
-    pub x_schema_name: Option<doc::Pointer>,
-    pub x_delta_updates: Option<doc::Pointer>,
 }
 
 /// Runs inference on the given schema and searches for a location within the resource spec

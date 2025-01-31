@@ -16,7 +16,7 @@ async-process = { path = "../async-process" }
 build = { path = "../build" }
 connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
-doc = { path = "../doc" }
+doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
 flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
