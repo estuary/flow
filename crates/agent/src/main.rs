@@ -232,22 +232,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
     let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
 
-    // Wire up the agent's job execution loop.
-    let serve_fut = if args.serve_handlers {
-        agent::serve(
-            vec![Box::new(agent::TagHandler::new(
-                &args.connector_network,
-                &logs_tx,
-                args.allow_local,
-            ))],
-            pg_pool.clone(),
-            shutdown.clone(),
-        )
-        .boxed()
-    } else {
-        futures::future::ready(Ok(())).boxed()
-    };
-
     let automations_fut = if args.max_automations > 0 {
         automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(
@@ -271,7 +255,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     };
 
     std::mem::drop(logs_tx);
-    let ((), (), (), ()) = tokio::try_join!(serve_fut, api_server, logs_sink, automations_fut)?;
+    let ((), (), ()) = tokio::try_join!(api_server, logs_sink, automations_fut)?;
 
     Ok(())
 }

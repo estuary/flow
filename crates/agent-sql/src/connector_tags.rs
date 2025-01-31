@@ -19,13 +19,7 @@ pub struct Row {
     pub updated_at: DateTime<Utc>,
 }
 
-#[tracing::instrument(level = "debug", skip(txn))]
-pub async fn dequeue(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    allow_background: bool,
-) -> sqlx::Result<Option<Row>> {
-    // We don't expect to have any interactive connector_tags jobs at this stage, but this function
-    // still handles things as if we may.
+pub async fn fetch_connector_tag(id: Id, pool: &sqlx::PgPool) -> sqlx::Result<Row> {
     sqlx::query_as!(
         Row,
         r#"select
@@ -39,15 +33,32 @@ pub async fn dequeue(
             t.updated_at
         from connector_tags as t
         join connectors as c on c.id = t.connector_id
-        where t.job_status->>'type' = 'queued' and (t.background = $1 or t.background = false)
-        order by t.background asc, t.id asc
-        limit 1
-        for update of t skip locked;
+        where t.id = $1::flowid;
         "#,
-        allow_background
+        id as Id
     )
-    .fetch_optional(txn)
+    .fetch_one(pool)
     .await
+}
+
+pub async fn resolve<S>(id: Id, status: S, txn: &mut sqlx::PgConnection) -> sqlx::Result<()>
+where
+    S: Serialize + Send + Sync,
+{
+    sqlx::query!(
+        r#"update connector_tags set
+            job_status = $2,
+            updated_at = clock_timestamp()
+        where id = $1
+        returning 1 as "must_exist";
+        "#,
+        id as Id,
+        Json(status) as Json<S>,
+    )
+    .fetch_one(txn)
+    .await?;
+
+    Ok(())
 }
 
 #[derive(Debug, FromRow, Serialize)]
@@ -70,34 +81,10 @@ pub async fn does_connector_exist(
     .map(|exists| exists.is_some())
 }
 
-pub async fn resolve<S>(
-    id: Id,
-    status: S,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()>
-where
-    S: Serialize + Send + Sync,
-{
-    sqlx::query!(
-        r#"update connector_tags set
-            job_status = $2,
-            updated_at = clock_timestamp()
-        where id = $1
-        returning 1 as "must_exist";
-        "#,
-        id as Id,
-        Json(status) as Json<S>,
-    )
-    .fetch_one(txn)
-    .await?;
-
-    Ok(())
-}
-
 pub async fn update_oauth2_spec(
     connector_id: Id,
     oauth2_spec: Box<RawValue>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: &sqlx::PgPool,
 ) -> sqlx::Result<()> {
     sqlx::query!(
         r#"update connectors set
@@ -109,7 +96,7 @@ pub async fn update_oauth2_spec(
         connector_id as Id,
         Json(oauth2_spec) as Json<Box<RawValue>>,
     )
-    .fetch_one(txn)
+    .fetch_one(db)
     .await?;
 
     Ok(())
@@ -126,7 +113,7 @@ pub async fn update_tag_fields(
     protocol: String,
     resource_spec_schema: Box<RawValue>,
     resource_path_pointers: Vec<String>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    db: &sqlx::PgPool,
 ) -> sqlx::Result<bool> {
     let row = sqlx::query!(
         r#"update connector_tags set
@@ -146,7 +133,7 @@ pub async fn update_tag_fields(
         Json(resource_spec_schema) as Json<Box<RawValue>>,
         resource_path_pointers as Vec<String>,
     )
-    .fetch_optional(&mut *txn)
+    .fetch_optional(db)
     .await?;
 
     Ok(row.is_some())

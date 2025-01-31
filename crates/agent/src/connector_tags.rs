@@ -1,5 +1,5 @@
-use super::{jobs, logs, HandleResult, Handler, Id};
-use agent_sql::connector_tags::Row;
+use super::{jobs, logs, Id};
+use agent_sql::connector_tags::{fetch_connector_tag, resolve, Row};
 use anyhow::Context;
 use proto_flow::flow;
 use runtime::{LogHandler, Runtime, RuntimeProtocol};
@@ -17,6 +17,7 @@ pub enum JobStatus {
     OpenGraphFailed { error: String },
     ValidationFailed { error: ValidationError },
     Success,
+    InternalError,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -50,32 +51,49 @@ impl TagHandler {
     }
 }
 
-#[async_trait::async_trait]
-impl Handler for TagHandler {
-    async fn handle(
-        &mut self,
-        pg_pool: &sqlx::PgPool,
-        allow_background: bool,
-    ) -> anyhow::Result<HandleResult> {
-        let mut txn = pg_pool.begin().await?;
+pub struct TagOutcome {
+    id: Id,
+    status: JobStatus,
+}
 
-        let row: Row = match agent_sql::connector_tags::dequeue(&mut txn, allow_background).await? {
-            None => return Ok(HandleResult::NoJobs),
-            Some(row) => row,
-        };
-
-        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-        let (id, status) = self.process(row, &mut txn).await?;
-        info!(%id, %time_queued, ?status, "finished");
-
-        agent_sql::connector_tags::resolve(id, status, &mut txn).await?;
-        txn.commit().await?;
-
-        Ok(HandleResult::HadJob)
+impl automations::Outcome for TagOutcome {
+    async fn apply<'s>(
+        self,
+        txn: &'s mut sqlx::PgConnection,
+    ) -> anyhow::Result<automations::Action> {
+        resolve(self.id, self.status, txn).await?;
+        Ok(automations::Action::Done)
     }
+}
 
-    fn table_name(&self) -> &'static str {
-        "connector_tags"
+impl automations::Executor for TagHandler {
+    const TASK_TYPE: automations::TaskType = automations::task_types::CONNECTOR_TAGS;
+    type Receive = serde_json::Value;
+    type State = ();
+    type Outcome = TagOutcome;
+
+    async fn poll<'s>(
+        &'s self,
+        pool: &'s sqlx::PgPool,
+        task_id: models::Id,
+        _parent_id: Option<models::Id>,
+        _state: &'s mut Self::State,
+        inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
+    ) -> anyhow::Result<Self::Outcome> {
+        let row = fetch_connector_tag(task_id, pool).await?;
+        tracing::debug!(?inbox, %task_id, "processing connector_tags task");
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+        let next_status = self.process(row, pool).await.unwrap_or_else(|err| {
+            tracing::warn!(error = %err, "failed to process connector tag");
+            JobStatus::InternalError
+        });
+
+        info!(%time_queued, id = %task_id, status = ?next_status, "finished");
+        inbox.clear();
+        Ok(TagOutcome {
+            id: task_id,
+            status: next_status,
+        })
     }
 }
 
@@ -86,11 +104,7 @@ pub const LOCAL_IMAGE_TAG: &str = ":local";
 
 impl TagHandler {
     #[tracing::instrument(err, skip_all, fields(id=?row.tag_id))]
-    async fn process(
-        &mut self,
-        row: Row,
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> anyhow::Result<(Id, JobStatus)> {
+    async fn process(&self, row: Row, pool: &sqlx::PgPool) -> anyhow::Result<JobStatus> {
         info!(
             %row.image_name,
             %row.created_at,
@@ -107,12 +121,9 @@ impl TagHandler {
         // get inserted with a different image_tag value.
         if row.image_name.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
             if row.image_tag != models::DEKAF_IMAGE_TAG {
-                return Ok((
-                    row.tag_id,
-                    JobStatus::ValidationFailed {
-                        error: ValidationError::InvalidDekafTag,
-                    },
-                ));
+                return Ok(JobStatus::ValidationFailed {
+                    error: ValidationError::InvalidDekafTag,
+                });
             }
         }
 
@@ -131,7 +142,7 @@ impl TagHandler {
             .await?;
 
             if !pull.success() {
-                return Ok((row.tag_id, JobStatus::PullFailed));
+                return Ok(JobStatus::PullFailed);
             }
         }
 
@@ -139,7 +150,7 @@ impl TagHandler {
             Ok(ct) => ct,
             Err(err) => {
                 tracing::warn!(image = %image_composed, error = %err, "failed to determine connector protocol");
-                return Ok((row.tag_id, JobStatus::SpecFailed));
+                return Ok(JobStatus::SpecFailed);
             }
         };
 
@@ -159,7 +170,7 @@ impl TagHandler {
             RuntimeProtocol::Materialize => spec_materialization(&image_composed, runtime).await,
             RuntimeProtocol::Derive => {
                 tracing::warn!(image = %image_composed, "unhandled Spec RPC for derivation connector image");
-                return Ok((row.tag_id, JobStatus::SpecFailed));
+                return Ok(JobStatus::SpecFailed);
             }
         };
 
@@ -167,7 +178,7 @@ impl TagHandler {
             Ok(s) => s,
             Err(err) => {
                 tracing::warn!(error = ?err, image = %image_composed, "connector Spec RPC failed");
-                return Ok((row.tag_id, JobStatus::SpecFailed));
+                return Ok(JobStatus::SpecFailed);
             }
         };
 
@@ -190,7 +201,7 @@ impl TagHandler {
                 crate::resource_configs::pointer_for_schema(resource_config_schema.get())
             {
                 tracing::warn!(image = %image_composed, error = %err, "resource schema does not have x-collection-name annotation");
-                return Ok((row.tag_id, JobStatus::SpecFailed));
+                return Ok(JobStatus::SpecFailed);
             }
         }
 
@@ -204,22 +215,21 @@ impl TagHandler {
             proto_type.database_string_value().to_string(),
             resource_config_schema.into(),
             resource_path_pointers.clone(),
-            txn,
+            &pool,
         )
         .await?;
         if !tag_updated {
-            return Ok((
-                row.tag_id,
-                JobStatus::resource_path_pointers_changed(resource_path_pointers),
+            return Ok(JobStatus::resource_path_pointers_changed(
+                resource_path_pointers,
             ));
         }
 
         if let Some(oauth2) = oauth2 {
-            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2.into(), txn)
+            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2.into(), &pool)
                 .await?;
         }
 
-        return Ok((row.tag_id, JobStatus::Success));
+        return Ok(JobStatus::Success);
     }
 }
 
