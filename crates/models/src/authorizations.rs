@@ -1,4 +1,4 @@
-use std::{cmp::max, fmt};
+use std::cmp::max;
 use validator::Validate;
 
 /// ControlClaims are claims encoded within control-plane access tokens.
