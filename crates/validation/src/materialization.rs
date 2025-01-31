@@ -145,7 +145,7 @@ async fn walk_materialization(
                 materialization,
                 binding,
                 built_collections,
-                source_exclusions(live_model, binding.source.collection()),
+                source_field_references(live_model, binding.source.collection()),
                 errors,
             )
         })
@@ -392,7 +392,7 @@ fn walk_materialization_binding<'a>(
     catalog_name: &models::Materialization,
     binding: &'a models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
-    prior_exclusions: impl Iterator<Item = &'a models::Field> + Clone,
+    live_references: impl Iterator<Item = (&'a models::Field, Option<&'a models::RawValue>)> + Clone,
     errors: &mut tables::Errors,
 ) -> Option<materialize::request::validate::Binding> {
     let models::MaterializationBinding {
@@ -446,7 +446,7 @@ fn walk_materialization_binding<'a>(
         &spec,
         fields_include,
         fields_exclude,
-        prior_exclusions,
+        live_references,
         errors,
     );
 
@@ -466,7 +466,7 @@ fn walk_materialization_fields<'a>(
     collection: &flow::CollectionSpec,
     include: &BTreeMap<models::Field, models::RawValue>,
     exclude: &[models::Field],
-    prior_exclusions: impl Iterator<Item = &'a models::Field> + Clone,
+    live_references: impl Iterator<Item = (&'a models::Field, Option<&'a models::RawValue>)> + Clone,
     errors: &mut tables::Errors,
 ) -> BTreeMap<String, String> {
     let flow::CollectionSpec {
@@ -481,6 +481,14 @@ fn walk_materialization_fields<'a>(
 
         if projections.iter().any(|p| p.field == field.as_str()) {
             bag.insert(field.to_string(), config.to_string());
+        } else if live_references
+            .clone()
+            .any(|(live_field, live_config)| field == live_field && Some(config) == live_config)
+        {
+            // If this field doesn't exist but is also referenced by the live
+            // model, then silently ignore it without generating an error.
+            // We're trying to catch typos in current user edits, but we don't
+            // want to block propagation of an upstream schema changes.
         } else {
             Error::NoSuchProjection {
                 category: "include".to_string(),
@@ -497,12 +505,12 @@ fn walk_materialization_fields<'a>(
 
         if projections.iter().any(|p| p.field == field.as_str()) {
             // Exclusion matches an existing collection projection.
-        } else if prior_exclusions.clone().any(|prior| field == prior) {
-            // As a special case, if this exclusion was also present in the prior
-            // model of this spec then allow it to carry forward without an error.
-            // This is to avoid breaking tasks which exclude inferred schema
-            // locations which may go away upon a simplification of the inferred
-            // schema (e.g. because they're collapsed into additionalProperties).
+        } else if live_references
+            .clone()
+            .any(|(live_field, live_config)| field == live_field && None == live_config)
+        {
+            // If this field doesn't exist but is also referenced by the live
+            // model, then silently ignore it without generating an error.
         } else {
             Error::NoSuchProjection {
                 category: "exclude".to_string(),
@@ -748,26 +756,31 @@ fn extract_validated(
     Ok((validated, network_ports))
 }
 
-// Build a Iterator + Clone over all models::Fields excluded by any
-// binding of `source` in `model`. The sequence may include duplicates.
-fn source_exclusions<'m>(
+// Build a Iterator + Clone over all models::Fields and associated config
+// which are included or excluded by any binding of `source` in `model`.
+// The sequence may include duplicates.
+fn source_field_references<'m>(
     model: Option<&'m models::MaterializationDef>,
     source: &'m models::Collection,
-) -> impl Iterator<Item = &'m models::Field> + Clone + 'm {
+) -> impl Iterator<Item = (&'m models::Field, Option<&'m models::RawValue>)> + Clone + 'm {
     model
         .into_iter()
-        .map(move |model| {
-            model
-                .bindings
+        .map(move |model| model.bindings.iter())
+        .flatten()
+        .filter_map(move |binding| {
+            if !binding.disable && binding.source.collection() == source {
+                Some(binding)
+            } else {
+                None
+            }
+        })
+        .map(|binding| {
+            binding
+                .fields
+                .include
                 .iter()
-                .filter_map(move |binding| {
-                    if !binding.disable && binding.source.collection() == source {
-                        Some(binding.fields.exclude.iter())
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
+                .map(|(field, config)| (field, Some(config)))
+                .chain(binding.fields.exclude.iter().map(|field| (field, None)))
         })
         .flatten()
 }

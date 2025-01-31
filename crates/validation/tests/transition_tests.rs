@@ -154,6 +154,7 @@ test://example/catalog.yaml:
   collections:
     the/collection:
       expectPubId: "00:00:00:00:00:00:00:00"
+      projections: null
     the/derivation:
       expectPubId: "00:00:00:00:00:00:00:00"
   captures:
@@ -275,6 +276,84 @@ driver:
     "#,
     );
     insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_relaxation_of_existing_inclusions() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource: { table: bar }
+          fields:
+            recommended: true
+            include:
+              # Current projection.
+              f_one: {}
+              # Pre-existing inclusion which is not an error.
+              existing/not/found: {foo: 42}
+              # Pre-existing inclusion, but its config differs.
+              existing/not/found/different/config: {bar: 456}
+              # Pre-existing inclusion, but its binding is disabled.
+              existing/but/disabled: {}
+              # Entirely new inclusion.
+              new/not/found: {}
+              # Existing inclusion, but for a different collection.
+              other/not/found: {}
+driver:
+  liveMaterializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource: ~
+          fields:
+            recommended: true
+            include:
+              existing/not/found: {foo: 42}
+              existing/not/found/different/config: {bar: 123}
+
+        - source: the/collection
+          disable: true
+          resource: ~
+          fields:
+            recommended: true
+            include:
+              existing/but/disabled: {}
+
+        - source: some/other/collection
+          resource: ~
+          fields:
+            recommended: true
+            include:
+              other/not/found: {}
+    "#,
+    );
+
+    // Expect `existing/not/found` does NOT produce an error, while others do.
+    insta::assert_debug_snapshot!(errors, @r###"
+    [
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/include/existing~1but~1disabled,
+            error: include projection existing/but/disabled does not exist in collection the/collection,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/include/existing~1not~1found~1different~1config,
+            error: include projection existing/not/found/different/config does not exist in collection the/collection,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/include/new~1not~1found,
+            error: include projection new/not/found does not exist in collection the/collection,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/include/other~1not~1found,
+            error: include projection other/not/found does not exist in collection the/collection,
+        },
+    ]
+    "###);
 }
 
 #[test]
