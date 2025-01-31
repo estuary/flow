@@ -288,10 +288,56 @@ pub struct KafkaApiClient {
 }
 
 impl KafkaApiClient {
-    /// Returns a [`KafkaApiClient`] for the given broker URL.
-    /// If a client for that broker already exists, return it
-    /// rather than creating a new one.
-    pub async fn connect_to(&mut self, broker_url: &str) -> anyhow::Result<&mut Self> {
+    #[instrument(name = "api_client_connect", skip(sasl_config))]
+    pub async fn connect(
+        broker_urls: &[String],
+        sasl_config: Arc<SASLConfig>,
+    ) -> anyhow::Result<Self> {
+        tracing::debug!("Attempting to establish new connection");
+
+        for url in broker_urls {
+            match Self::try_connect(url, sasl_config.clone()).await {
+                Ok(client) => return Ok(client),
+                Err(e) => {
+                    let error = e.context(format!("Failed to connect to {}", url));
+                    tracing::warn!(?error, "Connection attempt failed");
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "Failed to connect to any Kafka brokers. Attempted {} brokers",
+            broker_urls.len()
+        )
+    }
+
+    /// Attempt to open a connection to a specific broker address
+    async fn try_connect(url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
+        let mut conn = async_connect(url)
+            .await
+            .context("Failed to establish TCP connection")?;
+
+        tracing::debug!("Authenticating connection");
+        sasl_auth(&mut conn, url, sasl_config.clone())
+            .await
+            .context("SASL authentication failed")?;
+
+        let versions = get_versions(&mut conn)
+            .await
+            .context("Failed to negotiate protocol versions")?;
+
+        Ok(Self {
+            conn,
+            url: url.to_string(),
+            sasl_config,
+            versions,
+            clients: HashMap::new(),
+        })
+    }
+
+    /// Returns a [`KafkaApiClient`] for the given broker URL. If a client
+    /// for that broker already exists, return it rather than creating a new one.
+    async fn client_for_broker(&mut self, broker_url: &str) -> anyhow::Result<&mut Self> {
         if broker_url.eq(self.url.as_str()) {
             return Ok(self);
         }
@@ -299,7 +345,7 @@ impl KafkaApiClient {
         if let std::collections::hash_map::Entry::Vacant(entry) =
             self.clients.entry(broker_url.to_string())
         {
-            let new_client = Self::connect(broker_url, self.sasl_config.clone()).await?;
+            let new_client = Self::try_connect(broker_url, self.sasl_config.clone()).await?;
 
             entry.insert(new_client);
         }
@@ -308,24 +354,6 @@ impl KafkaApiClient {
             .clients
             .get_mut(broker_url)
             .expect("guarinteed to be present"))
-    }
-
-    #[instrument(name = "api_client_connect", skip(sasl_config))]
-    pub async fn connect(broker_url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
-        tracing::debug!("Attempting to establish a new connection!");
-        let mut conn = async_connect(broker_url).await?;
-        tracing::debug!("Authenticating opened connection");
-        sasl_auth(&mut conn, broker_url, sasl_config.clone()).await?;
-
-        let versions = get_versions(&mut conn).await?;
-
-        Ok(Self {
-            conn,
-            url: broker_url.to_string(),
-            sasl_config,
-            versions,
-            clients: HashMap::new(),
-        })
     }
 
     /// Send a request and wait for the response. Per Kafka wire protocol docs:
@@ -382,7 +410,7 @@ impl KafkaApiClient {
         Ok(if coord_host.len() == 0 && coord_port == -1 {
             self
         } else {
-            self.connect_to(&coord_url).await?
+            self.client_for_broker(&coord_url).await?
         })
     }
 
@@ -408,7 +436,7 @@ impl KafkaApiClient {
 
         let controller_url = format!("tcp://{}:{}", controller.host.to_string(), controller.port);
 
-        self.connect_to(&controller_url).await
+        self.client_for_broker(&controller_url).await
     }
 
     pub fn supported_versions<R: Request>(
