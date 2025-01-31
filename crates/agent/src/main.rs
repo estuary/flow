@@ -216,6 +216,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         id_gen.clone(),
         discover_handler.clone(),
     );
+    let connector_tags_executor =
+        agent::TagExecutor::new(&args.connector_network, &logs_tx, args.allow_local);
 
     // Share-able future which completes when the agent should exit.
     let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
@@ -241,6 +243,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(discover_handler)
             .register(agent::EvolutionExecutor)
             .register(directive_executor)
+            .register(connector_tags_executor)
             .serve(
                 args.max_automations,
                 pg_pool.clone(),

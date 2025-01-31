@@ -35,13 +35,13 @@ impl JobStatus {
 }
 
 /// A TagHandler is a Handler which evaluates tagged connector images.
-pub struct TagHandler {
+pub struct TagExecutor {
     connector_network: String,
     logs_tx: logs::Tx,
     allow_local: bool,
 }
 
-impl TagHandler {
+impl TagExecutor {
     pub fn new(connector_network: &str, logs_tx: &logs::Tx, allow_local: bool) -> Self {
         Self {
             connector_network: connector_network.to_string(),
@@ -66,7 +66,7 @@ impl automations::Outcome for TagOutcome {
     }
 }
 
-impl automations::Executor for TagHandler {
+impl automations::Executor for TagExecutor {
     const TASK_TYPE: automations::TaskType = automations::task_types::CONNECTOR_TAGS;
     type Receive = serde_json::Value;
     type State = ();
@@ -102,7 +102,7 @@ impl automations::Executor for TagHandler {
 /// connector_tags without having to push to a registry.
 pub const LOCAL_IMAGE_TAG: &str = ":local";
 
-impl TagHandler {
+impl TagExecutor {
     #[tracing::instrument(err, skip_all, fields(id=?row.tag_id))]
     async fn process(&self, row: Row, pool: &sqlx::PgPool) -> anyhow::Result<JobStatus> {
         info!(
