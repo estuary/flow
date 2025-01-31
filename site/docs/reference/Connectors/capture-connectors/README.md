@@ -23,6 +23,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Alpaca
   - [Configuration](./alpaca.md)
   - Package - ghcr.io/estuary/source-alpaca:dev
+- Amazon DocumentDB
+  - [Configuration](./MongoDB/amazon-documentdb.md)
+  - Package - ghcr.io/estuary/source-amazon-documentdb:dev
 - Amazon Dynamodb
   - [Configuration](./amazon-dynamodb.md)
   - Package - ghcr.io/estuary/source-dynamodb:dev
@@ -47,6 +50,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Azure Blob Storage
   - [Configuration](./azure-blob-storage.md)
   - Package — ghcr.io/estuary/azure-blob-storage:dev
+- Azure Cosmos DB
+  - [Configuration](./MongoDB/azure-cosmosdb.md)
+  - Package - ghcr.io/estuary/source-cosmosdb-mongodb:dev
 - Azure SQL Server
   - [Configuration](./SQLServer/)
   - Package - ghcr.io/estuary/source-azure-sqlserver:dev
@@ -56,6 +62,12 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Braintree
   - [Configuration](./braintree.md)
   - Package - ghcr.io/estuary/source-braintree-native:dev
+- Brevo
+  - [Configuration](./brevo.md)
+  - Package - ghcr.io/estuary/source-brevo:dev
+- Criteo
+  - [Configuration](./criteo.md)
+  - Package - ghcr.io/estuary/source-criteo:dev
 - Dropbox
   - [Configuration](./dropbox.md)
   - Package - ghcr.io/estuary/source-dropbox:dev

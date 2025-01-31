@@ -5,6 +5,13 @@ This connector captures data from your MongoDB collections into Flow collections
 [`ghcr.io/estuary/source-mongodb:dev`](https://ghcr.io/estuary/source-mongodb:dev) provides the
 latest connector image. You can also follow the link in your browser to see past image versions.
 
+## Supported platforms
+
+The MongoDB connector has a couple variants to support additional document-based database options. Continue reading this page for standard MongoDB setup or see one of the following:
+
+* [Amazon DocumentDB](./amazon-documentdb.md)
+* [Azure Cosmos DB](./azure-cosmosdb.md)
+
 ## Data model
 
 MongoDB is a NoSQL database. Its [data
@@ -17,7 +24,7 @@ collection.
 
 You'll need:
 
-- Credentials for connecting to your MongoDB instance and database
+- Credentials for connecting to your MongoDB instance and database.
 
 - Read access to your MongoDB database(s), see [Role-Based Access
   Control](https://www.mongodb.com/docs/manual/core/authorization/) for more information.
@@ -78,11 +85,10 @@ updates to documents if updated documents have strictly increasing values for
 the cursor field.
 
 
-
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the Flow specification
-file. See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using
+file. See [connectors](../../../../concepts/connectors.md#using-connectors) to learn more about using
 connectors. The values and specification sample below provide configuration details specific to the
 MongoDB source connector.
 
@@ -133,9 +139,9 @@ captures:
 
 As an alternative to connecting to your MongoDB instance directly, you can allow secure connections via SSH tunneling. To do so:
 
-1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
+1. Refer to the [guide](../../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
-2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](../../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 ## Backfill and real-time updates
 
