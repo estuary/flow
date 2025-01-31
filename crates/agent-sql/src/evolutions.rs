@@ -1,8 +1,36 @@
 use crate::{CatalogType, Id, TextJson as Json};
-use chrono::prelude::*;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
+
+// Row is the dequeued task of an evolution operation.
+#[derive(Debug)]
+pub struct Row {
+    pub id: Id,
+    pub draft_id: Id,
+    pub updated_at: DateTime<Utc>,
+    pub user_id: Uuid,
+    pub collections: Json<Box<RawValue>>,
+}
+
+pub async fn fetch_evolution(task_id: Id, db: &sqlx::PgPool) -> sqlx::Result<Row> {
+    sqlx::query_as!(
+        Row,
+        r#"select
+            id as "id: Id",
+            draft_id as "draft_id: Id",
+            updated_at,
+            user_id,
+            collections as "collections: Json<Box<RawValue>>"
+        from evolutions
+        where id = $1::flowid
+        "#,
+        task_id as Id
+    )
+    .fetch_one(db)
+    .await
+}
 
 pub async fn create(
     pool: &sqlx::PgPool,
@@ -29,56 +57,7 @@ pub async fn create(
     Ok(rec.id)
 }
 
-// Row is the dequeued task of an evolution operation.
-#[derive(Debug)]
-pub struct Row {
-    pub id: Id,
-    pub created_at: DateTime<Utc>,
-    pub detail: Option<String>,
-    pub draft_id: Id,
-    pub logs_token: Uuid,
-    pub updated_at: DateTime<Utc>,
-    pub user_id: Uuid,
-    pub collections: Json<Box<RawValue>>,
-    pub auto_publish: bool,
-    pub background: bool,
-}
-
-#[tracing::instrument(level = "debug", skip(txn))]
-pub async fn dequeue(
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    allow_background: bool,
-) -> sqlx::Result<Option<Row>> {
-    sqlx::query_as!(
-        Row,
-        r#"select
-            id as "id: Id",
-            created_at,
-            detail,
-            draft_id as "draft_id: Id",
-            logs_token,
-            updated_at,
-            user_id,
-            auto_publish,
-            collections as "collections: Json<Box<RawValue>>",
-            background
-        from evolutions
-        where job_status->>'type' = 'queued' and (background = $1 or background = false)
-        order by background asc, id asc
-        limit 1
-        for update of evolutions skip locked;
-        "#,
-        allow_background
-    )
-    .fetch_optional(txn)
-    .await
-}
-
-pub async fn resolve<S>(
-    id: Id,
-    status: &S,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()>
+pub async fn resolve<S>(id: Id, status: &S, txn: &mut sqlx::PgConnection) -> sqlx::Result<()>
 where
     S: Serialize + Send + Sync,
 {

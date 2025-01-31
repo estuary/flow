@@ -7,8 +7,9 @@ use sqlx::types::Uuid;
 use tables::LiveRow;
 
 pub mod builds;
+mod commit;
+mod executor;
 mod finalize;
-mod handler;
 mod incompatible_collections;
 mod initialize;
 mod retry;
@@ -16,6 +17,7 @@ mod retry;
 mod quotas;
 pub mod specs;
 
+pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
 pub use self::initialize::{ExpandDraft, Initialize, NoExpansion, UpdateInferredSchemas};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
@@ -27,7 +29,7 @@ use models::draft_error;
 
 /// Represents a desire to publish the given `draft`, along with associated metadata and behavior
 /// for handling draft initialization, build finalizing, and retrying failures.
-pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy> {
+pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit> {
     /// The id of the user that is publishing the draft.
     pub user_id: Uuid,
     /// Write logs to `internal.log_lines` using this token.
@@ -57,6 +59,9 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
     /// regardless of whether errors originate from the build or commit phase, but it is _not_
     /// consulted if any step returns an `Result::Err`, which is always considered terminal.
     pub retry: Ret,
+    /// Callback to run before committing a successful publication. This is useful for updating
+    /// other tables as part of the same database transaction.
+    pub with_commit: C,
 }
 
 /// Represents a publication that has just completed.
@@ -245,9 +250,9 @@ impl Publisher {
         user_id = %publication.user_id,
         logs_token = %publication.logs_token,
     ))]
-    pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy>(
+    pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
         &self,
-        publication: DraftPublication<Ini, Fin, Ret>,
+        publication: DraftPublication<Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut retry_count = 0u32;
         loop {
@@ -269,7 +274,7 @@ impl Publisher {
     }
 
     #[tracing::instrument(err, skip_all, fields(%publication_id, retry_count))]
-    async fn try_publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy>(
+    async fn try_publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
         &self,
         publication_id: models::Id,
         retry_count: u32,
@@ -284,7 +289,8 @@ impl Publisher {
             initialize,
             finalize,
             retry: _,
-        }: &DraftPublication<Ini, Fin, Ret>,
+            with_commit,
+        }: &DraftPublication<Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
         initialize
@@ -315,7 +321,7 @@ impl Publisher {
             return Ok(built.into_result(Utc::now(), JobStatus::Success));
         }
 
-        let commit_result = self.commit(built).await?;
+        let commit_result = self.commit(built, with_commit).await?;
         Ok(commit_result)
     }
 
@@ -504,9 +510,10 @@ impl Publisher {
     #[tracing::instrument(err, skip_all, fields(
         build_id = %uncommitted.publication_id,
     ))]
-    pub(crate) async fn commit(
+    pub(crate) async fn commit<C: WithCommit>(
         &self,
         mut uncommitted: UncommittedBuild,
+        with_commit: C,
     ) -> anyhow::Result<PublicationResult> {
         anyhow::ensure!(
             !uncommitted.has_errors(),
@@ -534,11 +541,17 @@ impl Publisher {
             );
         }
 
+        let pub_result = uncommitted.into_result(completed_at, JobStatus::Success);
+        with_commit
+            .before_commit(&mut txn, &pub_result)
+            .await
+            .context("on publication commit")?;
+
         txn.commit()
             .await
             .context("committing publication transaction")?;
         tracing::info!("successfully committed publication");
-        Ok(uncommitted.into_result(completed_at, JobStatus::Success))
+        Ok(pub_result)
     }
 }
 

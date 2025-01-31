@@ -19,13 +19,16 @@ use serde::{Deserialize, Serialize};
 
 use super::{controller_update, ControllerState, NextRun, CONTROLLER_VERSION};
 
+#[derive(Clone)]
 pub struct LiveSpecControllerExecutor<C: ControlPlane> {
-    control_plane: C,
+    control_plane: std::sync::Arc<C>,
 }
 
 impl<C: ControlPlane> LiveSpecControllerExecutor<C> {
     pub fn new(control_plane: C) -> Self {
-        Self { control_plane }
+        Self {
+            control_plane: std::sync::Arc::new(control_plane),
+        }
     }
 }
 
@@ -145,7 +148,7 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
         // Note that `failures` here only counts the number of _consecutive_
         // failures, and resets to 0 on any sucessful update.
         let (status, failures, error, next_run) =
-            run_controller(state, inbox, &controller_state, &self.control_plane).await;
+            run_controller(state, inbox, &controller_state, &*self.control_plane).await;
 
         Ok(Outcome {
             live_spec_id: controller_state.live_spec_id,
