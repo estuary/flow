@@ -30,7 +30,7 @@ You add these to the [endpoint configuration](#endpoint) in the format `{"name":
 Each report is mapped to an additional Flow collection.
 
 :::caution
-Custom reports involve an integration with Google Universal Analytics, which Google will deprecate in July 2023.
+Custom reports involve an integration with Google Universal Analytics, which Google deprecated in July 2023.
 :::
 
 ## Prerequisites
@@ -59,7 +59,7 @@ You'll need:
 
 Follow the steps below to meet these prerequisites:
 
-1. Create a [service account and generate a JSON key](https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount)
+1. Create a [service account and generate a JSON key](https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount).
 You'll copy the contents of the downloaded key file into the Service Account Credentials parameter when you configure the connector.
 
 2. [Set up domain-wide delegation for the service account](https://developers.google.com/workspace/guides/create-credentials#optional_set_up_domain-wide_delegation_for_a_service_account).
@@ -93,7 +93,7 @@ so many of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/stream`** | Stream | Google Search Consol resource from which a collection is captured. | string | Required |
+| **`/stream`** | Stream | Google Search Console resource from which a collection is captured. | string | Required |
 | **`/syncMode`** | Sync Mode | Connection method. | string | Required |
 
 ### Sample

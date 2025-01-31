@@ -17,7 +17,7 @@ array of sources supported by Estuary Flow directly into ClickHouse, using Dekaf
 
 ## Step 1: Configure Data Source in Estuary Flow
 
-1. **Generate a [Refresh Token](Estuary Refresh Token ([Generate a refresh token](/guides/how_to_generate_refresh_token))**:
+1. **Generate an [Estuary Refresh Token](/guides/how_to_generate_refresh_token)**:
     - To access the Kafka-compatible topics, create a refresh token in the Estuary Flow dashboard. This token will act
       as the password for both the broker and schema registry.
 

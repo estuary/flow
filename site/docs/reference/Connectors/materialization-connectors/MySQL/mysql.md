@@ -160,7 +160,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
   1.  [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.
 
   2.  Per the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create),
-      create a new inbound rule and a new outbound rule that allow all traffic from the IP addresses ``.
+      create a new inbound rule and a new outbound rule that allow all traffic from [Estuary's IP addresses](../../../allow-ip-addresses.md).
 
 - **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add [Estuary Flow IP addresses](/reference/allow-ip-addresses) as authorized IP addresses. See the instructions below to use SSH Tunneling instead of enabling public access.
 
@@ -169,7 +169,7 @@ There are two ways to do this: by granting direct access to Flow's IP or by crea
   1.  Refer to the [guide](/guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
   2.  Configure your connector as described in the [configuration](#configuration) section above,
-      with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
+      with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using.
       See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
       for additional details and a sample.
 

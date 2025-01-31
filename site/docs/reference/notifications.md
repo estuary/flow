@@ -10,7 +10,7 @@ In the `Admin` section of the Flow Web Application, navigate to the the `Setting
 
 ## Data Movement Alerts
 
-When navigating to the main view of a capture or a materialization, a user can select an interval for tracking zero data movement. Under the `Nofitification Settiings` card, select a time interval from the dropdown labeled `Interval`. There is no need to save, but you must also have already configured notifications in order for the alert to take into effect. If you are not yet subscribed to notifications, a pop up will appear prompting you to set up a subscribing by clicking on `CLICK HERE`.
+When navigating to the main view of a capture or a materialization, a user can select an interval for tracking zero data movement. Under the `Notification Settings` card, select a time interval from the dropdown labeled `Interval`. There is no need to save, but you must also have already configured notifications in order for the alert to take effect. If you are not yet subscribed to notifications, an info box will appear prompting you to set up a subscription by clicking on `CLICK HERE`.
 
 If your task does not receive any new documents with the selected timeframe, an email will be sent to any email addresses that are subscribed to this tenant.
 
@@ -18,7 +18,7 @@ If your task does not receive any new documents with the selected timeframe, an 
 
 Billing alerts are automatically subscribed to when a user inputs their email into the `Organization Notifications` table. Alerts will be sent out for the following events:
 
-* **Free Tier Started**: A tenenat has transitioned into the free trial
+* **Free Tier Started**: A tenant has transitioned into the free trial
 * **Free Trial Ending**: Five days are remaining in a tenant's free trial
 * **Free Trial Ended**: A tenant's free trial has ended
 * **Provided Payment Method**: A valid payment method has been provided for a tenant

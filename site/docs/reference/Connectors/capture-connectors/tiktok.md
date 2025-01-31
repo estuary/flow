@@ -89,7 +89,7 @@ so many of these properties aren't required.
 | `/credentials/access_token` | Access Token | The long-term authorized access token. | string | |
 | `/end_date` | End Date | The date until which you'd like to replicate data for all incremental streams, in the format YYYY-MM-DD. All data generated between `start_date` and this date will be replicated. Not setting this option will result in always syncing the data till the current date. | string | |
 | `/report_granularity` | Report Aggregation Granularity | The granularity used for [aggregating performance data in reports](#report-aggregation). Choose `DAY`, `LIFETIME`, or `HOUR`.| string | |
-| `/start_date` | Start Date | Replication Start Date | The Start Date in format: YYYY-MM-DD. Any data before this date will not be replicated. If this parameter is not set, all data will be replicated. | string | |
+| `/start_date` | Replication Start Date | The Start Date in format: YYYY-MM-DD. Any data before this date will not be replicated. If this parameter is not set, all data will be replicated. | string | |
 
 #### Bindings
 

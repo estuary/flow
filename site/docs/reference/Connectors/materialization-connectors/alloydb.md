@@ -22,7 +22,7 @@ in the same Google Cloud project as your instance.
 ## Configuration
 
 To use this connector, begin with data in one or more Flow collections.
-Use the below properties to configure a AlloyDB materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
+Use the below properties to configure an AlloyDB materialization, which will direct one or more of your Flow collections to your desired tables, or views, in the database.
 
 ### Properties
 
@@ -97,7 +97,7 @@ materializations:
 PostgreSQL has a list of reserved words that must be quoted in order to be used as an identifier.
 Flow considers all the reserved words that are marked as "reserved" in any of the columns in the official [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-keywords-appendix.html).
 
-These reserve words are listed in the table below. Flow automatically quotes fields that are in this list.
+These reserved words are listed in the table below. Flow automatically quotes fields that are in this list.
 
 |Reserved words| | | | |
 |---|---|---|---|---|

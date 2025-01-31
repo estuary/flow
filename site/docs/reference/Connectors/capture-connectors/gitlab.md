@@ -9,7 +9,7 @@ This connector is based on an open-source connector from a third party, with mod
 
 ## Supported data resources
 
-When you [configure the connector](#endpoint), you may a list of GitLab Groups or Projects from which to capture data.
+When you [configure the connector](#endpoint), you may provide a list of GitLab Groups or Projects from which to capture data.
 
 From your selection, the following data resources are captured:
 
@@ -32,7 +32,7 @@ From your selection, the following data resources are captured:
  - [Releases](https://docs.gitlab.com/ee/api/releases/index.html)
  - [Group Labels](https://docs.gitlab.com/ee/api/group_labels.html)
  - [Project Labels](https://docs.gitlab.com/ee/api/labels.html)
- - [Epics](https://docs.gitlab.com/ee/api/epics.html)(only available for GitLab Ultimate and GitLab.com Gold accounts)
+ - [Epics](https://docs.gitlab.com/ee/api/epics.html) (only available for GitLab Ultimate and GitLab.com Gold accounts)
  - [Epic Issues](https://docs.gitlab.com/ee/api/epic_issues.html) (only available for GitLab Ultimate and GitLab.com Gold accounts)
 
 Each resource is mapped to a Flow collection through a separate binding.
@@ -43,7 +43,7 @@ There are two ways to authenticate with GitLab when capturing data into Flow: us
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
-the access token method is the only supported method using the command line. Which authentication method you choose depends on the policies of your organization. Github has special organization settings that need to be enabled in order for users to be able to access repos that are part of an organization.
+the access token method is the only supported method using the command line. Which authentication method you choose depends on the policies of your organization. GitLab has special organization settings that need to be enabled in order for users to be able to access repos that are part of an organization.
 
 ### Using OAuth2 to authenticate with GitLab in the Flow web app
 
@@ -53,7 +53,7 @@ the access token method is the only supported method using the command line. Whi
 
 * A GitLab user account with access to all entities of interest.
 
-* A GitLab [personal access token](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html)).
+* A GitLab [personal access token](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html).
 
 ## Configuration
 
