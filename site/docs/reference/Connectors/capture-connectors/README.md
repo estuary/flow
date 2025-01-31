@@ -141,7 +141,7 @@ All Estuary connectors capture data in real time, as it appears in the source sy
   - [Configuration](./SQLServer/)
   - Package - ghcr.io/estuary/source-sqlserver:dev
 - MongoDB
-  - [Configuration](./mongodb/)
+  - [Configuration](./MongoDB/mongodb.md)
   - Package - ghcr.io/estuary/source-mongodb:dev
 - MySQL
   - [Configuration](./MySQL/)
