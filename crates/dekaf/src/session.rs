@@ -45,25 +45,37 @@ pub struct Session {
     secret: String,
     auth: Option<SessionAuthentication>,
     data_preview_state: SessionDataPreviewState,
-    broker_url: String,
+    broker_urls: Vec<String>,
     broker_username: String,
     broker_password: String,
+
+    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
+    legacy_mode_broker_urls: Vec<String>,
+    legacy_mode_broker_username: String,
+    legacy_mode_broker_password: String,
+    // ------------------------------------------------------------------------------------------------
 }
 
 impl Session {
     pub fn new(
         app: Arc<App>,
         secret: String,
-        broker_url: String,
+        broker_urls: Vec<String>,
         broker_username: String,
         broker_password: String,
+        legacy_mode_broker_urls: Vec<String>,
+        legacy_mode_broker_username: String,
+        legacy_mode_broker_password: String,
     ) -> Self {
         Self {
             app,
             client: None,
-            broker_url,
+            broker_urls,
             broker_username,
             broker_password,
+            legacy_mode_broker_urls,
+            legacy_mode_broker_username,
+            legacy_mode_broker_password,
             reads: HashMap::new(),
             auth: None,
             secret,
@@ -75,19 +87,32 @@ impl Session {
         if let Some(ref mut client) = self.client {
             Ok(client)
         } else {
+            let (urls, username, password) = match self.auth {
+                Some(SessionAuthentication::Task(_)) => (
+                    self.broker_urls.as_slice(),
+                    self.broker_username.clone(),
+                    self.broker_password.clone(),
+                ),
+                Some(SessionAuthentication::User(_)) => (
+                    self.legacy_mode_broker_urls.as_slice(),
+                    self.legacy_mode_broker_username.clone(),
+                    self.legacy_mode_broker_password.clone(),
+                ),
+                None => anyhow::bail!("Must be authenticated"),
+            };
             self.client.replace(
                 KafkaApiClient::connect(
-                    &self.broker_url,
+                    urls,
                     rsasl::config::SASLConfig::with_credentials(
                         None,
-                        self.broker_username.clone(),
-                        self.broker_password.clone(),
+                        username,
+                        password,
                     )?,
                 ).await.context(
                     "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
                 )?
             );
-            Ok(self.client.as_mut().expect("guarinteed to exist"))
+            Ok(self.client.as_mut().expect("guaranteed to exist"))
         }
     }
 
