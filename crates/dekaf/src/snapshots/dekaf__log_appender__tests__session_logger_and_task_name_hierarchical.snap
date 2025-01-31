@@ -1,0 +1,130 @@
+---
+source: crates/dekaf/src/log_appender.rs
+expression: captured_logs
+---
+[
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_appender::tests"
+    },
+    "level": "info",
+    "message": "Test log data before setting name, you should see me",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests"
+        },
+        "level": "info",
+        "message": "test_session",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_appender::tests"
+    },
+    "level": "info",
+    "message": "Test log data without a task name yet!",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests"
+        },
+        "level": "info",
+        "message": "test_session",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests"
+        },
+        "level": "info",
+        "message": "session_span",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_appender::tests",
+      "session_client_id": "my-client-id",
+      "task_name": "my_task"
+    },
+    "level": "info",
+    "message": "I should have a client ID",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests",
+          "task_name": "my_task"
+        },
+        "level": "info",
+        "message": "test_session",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests",
+          "session_client_id": "my-client-id"
+        },
+        "level": "info",
+        "message": "session_span",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests"
+        },
+        "level": "info",
+        "message": "child_span",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  },
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "fields": {
+      "module": "dekaf::log_appender::tests",
+      "session_client_id": "my-client-id",
+      "task_name": "my_task"
+    },
+    "level": "info",
+    "message": "I should also have a client ID",
+    "spans": [
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests",
+          "task_name": "my_task"
+        },
+        "level": "info",
+        "message": "test_session",
+        "ts": "[ts]"
+      },
+      {
+        "fields": {
+          "module": "dekaf::log_appender::tests",
+          "session_client_id": "my-client-id"
+        },
+        "level": "info",
+        "message": "session_span",
+        "ts": "[ts]"
+      }
+    ],
+    "ts": "[ts]"
+  }
+]

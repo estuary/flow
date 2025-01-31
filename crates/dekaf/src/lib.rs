@@ -6,11 +6,16 @@ use kafka_protocol::{
 };
 use tracing::instrument;
 
+pub mod log_appender;
+pub mod logging;
+
 mod topology;
 use topology::{Collection, Partition};
 
 mod read;
 use read::Read;
+
+mod utils;
 
 mod session;
 pub use session::Session;
@@ -23,11 +28,13 @@ mod api_client;
 pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
-use connector::{DekafConfig, DeletionMode};
 use flow_client::client::{refresh_authorizations, RefreshToken};
+use log_appender::{SESSION_CLIENT_ID_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER};
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
+use proto_flow::flow;
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::{collections::BTreeMap, time::SystemTime};
+use tracing_record_hierarchical::SpanExt;
 
 pub struct App {
     /// Hostname which is advertised for Kafka access.
@@ -38,6 +45,10 @@ pub struct App {
     pub secret: String,
     /// Share a single base client in order to re-use connection pools
     pub client_base: flow_client::Client,
+    /// The domain name of the data-plane that we're running inside of
+    pub data_plane_fqdn: String,
+    /// The key used to sign data-plane access token requests
+    pub data_plane_signer: jsonwebtoken::EncodingKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
@@ -46,18 +57,78 @@ pub struct DeprecatedConfigOptions {
     #[serde(default = "bool::<false>")]
     pub strict_topic_names: bool,
     #[serde(default)]
-    pub deletions: DeletionMode,
+    pub deletions: connector::DeletionMode,
 }
 
-pub struct Authenticated {
+pub struct UserAuth {
     client: flow_client::Client,
     refresh_token: RefreshToken,
     access_token: String,
-    task_config: DekafConfig,
     claims: models::authorizations::ControlClaims,
+    config: DeprecatedConfigOptions,
 }
 
-impl Authenticated {
+pub struct TaskAuth {
+    client: flow_client::Client,
+    task_name: String,
+    config: connector::DekafConfig,
+    built_spec: flow::MaterializationSpec,
+    ops_stats_journal: String,
+
+    bindings_by_topic: BTreeMap<
+        String,
+        (
+            flow::materialization_spec::Binding,
+            connector::DekafResourceConfig,
+        ),
+    >,
+
+    // When access token expires
+    exp: time::OffsetDateTime,
+}
+
+pub enum SessionAuthentication {
+    User(UserAuth),
+    Task(TaskAuth),
+}
+
+impl SessionAuthentication {
+    pub fn valid_until(&self) -> SystemTime {
+        match self {
+            SessionAuthentication::User(user) => {
+                std::time::UNIX_EPOCH + std::time::Duration::new(user.claims.exp, 0)
+            }
+            SessionAuthentication::Task(task) => task.exp.into(),
+        }
+    }
+
+    pub async fn flow_client(&mut self, app: &App) -> anyhow::Result<&flow_client::Client> {
+        match self {
+            SessionAuthentication::User(auth) => auth.authenticated_client().await,
+            SessionAuthentication::Task(auth) => auth.authenticated_client(app).await,
+        }
+    }
+
+    pub fn refresh_gazette_clients(&mut self) {
+        match self {
+            SessionAuthentication::User(auth) => {
+                auth.client = auth.client.clone().with_fresh_gazette_client();
+            }
+            SessionAuthentication::Task(auth) => {
+                auth.client = auth.client.clone().with_fresh_gazette_client();
+            }
+        }
+    }
+
+    pub fn deletions(&self) -> connector::DeletionMode {
+        match self {
+            SessionAuthentication::User(user_auth) => user_auth.config.deletions,
+            SessionAuthentication::Task(task_auth) => task_auth.config.deletions,
+        }
+    }
+}
+
+impl UserAuth {
     pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         let (access, refresh) = refresh_authorizations(
             &self.client,
@@ -81,54 +152,142 @@ impl Authenticated {
     }
 }
 
+impl TaskAuth {
+    pub fn new(
+        client: flow_client::Client,
+        task_name: String,
+        config: connector::DekafConfig,
+        built_spec: flow::MaterializationSpec,
+        ops_stats_journal: String,
+        exp: time::OffsetDateTime,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            client,
+            task_name,
+            config,
+            ops_stats_journal,
+            bindings_by_topic: built_spec
+                .bindings
+                .iter()
+                .map(|b| {
+                    serde_json::from_str::<connector::DekafResourceConfig>(&b.resource_config_json)
+                        .map(|parsed| (parsed.topic_name.to_owned(), (b.to_owned(), parsed)))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?,
+            built_spec,
+            exp,
+        })
+    }
+    pub async fn authenticated_client(
+        &mut self,
+        app: &App,
+    ) -> anyhow::Result<&flow_client::Client> {
+        if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
+            let (client, claims, _ops_logs_journal, _ops_stats_journal, _task_spec) =
+                topology::fetch_dekaf_task_auth(
+                    self.client.clone(),
+                    &self.task_name,
+                    &app.data_plane_fqdn,
+                    &app.data_plane_signer,
+                )
+                .await?;
+
+            self.client = client.with_fresh_gazette_client();
+            self.exp =
+                time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64);
+        }
+
+        Ok(&self.client)
+    }
+}
+
 impl App {
     #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
-    async fn authenticate(&self, username: &str, password: &str) -> anyhow::Result<Authenticated> {
+    async fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> anyhow::Result<SessionAuthentication> {
         let username = if let Ok(decoded) = decode_safe_name(username.to_string()) {
             decoded
         } else {
             username.to_string()
         };
 
-        let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
-        let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
-
-        let (access, refresh) =
-            refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
-
-        let client = self
-            .client_base
-            .clone()
-            .with_user_access_token(Some(access.clone()))
-            .with_fresh_gazette_client();
-
-        let claims = flow_client::client::client_claims(&client)?;
-
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
-            Ok(Authenticated {
-                client,
-                access_token: access,
-                refresh_token: refresh,
-                task_config: todo!("Fetch and unseal task config"),
-                claims,
-            })
+            // This marks this Session as being associated with the task name contained in `username`.
+            logging::get_log_forwarder().set_task_name(username.clone());
+
+            // Ask the agent for information about this task, as well as a short-lived
+            // control-plane access token authorized to interact with the avro schemas table
+            let (client, claims, _, ops_stats_journal, task_spec) =
+                topology::fetch_dekaf_task_auth(
+                    self.client_base.clone(),
+                    &username,
+                    &self.data_plane_fqdn,
+                    &self.data_plane_signer,
+                )
+                .await?;
+
+            // Decrypt this materialization's endpoint config
+            let config = topology::extract_dekaf_config(&task_spec).await?;
+
+            // 3. Validate that the provided password matches the task's bearer token
+            if password != config.token {
+                anyhow::bail!("Invalid username or password")
+            }
+
+            let labels = task_spec
+                .shard_template
+                .as_ref()
+                .context("missing shard template")?
+                .labels
+                .as_ref()
+                .context("missing shard labels")?;
+            let labels =
+                labels::shard::decode_labeling(labels).context("parsing shard labeling")?;
+
+            logging::set_log_level(labels.log_level());
+
+            Ok(SessionAuthentication::Task(TaskAuth::new(
+                client.with_fresh_gazette_client(),
+                username,
+                config,
+                task_spec,
+                ops_stats_journal,
+                time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
+            )?))
         } else if username.contains("{") {
+            // Since we don't have a task, we also don't have a logs journal to write to,
+            // so we should isable log forwarding for this session.
+            logging::get_log_forwarder().shutdown();
+
+            let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
+            let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
+
+            let (access, refresh) =
+                refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
+
+            let client = self
+                .client_base
+                .clone()
+                .with_user_access_token(Some(access.clone()))
+                .with_fresh_gazette_client();
+
+            let claims = flow_client::client::client_claims(&client)?;
+
             let config: DeprecatedConfigOptions = serde_json::from_str(&username)
                 .context("failed to parse username as a JSON object")?;
 
-            Ok(Authenticated {
+            Ok(SessionAuthentication::User(UserAuth {
                 client,
-                task_config: DekafConfig {
-                    strict_topic_names: config.strict_topic_names,
-                    deletions: config.deletions,
-                    token: "".to_string(),
-                },
                 access_token: access,
                 refresh_token: refresh,
                 claims,
-            })
+                config,
+            }))
         } else {
             anyhow::bail!("Invalid username or password")
         }
@@ -197,8 +356,11 @@ async fn handle_api(
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
             let (header, request) = dec_request(frame, version)?;
-            tracing::debug!(client_id=?header.client_id, "Got client ID!");
-            session.client_id = header.client_id.clone().map(|id| id.to_string());
+            if let Some(client_id) = &header.client_id {
+                tracing::Span::current()
+                    .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, client_id.to_string());
+                tracing::info!("Got client ID!");
+            }
             Ok(enc_resp(out, &header, session.api_versions(request).await?))
         }
         ApiKey::SaslHandshakeKey => {
@@ -468,6 +630,13 @@ fn decode_safe_name(safe_name: String) -> anyhow::Result<String> {
         .decode_utf8()
         .and_then(|decoded| Ok(decoded.into_owned()))
         .map_err(anyhow::Error::from)
+}
+
+/// A "shard template id" is normally the most-specific task identifier
+/// used throughout the data-plane. Dekaf materializations, on the other hand, have predictable
+/// shard template IDs since they never publish shards whose names could conflict.
+fn dekaf_shard_template_id(task_name: &str) -> String {
+    format!("materialize/{task_name}/0000000000000000/")
 }
 
 /// Modified from [this](https://github.com/serde-rs/serde/issues/368#issuecomment-1579475447)

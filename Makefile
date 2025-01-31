@@ -177,6 +177,10 @@ ${RUSTBIN}/agent:
 ${RUSTBIN}/flowctl:
 	cargo build --release --locked -p flowctl
 
+.PHONY: ${RUSTBIN}/dekaf
+${RUSTBIN}/dekaf:
+	cargo build --release --locked -p dekaf
+
 # Statically linked binaries using MUSL:
 
 .PHONY: ${RUST_MUSL_BIN}/flow-connector-init
@@ -199,6 +203,7 @@ GNU_TARGETS = \
 	${PKGDIR}/bin/deno \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl \
+	${PKGDIR}/bin/dekaf \
 	${PKGDIR}/bin/flowctl-go \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
@@ -250,6 +255,9 @@ ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 
 ${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
 	cp ${RUSTBIN}/flowctl $@
+
+${PKGDIR}/bin/dekaf: ${RUSTBIN}/dekaf | ${PKGDIR}
+	cp ${RUSTBIN}/dekaf $@
 
 # Control-plane binaries
 
