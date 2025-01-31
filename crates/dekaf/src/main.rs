@@ -68,12 +68,9 @@ pub struct Cli {
     #[arg(long, default_value = "9094", env = "METRICS_PORT")]
     metrics_port: u16,
 
-    /// The hostname of the default Kafka broker to use for serving group management APIs
-    #[arg(long, env = "DEFAULT_BROKER_HOSTNAME")]
-    default_broker_hostname: String,
-    /// The port of the default Kafka broker to use for serving group management APIs
-    #[arg(long, default_value = "9092", env = "DEFAULT_BROKER_PORT")]
-    default_broker_port: u16,
+    /// List of Kafka broker URLs to try connecting to for group management APIs
+    #[arg(long, env = "DEFAULT_BROKER_URLS")]
+    default_broker_urls: Vec<String>,
     /// The username for the default Kafka broker to use for serving group management APIs.
     /// Currently only supports SASL PLAIN username/password auth.
     #[arg(long, env = "DEFAULT_BROKER_USERNAME")]
@@ -82,6 +79,19 @@ pub struct Cli {
     #[arg(long, env = "DEFAULT_BROKER_PASSWORD")]
     default_broker_password: String,
 
+    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
+    /// Brokers to use for connections using the legacy refresh-token based connection mode
+    #[arg(long, env = "LEGACY_MODE_BROKER_URLS")]
+    legacy_mode_broker_urls: Vec<String>,
+    /// The username for the Kafka broker to use for serving group management APIs for connections
+    /// using the legacy refresh-token based connection mode
+    #[arg(long, env = "LEGACY_MODE_BROKER_USERNAME")]
+    legacy_mode_broker_username: String,
+    /// The password for the Kafka broker to use for serving group management API for connections
+    /// using the legacy refresh-token based connection modes
+    #[arg(long, env = "LEGACY_MODE_BROKER_PASSWORD")]
+    legacy_mode_broker_password: String,
+    // ------------------------------------------------------------------------------------------------
     /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
     /// to the upstream Kafka broker, e.g topic names in group management metadata.
     #[arg(long, env = "ENCRYPTION_SECRET")]
@@ -158,10 +168,40 @@ async fn main() -> anyhow::Result<()> {
         .install_default()
         .unwrap();
 
-    let upstream_kafka_host = format!(
-        "tcp://{}:{}",
-        cli.default_broker_hostname, cli.default_broker_port
-    );
+    let upstream_kafka_urls = cli
+        .default_broker_urls
+        .clone()
+        .into_iter()
+        .map(|url| {
+            {
+                let parsed = Url::parse(&url).expect("invalid broker URL");
+                Ok::<_, anyhow::Error>(format!(
+                    "tcp://{}:{}",
+                    parsed.host().context("invalid broker URL")?,
+                    parsed.port().unwrap_or(9092)
+                ))
+            }
+            .context(url)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
+    let legacy_mode_kafka_urls = cli
+        .default_broker_urls
+        .into_iter()
+        .map(|url| {
+            {
+                let parsed = Url::parse(&url).expect("invalid broker URL");
+                Ok::<_, anyhow::Error>(format!(
+                    "tcp://{}:{}",
+                    parsed.host().context("invalid broker URL")?,
+                    parsed.port().unwrap_or(9092)
+                ))
+            }
+            .context(url)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    // ------------------------------------------------------------------------------------------------
 
     let mut stop = async {
         tokio::signal::ctrl_c()
@@ -186,6 +226,8 @@ async fn main() -> anyhow::Result<()> {
 
     let broker_username = cli.default_broker_username.as_str();
     let broker_password = cli.default_broker_password.as_str();
+    let legacy_broker_username = cli.legacy_mode_broker_username.as_str();
+    let legacy_broker_password = cli.legacy_mode_broker_password.as_str();
     if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
             tls_cfg.certificate_file.clone().unwrap(),
@@ -240,9 +282,12 @@ async fn main() -> anyhow::Result<()> {
                                 Session::new(
                                     app.clone(),
                                     cli.encryption_secret.to_owned(),
-                                    upstream_kafka_host.to_string(),
+                                    upstream_kafka_urls.clone(),
                                     broker_username.to_string(),
-                                    broker_password.to_string()
+                                    broker_password.to_string(),
+                                    legacy_mode_kafka_urls.clone(),
+                                    legacy_broker_username.to_string(),
+                                    legacy_broker_password.to_string()
                                 ),
                                 socket,
                                 addr,
@@ -278,9 +323,12 @@ async fn main() -> anyhow::Result<()> {
                                 Session::new(
                                     app.clone(),
                                     cli.encryption_secret.to_owned(),
-                                    upstream_kafka_host.to_string(),
+                                    upstream_kafka_urls.clone(),
                                     broker_username.to_string(),
-                                    broker_password.to_string()
+                                    broker_password.to_string(),
+                                    legacy_mode_kafka_urls.clone(),
+                                    legacy_broker_username.to_string(),
+                                    legacy_broker_password.to_string()
                                 ),
                                 socket,
                                 addr,
