@@ -6,7 +6,6 @@ mod directives;
 mod discovers;
 pub(crate) mod draft;
 pub(crate) mod evolution;
-mod handlers;
 mod jobs;
 pub(crate) mod live_specs;
 pub mod logs;
@@ -18,12 +17,11 @@ pub(crate) mod resource_configs;
 pub(crate) mod integration_tests;
 
 pub use agent_sql::{CatalogType, Id};
-pub use connector_tags::TagHandler;
+pub use connector_tags::TagExecutor;
 pub use controlplane::{ControlPlane, PGControlPlane};
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
 pub use evolution::EvolutionExecutor;
-pub use handlers::{serve, HandleResult, Handler};
 use lazy_static::lazy_static;
 pub use proxy_connectors::{DataPlaneConnectors, DiscoverConnectors, ProxyConnectors};
 use regex::Regex;
@@ -34,18 +32,6 @@ const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/
 
 lazy_static! {
     static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
-}
-
-/// Returns true if the given error represents a failure to acquire a lock, as indicated
-/// by the "sql state" code.
-fn is_acquire_lock_error(err: &anyhow::Error) -> bool {
-    let Some(sql_err) = err.downcast_ref::<sqlx::Error>() else {
-        return false;
-    };
-    sql_err
-        .as_database_error()
-        .filter(|e| e.code().as_ref().map(|c| c.as_ref()) == Some("55P03"))
-        .is_some()
 }
 
 /// Returns a vector of `EvolveRequest`s for the given incompatible collections.
