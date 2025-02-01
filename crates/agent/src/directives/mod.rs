@@ -1,8 +1,7 @@
-use crate::{logs, HandleResult};
+use crate::logs;
 
-use super::{Handler, Id};
-
-use agent_sql::directives::Row;
+use agent_sql::directives::{fetch_directive, resolve, Row};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use validator::Validate;
@@ -46,6 +45,7 @@ pub enum Directive {
     StorageMappings(storage_mappings::Directive),
 }
 
+#[derive(Clone)]
 pub struct DirectiveHandler {
     accounts_user_email: String,
     logs_tx: logs::Tx,
@@ -60,42 +60,60 @@ impl DirectiveHandler {
     }
 }
 
-#[async_trait::async_trait]
-impl Handler for DirectiveHandler {
-    async fn handle(
-        &mut self,
-        pg_pool: &sqlx::PgPool,
-        allow_background: bool,
-    ) -> anyhow::Result<HandleResult> {
-        let mut txn = pg_pool.begin().await?;
+impl automations::Executor for DirectiveHandler {
+    const TASK_TYPE: automations::TaskType = automations::task_types::APPLIED_DIRECTIVES;
 
-        let row: Row = match agent_sql::directives::dequeue(&mut txn, allow_background).await? {
-            None => return Ok(HandleResult::NoJobs),
-            Some(row) => row,
-        };
+    type Receive = serde_json::Value;
+
+    type State = ();
+
+    type Outcome = automations::Action;
+
+    async fn poll<'s>(
+        &'s self,
+        pool: &'s sqlx::PgPool,
+        task_id: models::Id,
+        _parent_id: Option<models::Id>,
+        _state: &'s mut Self::State,
+        inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
+    ) -> anyhow::Result<Self::Outcome> {
+        tracing::debug!(?inbox, %task_id, "running directive task");
+
+        let mut txn = pool.begin().await?;
+        let row = fetch_directive(task_id, &mut txn).await?;
+
+        // It's technically possible that we could commit the transaction to
+        // handle an applied directive, but fail to commit the task resolution.
+        // This check ensures that we don't try to apply the directive twice
+        // should that happen.
+        if Some("queued") != row.status_type.as_deref() {
+            tracing::warn!(
+                %task_id,
+                status_type = ?row.status_type,
+                "skipping directive application because job status is not queued"
+            );
+            txn.rollback().await?;
+            return Ok(automations::Action::Done);
+        }
 
         let time_queued = chrono::Utc::now().signed_duration_since(row.apply_updated_at);
-        let (id, status) = self.process(row, &mut txn).await?;
-        info!(%id, %time_queued, ?status, "finished");
+        let status = self.process(row, &mut txn).await?;
+        tracing::info!(%time_queued, ?status, "finished");
+        resolve(task_id, status, &mut txn).await?;
+        txn.commit().await.context("committing transaction")?;
 
-        agent_sql::directives::resolve(id, status, &mut txn).await?;
-        txn.commit().await?;
-
-        Ok(HandleResult::HadJob)
-    }
-
-    fn table_name(&self) -> &'static str {
-        "applied_directives"
+        inbox.clear();
+        Ok(automations::Action::Done)
     }
 }
 
 impl DirectiveHandler {
     #[tracing::instrument(err, skip_all, fields(id=?row.apply_id))]
     async fn process(
-        &mut self,
+        &self,
         row: Row,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> anyhow::Result<(Id, JobStatus)> {
+    ) -> anyhow::Result<JobStatus> {
         info!(
             %row.apply_updated_at,
             %row.catalog_prefix,
@@ -105,7 +123,6 @@ impl DirectiveHandler {
             %row.user_id,
             "processing directive application",
         );
-        let apply_id = row.apply_id;
 
         let status = match serde_json::from_str::<Directive>(row.directive_spec.0.get()) {
             Err(err) => JobStatus::invalid_directive(err.into()),
@@ -119,7 +136,7 @@ impl DirectiveHandler {
                 storage_mappings::apply(d, row, &self.logs_tx, txn).await?
             }
         };
-        Ok((apply_id, status))
+        Ok(status)
     }
 }
 

@@ -135,8 +135,11 @@ begin
 
   -- We can also update it if our job is another non-success status.
   -- On doing so it's re-queued for re-evaluation by the agent.
+  -- We need to also delete the task for this directive, to simulate it
+  -- actually having run.
   set role postgres;
   update applied_directives set job_status = '{"type":"whoopsie"}';
+  delete from internal.tasks;
   set role authenticated;
 
   update applied_directives set user_claims = '{"try":"again"}';

@@ -216,6 +216,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         id_gen.clone(),
         discover_handler.clone(),
     );
+    let connector_tags_executor =
+        agent::TagExecutor::new(&args.connector_network, &logs_tx, args.allow_local);
 
     // Share-able future which completes when the agent should exit.
     let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
@@ -230,34 +232,18 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
-
-    // Wire up the agent's job execution loop.
-    let serve_fut = if args.serve_handlers {
-        agent::serve(
-            vec![
-                Box::new(publisher),
-                Box::new(agent::TagHandler::new(
-                    &args.connector_network,
-                    &logs_tx,
-                    args.allow_local,
-                )),
-                Box::new(discover_handler),
-                Box::new(agent::DirectiveHandler::new(args.accounts_email, &logs_tx)),
-                Box::new(agent::EvolutionHandler),
-            ],
-            pg_pool.clone(),
-            shutdown.clone(),
-        )
-        .boxed()
-    } else {
-        futures::future::ready(Ok(())).boxed()
-    };
+    let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
 
     let automations_fut = if args.max_automations > 0 {
         automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(
                 control_plane,
             ))
+            .register(publisher)
+            .register(discover_handler)
+            .register(agent::EvolutionExecutor)
+            .register(directive_executor)
+            .register(connector_tags_executor)
             .serve(
                 args.max_automations,
                 pg_pool.clone(),
@@ -272,7 +258,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     };
 
     std::mem::drop(logs_tx);
-    let ((), (), (), ()) = tokio::try_join!(serve_fut, api_server, logs_sink, automations_fut)?;
+    let ((), (), ()) = tokio::try_join!(api_server, logs_sink, automations_fut)?;
 
     Ok(())
 }

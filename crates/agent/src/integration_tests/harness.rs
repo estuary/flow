@@ -3,6 +3,7 @@ pub mod connectors;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
+use crate::publications::NoopWithCommit;
 use crate::{
     controllers::ControllerState,
     controlplane::ConnectorSpec,
@@ -12,7 +13,7 @@ use crate::{
         self, DefaultRetryPolicy, DraftPublication, PublicationResult, Publisher, UncommittedBuild,
         UpdateInferredSchemas,
     },
-    ControlPlane, Handler, PGControlPlane,
+    ControlPlane, PGControlPlane,
 };
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
@@ -58,7 +59,7 @@ pub struct ScenarioResult {
 }
 
 pub struct UserDiscoverResult {
-    pub job_status: discovers::handler::JobStatus,
+    pub job_status: discovers::executor::JobStatus,
     pub draft: tables::DraftCatalog,
     pub errors: Vec<(String, String)>,
 }
@@ -68,7 +69,7 @@ impl UserDiscoverResult {
         let discover = sqlx::query!(
             r#"select
                 draft_id as "draft_id: Id",
-                job_status as "job_status: TextJson<discovers::handler::JobStatus>"
+                job_status as "job_status: TextJson<discovers::executor::JobStatus>"
             from discovers
             where id = $1;"#,
             discover_id as Id,
@@ -118,9 +119,8 @@ pub struct TestHarness {
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
-
-    automations_server: automations::Server,
-    automations_task_types: Vec<i16>,
+    pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
+    pub directive_exec: crate::directives::DirectiveHandler,
 }
 
 impl TestHarness {
@@ -176,9 +176,8 @@ impl TestHarness {
 
         let controller_exec =
             crate::controllers::executor::LiveSpecControllerExecutor::new(control_plane.clone());
-
-        let automations_server = automations::Server::new().register(controller_exec);
-        let automations_task_types = vec![automations::task_types::LIVE_SPEC_CONTROLLER.0];
+        let directive_exec =
+            crate::directives::DirectiveHandler::new("support@estuary.test".to_string(), &logs_tx);
 
         let mut harness = Self {
             test_name: test_name.to_string(),
@@ -187,8 +186,8 @@ impl TestHarness {
             builds_root,
             discover_handler,
             control_plane,
-            automations_server,
-            automations_task_types,
+            controller_exec,
+            directive_exec,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -313,6 +312,17 @@ impl TestHarness {
     async fn truncate_tables(&mut self) {
         tracing::warn!("clearing all data before test");
         let system_user_id = self.control_plane().inner.system_user_id;
+
+        // We need to disable this trigger, or else it will prevent us from deleting
+        // applied directives.
+        sqlx::query(
+            r##"alter table applied_directives
+           disable trigger "Verify delete of applied directives";"##,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to disable trigger");
+
         sqlx::query!(
             r#"
             with del_live_specs as (
@@ -355,6 +365,15 @@ impl TestHarness {
             del_role_grants as (
                 delete from role_grants
             ),
+            del_directives as (
+                delete from directives
+            ),
+            del_applied_directives as (
+                delete from applied_directives
+            ),
+            del_tasks as (
+                delete from internal.tasks
+            ),
             del_alert_subs as (
                 delete from alert_subscriptions
             ),
@@ -379,6 +398,14 @@ impl TestHarness {
         .execute(&self.pool)
         .await
         .expect("failed to truncate tables");
+
+        sqlx::query(
+            r##"alter table applied_directives
+           enable trigger "Verify delete of applied directives";"##,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to enable trigger");
     }
 
     /// Returns a mutable reference to the control plane, which can be used for
@@ -747,36 +774,13 @@ impl TestHarness {
         assert!(max > 0, "run_pending_controllers max must be > 0");
         let mut states = Vec::new();
 
-        let semaphor = Arc::new(Semaphore::new(1));
-
         for _ in 0..max {
-            let mut permit = semaphor.clone().acquire_owned().await.unwrap();
-
-            let mut next = automations::server::dequeue_tasks(
-                &mut permit,
-                &self.pool,
-                &self.automations_server,
-                &self.automations_task_types,
-                std::time::Duration::from_secs(10),
-            )
-            .await
-            .expect("failed to dequeue automations tasks");
-            if next.is_empty() {
-                assert_eq!(
-                    1,
-                    permit.num_permits(),
-                    "expect the semaphor permit to still be present"
-                );
+            let ran = self
+                .run_automation_task(automations::task_types::LIVE_SPEC_CONTROLLER)
+                .await;
+            let Some(task_id) = ran else {
                 break;
-            }
-
-            assert_eq!(1, next.len(), "expected at most 1 dequeued task");
-            let task = next.pop().unwrap();
-            let task_id = task.task.id;
-            automations::executors::poll_task(task, std::time::Duration::from_secs(10))
-                .await
-                .expect("failed to polll task");
-
+            };
             let controller_state = crate::controllers::fetch_controller_state(task_id, &self.pool)
                 .await
                 .expect("failed to fetch controller state");
@@ -788,6 +792,51 @@ impl TestHarness {
         }
 
         states
+    }
+
+    /// Runs at most one automation task of the given type, and returns the id of the task that was run.
+    /// Returns None if no eligible task was ready.
+    pub async fn run_automation_task(&mut self, task_type: automations::TaskType) -> Option<Id> {
+        use automations::{task_types, Server};
+
+        let semaphor = Arc::new(Semaphore::new(1));
+        let mut permit = semaphor.clone().acquire_owned().await.unwrap();
+
+        let server = match task_type {
+            task_types::LIVE_SPEC_CONTROLLER => {
+                Server::new().register(self.controller_exec.clone())
+            }
+            task_types::PUBLICATIONS => Server::new().register(self.publisher.clone()),
+            task_types::DISCOVERS => Server::new().register(self.discover_handler.clone()),
+            task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
+            _ => panic!("unsupported task type: {:?}", task_type),
+        };
+        let mut next = automations::server::dequeue_tasks(
+            &mut permit,
+            &self.pool,
+            &server,
+            &[task_type.0],
+            std::time::Duration::from_secs(10),
+        )
+        .await
+        .expect("failed to dequeue automations tasks");
+        if next.is_empty() {
+            assert_eq!(
+                1,
+                permit.num_permits(),
+                "expect the semaphor permit to still be present"
+            );
+            return None;
+        }
+
+        assert_eq!(1, next.len(), "expected at most 1 dequeued task");
+        let task = next.pop().unwrap();
+        let task_id = task.task.id;
+        tracing::debug!(%task_id, "polling automation task");
+        automations::executors::poll_task(task, std::time::Duration::from_secs(10))
+            .await
+            .expect("failed to poll task");
+        Some(task_id)
     }
 
     pub async fn user_discover(
@@ -814,7 +863,7 @@ impl TestHarness {
         .expect("querying for connector_tags id");
 
         let config_json = TextJson(models::RawValue::from_str(endpoint_config).unwrap());
-        let disco_id = sqlx::query!(
+        let disco = sqlx::query!(
             r##"insert into discovers (
                 capture_name,
                 connector_tag_id,
@@ -833,23 +882,24 @@ impl TestHarness {
         .fetch_one(&self.pool)
         .await
         .unwrap();
+        let disco_id = disco.id;
 
         self.discover_handler
             .connectors
             .mock_discover(capture_name, mock_discover_resp);
 
-        let result = self
-            .discover_handler
-            .handle(&self.pool, false)
+        let Some(task_id) = self
+            .run_automation_task(automations::task_types::DISCOVERS)
             .await
-            .expect("discover handler failed");
+        else {
+            panic!("expected a discover task to have run");
+        };
         assert_eq!(
-            crate::HandleResult::HadJob,
-            result,
-            "expected discovers handler to handle a job"
+            task_id, disco_id,
+            "expected discover {disco_id} to have run, but {task_id} got ran instead"
         );
 
-        UserDiscoverResult::load(disco_id.id, &self.pool).await
+        UserDiscoverResult::load(disco_id, &self.pool).await
     }
 
     /// Performs a publication as if it were initiated by `flowctl` or the UI,
@@ -860,7 +910,7 @@ impl TestHarness {
         detail: impl Into<String>,
         draft: tables::DraftCatalog,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::L(draft), false, false)
+        self.async_publication(user_id, detail, Either::L(draft))
             .await
     }
 
@@ -870,7 +920,7 @@ impl TestHarness {
         draft_id: Id,
         detail: impl Into<String>,
     ) -> ScenarioResult {
-        self.async_publication(user_id, detail, Either::R(draft_id), false, false)
+        self.async_publication(user_id, detail, Either::R(draft_id))
             .await
     }
 
@@ -883,8 +933,6 @@ impl TestHarness {
         user_id: Uuid,
         detail: impl Into<String>,
         draft: Either<tables::DraftCatalog, Id>,
-        auto_evolve: bool,
-        background: bool,
     ) -> ScenarioResult {
         let detail = detail.into();
         let draft_id = match draft {
@@ -900,27 +948,22 @@ impl TestHarness {
             &mut txn,
             user_id,
             draft_id,
-            auto_evolve,
             detail.clone(),
-            background,
             "ops/dp/public/test".to_string(),
         )
         .await
         .expect("failed to create publication");
         txn.commit().await.expect("failed to commit transaction");
 
-        let pool = self.pool.clone();
-        let handler_result = self
-            .publisher
-            .handle(&pool, true)
+        let task_id = self
+            .run_automation_task(automations::task_types::PUBLICATIONS)
             .await
-            .expect("publications handler failed");
-
+            .expect("expected a publication task to have run");
         assert_eq!(
-            crate::HandleResult::HadJob,
-            handler_result,
-            "expected publications handler to have a job"
+            task_id, pub_id,
+            "automations task id should match the publication that was just created"
         );
+
         let pub_result = self.get_publication_result(pub_id.into()).await;
         assert_ne!(publications::JobStatus::Queued, pub_result.status);
         pub_result
@@ -1311,6 +1354,7 @@ impl ControlPlane for TestControlPlane {
             initialize: UpdateInferredSchemas,
             finalize,
             retry: DefaultRetryPolicy,
+            with_commit: NoopWithCommit,
         };
 
         self.inner.publications_handler.publish(publication).await

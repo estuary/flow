@@ -1,11 +1,11 @@
 use std::io::Write;
 
-use crate::{directives::JobStatus, logs};
-use agent_sql::directives::{
-    storage_mappings::{
-        fetch_storage_mappings, upsert_storage_mapping, user_has_admin_capability, StorageMapping,
-    },
-    Row,
+use crate::{
+    directives::{JobStatus, Row},
+    logs,
+};
+use agent_sql::directives::storage_mappings::{
+    fetch_storage_mappings, upsert_storage_mapping, user_has_admin_capability, StorageMapping,
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};

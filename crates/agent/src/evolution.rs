@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::BTreeSet;
 
-mod handler;
+mod executor;
 
-pub use handler::EvolutionHandler;
+pub use executor::EvolutionExecutor;
 
 #[derive(Debug)]
 pub struct Evolution {

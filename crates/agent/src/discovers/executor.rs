@@ -1,6 +1,6 @@
 use super::{Discover, DiscoverHandler};
-use crate::{draft, proxy_connectors::DiscoverConnectors, HandleResult, Handler, Id};
-use agent_sql::discovers::Row;
+use crate::{draft, proxy_connectors::DiscoverConnectors, Id};
+use agent_sql::discovers::{fetch_discover, Row};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
@@ -35,45 +35,91 @@ impl JobStatus {
     }
 }
 
-#[async_trait::async_trait]
-impl<C: DiscoverConnectors> Handler for DiscoverHandler<C> {
-    async fn handle(
-        &mut self,
-        pg_pool: &sqlx::PgPool,
-        allow_background: bool,
-    ) -> anyhow::Result<HandleResult> {
-        let mut txn = pg_pool.begin().await?;
+type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
 
-        let row: Row = match agent_sql::discovers::dequeue(&mut txn, allow_background).await? {
-            None => return Ok(HandleResult::NoJobs),
-            Some(row) => row,
-        };
+pub struct DiscoverOutcome {
+    id: Id,
+    draft_id: Id,
+    result: ProcessResult,
+    status: JobStatus,
+}
 
-        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-        let (id, status) = self.process(row, &mut txn, pg_pool).await?;
-        tracing::info!(%id, %time_queued, ?status, "finished");
+impl automations::Outcome for DiscoverOutcome {
+    async fn apply<'s>(
+        self,
+        txn: &'s mut sqlx::PgConnection,
+    ) -> anyhow::Result<automations::Action> {
+        let DiscoverOutcome {
+            id,
+            draft_id,
+            result,
+            status,
+        } = self;
 
-        agent_sql::discovers::resolve(id, status, &mut txn).await?;
-        txn.commit().await?;
+        agent_sql::drafts::delete_errors(draft_id, txn)
+            .await
+            .context("clearing old errors")?;
 
-        Ok(HandleResult::HadJob)
+        match result {
+            Ok(draft) => {
+                draft::upsert_draft_catalog(draft_id, &draft, txn).await?;
+            }
+            Err(draft_errs) => {
+                draft::insert_errors(draft_id, draft_errs, txn).await?;
+            }
+        }
+
+        agent_sql::discovers::resolve(id, status, txn).await?;
+        Ok(automations::Action::Done)
     }
+}
 
-    fn table_name(&self) -> &'static str {
-        "discovers"
+fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
+    (status, Err(Vec::new()))
+}
+
+impl<C: DiscoverConnectors> automations::Executor for DiscoverHandler<C> {
+    const TASK_TYPE: automations::TaskType = automations::task_types::DISCOVERS;
+
+    type Receive = serde_json::Value;
+
+    type State = ();
+
+    type Outcome = DiscoverOutcome;
+
+    async fn poll<'s>(
+        &'s self,
+        pool: &'s sqlx::PgPool,
+        task_id: models::Id,
+        _parent_id: Option<models::Id>,
+        _state: &'s mut Self::State,
+        inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
+    ) -> anyhow::Result<Self::Outcome> {
+        tracing::debug!(?inbox, %task_id, "executing discover task");
+        let row = fetch_discover(task_id, pool).await?;
+        let draft_id = row.draft_id;
+        assert_eq!(row.id, task_id);
+        let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
+        let (status, result) = self.process(row, pool).await?;
+        tracing::info!(id=%task_id, %time_queued, ?status, "finished");
+        inbox.clear();
+        Ok(DiscoverOutcome {
+            id: task_id,
+            draft_id,
+            result,
+            status,
+        })
     }
 }
 
 impl<C: DiscoverConnectors> DiscoverHandler<C> {
     #[tracing::instrument(err, skip_all, fields(id=?row.id, draft_id = ?row.draft_id, user_id = %row.user_id))]
     async fn process(
-        &mut self,
+        &self,
         row: Row,
-        txn: &mut sqlx::Transaction<'static, sqlx::Postgres>,
         pool: &sqlx::PgPool,
-    ) -> anyhow::Result<(Id, JobStatus)> {
+    ) -> anyhow::Result<(JobStatus, ProcessResult)> {
         tracing::info!(
-            %row.background,
             %row.capture_name,
             %row.connector_tag_id,
             %row.connector_tag_job_success,
@@ -89,31 +135,13 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             "processing discover",
         );
 
-        // Remove draft errors from a previous attempt.
-        agent_sql::drafts::delete_errors(row.draft_id, txn)
-            .await
-            .context("clearing old errors")?;
-
         // Various pre-flight checks.
         if !row.connector_tag_job_success {
-            return Ok((row.id, JobStatus::TagFailed));
+            return Ok(precheck_failed(JobStatus::TagFailed));
         } else if row.protocol != "capture" {
-            return Ok((row.id, JobStatus::WrongProtocol));
-        } else if !agent_sql::connector_tags::does_connector_exist(&row.image_name, &mut *txn)
-            .await?
-        {
-            return Ok((row.id, JobStatus::ImageForbidden));
-        }
-        // This used to be how automated discovers worked, but it's being
-        // replaced by controllers. Fail any discovers that use `background` or
-        // `auto_publish`, as there may be some during the rollout. These
-        // failures should not impact the operation of the capture, since
-        // controllers should be handling them.
-        if row.auto_publish || row.background {
-            tracing::warn!(
-                "failing discover due to use of deprecated auto_publish or background columns"
-            );
-            return Ok((row.id, JobStatus::DeprecatedBackground));
+            return Ok(precheck_failed(JobStatus::WrongProtocol));
+        } else if !agent_sql::connector_tags::does_connector_exist(&row.image_name, pool).await? {
+            return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
         let mut data_planes: tables::DataPlanes = agent_sql::data_plane::fetch_data_planes(
             pool,
@@ -125,7 +153,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
         let Some(data_plane) = data_planes.pop().filter(|d| d.is_default) else {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
-            return Ok((row.id, JobStatus::NoDataPlane));
+            return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
 
         let image_composed = format!("{}{}", row.image_name, row.image_tag);
@@ -147,43 +175,54 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             Err(e) => Err(e),
         };
 
-        let result = result
-            .map_err(|err| {
-                vec![models::draft_error::Error {
-                    scope: None,
-                    catalog_name: row.capture_name.clone(),
-                    detail: format!("{:#}", err),
-                }]
-            })
-            .and_then(|outcome| {
-                if outcome.is_success() {
-                    Ok(outcome.draft)
-                } else {
-                    Err(outcome
-                        .draft
-                        .errors
-                        .iter()
-                        .map(tables::Error::to_draft_error)
-                        .collect::<Vec<_>>())
-                }
-            });
+        // let result = result
+        //     .map_err(|err| {
+        //         vec![models::draft_error::Error {
+        //             scope: None,
+        //             catalog_name: row.capture_name.clone(),
+        //             detail: format!("{:#}", err),
+        //         }]
+        //     })
+        //     .and_then(|outcome| {
+        //         if outcome.is_success() {
+        //             Ok(outcome.draft)
+        //         } else {
+        //             Err(outcome
+        //                 .draft
+        //                 .errors
+        //                 .iter()
+        //                 .map(tables::Error::to_draft_error)
+        //                 .collect::<Vec<_>>())
+        //         }
+        //     });
 
         match result {
-            Ok(draft) => {
-                draft::upsert_draft_catalog(row.draft_id, &draft, txn)
-                    .await
-                    .context("inserting draft specs")?;
-                Ok((
-                    row.id,
-                    JobStatus::Success {
-                        publication_id: None,
-                        specs_unchanged: false,
-                    },
-                ))
+            Ok(output) if output.is_success() => Ok((
+                JobStatus::Success {
+                    publication_id: None,
+                    specs_unchanged: false,
+                },
+                Ok(output.draft),
+            )),
+            Ok(output) => {
+                let draft_errs = output
+                    .draft
+                    .errors
+                    .iter()
+                    .map(tables::Error::to_draft_error)
+                    .collect::<Vec<_>>();
+                Ok((JobStatus::DiscoverFailed, Err(draft_errs)))
             }
-            Err(draft_errors) => {
-                crate::draft::insert_errors(row.draft_id, draft_errors, txn).await?;
-                Ok((row.id, JobStatus::DiscoverFailed))
+            Err(err) => {
+                let draft_errors = vec![models::draft_error::Error {
+                    scope: Some(
+                        tables::synthetic_scope(models::CatalogType::Capture, &row.capture_name)
+                            .to_string(),
+                    ),
+                    catalog_name: row.capture_name.clone(),
+                    detail: format!("{:#}", err),
+                }];
+                Ok((JobStatus::DiscoverFailed, Err(draft_errors)))
             }
         }
     }
@@ -207,7 +246,7 @@ async fn prepare_discover(
     data_plane: tables::DataPlane,
     pool: &sqlx::PgPool,
 ) -> anyhow::Result<Discover> {
-    let mut draft = crate::draft::load_draft(draft_id, pool)
+    let mut draft = draft::load_draft(draft_id, pool)
         .await
         .context("loading draft")?;
 

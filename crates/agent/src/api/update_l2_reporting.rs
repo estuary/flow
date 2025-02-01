@@ -1,4 +1,6 @@
-use crate::publications::{DoNotRetry, DraftPublication, NoExpansion, NoopFinalize};
+use crate::publications::{
+    DoNotRetry, DraftPublication, NoExpansion, NoopFinalize, NoopWithCommit,
+};
 
 use super::App;
 use anyhow::Context;
@@ -187,6 +189,7 @@ export class Derivation extends Types.IDerivation {"#
         initialize: NoExpansion,
         finalize: NoopFinalize,
         retry: DoNotRetry,
+        with_commit: NoopWithCommit,
     };
     let result = publisher
         .publish(publication)

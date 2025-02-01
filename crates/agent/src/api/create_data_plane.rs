@@ -1,4 +1,6 @@
-use crate::publications::{DoNotRetry, DraftPublication, NoExpansion, PruneUnboundCollections};
+use crate::publications::{
+    DoNotRetry, DraftPublication, NoExpansion, NoopWithCommit, PruneUnboundCollections,
+};
 
 use super::App;
 use anyhow::Context;
@@ -204,6 +206,7 @@ async fn do_create_data_plane(
         initialize: NoExpansion,
         finalize: PruneUnboundCollections,
         retry: DoNotRetry,
+        with_commit: NoopWithCommit,
     };
     let result = publisher
         .publish(publication)
