@@ -145,6 +145,7 @@ async fn walk_materialization(
                 materialization,
                 binding,
                 built_collections,
+                data_plane_id,
                 source_exclusions(live_model, binding.source.collection()),
                 errors,
             )
@@ -392,6 +393,7 @@ fn walk_materialization_binding<'a>(
     catalog_name: &models::Materialization,
     binding: &'a models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
+    data_plane_id: models::Id,
     prior_exclusions: impl Iterator<Item = &'a models::Field> + Clone,
     errors: &mut tables::Errors,
 ) -> Option<materialize::request::validate::Binding> {
@@ -428,7 +430,7 @@ fn walk_materialization_binding<'a>(
     };
 
     // We must resolve the source collection to continue.
-    let (spec, _) = reference::walk_reference(
+    let (source_spec, source) = reference::walk_reference(
         scope,
         "this materialization binding",
         collection,
@@ -437,22 +439,24 @@ fn walk_materialization_binding<'a>(
     )?;
 
     if let Some(selector) = source_partitions {
-        collection::walk_selector(scope, &spec, &selector, errors);
+        collection::walk_selector(scope, &source_spec, &selector, errors);
     }
 
     let field_config_json_map = walk_materialization_fields(
         scope.push_prop("fields"),
         catalog_name,
-        &spec,
+        &source_spec,
         fields_include,
         fields_exclude,
         prior_exclusions,
         errors,
     );
 
+    super::temporary_cross_data_plane_read_check(scope, source, data_plane_id, errors);
+
     let request = materialize::request::validate::Binding {
         resource_config_json: resource.to_string(),
-        collection: Some(spec),
+        collection: Some(source_spec),
         field_config_json_map,
         backfill: *backfill,
     };

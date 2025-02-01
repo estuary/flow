@@ -347,3 +347,17 @@ driver:
     ]
     "###);
 }
+
+#[test]
+fn test_cronut_migration_errors() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+driver:
+  liveCollections:
+    the/collection:
+      dataPlaneId: "0e:8e:17:d0:4f:ac:d4:00" # Cronut ID.
+    "#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
