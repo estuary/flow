@@ -56,6 +56,12 @@ pub struct Projection {
     /// Inference of this projection.
     #[prost(message, optional, tag = "6")]
     pub inference: ::core::option::Option<Inference>,
+    /// Inference of this projection from the collection's write schema.
+    /// This is set only when:
+    ///   1) The collection has separate read and write schemas, and
+    ///   2) The write schema defines constrains over this projection.
+    #[prost(message, optional, tag = "7")]
+    pub write_inference: ::core::option::Option<Inference>,
 }
 /// Inference details type information which is statically known
 /// about a given document location.

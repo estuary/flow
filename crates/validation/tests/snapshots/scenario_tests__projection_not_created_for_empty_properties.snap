@@ -50,6 +50,7 @@ Outcome {
                                 array: None,
                             },
                         ),
+                        write_inference: None,
                     },
                     Projection {
                         ptr: "/a",
@@ -72,6 +73,7 @@ Outcome {
                                 array: None,
                             },
                         ),
+                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -94,6 +96,7 @@ Outcome {
                                 array: None,
                             },
                         ),
+                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -123,6 +126,7 @@ Outcome {
                                 array: None,
                             },
                         ),
+                        write_inference: None,
                     },
                     Projection {
                         ptr: "/id",
@@ -152,6 +156,7 @@ Outcome {
                                 array: None,
                             },
                         ),
+                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",

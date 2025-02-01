@@ -973,8 +973,8 @@
           }
         },
         "include": {
-          "title": "Fields to include.",
-          "description": "This supplements any recommended fields, where enabled. Values are passed through to the driver, e.x. for customization of the driver's schema generation or runtime behavior with respect to the field.",
+          "title": "Fields to require.",
+          "description": "This supplements any recommended fields, where enabled. Values are passed to and interpreted by the connector, which may use it to customize DDL generation or other behaviors with respect to the field. Consult connector documentation to see what it supports.\n\nNote that this field is in the process of being renamed to `require`, though `include` will continue to be accepted as an alias.",
           "type": "object",
           "additionalProperties": true
         },

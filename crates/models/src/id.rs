@@ -14,7 +14,7 @@ const ESTUARY_EPOCH_MILLIS: u64 = 1_600_000_000_000;
 pub struct Id([u8; 8]);
 
 impl Id {
-    pub fn new(b: [u8; 8]) -> Self {
+    pub const fn new(b: [u8; 8]) -> Self {
         Self(b)
     }
     pub fn zero() -> Self {

@@ -18,6 +18,7 @@ pub async fn walk_all_derivations(
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
     data_planes: &tables::DataPlanes,
+    default_plane_id: Option<models::Id>,
     imports: &tables::Imports,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
@@ -50,6 +51,7 @@ pub async fn walk_all_derivations(
                 built_collections,
                 connectors,
                 data_planes,
+                default_plane_id,
                 imports,
                 project_root,
                 storage_mappings,
@@ -81,6 +83,7 @@ async fn walk_derivation(
     built_collections: &tables::BuiltCollections,
     connectors: &dyn Connectors,
     data_planes: &tables::DataPlanes,
+    default_plane_id: Option<models::Id>,
     imports: &tables::Imports,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
@@ -92,33 +95,10 @@ async fn walk_derivation(
     flow::collection_spec::Derivation,
     Option<String>,
 )> {
-    let (collection, scope, model, last_pub_id, last_collection, dependency_hash) = match eob {
-        // If this is a drafted derivation, pluck out its details.
-        EOB::Right(tables::DraftCollection {
-            collection,
-            scope,
-            model:
-                Some(
-                    collection_model @ models::CollectionDef {
-                        derive: Some(model),
-                        ..
-                    },
-                ),
-            ..
-        }) => (
-            collection,
-            scope,
-            model,
-            None,
-            None,
-            dependencies.compute_hash(collection_model),
-        ),
-
-        EOB::Both(
-            tables::LiveCollection {
-                spec, last_pub_id, ..
-            },
-            tables::DraftCollection {
+    let (collection, scope, model, data_plane_id, last_pub_id, last_collection, dependency_hash) =
+        match eob {
+            // If this is a drafted derivation, pluck out its details.
+            EOB::Right(tables::DraftCollection {
                 collection,
                 scope,
                 model:
@@ -129,19 +109,48 @@ async fn walk_derivation(
                         },
                     ),
                 ..
-            },
-        ) => (
-            collection,
-            scope,
-            model,
-            spec.derivation.is_some().then_some(last_pub_id),
-            spec.derivation.is_some().then_some(spec),
-            dependencies.compute_hash(collection_model),
-        ),
+            }) => (
+                collection,
+                scope,
+                model,
+                default_plane_id.unwrap_or(models::Id::zero()),
+                None,
+                None,
+                dependencies.compute_hash(collection_model),
+            ),
 
-        // For all other cases, don't build this derivation.
-        _ => return None,
-    };
+            EOB::Both(
+                tables::LiveCollection {
+                    spec,
+                    last_pub_id,
+                    data_plane_id,
+                    ..
+                },
+                tables::DraftCollection {
+                    collection,
+                    scope,
+                    model:
+                        Some(
+                            collection_model @ models::CollectionDef {
+                                derive: Some(model),
+                                ..
+                            },
+                        ),
+                    ..
+                },
+            ) => (
+                collection,
+                scope,
+                model,
+                *data_plane_id,
+                spec.derivation.is_some().then_some(last_pub_id),
+                spec.derivation.is_some().then_some(spec),
+                dependencies.compute_hash(collection_model),
+            ),
+
+            // For all other cases, don't build this derivation.
+            _ => return None,
+        };
     let scope = Scope::new(scope);
     let scope = scope.push_prop("derive");
 
@@ -220,6 +229,7 @@ async fn walk_derivation(
                 scope_transforms.push_item(*transform_index),
                 transform,
                 built_collections,
+                data_plane_id,
                 errors,
             ) else {
                 return None;
@@ -515,6 +525,7 @@ fn walk_derive_transform<'a>(
     scope: Scope<'a>,
     transform: &models::TransformDef,
     built_collections: &'a tables::BuiltCollections,
+    data_plane_id: models::Id,
     errors: &mut tables::Errors,
 ) -> Option<(
     derive::request::validate::Transform,
@@ -611,6 +622,8 @@ fn walk_derive_transform<'a>(
             (Vec::new(), String::new())
         }
     };
+
+    super::temporary_cross_data_plane_read_check(scope, source, data_plane_id, errors);
 
     let request = derive::request::validate::Transform {
         name: name.to_string(),

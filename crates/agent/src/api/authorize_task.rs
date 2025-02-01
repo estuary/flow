@@ -197,29 +197,6 @@ fn evaluate_authorization(
         );
     };
 
-    // TODO(johnny): Temporary error to fail tasks which attempt cross-data-plane
-    // reads from cronut, which don't work through the data-plane-gateway.
-    const CRONUT: &str = "ops/dp/public/gcp-us-central1-c1";
-
-    if collection_data_plane.data_plane_name == CRONUT
-        && task_data_plane.data_plane_name != CRONUT
-        && required_role == models::Capability::Read
-    {
-        anyhow::bail!(
-            concat!(
-                "Collection {} is in the legacy public data-plane (GCP:us-central1-c1),\n",
-                "but task {} is in a different data-plane ({}).\n",
-                "\n",
-                "At the moment, Estuary does not support cross-data-plane reads from the legacy public data-plane.\n",
-                "As a work-around either 1) delete and re-create your task in GCP:us-central1-c1,\n",
-                "or 2) delete and re-create your collection in another data-plane.\n",
-            ),
-            collection.collection_name,
-            task.task_name,
-            task_data_plane.data_plane_name,
-        )
-    }
-
     // As a special case outside of the RBAC system, allow a task to write
     // to its designated partition within its ops collections.
     if required_role == models::Capability::Write

@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1derivation/derive/transforms/0,
+        error: Collection the/collection is in the legacy public data-plane (GCP:us-central1-c1),
+        but this task is in a different data-plane.
+        
+        At the moment, Estuary does not support cross-data-plane reads from the legacy public data-plane.
+        As a work-around either 1) delete and re-create your task in GCP:us-central1-c1,
+        or 2) delete and re-create your collection in a different data-plane.
+        ,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
+        error: Collection the/collection is in the legacy public data-plane (GCP:us-central1-c1),
+        but this task is in a different data-plane.
+        
+        At the moment, Estuary does not support cross-data-plane reads from the legacy public data-plane.
+        As a work-around either 1) delete and re-create your task in GCP:us-central1-c1,
+        or 2) delete and re-create your collection in a different data-plane.
+        ,
+    },
+]

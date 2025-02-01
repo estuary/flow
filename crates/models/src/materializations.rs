@@ -107,12 +107,15 @@ pub struct MaterializationBinding {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "MaterializationFields::example")]
 pub struct MaterializationFields {
-    /// # Fields to include.
+    /// # Fields to require.
     /// This supplements any recommended fields, where enabled.
-    /// Values are passed through to the driver, e.x. for customization
-    /// of the driver's schema generation or runtime behavior with respect
-    /// to the field.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    /// Values are passed to and interpreted by the connector, which may use it
+    /// to customize DDL generation or other behaviors with respect to the field.
+    /// Consult connector documentation to see what it supports.
+    ///
+    /// Note that this field is in the process of being renamed to `require`,
+    /// though `include` will continue to be accepted as an alias.
+    #[serde(default, alias = "require", skip_serializing_if = "BTreeMap::is_empty")]
     pub include: BTreeMap<Field, RawValue>,
     /// # Fields to exclude.
     /// This removes from recommended projections, where enabled.
