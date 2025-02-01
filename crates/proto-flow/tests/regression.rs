@@ -38,6 +38,7 @@ fn ex_projections() -> Vec<flow::Projection> {
                 item_types: vec!["null".to_string(), "integer".to_string()],
             }),
         }),
+        write_inference: None,
     }]
 }
 
