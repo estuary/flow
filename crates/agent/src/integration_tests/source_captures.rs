@@ -93,7 +93,7 @@ async fn test_source_captures() {
         a_model.bindings[0].resource.to_value().pointer("/delta")
     );
     assert_eq!(
-        "quacks",
+        "pond_quacks",
         a_model.bindings[0]
             .resource
             .to_value()

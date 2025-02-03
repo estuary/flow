@@ -27,22 +27,35 @@ pub fn update_materialization_resource_spec(
         ));
     }
 
-    let x_collection_name = split[0];
-    let x_schema_name = split[1];
+    let source_capture_def = source_capture.to_normalized_def();
+    // If we're setting the schema name as a separate property, then the
+    // x-collection-name will be only the last path component of the full
+    // collection name. But if there isn't a separate schema name property, or
+    // if the user does not wish to use it, then concatenate the last two path
+    // components to end up with something like `schema_table`, which helps to
+    // avoid conflicts arising from capturing identically named tables from
+    // different schemas, and then materializing them into the same schema.
+    let set_schema_name = {
+        //extra braces prevent rustfmt from doing bad things here
+        source_capture_def.target_schema == SourceCaptureSchemaMode::FromSourceName
+            && resource_spec_pointers.x_schema_name.is_some()
+    };
+    let x_collection_name = if set_schema_name {
+        split[0].to_string()
+    } else {
+        format!("{}_{}", split[1], split[0])
+    };
 
     let x_collection_name_ptr = &resource_spec_pointers.x_collection_name;
-
     let Some(x_collection_name_prev) = x_collection_name_ptr.create_value(resource_spec) else {
         anyhow::bail!(
             "cannot create location '{x_collection_name_ptr}' in resource spec '{resource_spec}'"
         );
     };
-
     let _ = std::mem::replace(x_collection_name_prev, x_collection_name.into());
 
-    let source_capture_def = source_capture.to_normalized_def();
-
-    if source_capture_def.target_schema == SourceCaptureSchemaMode::FromSourceName {
+    if set_schema_name {
+        let x_schema_name = split[1];
         let Some(x_schema_name_ptr) = &resource_spec_pointers.x_schema_name else {
             anyhow::bail!(
                 "sourceCapture.targetSchema set on a materialization which does not have x-schema-name annotation"
