@@ -1,6 +1,6 @@
 use super::{Collection, Partition};
 use crate::{connector::DeletionMode, log_appender, logging, utils, SessionAuthentication};
-use anyhow::{bail, Context};
+use anyhow::bail;
 use bytes::{Buf, BufMut, BytesMut};
 use doc::AsNode;
 use futures::StreamExt;
@@ -29,6 +29,9 @@ pub struct Read {
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
+
+    // Stats are aggregated per collection
+    collection_name: String,
 
     // Offset before which no documents should be emitted
     offset_start: i64,
@@ -120,6 +123,7 @@ impl Read {
             extractors,
 
             journal_name: partition.spec.name.clone(),
+            collection_name: collection.name.to_owned(),
             rewrite_offsets_from,
             deletes: auth.deletions(),
             offset_start: offset,
@@ -137,7 +141,8 @@ impl Read {
         };
 
         let mut records: Vec<Record> = Vec::new();
-        let mut records_bytes: usize = 0;
+        let mut input_bytes = 0;
+        let mut output_bytes: usize = 0;
 
         // We Avro encode into Vec instead of BytesMut because Vec is
         // better optimized for pushing a single byte at a time.
@@ -151,7 +156,7 @@ impl Read {
         let mut did_timeout = false;
 
         while match target {
-            ReadTarget::Bytes(target_bytes) => records_bytes < target_bytes,
+            ReadTarget::Bytes(target_bytes) => output_bytes < target_bytes,
             ReadTarget::Docs(target_docs) => records.len() < target_docs,
         } {
             let read = match tokio::select! {
@@ -293,6 +298,9 @@ impl Read {
                     Some(buf.split().freeze())
                 };
 
+            if !is_control {
+                input_bytes += next_offset - self.offset;
+            }
             self.offset = next_offset;
 
             // Map documents into a Kafka offset which is their last
@@ -328,7 +336,7 @@ impl Read {
                 transactional: false,
                 value,
             });
-            records_bytes += record_bytes;
+            output_bytes += record_bytes;
         }
 
         let opts = RecordEncodeOptions {
@@ -343,16 +351,36 @@ impl Read {
             first_offset = records.first().map(|r| r.offset).unwrap_or_default(),
             last_offset = records.last().map(|r| r.offset).unwrap_or_default(),
             last_write_head = self.last_write_head,
-            ratio = buf.len() as f64 / (records_bytes + 1) as f64,
-            records_bytes,
+            ratio = buf.len() as f64 / (output_bytes + 1) as f64,
+            output_bytes,
             did_timeout,
             "batch complete"
         );
 
         metrics::counter!("dekaf_documents_read", "journal_name" => self.journal_name.to_owned())
             .increment(records.len() as u64);
+        metrics::counter!("dekaf_bytes_read_in", "journal_name" => self.journal_name.to_owned())
+            .increment(input_bytes as u64);
         metrics::counter!("dekaf_bytes_read", "journal_name" => self.journal_name.to_owned())
-            .increment(records_bytes as u64);
+            .increment(output_bytes as u64);
+
+        // Right: Input documents from journal. Left: Input docs from destination. Out: Right Keys ⋃ Left Keys
+        // Dekaf reads docs from journals, so it emits "right". It doesn't do reduction with a destination system,
+        // so it does not emit "left". And right now, it does not reduce at all, so "out" is the same as "right".
+        logging::get_log_forwarder().send_stats(
+            self.collection_name.to_owned(),
+            ops::stats::Binding {
+                right: Some(ops::stats::DocsAndBytes {
+                    docs_total: records.len() as u32,
+                    bytes_total: input_bytes as u64,
+                }),
+                out: Some(ops::stats::DocsAndBytes {
+                    docs_total: records.len() as u32,
+                    bytes_total: input_bytes as u64,
+                }),
+                left: None,
+            },
+        );
 
         let frozen = buf.freeze();
 
