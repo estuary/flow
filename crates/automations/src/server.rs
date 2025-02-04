@@ -100,11 +100,13 @@ pub async fn serve(
                     (ready.task.id, ready.task.type_, ready.task.parent_id);
 
                 if let Err(err) = executors::poll_task(ready, heartbeat_timeout).await {
+                    // Ensure that we render the cause of the error.
+                    let error = format!("{err:#}");
                     tracing::warn!(
                         ?task_id,
                         ?task_type,
                         ?parent_id,
-                        ?err,
+                        %error,
                         "task executor failed and will be retried after heartbeat timeout"
                     );
                     // The task will be retried once it's heartbeat times out.
