@@ -54,6 +54,20 @@ const config = {
   projectName: 'flow',
   trailingSlash: true,
 
+  scripts: [
+    {
+      id: "runllm-widget-script",
+      type: "module",
+      src: "https://widget.runllm.com",
+      "runllm-name": "Estuary AI Assistant",
+      "runllm-assistant-id": "253",
+      "runllm-position": "BOTTOM_RIGHT",
+      "runllm-keyboard-shortcut": "Mod+j",
+      "runllm-preset": "docusaurus",
+      async: true,
+    },
+  ],
+
   plugins: [
     [
       require.resolve('docusaurus-lunr-search'),
