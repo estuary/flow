@@ -12,6 +12,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "Test log data before setting name, you should see me",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -33,6 +39,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "Test log data without a task name yet!",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -64,6 +76,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "I should have a client ID",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -105,6 +123,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "I should also have a client ID",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
