@@ -94,8 +94,7 @@ impl Publisher {
             }
         };
 
-        if !status.is_success() {
-            assert!(!draft_errors.is_empty());
+        if !status.is_success() || dry_run {
             let mut txn = self.db.begin().await?;
             // Remove draft errors from a previous publication attempt.
             agent_sql::drafts::delete_errors(draft_id, &mut txn)
