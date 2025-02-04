@@ -78,6 +78,7 @@ impl SessionAuthentication {
 
 /// Collection is the assembled metadata of a collection being accessed as a Kafka topic.
 pub struct Collection {
+    pub name: String,
     pub journal_client: journal::Client,
     pub key_ptr: Vec<doc::Pointer>,
     pub key_schema: avro::Schema,
@@ -207,6 +208,7 @@ impl Collection {
         );
 
         Ok(Some(Self {
+            name: collection_name.to_string(),
             journal_client,
             key_ptr,
             key_schema,
