@@ -1,4 +1,4 @@
-use crate::log_appender::{self, GazetteLogWriter, LogForwarder};
+use crate::log_appender::{self, GazetteWriter, TaskForwarder};
 use futures::Future;
 use lazy_static::lazy_static;
 use rand::Rng;
@@ -9,13 +9,21 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 // The relationship between LogForwarder and log journal is one-to-one. That means that all logs
 // from the point at which you call `forward_logs()` downwards will get forwarded to the same journal.
 tokio::task_local! {
-    static LOG_FORWARDER: LogForwarder<GazetteLogWriter>;
+    static TASK_FORWARDER: TaskForwarder<GazetteWriter>;
     static LOG_LEVEL: std::cell::Cell<ops::LogLevel>;
 }
 
 pub fn install() {
     // Build a tracing_subscriber::Filter which uses our dynamic log level.
     let log_filter = tracing_subscriber::filter::DynFilterFn::new(move |metadata, _cx| {
+        if metadata
+            .fields()
+            .iter()
+            .any(|f| f.name() == log_appender::EXCLUDE_FROM_TASK_LOGGING)
+        {
+            return false;
+        }
+
         let cur_level = match metadata.level().as_str() {
             "TRACE" => ops::LogLevel::Trace as i32,
             "DEBUG" => ops::LogLevel::Debug as i32,
@@ -46,7 +54,7 @@ pub fn install() {
         .with(
             ops::tracing::Layer::new(
                 |log| {
-                    let _ = LOG_FORWARDER.try_with(|f| f.send_log_message(log.clone()));
+                    let _ = TASK_FORWARDER.try_with(|f| f.send_log_message(log.clone()));
                 },
                 std::time::SystemTime::now,
             )
@@ -75,15 +83,15 @@ lazy_static! {
 /// The log forwarder can be configured (i.e to inform it of the log journal, once it's known) via [`get_log_forwarder()`].
 ///  - Note: This will panic if called from outside the context of a future wrapped by [`forward_logs()`]!
 /// The level filter can be dynamically configured for new messages via [`set_log_level()`].
-pub fn forward_logs<F, O>(writer: GazetteLogWriter, fut: F) -> impl Future<Output = O>
+pub fn forward_logs<F, O>(writer: GazetteWriter, fut: F) -> impl Future<Output = O>
 where
     F: Future<Output = O>,
 {
-    let forwarder = LogForwarder::new(PRODUCER.to_owned(), writer);
+    let forwarder = TaskForwarder::new(PRODUCER.to_owned(), writer);
 
     LOG_LEVEL.scope(
         ops::LogLevel::Info.into(),
-        LOG_FORWARDER.scope(
+        TASK_FORWARDER.scope(
             forwarder,
             fut.instrument(tracing::info_span!(
                 // Attach these empty fields so that later on we can use tracing_record_hierarchical
@@ -96,8 +104,24 @@ where
     )
 }
 
-pub fn get_log_forwarder() -> LogForwarder<GazetteLogWriter> {
-    LOG_FORWARDER.get()
+/// By default, `tokio::task::LocalKey`s don't propagate into futures passed to `tokio::spawn()`.
+/// This allows us to create new futures that can be executed later by `tokio::spawn()` while still
+/// referring to the same task-local values as the parent.
+pub fn propagate_task_forwarder<F, O>(fut: F) -> impl Future<Output = O>
+where
+    F: Future<Output = O>,
+{
+    let current_level = LOG_LEVEL.get();
+    let current_forwarder = TASK_FORWARDER.get();
+
+    LOG_LEVEL.scope(
+        current_level,
+        TASK_FORWARDER.scope(current_forwarder, fut.in_current_span()),
+    )
+}
+
+pub fn get_log_forwarder() -> TaskForwarder<GazetteWriter> {
+    TASK_FORWARDER.get()
 }
 
 pub fn set_log_level(level: ops::LogLevel) {

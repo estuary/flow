@@ -1,8 +1,8 @@
 use super::{App, Collection, Read};
 use crate::{
-    from_downstream_topic_name, from_upstream_topic_name, read::BatchResult,
-    to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset, KafkaApiClient,
-    SessionAuthentication,
+    from_downstream_topic_name, from_upstream_topic_name, logging::propagate_task_forwarder,
+    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset,
+    KafkaApiClient, SessionAuthentication,
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -580,7 +580,7 @@ impl Session {
                                 "state" => "new_data_preview_read"
                             )
                             .increment(1);
-                            tokio::spawn(
+                            tokio::spawn(propagate_task_forwarder(
                                 Read::new(
                                     collection.journal_client.clone(),
                                     &collection,
@@ -598,7 +598,7 @@ impl Session {
                                     crate::read::ReadTarget::Docs(max(diff as usize, 2)),
                                     std::time::Instant::now() + timeout,
                                 ),
-                            )
+                            ))
                         }
                         _ => {
                             metrics::counter!(
@@ -608,7 +608,7 @@ impl Session {
                                 "state" => "new_regular_read"
                             )
                             .increment(1);
-                            tokio::spawn(
+                            tokio::spawn(propagate_task_forwarder(
                                 Read::new(
                                     collection.journal_client.clone(),
                                     &collection,
@@ -625,7 +625,7 @@ impl Session {
                                     ),
                                     std::time::Instant::now() + timeout,
                                 ),
-                            )
+                            ))
                         }
                     }),
                 };
@@ -696,12 +696,12 @@ impl Session {
                         pending.offset = read.offset;
                         pending.last_write_head = read.last_write_head;
                         pending.handle = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-                            read.next_batch(
+                            propagate_task_forwarder(read.next_batch(
                                 crate::read::ReadTarget::Bytes(
                                     partition_request.partition_max_bytes as usize,
                                 ),
                                 std::time::Instant::now() + timeout,
-                            ),
+                            )),
                         ));
 
                         partition_data = partition_data
@@ -1217,8 +1217,6 @@ impl Session {
     ) -> anyhow::Result<messages::ApiVersionsResponse> {
         use kafka_protocol::messages::{api_versions_response::ApiVersion, *};
 
-        let client = self.get_kafka_client().await?;
-
         fn version<T: kafka_protocol::protocol::Message>(api_key: ApiKey) -> ApiVersion {
             ApiVersion::default()
                 .with_api_key(api_key as i16)
@@ -1250,13 +1248,13 @@ impl Session {
                 .with_api_key(ApiKey::ProduceKey as i16)
                 .with_min_version(3)
                 .with_max_version(9),
-            client.supported_versions::<JoinGroupRequest>()?,
-            client.supported_versions::<LeaveGroupRequest>()?,
-            client.supported_versions::<ListGroupsRequest>()?,
-            client.supported_versions::<SyncGroupRequest>()?,
-            client.supported_versions::<DeleteGroupsRequest>()?,
-            client.supported_versions::<HeartbeatRequest>()?,
-            client.supported_versions::<OffsetCommitRequest>()?,
+            version::<JoinGroupRequest>(ApiKey::JoinGroupKey),
+            version::<LeaveGroupRequest>(ApiKey::LeaveGroupKey),
+            version::<ListGroupsRequest>(ApiKey::ListGroupsKey),
+            version::<SyncGroupRequest>(ApiKey::SyncGroupKey),
+            version::<DeleteGroupsRequest>(ApiKey::DeleteGroupsKey),
+            version::<HeartbeatRequest>(ApiKey::HeartbeatKey),
+            version::<OffsetCommitRequest>(ApiKey::OffsetCommitKey),
             ApiVersion::default()
                 .with_api_key(ApiKey::OffsetFetchKey as i16)
                 .with_min_version(0)
