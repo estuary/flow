@@ -65,6 +65,11 @@ const config = {
       "runllm-keyboard-shortcut": "Mod+j",
       "runllm-preset": "docusaurus",
       async: true,
+      "runllm-theme-color": "#5072EB",
+      "runllm-brand-logo": "https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_a373037876/estuary_logo_a373037876.png",
+      "runllm-support-email": "support@estuary.dev",
+      "runllm-community-url": "https://go.estuary.dev/slack",
+      "runllm-community-type": "slack",
     },
   ],
 
