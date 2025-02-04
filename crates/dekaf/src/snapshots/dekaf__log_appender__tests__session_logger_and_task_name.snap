@@ -12,6 +12,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "Test log data before setting name, you should see me",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -34,6 +40,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "Test log data with a task name!",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {

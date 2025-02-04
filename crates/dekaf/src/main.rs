@@ -4,7 +4,7 @@ extern crate allocator;
 use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
-use dekaf::{log_appender::GazetteLogWriter, logging, Session};
+use dekaf::{log_appender::GazetteWriter, logging, Session};
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
     LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
@@ -277,7 +277,7 @@ async fn main() -> anyhow::Result<()> {
 
                     tokio::spawn(
                         logging::forward_logs(
-                            GazetteLogWriter::new(app.clone()),
+                            GazetteWriter::new(app.clone()),
                             serve(
                                 Session::new(
                                     app.clone(),
@@ -318,7 +318,7 @@ async fn main() -> anyhow::Result<()> {
 
                     tokio::spawn(
                         logging::forward_logs(
-                            GazetteLogWriter::new(app.clone()),
+                            GazetteWriter::new(app.clone()),
                             serve(
                                 Session::new(
                                     app.clone(),
