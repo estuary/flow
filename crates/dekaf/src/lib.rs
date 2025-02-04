@@ -29,7 +29,7 @@ pub use api_client::KafkaApiClient;
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use flow_client::client::{refresh_authorizations, RefreshToken};
-use log_appender::{SESSION_CLIENT_ID_FIELD_MARKER, SESSION_TASK_NAME_FIELD_MARKER};
+use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow;
 use serde::{Deserialize, Serialize};
@@ -73,7 +73,6 @@ pub struct TaskAuth {
     task_name: String,
     config: connector::DekafConfig,
     built_spec: flow::MaterializationSpec,
-    ops_stats_journal: String,
 
     bindings_by_topic: BTreeMap<
         String,
@@ -158,14 +157,12 @@ impl TaskAuth {
         task_name: String,
         config: connector::DekafConfig,
         built_spec: flow::MaterializationSpec,
-        ops_stats_journal: String,
         exp: time::OffsetDateTime,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             client,
             task_name,
             config,
-            ops_stats_journal,
             bindings_by_topic: built_spec
                 .bindings
                 .iter()
@@ -219,14 +216,13 @@ impl App {
         {
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
-            let (client, claims, _, ops_stats_journal, task_spec) =
-                topology::fetch_dekaf_task_auth(
-                    self.client_base.clone(),
-                    &username,
-                    &self.data_plane_fqdn,
-                    &self.data_plane_signer,
-                )
-                .await?;
+            let (client, claims, _, _, task_spec) = topology::fetch_dekaf_task_auth(
+                self.client_base.clone(),
+                &username,
+                &self.data_plane_fqdn,
+                &self.data_plane_signer,
+            )
+            .await?;
 
             // This marks this Session as being associated with the task name contained in `username`.
             // We only set this after
@@ -257,7 +253,6 @@ impl App {
                 username,
                 config,
                 task_spec,
-                ops_stats_journal,
                 time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
             )?))
         } else if username.contains("{") {

@@ -1,7 +1,7 @@
 use super::App;
 use crate::{
     from_downstream_topic_name,
-    log_appender::{GazetteLogWriter, SESSION_CLIENT_ID_FIELD_MARKER},
+    log_appender::{GazetteWriter, SESSION_CLIENT_ID_FIELD_MARKER},
     logging, to_downstream_topic_name, SessionAuthentication,
 };
 use anyhow::Context;
@@ -42,7 +42,7 @@ async fn attach_logger(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    let writer = GazetteLogWriter::new(app);
+    let writer = GazetteWriter::new(app);
 
     logging::forward_logs(writer, async move {
         if let Some(user_agent) = request.headers().get(USER_AGENT) {
