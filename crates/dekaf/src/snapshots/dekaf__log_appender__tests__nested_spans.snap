@@ -12,6 +12,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "From before task name, should be visible",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -33,6 +39,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "From inside nested span but before task_name, should be visible",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -63,6 +75,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "Log from nested span after task name marker",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -94,6 +112,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "Back in session span after task name",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {
@@ -117,6 +141,12 @@ expression: captured_logs
     },
     "level": "info",
     "message": "In child of session span after task name",
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
     "spans": [
       {
         "fields": {

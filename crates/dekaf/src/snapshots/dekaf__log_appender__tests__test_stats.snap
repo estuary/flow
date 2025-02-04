@@ -1,0 +1,34 @@
+---
+source: crates/dekaf/src/log_appender.rs
+expression: captured_logs
+---
+[
+  {
+    "_meta": {
+      "uuid": "[uuid]"
+    },
+    "materialize": {
+      "test_collection": {
+        "left": {
+          "bytesTotal": 2,
+          "docsTotal": 1
+        },
+        "out": {
+          "bytesTotal": 6,
+          "docsTotal": 5
+        },
+        "right": {
+          "bytesTotal": 4,
+          "docsTotal": 3
+        }
+      }
+    },
+    "shard": {
+      "keyBegin": "00000000",
+      "kind": "materialization",
+      "name": "my_task",
+      "rClockBegin": "00000000"
+    },
+    "ts": "[ts]"
+  }
+]

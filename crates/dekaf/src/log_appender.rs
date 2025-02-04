@@ -1,4 +1,5 @@
 use crate::{dekaf_shard_template_id, topology::fetch_dekaf_task_auth, App};
+use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
 use flow_client::fetch_task_authorization;
@@ -10,61 +11,180 @@ use gazette::{
 };
 use proto_gazette::message_flags;
 use rand::Rng;
-use std::{collections::VecDeque, marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    marker::PhantomData,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio_stream::wrappers::ReceiverStream;
 
 #[derive(Debug)]
-enum LoggingMessage {
+enum TaskWriterMessage {
     SetTaskName(String),
     Log(ops::Log),
+    Stats((String, ops::stats::Binding)),
     Shutdown,
+}
+
+/// StatsAggregator aggregates statistics for a particular Session over time. Since a Session maps 1:1 to
+/// a task, it's possible to read from any number of bindings within a single session. As a result, we store
+/// each binding's stats as an entry in this map, where the key is the name of the binding's target collection.
+#[derive(Default)]
+pub struct StatsAggregator(BTreeMap<String, ops::stats::Binding>);
+
+impl StatsAggregator {
+    /// Add new statistics to the aggregator
+    pub fn add(&mut self, collection_name: String, stats: ops::stats::Binding) {
+        let binding = self.0.entry(collection_name).or_insert(Default::default());
+        if let Some(left) = &stats.left {
+            ops::merge_docs_and_bytes(left, &mut binding.left);
+        }
+        if let Some(right) = &stats.right {
+            ops::merge_docs_and_bytes(right, &mut binding.right);
+        }
+        if let Some(out) = &stats.out {
+            ops::merge_docs_and_bytes(out, &mut binding.out);
+        }
+    }
+
+    // If any stats have been written, return them and reset the counter. Otherwise None
+    pub fn take(&mut self) -> Option<BTreeMap<String, ops::stats::Binding>> {
+        if self.0.iter().any(|(_, v)| {
+            v.left
+                .is_some_and(|s| s.bytes_total > 0 || s.docs_total > 0)
+                || v.right
+                    .is_some_and(|s| s.bytes_total > 0 || s.docs_total > 0)
+                || v.out.is_some_and(|s| s.bytes_total > 0 || s.docs_total > 0)
+        }) {
+            Some(std::mem::take(&mut self.0))
+        } else {
+            None
+        }
+    }
 }
 
 // This abstraction exists mostly in order to make testing easier.
 #[async_trait]
-pub trait LogWriter: Send + Sync {
-    async fn append_log_data(&self, log_data: Bytes) -> anyhow::Result<()>;
+pub trait TaskWriter: Send + Sync {
+    async fn append_logs(&self, log_data: Bytes) -> anyhow::Result<()>;
+    async fn append_stats(&self, log_data: Bytes) -> anyhow::Result<()>;
 
     async fn set_task_name(&mut self, name: String) -> anyhow::Result<()>;
 }
 
 #[derive(Clone)]
-pub struct GazetteLogWriter {
+pub struct GazetteWriter {
     app: Arc<App>,
-    client: Option<journal::Client>,
-    journal_name: Option<String>,
+    logs_client: Option<journal::Client>,
+    stats_client: Option<journal::Client>,
+    logs_journal_name: Option<String>,
+    stats_journal_name: Option<String>,
 }
 
 #[async_trait]
-impl LogWriter for GazetteLogWriter {
+impl TaskWriter for GazetteWriter {
     async fn set_task_name(&mut self, task_name: String) -> anyhow::Result<()> {
-        let (client, journal) = self.get_journal_client(task_name).await?;
-        self.client.replace(client);
-        self.journal_name.replace(journal);
+        let (logs_client, stats_client, logs_journal, stats_journal) =
+            self.get_journal_client(task_name).await?;
+        self.logs_client.replace(logs_client);
+        self.stats_client.replace(stats_client);
+        self.logs_journal_name.replace(logs_journal);
+        self.stats_journal_name.replace(stats_journal);
         Ok(())
     }
 
-    async fn append_log_data(&self, log_data: Bytes) -> anyhow::Result<()> {
-        let resp = self
-            .client
-            .as_ref()
-            .ok_or(anyhow::anyhow!("missing journal client"))?
-            .append(
-                gazette::broker::AppendRequest {
-                    journal: self
-                        .journal_name
-                        .as_ref()
-                        .ok_or(anyhow::anyhow!("missing journal name"))?
-                        .to_owned(),
-                    ..Default::default()
+    async fn append_logs(&self, data: Bytes) -> anyhow::Result<()> {
+        Self::append(
+            self.logs_client.as_ref().context("not initialized")?,
+            data,
+            self.logs_journal_name
+                .as_ref()
+                .context("Writer is not initialized")?
+                .clone(),
+        )
+        .await
+    }
+
+    async fn append_stats(&self, data: Bytes) -> anyhow::Result<()> {
+        Self::append(
+            self.stats_client.as_ref().context("not initialized")?,
+            data,
+            self.stats_journal_name
+                .as_ref()
+                .context("Writer is not initialized")?
+                .clone(),
+        )
+        .await
+    }
+}
+
+impl GazetteWriter {
+    pub fn new(app: Arc<App>) -> Self {
+        Self {
+            app: app,
+            logs_client: None,
+            stats_client: None,
+            logs_journal_name: None,
+            stats_journal_name: None,
+        }
+    }
+
+    async fn get_journal_client(
+        &self,
+        task_name: String,
+    ) -> anyhow::Result<(journal::Client, journal::Client, String, String)> {
+        let (client, _claims, ops_logs, ops_stats, _task_spec) = fetch_dekaf_task_auth(
+            self.app.client_base.clone(),
+            &task_name,
+            &self.app.data_plane_fqdn,
+            &self.app.data_plane_signer,
+        )
+        .await?;
+
+        let template_id = dekaf_shard_template_id(task_name.as_str());
+
+        let (logs_client, stats_client) = tokio::try_join!(
+            fetch_task_authorization(
+                &client,
+                &template_id,
+                &self.app.data_plane_fqdn,
+                &self.app.data_plane_signer,
+                proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+                gazette::broker::LabelSelector {
+                    include: Some(labels::build_set([("name", ops_logs.as_str()),])),
+                    exclude: None,
                 },
-                || {
-                    futures::stream::once({
-                        let value = log_data.clone();
-                        async move { Ok(value) }
-                    })
+            ),
+            fetch_task_authorization(
+                &client,
+                &template_id,
+                &self.app.data_plane_fqdn,
+                &self.app.data_plane_signer,
+                proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+                gazette::broker::LabelSelector {
+                    include: Some(labels::build_set([("name", ops_stats.as_str()),])),
+                    exclude: None,
                 },
-            );
+            )
+        )?;
+
+        Ok((logs_client, stats_client, ops_logs, ops_stats))
+    }
+
+    async fn append(client: &journal::Client, data: Bytes, journal: String) -> anyhow::Result<()> {
+        let resp = client.append(
+            gazette::broker::AppendRequest {
+                journal,
+                ..Default::default()
+            },
+            || {
+                futures::stream::once({
+                    let value = data.clone();
+                    async move { Ok(value) }
+                })
+            },
+        );
 
         tokio::pin!(resp);
 
@@ -89,47 +209,9 @@ impl LogWriter for GazetteLogWriter {
     }
 }
 
-impl GazetteLogWriter {
-    pub fn new(app: Arc<App>) -> Self {
-        Self {
-            app: app,
-            client: None,
-            journal_name: None,
-        }
-    }
-
-    async fn get_journal_client(
-        &self,
-        task_name: String,
-    ) -> anyhow::Result<(journal::Client, String)> {
-        let (client, _claims, ops_logs, _ops_stats, _task_spec) = fetch_dekaf_task_auth(
-            self.app.client_base.clone(),
-            &task_name,
-            &self.app.data_plane_fqdn,
-            &self.app.data_plane_signer,
-        )
-        .await?;
-
-        let client = fetch_task_authorization(
-            &client,
-            &dekaf_shard_template_id(task_name.as_str()),
-            &self.app.data_plane_fqdn,
-            &self.app.data_plane_signer,
-            proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-            gazette::broker::LabelSelector {
-                include: Some(labels::build_set([("name", ops_logs.as_str())])),
-                exclude: None,
-            },
-        )
-        .await?;
-
-        Ok((client, ops_logs))
-    }
-}
-
 #[derive(Clone)]
-pub struct LogForwarder<W: LogWriter> {
-    logs_tx: tokio::sync::mpsc::Sender<LoggingMessage>,
+pub struct TaskForwarder<W: TaskWriter> {
+    tx: tokio::sync::mpsc::Sender<TaskWriterMessage>,
     _handle: Arc<tokio::task::JoinHandle<()>>,
     _ph: PhantomData<W>,
 }
@@ -145,44 +227,50 @@ const WELL_KNOWN_LOG_FIELDS: &'static [&'static str] = &[
     SESSION_CLIENT_ID_FIELD_MARKER,
 ];
 
-impl<W: LogWriter + 'static> LogForwarder<W> {
+impl<W: TaskWriter + 'static> TaskForwarder<W> {
     pub fn new(producer: Producer, writer: W) -> Self {
-        let (logs_tx, logs_rx) = tokio::sync::mpsc::channel::<LoggingMessage>(50);
+        let (logs_tx, logs_rx) = tokio::sync::mpsc::channel::<TaskWriterMessage>(50);
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = Self::forward_logs(logs_rx, writer, producer).await {
+            if let Err(e) = Self::start(logs_rx, writer, producer).await {
                 tracing::error!(error = ?e, "Log forwarding errored");
             }
         });
 
         Self {
-            logs_tx,
+            tx: logs_tx,
             _handle: Arc::new(handle),
             _ph: Default::default(),
         }
     }
 
-    async fn forward_logs(
-        mut logs_rx: tokio::sync::mpsc::Receiver<LoggingMessage>,
+    async fn start(
+        mut logs_rx: tokio::sync::mpsc::Receiver<TaskWriterMessage>,
         mut writer: W,
         uuid_producer: Producer,
     ) -> anyhow::Result<()> {
         let mut pending_logs = VecDeque::new();
+        let mut stats = StatsAggregator::default();
 
-        loop {
+        let task_name = loop {
             match logs_rx.recv().await {
-                Some(LoggingMessage::SetTaskName(name)) => {
+                Some(TaskWriterMessage::SetTaskName(name)) => {
                     writer.set_task_name(name.to_owned()).await?;
-                    break;
+                    break name;
                 }
-                Some(LoggingMessage::Log(log)) => {
+                Some(TaskWriterMessage::Log(log)) => {
                     pending_logs.push_front(log);
                     // Keep at most the latest 100 log messages when in this pending state
                     pending_logs.truncate(100);
                 }
-                Some(LoggingMessage::Shutdown) | None => return Ok(()),
+                Some(TaskWriterMessage::Stats((collection_name, new_stats))) => {
+                    stats.add(collection_name, new_stats);
+                }
+                // If we shutdown before ever finding out our task name, we have no choice
+                // but to throw out our preciously collected logs and stats. Bye bye!
+                Some(TaskWriterMessage::Shutdown) | None => return Ok(()),
             }
-        }
+        };
 
         let mut event_stream = futures::stream::iter(
             pending_logs
@@ -191,38 +279,94 @@ impl<W: LogWriter + 'static> LogForwarder<W> {
                 // store the most recent items in the front of the queue. We need to reverse
                 // that when sending, as logs should be sent in oldest-first order.
                 .rev()
-                .map(|log| LoggingMessage::Log(log)),
+                .map(|log| TaskWriterMessage::Log(log)),
         )
         .chain(ReceiverStream::new(logs_rx));
 
-        while let Some(msg) = event_stream.next().await {
-            match msg {
-                LoggingMessage::SetTaskName(_) => {}
-                LoggingMessage::Log(mut log) => {
-                    // Attach any present well known fields to the top-level Log's fields
-                    for well_known in WELL_KNOWN_LOG_FIELDS {
-                        if let Some(value) = log
-                            .spans
-                            .iter()
-                            .find_map(|l| l.fields_json_map.get(&well_known.to_string()))
-                        {
-                            log.fields_json_map
-                                .insert(well_known.to_string(), value.to_string());
-                        }
-                    }
+        // TODO(jshearer): Do we want to make this configurable?
+        let mut stats_interval = tokio::time::interval(std::time::Duration::from_secs(30));
 
-                    writer
-                        .append_log_data(Self::serialize_log(uuid_producer, log).into())
-                        .await?;
+        loop {
+            tokio::select! {
+                msg = event_stream.next() => {
+                    match msg {
+                        Some(TaskWriterMessage::SetTaskName(new_name)) => {
+                            anyhow::bail!("You can't change the task name after it has already been set ({task_name} -> {new_name})");
+                        },
+                        Some(TaskWriterMessage::Log(mut log)) => {
+                            for well_known in WELL_KNOWN_LOG_FIELDS {
+                                if let Some(value) = log
+                                    .spans
+                                    .iter()
+                                    .find_map(|l| l.fields_json_map.get(&well_known.to_string()))
+                                {
+                                    log.fields_json_map
+                                        .insert(well_known.to_string(), value.to_string());
+                                }
+                            }
+
+                            writer
+                                .append_logs(Self::serialize_log(uuid_producer, log, task_name.to_owned()).into())
+                                .await?;
+                        }
+                        Some(TaskWriterMessage::Stats((collection_name, new_stats))) => {
+                            stats.add(collection_name, new_stats);
+                        }
+                        Some(TaskWriterMessage::Shutdown) => break,
+                        None => break,
+                    }
+                },
+                _ = stats_interval.tick() => {
+                    // Take current stats and write if non-zero
+                    if let Some(current_stats) = stats.take(){
+                        let data = Self::serialize_stats(uuid_producer, current_stats, task_name.to_owned());
+                        writer.append_stats(data.into()).await?;
+                    }
                 }
-                LoggingMessage::Shutdown => break,
             }
+        }
+
+        // Flush any remaining stats after stream ends
+        if let Some(remaining_stats) = stats.take() {
+            let data = Self::serialize_stats(uuid_producer, remaining_stats, task_name);
+            writer.append_stats(data.into()).await?;
         }
 
         Ok(())
     }
 
-    fn serialize_log(producer: Producer, mut log: ops::Log) -> Vec<u8> {
+    fn serialize_stats(
+        producer: Producer,
+        stats: BTreeMap<String, ops::stats::Binding>,
+        task_name: String,
+    ) -> Vec<u8> {
+        let uuid = gazette::uuid::build(
+            producer,
+            gazette::uuid::Clock::from_time(std::time::SystemTime::now()),
+            uuid::Flags((message_flags::OUTSIDE_TXN).try_into().unwrap()),
+        );
+
+        let stats_output = ops::Stats {
+            capture: Default::default(),
+            derive: Default::default(),
+            interval: None,
+            materialize: stats,
+            meta: Some(ops::Meta {
+                uuid: uuid.to_string(),
+            }),
+            open_seconds_total: Default::default(),
+            shard: Some(dekaf_shard_ref(task_name)),
+            timestamp: Some(proto_flow::as_timestamp(SystemTime::now())),
+            txn_count: 0,
+        };
+
+        let mut buf = serde_json::to_vec(&stats_output).expect("Value always serializes");
+        buf.push(b'\n');
+
+        buf
+    }
+
+    fn serialize_log(producer: Producer, mut log: ops::Log, task_name: String) -> Vec<u8> {
         let uuid = gazette::uuid::build(
             producer,
             gazette::uuid::Clock::from_time(std::time::SystemTime::now()),
@@ -231,6 +375,8 @@ impl<W: LogWriter + 'static> LogForwarder<W> {
         log.meta = Some(ops::Meta {
             uuid: uuid.to_string(),
         });
+
+        log.shard = Some(dekaf_shard_ref(task_name));
 
         let mut buf = serde_json::to_vec(&log).expect("Value always serializes");
         buf.push(b'\n');
@@ -241,9 +387,9 @@ impl<W: LogWriter + 'static> LogForwarder<W> {
     pub fn set_task_name(&self, name: String) {
         use tracing_record_hierarchical::SpanExt;
 
-        if !self.logs_tx.is_closed() {
-            self.logs_tx
-                .try_send(LoggingMessage::SetTaskName(name.to_owned()))
+        if !self.tx.is_closed() {
+            self.tx
+                .try_send(TaskWriterMessage::SetTaskName(name.to_owned()))
                 .unwrap();
         }
         // Also set the task name on the parent span so it's included in the logs. This also adds it
@@ -252,15 +398,32 @@ impl<W: LogWriter + 'static> LogForwarder<W> {
     }
 
     pub fn send_log_message(&self, log: ops::Log) {
-        if !self.logs_tx.is_closed() {
-            self.logs_tx.try_send(LoggingMessage::Log(log)).unwrap();
+        if !self.tx.is_closed() {
+            self.tx.try_send(TaskWriterMessage::Log(log)).unwrap();
         }
     }
 
     pub fn shutdown(&self) {
-        if !self.logs_tx.is_closed() {
-            self.logs_tx.try_send(LoggingMessage::Shutdown).unwrap();
+        if !self.tx.is_closed() {
+            self.tx.try_send(TaskWriterMessage::Shutdown).unwrap();
         }
+    }
+
+    pub fn send_stats(&self, collection_name: String, stats: ops::stats::Binding) {
+        if !self.tx.is_closed() {
+            self.tx
+                .try_send(TaskWriterMessage::Stats((collection_name, stats)))
+                .unwrap();
+        }
+    }
+}
+
+fn dekaf_shard_ref(task_name: String) -> ops::ShardRef {
+    ops::ShardRef {
+        kind: ops::TaskType::Materialization.into(),
+        name: task_name,
+        key_begin: "00000000".to_string(),
+        r_clock_begin: "00000000".to_string(),
     }
 }
 
@@ -281,22 +444,27 @@ mod tests {
     #[derive(Default, Clone)]
     struct MockLogWriter {
         pub logs: Arc<tokio::sync::Mutex<VecDeque<Bytes>>>,
+        pub stats: Arc<tokio::sync::Mutex<VecDeque<Bytes>>>,
     }
 
     #[async_trait::async_trait]
-    impl LogWriter for MockLogWriter {
+    impl TaskWriter for MockLogWriter {
         async fn set_task_name(&mut self, _: String) -> anyhow::Result<()> {
             Ok(())
         }
 
-        async fn append_log_data(&self, log_data: Bytes) -> anyhow::Result<()> {
+        async fn append_logs(&self, log_data: Bytes) -> anyhow::Result<()> {
             self.logs.lock().await.push_back(log_data);
+            Ok(())
+        }
+        async fn append_stats(&self, log_data: Bytes) -> anyhow::Result<()> {
+            self.stats.lock().await.push_back(log_data);
             Ok(())
         }
     }
 
     tokio::task_local! {
-        static MOCK_LOG_FORWARDER: LogForwarder<MockLogWriter>;
+        static MOCK_LOG_FORWARDER: TaskForwarder<MockLogWriter>;
     }
 
     fn gen_producer() -> Producer {
@@ -308,11 +476,15 @@ mod tests {
 
     async fn setup<F, Fut>(f: F)
     where
-        F: FnOnce(Arc<tokio::sync::Mutex<VecDeque<Bytes>>>) -> Fut,
+        F: FnOnce(
+            Arc<tokio::sync::Mutex<VecDeque<Bytes>>>,
+            Arc<tokio::sync::Mutex<VecDeque<Bytes>>>,
+        ) -> Fut,
         Fut: Future,
     {
         let mock_writer = MockLogWriter::default();
         let logs = mock_writer.logs.clone();
+        let stats = mock_writer.stats.clone();
 
         let producer = gen_producer();
 
@@ -326,9 +498,9 @@ mod tests {
 
         MOCK_LOG_FORWARDER
             .scope(
-                LogForwarder::new(producer, mock_writer),
+                TaskForwarder::new(producer, mock_writer),
                 async move {
-                    f(logs)
+                    f(logs, stats)
                         .instrument(tracing::info_span!(
                             "test_session",
                             { SESSION_TASK_NAME_FIELD_MARKER } = tracing::field::Empty,
@@ -367,7 +539,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_logging_with_no_task_name() {
-        setup(|logs| async move {
+        setup(|logs, _stats| async move {
             {
                 info!("Test log data, you shouldn't be able to see me");
             }
@@ -382,7 +554,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_logging_with_task_name() {
-        setup(|logs| async move {
+        setup(|logs, _stats| async move {
             {
                 info!("Test log data before setting name, you should see me");
 
@@ -402,7 +574,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_logging_with_client_id_hierarchical() {
-        setup(|logs| async move {
+        setup(|logs, _stats| async move {
             {
                 info!("Test log data before setting name, you should see me");
                 let session_span = info_span!(
@@ -438,7 +610,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_subscriber_layer_taskless() {
-        setup(|logs| async move {
+        setup(|logs, _stats| async move {
             {
                 info!("Logged without name, you shouldn't see me because of the shutdown");
 
@@ -460,7 +632,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_subscriber_layer_nested_spans() {
-        setup(|logs| async move {
+        setup(|logs, _stats| async move {
             {
                 info!("From before task name, should be visible");
 
@@ -488,6 +660,42 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("nested_spans", logs).await;
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_stats() {
+        setup(|_logs, stats| async move {
+            {
+                MOCK_LOG_FORWARDER
+                    .get()
+                    .set_task_name("my_task".to_string());
+
+                MOCK_LOG_FORWARDER.get().send_stats(
+                    "test_collection".to_string(),
+                    ops::stats::Binding {
+                        left: Some(ops::stats::DocsAndBytes {
+                            docs_total: 1,
+                            bytes_total: 2,
+                        }),
+                        right: Some(ops::stats::DocsAndBytes {
+                            docs_total: 3,
+                            bytes_total: 4,
+                        }),
+                        out: Some(ops::stats::DocsAndBytes {
+                            docs_total: 5,
+                            bytes_total: 6,
+                        }),
+                    },
+                );
+
+                MOCK_LOG_FORWARDER.get().shutdown();
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            assert_output("test_stats", stats).await;
         })
         .await;
     }
