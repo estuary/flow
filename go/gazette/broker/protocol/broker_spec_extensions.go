@@ -57,7 +57,7 @@ func (m *BrokerSpec) ItemLimit() int { return int(m.JournalLimit) }
 
 const (
 	minZoneLen            = 1
-	maxZoneLen            = 16
+	maxZoneLen            = 32
 	minBrokerSuffixLen    = 4
 	maxBrokerSuffixLen    = 128
 	maxBrokerJournalLimit = 1 << 17
