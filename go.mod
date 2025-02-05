@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/etcd/api/v3 v3.5.17
 	go.etcd.io/etcd/client/v3 v3.5.17
-	go.gazette.dev/core v0.100.1-0.20250121155033-f172f5b079db
+	go.gazette.dev/core v0.100.1-0.20250205120604-006d1d25ef8a
 	golang.org/x/net v0.33.0
 	google.golang.org/api v0.126.0
 	google.golang.org/grpc v1.65.0
@@ -52,7 +52,7 @@ require (
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/gogo/gateway v1.1.0 // indirect
-	github.com/golang/glog v1.2.1 // indirect
+	github.com/golang/glog v1.2.4 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
