@@ -1,6 +1,6 @@
 use super::{Collection, Partition};
-use crate::{connector::DeletionMode, log_appender, logging, utils, SessionAuthentication};
-use anyhow::bail;
+use crate::{connector::DeletionMode, logging, utils, SessionAuthentication};
+use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
 use doc::AsNode;
 use futures::StreamExt;
@@ -410,10 +410,17 @@ impl Read {
             .iter()
             .try_fold(buf, |buf, (schema, extractor)| {
                 // This is the value extracted from the original doc
-                match extractor.extract(original) {
+                if let Err(e) = match extractor.extract(original) {
                     Ok(value) => avro::encode(buf, schema, value),
                     Err(default) => avro::encode(buf, schema, &default.into_owned()),
-                }?;
+                }
+                .context(format!(
+                    "Extracting field {extractor:#?}, schema: {schema:?}"
+                )) {
+                    let debug_serialized = serde_json::to_string(&original.to_debug_json_value())?;
+                    tracing::debug!(extractor=?extractor, ?schema, debug_serialized, ?e, "Failed to encode");
+                    return Err(e);
+                }
 
                 Ok::<_, anyhow::Error>(buf)
             })?;
