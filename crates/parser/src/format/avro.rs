@@ -22,6 +22,8 @@ pub enum AvroError {
     Read(apache_avro::Error),
     #[error("invalid floating point value '{0}' for column '{1}'")]
     InvalidFloat(String, String),
+    #[error("invalid big decimal value '{0}' for column '{1}'")]
+    InvalidBigDecimal(String, String),
 
     /// Date-like values in avro are essentially just type hints on top of numeric primitives, so
     /// it's distinctly possible for them to be out of range. This error is returned in that case.
@@ -104,6 +106,16 @@ fn avro_to_json(
         Boolean(b) => Ok(Value::Bool(b)),
         Int(i) => Ok(Value::Number(i.into())),
         Long(l) => Ok(Value::Number(l.into())),
+        BigDecimal(d) => {
+            if allow_string_repr {
+                Ok(Value::String(d.to_string()))
+            } else {
+                Err(AvroError::InvalidBigDecimal(
+                    d.to_string(),
+                    column_name.to_string(),
+                ))
+            }
+        }
         // Floating point numbers require special handling for NAN and +/-inf because those values
         // can _only_ be represented as strings in json. If the json types happen to allow strings,
         // then we'll coerce them into strings, but only for the values that aren't representable
@@ -184,8 +196,14 @@ fn avro_to_json(
         TimestampMicros(t) if allow_string_repr => {
             timestamp_from_unix_epoch("timestamp-micros", column_name, t, MICROS_PER_SEC)
         }
+        TimestampNanos(t) if allow_string_repr => {
+            timestamp_from_unix_epoch("timestamp-nanos", column_name, t, NANOS_PER_SEC)
+        }
         LocalTimestampMicros(t) if allow_string_repr => {
             timestamp_from_unix_epoch("local-timestamp-micros", column_name, t, MICROS_PER_SEC)
+        }
+        LocalTimestampNanos(t) if allow_string_repr => {
+            timestamp_from_unix_epoch("local-timestamp-nanos", column_name, t, NANOS_PER_SEC)
         }
         // If !allow_string_repr, then all the date values will be converted directly to json
         // numbers. This allows users to handle any conversions themselves, by disallowing string
@@ -195,7 +213,9 @@ fn avro_to_json(
         | TimestampMicros(i)
         | LocalTimestampMicros(i)
         | TimestampMillis(i)
-        | LocalTimestampMillis(i) => Ok(Value::Number(i.into())),
+        | LocalTimestampMillis(i)
+        | TimestampNanos(i)
+        | LocalTimestampNanos(i) => Ok(Value::Number(i.into())),
 
         Duration(avro_dur) => {
             // avro durations are really weird. We always convert them to json objects, since

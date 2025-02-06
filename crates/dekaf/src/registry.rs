@@ -1,11 +1,19 @@
 use super::App;
-use crate::{from_downstream_topic_name, to_downstream_topic_name, topology, Authenticated};
+use crate::{
+    from_downstream_topic_name,
+    log_appender::{GazetteLogWriter, SESSION_CLIENT_ID_FIELD_MARKER},
+    logging, to_downstream_topic_name, SessionAuthentication,
+};
 use anyhow::Context;
-use axum::response::{IntoResponse, Response};
+use axum::{
+    http::header::USER_AGENT,
+    response::{IntoResponse, Response},
+};
 use axum_extra::headers;
 use itertools::Itertools;
 use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 use std::sync::Arc;
+use tracing_record_hierarchical::SpanExt;
 
 // Build an axum::Router which implements a subset of the Confluent Schema Registry API,
 // sufficient for decoding Avro-encoded topic data.
@@ -19,10 +27,36 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
             get(get_subject_latest),
         )
         .route("/schemas/ids/:id", get(get_schema_by_id))
+        .route_layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            attach_logger,
+        ))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(app);
 
     schema_router
+}
+
+async fn attach_logger(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let writer = GazetteLogWriter::new(app);
+
+    logging::forward_logs(writer, async move {
+        if let Some(user_agent) = request.headers().get(USER_AGENT) {
+            match user_agent.to_str() {
+                Ok(user_agent) => {
+                    tracing::Span::current()
+                        .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, user_agent);
+                }
+                Err(e) => tracing::warn!(?e, "Got bad user agent header"),
+            };
+        }
+        next.run(request).await
+    })
+    .await
 }
 
 // List all collections as "subjects", which are generally Kafka topics in the ecosystem.
@@ -34,20 +68,21 @@ async fn all_subjects(
     >,
 ) -> Response {
     wrap(async move {
-        let Authenticated {
-            client,
-            task_config,
-            ..
-        } = app.authenticate(auth.username(), auth.password()).await?;
+        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
 
-        topology::fetch_all_collection_names(&client.pg_client())
+        let strict_topic_names = match auth {
+            SessionAuthentication::User(ref auth) => auth.config.strict_topic_names,
+            SessionAuthentication::Task(ref auth) => auth.config.strict_topic_names,
+        };
+
+        auth.fetch_all_collection_names()
             .await
             .context("failed to list collections from the control plane")
             .map(|collections| {
                 collections
                     .into_iter()
                     .map(|name| {
-                        if task_config.strict_topic_names {
+                        if strict_topic_names {
                             to_downstream_topic_name(TopicName::from(StrBytes::from_string(name)))
                                 .to_string()
                         } else {
@@ -73,11 +108,7 @@ async fn get_subject_latest(
     axum::extract::Path(subject): axum::extract::Path<String>,
 ) -> Response {
     wrap(async move {
-        let Authenticated {
-            client,
-            task_config,
-            ..
-        } = app.authenticate(auth.username(), auth.password()).await?;
+        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
 
         let (is_key, collection) = if subject.ends_with("-value") {
             (false, &subject[..subject.len() - 6])
@@ -87,19 +118,22 @@ async fn get_subject_latest(
             anyhow::bail!("expected subject to end with -key or -value")
         };
 
+        let client = &auth.flow_client(&app).await?.pg_client();
+
         let collection = super::Collection::new(
-            &client,
+            &app,
+            &auth,
+            client,
             &from_downstream_topic_name(TopicName::from(StrBytes::from_string(
                 collection.to_string(),
             ))),
-            task_config.deletions,
         )
         .await
         .context("failed to fetch collection metadata")?
         .with_context(|| format!("collection {collection} does not exist"))?;
 
         let (key_id, value_id) = collection
-            .registered_schema_ids(&client.pg_client())
+            .registered_schema_ids(&client)
             .await
             .context("failed to resolve registered Avro schemas")?;
 
@@ -131,8 +165,8 @@ async fn get_schema_by_id(
     axum::extract::Path(id): axum::extract::Path<u32>,
 ) -> Response {
     wrap(async move {
-        let Authenticated { client, .. } =
-            app.authenticate(auth.username(), auth.password()).await?;
+        let mut auth = app.authenticate(auth.username(), auth.password()).await?;
+        let client = &auth.flow_client(&app).await?.pg_client();
 
         #[derive(serde::Deserialize)]
         struct Row {
