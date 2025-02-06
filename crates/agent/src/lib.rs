@@ -11,7 +11,6 @@ pub(crate) mod live_specs;
 pub mod logs;
 mod proxy_connectors;
 pub mod publications;
-pub(crate) mod resource_configs;
 
 #[cfg(test)]
 pub(crate) mod integration_tests;

@@ -6,7 +6,7 @@ use models::{split_image_tag, Id, ModelDef, SourceCapture, SourceCaptureSchemaMo
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use tables::{BuiltRow, DraftRow};
+use tables::{utils, BuiltRow, DraftRow};
 
 pub async fn persist_updates(
     uncommitted: &mut UncommittedBuild,
@@ -333,8 +333,7 @@ pub async fn check_source_capture_annotations(
         };
         if let SourceCapture::Configured(source_capture_def) = source_capture {
             let resource_config_schema = connector_spec.resource_config_schema;
-            let resource_spec_pointers =
-                crate::resource_configs::pointer_for_schema(resource_config_schema.0.get())?;
+            let resource_spec_pointers = utils::pointer_for_schema(resource_config_schema.0.get())?;
 
             if source_capture_def.delta_updates && resource_spec_pointers.x_delta_updates.is_none()
             {

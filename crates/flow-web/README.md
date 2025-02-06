@@ -28,6 +28,8 @@ wasm-pack test --headless --firefox crates/flow-web
 - `infer`: takes a JSON schema as input, and produces metadata about its inferred locations.
 - `extend_read_bundle`: takes `read`, `write`, and `inferred` schemas (where `inferred` is null if no inferred schema is available), and returns an updated
   read-schema bundle which potentially inlines the write and inferred schemas.
+- `get_resource_config_pointers`: takes a resource `spec` as string and produces metadata about the pointers
+- `update_materialization_resource_spec`: takes `source_capture`, `resource_spec_pointers`, `collection_name`, and `resource_spec`. `resource_spec` is the object that is getting updated and the other fields are used to update that. It will return a copy of the `resource_spec` with the new fields populated.
 
 ## Making a Change?
 
