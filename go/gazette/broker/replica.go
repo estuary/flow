@@ -118,11 +118,18 @@ func pulseDaemon(svc *Service, r *replica) {
 		var ctx, cancel = context.WithTimeout(r.ctx, healthCheckInterval)
 
 		// If AutoSuspend is enabled, use the SUSPEND_IF_FLUSHED control flag
-		// after at least one `healthCheckInterval` has elapsed. We cannot use
-		// SUSPEND_IF_FLUSHED immediately because there's a natural startup race
-		// with the client(s) which resumed and intend to append to the journal.
+		// only after a number of stable `healthCheckInterval`s have elapsed.
+		// We do this for a few reasons:
+		// * There's a natural startup race with the client(s) which resumed
+		//   and intend to append to the journal.
+		// * We may be both primary and newly-added to the topology.
+		//   There may be fragments which are or have persisted, which we
+		//   haven't yet observed while awaiting the next fragment refresh.
+		// * If journal topologies are changing rapidly for some reason,
+		//   we don't want to compound the problem by suspending journals,
+		//   which changes their effective replication factor.
 		var suspend = pb.AppendRequest_SUSPEND_NO_RESUME
-		if AutoSuspend && stableTicks >= 1 {
+		if AutoSuspend && stableTicks >= 15 {
 			suspend = pb.AppendRequest_SUSPEND_IF_FLUSHED
 		}
 
