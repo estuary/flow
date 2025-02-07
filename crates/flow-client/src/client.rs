@@ -183,7 +183,7 @@ pub async fn fetch_task_authorization(
     data_plane_signer: &jsonwebtoken::EncodingKey,
     capability: u32,
     selector: gazette::broker::LabelSelector,
-) -> anyhow::Result<gazette::journal::Client> {
+) -> anyhow::Result<(gazette::journal::Client, proto_gazette::Claims)> {
     let request_token = build_task_authorization_request_token(
         shard_template_id,
         data_plane_fqdn,
@@ -219,6 +219,8 @@ pub async fn fetch_task_authorization(
 
     tracing::debug!(broker_address, "resolved task data-plane and authorization");
 
+    let parsed_claims: proto_gazette::Claims = parse_jwt_claims(&token)?;
+
     let mut md = gazette::Metadata::default();
     md.bearer_token(&token)?;
 
@@ -226,7 +228,7 @@ pub async fn fetch_task_authorization(
         .journal_client
         .with_endpoint_and_metadata(broker_address, md);
 
-    Ok(journal_client)
+    Ok((journal_client, parsed_claims))
 }
 
 pub fn build_task_authorization_request_token(
