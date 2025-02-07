@@ -678,7 +678,7 @@ impl Session {
                 let batch = match batch {
                     BatchResult::TargetExceededBeforeTimeout(b) => Some(b),
                     BatchResult::TimeoutExceededBeforeTarget(b) => Some(b),
-                    BatchResult::TimeoutNoData => None,
+                    BatchResult::TimeoutNoData | BatchResult::Suspended => None,
                 };
 
                 let mut partition_data = PartitionData::default()
