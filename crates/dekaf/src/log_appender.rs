@@ -68,8 +68,8 @@ impl StatsAggregator {
 // This abstraction exists mostly in order to make testing easier.
 #[async_trait]
 pub trait TaskWriter: Send + Sync {
-    async fn append_logs(&self, log_data: Bytes) -> anyhow::Result<()>;
-    async fn append_stats(&self, log_data: Bytes) -> anyhow::Result<()>;
+    async fn append_logs(&mut self, log_data: Bytes) -> anyhow::Result<()>;
+    async fn append_stats(&mut self, log_data: Bytes) -> anyhow::Result<()>;
 
     async fn set_task_name(&mut self, name: String) -> anyhow::Result<()>;
 }
@@ -77,46 +77,36 @@ pub trait TaskWriter: Send + Sync {
 #[derive(Clone)]
 pub struct GazetteWriter {
     app: Arc<App>,
-    logs_client: Option<journal::Client>,
-    stats_client: Option<journal::Client>,
-    logs_journal_name: Option<String>,
-    stats_journal_name: Option<String>,
+    logs_appender: Option<GazetteAppender>,
+    stats_appender: Option<GazetteAppender>,
+    task_name: Option<String>,
 }
 
 #[async_trait]
 impl TaskWriter for GazetteWriter {
     async fn set_task_name(&mut self, task_name: String) -> anyhow::Result<()> {
-        let (logs_client, stats_client, logs_journal, stats_journal) =
-            self.get_journal_client(task_name).await?;
-        self.logs_client.replace(logs_client);
-        self.stats_client.replace(stats_client);
-        self.logs_journal_name.replace(logs_journal);
-        self.stats_journal_name.replace(stats_journal);
+        let (logs_appender, stats_appender) = self.get_appenders(task_name.as_str()).await?;
+        self.logs_appender.replace(logs_appender);
+        self.stats_appender.replace(stats_appender);
+        self.task_name.replace(task_name);
+
         Ok(())
     }
 
-    async fn append_logs(&self, data: Bytes) -> anyhow::Result<()> {
-        Self::append(
-            self.logs_client.as_ref().context("not initialized")?,
-            data,
-            self.logs_journal_name
-                .as_ref()
-                .context("Writer is not initialized")?
-                .clone(),
-        )
-        .await
+    async fn append_logs(&mut self, data: Bytes) -> anyhow::Result<()> {
+        self.logs_appender
+            .as_mut()
+            .context("not initialized")?
+            .append(data)
+            .await
     }
 
-    async fn append_stats(&self, data: Bytes) -> anyhow::Result<()> {
-        Self::append(
-            self.stats_client.as_ref().context("not initialized")?,
-            data,
-            self.stats_journal_name
-                .as_ref()
-                .context("Writer is not initialized")?
-                .clone(),
-        )
-        .await
+    async fn append_stats(&mut self, data: Bytes) -> anyhow::Result<()> {
+        self.stats_appender
+            .as_mut()
+            .context("not initialized")?
+            .append(data)
+            .await
     }
 }
 
@@ -124,59 +114,64 @@ impl GazetteWriter {
     pub fn new(app: Arc<App>) -> Self {
         Self {
             app: app,
-            logs_client: None,
-            stats_client: None,
-            logs_journal_name: None,
-            stats_journal_name: None,
+            task_name: None,
+            logs_appender: None,
+            stats_appender: None,
         }
     }
 
-    async fn get_journal_client(
+    async fn get_appenders(
         &self,
-        task_name: String,
-    ) -> anyhow::Result<(journal::Client, journal::Client, String, String)> {
-        let (client, _claims, ops_logs, ops_stats, _task_spec) = fetch_dekaf_task_auth(
+        task_name: &str,
+    ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
+        let (_, _, ops_logs, ops_stats, _) = fetch_dekaf_task_auth(
             self.app.client_base.clone(),
             &task_name,
             &self.app.data_plane_fqdn,
             &self.app.data_plane_signer,
         )
         .await?;
+        Ok((
+            GazetteAppender::try_create(ops_logs, task_name.to_string(), self.app.clone()).await?,
+            GazetteAppender::try_create(ops_stats, task_name.to_string(), self.app.clone()).await?,
+        ))
+    }
+}
 
-        let template_id = dekaf_shard_template_id(task_name.as_str());
+#[derive(Clone)]
+struct GazetteAppender {
+    client: journal::Client,
+    journal_name: String,
+    exp: time::OffsetDateTime,
+    app: Arc<App>,
+    task_name: String,
+}
 
-        let (logs_client, stats_client) = tokio::try_join!(
-            fetch_task_authorization(
-                &client,
-                &template_id,
-                &self.app.data_plane_fqdn,
-                &self.app.data_plane_signer,
-                proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-                gazette::broker::LabelSelector {
-                    include: Some(labels::build_set([("name", ops_logs.as_str()),])),
-                    exclude: None,
-                },
-            ),
-            fetch_task_authorization(
-                &client,
-                &template_id,
-                &self.app.data_plane_fqdn,
-                &self.app.data_plane_signer,
-                proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
-                gazette::broker::LabelSelector {
-                    include: Some(labels::build_set([("name", ops_stats.as_str()),])),
-                    exclude: None,
-                },
-            )
-        )?;
+impl GazetteAppender {
+    pub async fn try_create(
+        journal_name: String,
+        task_name: String,
+        app: Arc<App>,
+    ) -> anyhow::Result<Self> {
+        let (client, exp) = Self::refresh_client(&task_name, &journal_name, app.clone()).await?;
 
-        Ok((logs_client, stats_client, ops_logs, ops_stats))
+        Ok(Self {
+            client,
+            exp,
+            task_name,
+            journal_name,
+            app,
+        })
     }
 
-    async fn append(client: &journal::Client, data: Bytes, journal: String) -> anyhow::Result<()> {
-        let resp = client.append(
+    async fn append(&mut self, data: Bytes) -> anyhow::Result<()> {
+        if (self.exp - SystemTime::now()).whole_seconds() < 60 {
+            self.refresh().await?;
+        }
+
+        let resp = self.client.append(
             gazette::broker::AppendRequest {
-                journal,
+                journal: self.journal_name.clone(),
                 ..Default::default()
             },
             || {
@@ -188,25 +183,90 @@ impl GazetteWriter {
         );
 
         tokio::pin!(resp);
-
         loop {
             match resp.try_next().await {
-                Err(RetryError { attempt, inner }) if inner.is_transient() && attempt < 3 => {
+                Ok(_) => return Ok(()),
+                Err(RetryError { inner: err, .. })
+                    if matches!(
+                        &err,
+                        gazette::Error::Grpc(status) if status.code() == tonic::Code::DeadlineExceeded
+                    ) =>
+                {
+                    tracing::warn!(
+                        ?err,
+                        "DeadlineExceeded error likely means that the data-plane access token has expired, but tokens get refreshed so this should never happen"
+                    );
+
+                    return Err(err.into());
+                }
+                Err(RetryError { attempt, ref inner }) if inner.is_transient() && attempt < 3 => {
                     let wait_ms = rand::thread_rng().gen_range(400..5_000);
+
+                    tracing::warn!(
+                        ?attempt,
+                        ?inner,
+                        ?wait_ms,
+                        "Got recoverable error trying to write logs, retrying"
+                    );
 
                     tokio::time::sleep(Duration::from_millis(wait_ms)).await;
                     continue;
                 }
-                Err(err) => {
+                Err(err) if err.inner.is_transient() => {
                     tracing::warn!(
-                        ?err,
+                        attempt=err.attempt,
+                        inner=?err.inner,
                         "Got recoverable error multiple times while trying to write logs"
                     );
                     return Err(err.inner.into());
                 }
-                Ok(_) => return Ok(()),
+                Err(err) => {
+                    tracing::warn!(?err, "Got fatal error while trying to write logs");
+                    return Err(err.inner.into());
+                }
             }
         }
+    }
+
+    async fn refresh(&mut self) -> anyhow::Result<()> {
+        let (client, exp) =
+            Self::refresh_client(&self.task_name, &self.journal_name, self.app.clone()).await?;
+        self.client = client;
+        self.exp = exp;
+        Ok(())
+    }
+
+    async fn refresh_client(
+        task_name: &str,
+        journal_name: &str,
+        app: Arc<App>,
+    ) -> anyhow::Result<(journal::Client, time::OffsetDateTime)> {
+        let base_client = app.client_base.clone();
+        let data_plane_fqdn = &app.data_plane_fqdn;
+        let signer = &app.data_plane_signer;
+
+        let template_id = dekaf_shard_template_id(task_name);
+
+        let (auth_client, _, _, _, _) =
+            fetch_dekaf_task_auth(base_client, task_name, data_plane_fqdn, signer).await?;
+
+        let (new_client, new_claims) = fetch_task_authorization(
+            &auth_client,
+            &template_id,
+            data_plane_fqdn,
+            signer,
+            proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+            gazette::broker::LabelSelector {
+                include: Some(labels::build_set([("name", journal_name)])),
+                exclude: None,
+            },
+        )
+        .await?;
+
+        Ok((
+            new_client,
+            time::OffsetDateTime::UNIX_EPOCH + Duration::from_secs(new_claims.exp),
+        ))
     }
 }
 
@@ -476,11 +536,11 @@ mod tests {
             Ok(())
         }
 
-        async fn append_logs(&self, log_data: Bytes) -> anyhow::Result<()> {
+        async fn append_logs(&mut self, log_data: Bytes) -> anyhow::Result<()> {
             self.logs.lock().await.push_back(log_data);
             Ok(())
         }
-        async fn append_stats(&self, log_data: Bytes) -> anyhow::Result<()> {
+        async fn append_stats(&mut self, log_data: Bytes) -> anyhow::Result<()> {
             self.stats.lock().await.push_back(log_data);
             Ok(())
         }

@@ -2,12 +2,10 @@ use crate::{
     connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
-use flow_client::fetch_task_authorization;
-use futures::{StreamExt, TryFutureExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use gazette::{broker, journal, uuid};
 use models::RawValue;
 use proto_flow::flow;
-use std::time::Duration;
 
 impl UserAuth {
     /// Fetch the names of all collections which the current user may read.
@@ -381,29 +379,23 @@ impl Collection {
                 Ok(journal_client)
             }
             SessionAuthentication::Task(task_auth) => {
-                let journal_client = tokio::time::timeout(
-                    Duration::from_secs(30),
-                    fetch_task_authorization(
-                        &app.client_base,
-                        &dekaf_shard_template_id(&task_auth.task_name),
-                        &app.data_plane_fqdn,
-                        &app.data_plane_signer,
-                        proto_flow::capability::AUTHORIZE
-                            | proto_gazette::capability::LIST
-                            | proto_gazette::capability::READ,
-                        gazette::broker::LabelSelector {
-                            include: Some(labels::build_set([(
-                                "name:prefix",
-                                format!("{partition_template_name}/").as_str(),
-                            )])),
-                            exclude: None,
-                        },
-                    ),
+                let (journal_client, _claims) = flow_client::fetch_task_authorization(
+                    &app.client_base,
+                    &dekaf_shard_template_id(&task_auth.task_name),
+                    &app.data_plane_fqdn,
+                    &app.data_plane_signer,
+                    proto_flow::capability::AUTHORIZE
+                        | proto_gazette::capability::LIST
+                        | proto_gazette::capability::READ,
+                    gazette::broker::LabelSelector {
+                        include: Some(labels::build_set([(
+                            "name:prefix",
+                            format!("{partition_template_name}/").as_str(),
+                        )])),
+                        exclude: None,
+                    },
                 )
-                .map_err(|e| {
-                    anyhow::anyhow!("timed out building journal client for {collection_name}: {e}")
-                })
-                .await??;
+                .await?;
 
                 Ok(journal_client)
             }
