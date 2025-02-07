@@ -89,6 +89,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Google Ads
   - [Configuration](./google-ads.md)
   - Package - ghcr.io/estuary/source-google-ads:dev
+- Google Analytics Data API
+  - [Configuration](./google-analytics-data-api-native.md)
+  - Package - ghcr.io/estuary/source-google-analytics-data-api-native:dev
 - Google Cloud Storage
   - [Configuration](./gcs.md)
   - Package — ghcr.io/estuary/source-gcs:dev
