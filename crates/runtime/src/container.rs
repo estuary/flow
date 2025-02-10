@@ -18,7 +18,7 @@ const PORT_PUBLIC_LABEL_PREFIX: &str = "dev.estuary.port-public.";
 const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
 
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.5.7-119-g552f6c0ee2";
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.5.10-54-g93a4078d44";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 /// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
