@@ -282,7 +282,7 @@ async fn test_auto_discovers_add_new_bindings() {
     [
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"flowers\"}"
+          "$serde_json::private::RawValue": "{\"id\":\"marmots_flowers\"}"
         },
         "source": "marmots/flowers",
         "fields": {
@@ -291,7 +291,7 @@ async fn test_auto_discovers_add_new_bindings() {
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"grass\"}"
+          "$serde_json::private::RawValue": "{\"id\":\"marmots_grass\"}"
         },
         "source": "marmots/grass",
         "fields": {
@@ -889,7 +889,7 @@ async fn test_auto_discovers_update_only() {
     [
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"alpine-grass\"}"
+          "$serde_json::private::RawValue": "{\"id\":\"pikas_alpine-grass\"}"
         },
         "source": "pikas/alpine-grass_v2",
         "fields": {
@@ -899,7 +899,7 @@ async fn test_auto_discovers_update_only() {
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"moss\"}"
+          "$serde_json::private::RawValue": "{\"id\":\"pikas_moss\"}"
         },
         "source": "pikas/moss",
         "fields": {

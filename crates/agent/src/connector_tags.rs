@@ -5,6 +5,7 @@ use proto_flow::flow;
 use runtime::{LogHandler, Runtime, RuntimeProtocol};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use tables::utils::pointer_for_schema;
 use tracing::info;
 
 /// JobStatus is the possible outcomes of a handled connector tag.
@@ -203,9 +204,7 @@ impl TagExecutor {
         // Validate that there is an x-collection-name annotation in the resource config schema
         // of materialization connectors
         if proto_type == RuntimeProtocol::Materialize {
-            if let Err(err) =
-                crate::resource_configs::pointer_for_schema(resource_config_schema.get())
-            {
+            if let Err(err) = pointer_for_schema(resource_config_schema.get()) {
                 tracing::warn!(image = %image_composed, error = %err, "resource schema does not have x-collection-name annotation");
                 return Ok(JobStatus::SpecFailed);
             }

@@ -4,10 +4,7 @@ use super::{
     publication_status::{self, PendingPublication},
     ControlPlane, ControllerErrorExt, ControllerState, NextRun,
 };
-use crate::{
-    publications::{PublicationResult, RejectedField},
-    resource_configs::ResourceSpecPointers,
-};
+use crate::publications::{PublicationResult, RejectedField};
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
@@ -20,7 +17,7 @@ use models::{
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use tables::LiveRow;
+use tables::{utils::pointer_for_schema, LiveRow};
 
 pub async fn update<C: ControlPlane>(
     status: &mut MaterializationStatus,
@@ -320,8 +317,7 @@ pub async fn update_source_capture<C: ControlPlane>(
         .get_connector_spec(config.image.clone())
         .await
         .context("failed to fetch connector spec")?;
-    let resource_spec_pointers =
-        crate::resource_configs::pointer_for_schema(connector_spec.resource_config_schema.get())?;
+    let resource_spec_pointers = pointer_for_schema(connector_spec.resource_config_schema.get())?;
 
     // Avoid generating a detail with hundreds of collection names
     let detail = if status.add_bindings.len() > 10 {
@@ -375,13 +371,13 @@ fn get_bindings_to_add(
 
 fn update_linked_materialization(
     source_capture: &SourceCapture,
-    resource_spec_pointers: ResourceSpecPointers,
+    resource_spec_pointers: tables::utils::ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
     materialization: &mut models::MaterializationDef,
 ) -> anyhow::Result<()> {
     for collection_name in bindings_to_add {
         let mut resource_spec = serde_json::json!({});
-        crate::resource_configs::update_materialization_resource_spec(
+        tables::utils::update_materialization_resource_spec(
             source_capture,
             &mut resource_spec,
             &resource_spec_pointers,

@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-doc = { path = "../doc" }
+doc = { path = "../doc", default-features = false  }
 json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }
