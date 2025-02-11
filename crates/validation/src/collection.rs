@@ -9,6 +9,7 @@ pub fn walk_all_collections(
     build_id: models::Id,
     default_plane_id: Option<models::Id>,
     draft_collections: &tables::DraftCollections,
+    inferred_schemas: &tables::InferredSchemas,
     live_collections: &tables::LiveCollections,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
@@ -23,12 +24,13 @@ pub fn walk_all_collections(
         },
     );
 
-    it.filter_map(|(_collection, eob)| {
+    it.filter_map(|(collection, eob)| {
         walk_collection(
             pub_id,
             build_id,
             default_plane_id,
             eob,
+            inferred_schemas.get_by_key(collection),
             storage_mappings,
             errors,
         )
@@ -41,6 +43,7 @@ fn walk_collection(
     build_id: models::Id,
     default_plane_id: Option<models::Id>,
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
+    inferred_schema: Option<&tables::InferredSchema>,
     storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltCollection> {
@@ -62,9 +65,9 @@ fn walk_collection(
     let scope = Scope::new(scope);
 
     let models::CollectionDef {
-        schema,
-        write_schema,
-        read_schema,
+        schema: schema_model,
+        write_schema: write_model,
+        read_schema: mut read_model,
         key,
         projections: projection_models,
         journals,
@@ -88,31 +91,97 @@ fn walk_collection(
         .push(scope.push_prop("key"), errors);
     }
 
-    let (write_schema, write_bundle, read_schema_bundle) = match (schema, write_schema, read_schema)
-    {
-        // One schema used for both writes and reads.
-        (Some(bundle), None, None) => (
-            walk_collection_schema(scope.push_prop("schema"), bundle, errors)?,
-            bundle.clone(),
-            None,
-        ),
-        // Separate schemas used for writes and reads.
-        (None, Some(model_write_schema), Some(model_read_schema)) => {
-            let write_schema =
-                walk_collection_schema(scope.push_prop("writeSchema"), model_write_schema, errors);
+    // If the collection has a read schema and it references its inferred schema,
+    // then update its read schema model to inline its inferred schema.
+    if let Some(read_model) = &mut read_model {
+        if read_model.references_inferred_schema() {
+            let inferred = inferred_schema
+                .map(|inferred| &inferred.schema)
+                .unwrap_or(models::Schema::inferred_schema_placeholder());
 
-            // Potentially extend the user's read schema with definitions
-            // for the collection's current write schema.
-            let read_bundle =
-                models::Schema::build_read_schema_bundle(model_read_schema, model_write_schema);
+            let inlined = read_model
+                .add_defs(&[models::schemas::AddDef {
+                    id: models::Schema::REF_INFERRED_SCHEMA_URL,
+                    schema: inferred,
+                    // TODO(johnny): We'd like this to be `overwrite: true`,
+                    // but that requires that `agent` is consistent about threading
+                    // in all inferred schemas, which is not the case today.
+                    overwrite: false,
+                }])
+                .unwrap_or_else(|err| {
+                    Error::SerdeJson(err).push(scope.push_prop("readSchema"), errors);
+                    read_model.clone()
+                });
 
-            let read_schema =
-                walk_collection_schema(scope.push_prop("readSchema"), &read_bundle, errors);
-            (
-                write_schema?,
-                model_write_schema.clone(),
-                Some((read_schema?, read_bundle)),
-            )
+            if inlined != *read_model {
+                // TODO(johnny): Do something with the fact that the model has changed.
+            }
+            *read_model = inlined;
+        }
+    }
+
+    let write_spec: Schema;
+    let read_spec: Option<Schema>;
+
+    (write_spec, read_spec) = match (&schema_model, &write_model, &read_model) {
+        // A single schema is used for writes and reads.
+        (Some(schema_model), None, None) => {
+            let scope = scope.push_prop("schema");
+            let schema_spec = walk_collection_schema(scope, schema_model.clone(), errors);
+
+            (schema_spec?, None)
+        }
+        // Separate schemas for writes and reads.
+        (None, Some(write_model), Some(read_model)) => {
+            // We inline flow://write-schema into the
+            // BuiltCollection.read_schema_json row but NOT `read_model`.
+
+            let mut defs = Vec::new();
+            let relaxed: Option<models::Schema>;
+            let scope_read = scope.push_prop("readSchema");
+            let scope_write = scope.push_prop("writeSchema");
+
+            if read_model.references_write_schema() {
+                defs.push(models::schemas::AddDef {
+                    id: models::Schema::REF_WRITE_SCHEMA_URL,
+                    schema: &write_model,
+                    overwrite: true,
+                });
+            }
+            if read_model.references_relaxed_write_schema() {
+                let has_inferred_schema =
+                    // TODO(johnny): This should simply be inferred_schema.is_some().
+                    // We cannot do this until `agent` is consistent about threading in inferred schemas.
+                    // Instead, use a hack which looks for the inferred schema placeholder,
+                    // as a proxy for whether an actual inferred schema is available.
+                    !read_model.get().contains("\"inferredSchemaIsNotAvailable\"");
+
+                relaxed = has_inferred_schema
+                    .then(|| write_model.to_relaxed_schema())
+                    .transpose()
+                    .unwrap_or_else(|err| {
+                        Error::SerdeJson(err).push(scope_write, errors);
+                        None
+                    });
+
+                defs.push(models::schemas::AddDef {
+                    id: models::Schema::REF_RELAXED_WRITE_SCHEMA_URL,
+                    schema: relaxed.as_ref().unwrap_or(&write_model),
+                    overwrite: true,
+                });
+            }
+
+            let read_spec = walk_collection_schema(
+                scope_read,
+                read_model.add_defs(&defs).unwrap_or_else(|err| {
+                    Error::SerdeJson(err).push(scope_read, errors);
+                    read_model.clone()
+                }),
+                errors,
+            );
+            let write_spec = walk_collection_schema(scope_write, write_model.clone(), errors);
+
+            (write_spec?, Some(read_spec?))
         }
         _ => {
             Error::InvalidSchemaCombination {
@@ -123,29 +192,32 @@ fn walk_collection(
         }
     };
 
+    let effective_read_spec = read_spec
+        .as_ref()
+        .map(|Schema { spec, .. }| spec)
+        .unwrap_or(&write_spec.spec);
+    let distinct_write_spec = read_model.is_some().then_some(&write_spec.spec);
+
     // The collection key must validate as a key-able location
     // across both read and write schemas.
     for (index, ptr) in key.iter().enumerate() {
         let scope = scope.push_prop("key");
         let scope = scope.push_item(index);
 
-        if let Err(err) = write_schema.walk_ptr(ptr, true) {
+        if let Err(err) =
+            schema::Schema::walk_ptr(effective_read_spec, distinct_write_spec, ptr, true)
+        {
             Error::from(err).push(scope, errors);
-        }
-        if let Some((read_schema, _read_bundle)) = &read_schema_bundle {
-            if let Err(err) = read_schema.walk_ptr(ptr, true) {
-                Error::from(err).push(scope, errors);
-            }
         }
     }
 
     let (projection_models, projection_specs) = walk_collection_projections(
         scope.push_prop("projections"),
-        &write_schema,
-        read_schema_bundle.as_ref(),
-        key,
         projection_models,
-        live_model.as_ref().map(|l| &l.projections),
+        effective_read_spec,
+        distinct_write_spec,
+        &key,
+        live_model,
         errors,
     );
     // Projections should be ascending and unique on field.
@@ -178,23 +250,23 @@ fn walk_collection(
         format!("{collection}/{pub_id}")
     };
 
+    // Specs always have `write_schema_json`, and may have `read_schema_json` if it's different.
+    let write_schema_json = write_spec.model.into_inner().into();
+    let read_schema_json = read_spec
+        .map(|Schema { model, .. }| model.into_inner().into())
+        .unwrap_or_default();
+
     let partition_template = assemble::partition_template(
         build_id,
         collection,
         &journal_name_prefix,
-        journals,
+        &journals,
         partition_stores,
     );
-    let bundle_to_string = |b: Option<models::Schema>| -> String {
-        let b: Option<Box<serde_json::value::RawValue>> = b.map(|b| b.into_inner().into());
-        let b: Option<Box<str>> = b.map(Into::into);
-        let b: Option<String> = b.map(Into::into);
-        b.unwrap_or_default()
-    };
-    let built_spec = flow::CollectionSpec {
+    let spec = flow::CollectionSpec {
         name: collection.to_string(),
-        write_schema_json: bundle_to_string(Some(write_bundle)),
-        read_schema_json: bundle_to_string(read_schema_bundle.map(|(_schema, bundle)| bundle)),
+        write_schema_json,
+        read_schema_json,
         key: key.iter().map(|p| p.to_string()).collect(),
         projections: projection_specs,
         partition_fields,
@@ -206,6 +278,17 @@ fn walk_collection(
         partition_template: Some(partition_template),
         derivation: None,
     };
+    let model = models::CollectionDef {
+        schema: schema_model,
+        write_schema: write_model,
+        read_schema: read_model,
+        key,
+        projections: projection_models,
+        journals,
+        derive: None, // Re-attached later by validate().
+        expect_pub_id: None,
+        delete: false,
+    };
 
     Some(tables::BuiltCollection {
         collection: collection.clone(),
@@ -214,11 +297,8 @@ fn walk_collection(
         data_plane_id,
         expect_pub_id,
         expect_build_id,
-        model: Some(models::CollectionDef {
-            projections: projection_models,
-            ..model.clone()
-        }),
-        spec: Some(built_spec),
+        model: Some(model),
+        spec: Some(spec),
         validated: None,
         previous_spec: live_spec.cloned(),
         is_touch,
@@ -229,10 +309,10 @@ fn walk_collection(
 
 fn walk_collection_schema(
     scope: Scope,
-    bundle: &models::Schema,
+    model: models::Schema,
     errors: &mut tables::Errors,
-) -> Option<schema::Schema> {
-    let schema = match schema::Schema::new(bundle.get()) {
+) -> Option<Schema> {
+    let spec = match schema::Schema::new(model.get()) {
         Ok(schema) => schema,
         Err(err) => {
             err.push(scope, errors);
@@ -240,44 +320,38 @@ fn walk_collection_schema(
         }
     };
 
-    if schema.shape.type_ != types::OBJECT {
+    if spec.shape.type_ != types::OBJECT {
         Error::CollectionSchemaNotObject {
-            schema: schema.curi.clone(),
+            schema: spec.curi.clone(),
         }
         .push(scope, errors);
         return None; // Squelch further errors.
     }
 
-    for err in schema.shape.inspect() {
+    for err in spec.shape.inspect() {
         Error::from(err).push(scope, errors);
     }
 
-    Some(schema)
+    Some(Schema { model, spec })
 }
 
 fn walk_collection_projections(
     scope: Scope,
-    write_schema: &schema::Schema,
-    read_schema_bundle: Option<&(schema::Schema, models::Schema)>,
+    mut models: BTreeMap<models::Field, models::Projection>,
+    effective_read_spec: &schema::Schema,
+    write_spec: Option<&schema::Schema>,
     key: &models::CompositeKey,
-    projections: &BTreeMap<models::Field, models::Projection>,
-    live_projections: Option<&BTreeMap<models::Field, models::Projection>>,
+    live_model: Option<&models::CollectionDef>,
     errors: &mut tables::Errors,
 ) -> (
     BTreeMap<models::Field, models::Projection>,
     Vec<flow::Projection>,
 ) {
-    let effective_read_schema = if let Some((read_schema, _read_bundle)) = read_schema_bundle {
-        read_schema
-    } else {
-        write_schema
-    };
-
     // Require that projection fields have no duplicates under our collation.
     // This restricts *manually* specified projections, but not canonical ones.
     // Most importantly, this ensures there are no collation-duplicated partitions.
     indexed::walk_duplicates(
-        projections
+        models
             .iter()
             .map(|(field, _)| ("projection", field.as_str(), scope.push_prop(field))),
         errors,
@@ -285,20 +359,20 @@ fn walk_collection_projections(
 
     let mut saw_root_projection = false;
     let mut saw_uuid_timestamp_projection = false;
+    let mut specs = Vec::new();
 
-    // Map explicit projections into built flow::Projection `specs` and filtered `models`.
-    let (mut specs, mut models) = (Vec::new(), BTreeMap::new());
-
-    for (field, projection) in projections {
+    // Map explicit projections into built flow::Projection `specs`.
+    // We filter model projections which are no longer referenced by the schema.
+    models.retain(|field, projection| {
         let scope = scope.push_prop(field);
 
-        let modified = if let Some(live) = live_projections {
-            live.get(field) != Some(projection)
+        let modified = if let Some(live) = live_model {
+            live.projections.get(field) != Some(&*projection)
         } else {
             true
         };
 
-        let (ptr, partition) = match projection {
+        let (raw_ptr, partition) = match projection {
             models::Projection::Pointer(ptr) => (ptr, false),
             models::Projection::Extended {
                 location,
@@ -316,9 +390,9 @@ fn walk_collection_projections(
             );
         }
 
-        if ptr.as_str() == "" {
+        if raw_ptr.as_str() == "" {
             saw_root_projection = true;
-        } else if ptr.as_str() == UUID_DATE_TIME_PTR && !partition {
+        } else if raw_ptr.as_str() == UUID_DATE_TIME_PTR && !partition {
             saw_uuid_timestamp_projection = true;
 
             // UUID_DATE_TIME_PTR is not a location that actually exists.
@@ -330,18 +404,18 @@ fn walk_collection_projections(
                 inference: Some(assemble::inference_uuid_v1_date_time()),
                 ..Default::default()
             });
-            models.insert(field.clone(), projection.clone());
-
-            continue;
+            return true;
         }
 
-        if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
+        if let Err(err) =
+            schema::Schema::walk_ptr(effective_read_spec, write_spec, raw_ptr, partition)
+        {
             match err {
                 Error::PtrIsImplicit { .. } if !partition && !modified => {
-                    // Silently ignore a projection which _used_ to exist, but no longer does.
+                    // Filter a projection which _used_ to exist, but no longer does.
                     // The goal of this error is to catch user typos and similar mistakes,
                     // but we don't want to block schema updates.
-                    continue;
+                    return false;
                 }
                 Error::PtrCannotExist { .. } if !partition && !modified => {
                     // Suppress an error if the unchanged explicit projection
@@ -352,33 +426,26 @@ fn walk_collection_projections(
                 err => Error::from(err).push(scope, errors),
             }
         }
-        if matches!(read_schema_bundle, Some(_) if partition) {
-            // Partitioned projections must also be key-able within the write schema.
-            if let Err(err) = write_schema.walk_ptr(ptr, true) {
-                Error::from(err).push(scope, errors);
-            }
-        }
 
-        let (r_shape, r_exists) = effective_read_schema
-            .shape
-            .locate(&doc::Pointer::from_str(ptr));
+        let doc_ptr = doc::Pointer::from_str(raw_ptr);
+        let r_schema = effective_read_spec.shape.locate(&doc_ptr);
 
-        specs.push(flow::Projection {
-            ptr: ptr.to_string(),
-            field: field.to_string(),
-            explicit: true,
-            is_primary_key: key.iter().any(|k| k == ptr),
-            is_partition_key: partition,
-            inference: Some(assemble::inference(r_shape, r_exists)),
-            write_inference: None,
-        });
-        models.insert(field.clone(), projection.clone());
-    }
+        specs.push(build_projection(
+            doc_ptr,
+            field,
+            true,
+            key.iter().any(|k| k == raw_ptr),
+            partition,
+            r_schema,
+            write_spec,
+        ));
+        return true;
+    });
 
     // If we didn't see an explicit projection of the root document,
     // add an implicit projection with field "flow_document".
     if !saw_root_projection {
-        let (r_shape, r_exists) = effective_read_schema
+        let (r_shape, r_exists) = effective_read_spec
             .shape
             .locate(&doc::Pointer::from_str(""));
 
@@ -410,20 +477,19 @@ fn walk_collection_projections(
 
     // Now add implicit projections for the collection key.
     // These may duplicate explicit projections -- that's okay, we'll dedup them later.
-    for ptr in key.iter() {
-        let (r_shape, r_exists) = effective_read_schema
-            .shape
-            .locate(&doc::Pointer::from_str(ptr));
+    for raw_ptr in key.iter() {
+        let doc_ptr = doc::Pointer::from_str(raw_ptr);
+        let r_schema = effective_read_spec.shape.locate(&doc_ptr);
 
-        specs.push(flow::Projection {
-            ptr: ptr.to_string(),
-            field: ptr[1..].to_string(), // Canonical-ize by stripping the leading "/".
-            explicit: false,
-            is_primary_key: true,
-            is_partition_key: false,
-            inference: Some(assemble::inference(r_shape, r_exists)),
-            write_inference: None,
-        });
+        specs.push(build_projection(
+            doc_ptr,
+            &raw_ptr[1..], // Canonical-ize by stripping the leading "/".
+            false,
+            true,
+            false,
+            r_schema,
+            write_spec,
+        ));
     }
 
     // Now add statically inferred locations from the read-time JSON schema. We'll do this for
@@ -432,26 +498,26 @@ fn walk_collection_projections(
     // - the root location
     // - locations for object properties with empty keys
     // - a `/flow_document` location (if someone captures a table we materialized)
-    for (ptr, pattern, r_shape, r_exists) in effective_read_schema.shape.locations() {
-        if pattern || ptr.0.is_empty() || ptr.0.ends_with(EMPTY_KEY) {
+    for (doc_ptr, pattern, r_shape, r_exists) in effective_read_spec.shape.locations() {
+        if pattern || doc_ptr.0.is_empty() || doc_ptr.0.ends_with(EMPTY_KEY) {
             continue;
         }
         // Canonical-ize by stripping the leading "/".
-        let field = ptr.to_string()[1..].to_string();
+        let field = &doc_ptr.to_string()[1..];
         // Special case to avoid creating a conflicting projection when the collection
         // schema contains a field with the same name as the default root projection.
         if field == FLOW_DOCUMENT {
             continue;
         }
-        specs.push(flow::Projection {
-            ptr: ptr.to_string(),
+        specs.push(build_projection(
+            doc_ptr,
             field,
-            explicit: false,
-            is_primary_key: false,
-            is_partition_key: false,
-            inference: Some(assemble::inference(r_shape, r_exists)),
-            write_inference: None,
-        });
+            false,
+            false,
+            false,
+            (r_shape, r_exists),
+            write_spec,
+        ));
     }
 
     // Stable-sort on ascending projection field, which preserves the
@@ -546,6 +612,53 @@ pub fn walk_selector(
             }
         }
     }
+}
+
+pub fn build_projection(
+    ptr: doc::Pointer,
+    field: &str,
+    explicit: bool,
+    is_primary_key: bool,
+    is_partition_key: bool,
+    (r_shape, r_exists): (&doc::Shape, doc::shape::location::Exists),
+    write_spec: Option<&schema::Schema>,
+) -> flow::Projection {
+    let read_inference = assemble::inference(r_shape, r_exists);
+
+    // Include `write_inference` if the (separate) write schema provides
+    // explicit and non-equal constraints over this field.
+    let write_inference = if let Some(schema) = write_spec {
+        let (w_shape, w_exists) = schema.shape.locate(&ptr);
+
+        if w_exists == doc::shape::location::Exists::Implicit {
+            None
+        } else {
+            let write_inference = assemble::inference(w_shape, w_exists);
+
+            if write_inference != read_inference {
+                None // TODO(johnny): Some(write_inference)
+            } else {
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    flow::Projection {
+        ptr: ptr.to_string(),
+        field: field.to_string(),
+        explicit,
+        is_primary_key,
+        is_partition_key,
+        inference: Some(read_inference),
+        write_inference,
+    }
+}
+
+struct Schema {
+    model: models::Schema,
+    spec: schema::Schema,
 }
 
 /// The default field name for the root document projection.

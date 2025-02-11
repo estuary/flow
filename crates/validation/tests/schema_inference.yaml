@@ -1,0 +1,55 @@
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      key: [/key]
+
+      writeSchema:
+        type: object
+        reduce: { strategy: merge }
+        properties:
+          key:
+            type: integer
+            title: I'm the key!
+          timestamp:
+            type: string
+            description: I'm a timestamp.
+            reduce: { strategy: firstWriteWins }
+          changingType:
+            type: array
+            items: { type: number }
+            title: My type is changing.
+          notSeen:
+            type: integer
+          alwaysNull:
+            type: [number, "null"]
+
+        required: [key]
+
+      readSchema:
+        allOf:
+          - $ref: flow://relaxed-write-schema
+          - $ref: flow://inferred-schema
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+
+  liveInferredSchemas:
+    testing/foobar:
+      type: object
+      properties:
+        key:
+          type: integer
+          minimum: 0
+          maximum: 10
+        timestamp:
+          type: string
+          format: date-time
+        changingType:
+          type: number
+        alwaysNull:
+          type: "null"
+
+      required: [key, timestamp, changingType]
+      additionalProperties: false

@@ -87,6 +87,14 @@ pub enum Error {
         type_: types::Set,
         schema: Url,
     },
+    #[error("location {ptr} is {read_type:?} in readSchema {read_schema}, but {write_type:?} in writeSchema {write_schema}. Types of keyed locations must be the same in read and write schemas.")]
+    KeyReadWriteTypesDiffer {
+        ptr: String,
+        read_type: types::Set,
+        read_schema: Url,
+        write_type: types::Set,
+        write_schema: Url,
+    },
     #[error("location {ptr} is unknown in schema {schema}")]
     PtrIsImplicit { ptr: String, schema: Url },
     #[error("location {ptr} has a reduction strategy, which is disallowed because the location is used as a key")]

@@ -306,6 +306,11 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             None,
         );
     }
+    // Load into LiveCatalog::inferred_schemas.
+    for (collection, schema) in &mock_calls.live_inferred_schemas {
+        live.inferred_schemas
+            .insert_row(collection, schema, "an-md5".to_string());
+    }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
         live.storage_mappings
@@ -451,6 +456,8 @@ struct MockDriverCalls {
     live_captures: BTreeMap<models::Capture, MockLiveCapture>,
     #[serde(default)]
     live_collections: BTreeMap<models::Collection, MockLiveCollection>,
+    #[serde(default)]
+    live_inferred_schemas: BTreeMap<models::Collection, models::Schema>,
     #[serde(default)]
     live_materializations: BTreeMap<models::Materialization, MockLiveMaterialization>,
     #[serde(default)]

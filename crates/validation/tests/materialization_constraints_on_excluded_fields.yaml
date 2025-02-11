@@ -23,11 +23,27 @@ test://example/catalog.yaml:
             exclude:
               - naughty_u
               - naughty_f
+              - not_found_and_removed
 
 driver:
   dataPlanes:
     "1d:1d:1d:1d:1d:1d:1d:1d":
       default: true
+
+  liveMaterializations:
+    testing/db-views:
+      controlId: "11:11:11:11:11:11:11:04"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      lastPubId: "10:10:10:10:10:10:10:10"
+      bindings:
+        - source: testing/constraints
+          resource: {}
+          fields:
+            recommended: true
+            exclude:
+              - naughty_u
+              - naughty_f
+              - not_found_and_removed
 
   materializations:
     testing/db-views:
