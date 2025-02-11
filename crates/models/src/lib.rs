@@ -19,7 +19,7 @@ mod materializations;
 pub mod publications;
 mod raw_value;
 mod references;
-mod schemas;
+pub mod schemas;
 mod shards;
 mod source;
 mod source_capture;

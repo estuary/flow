@@ -1,0 +1,66 @@
+---
+source: crates/models/src/schemas.rs
+expression: outcome.to_value()
+---
+{
+  "$defs": {
+    "extra": {
+      "properties": {
+        "f": {
+          "type": "string"
+        }
+      }
+    },
+    "flow://inferred-schema": {
+      "$id": "flow://inferred-schema",
+      "properties": {
+        "a": {
+          "type": "integer"
+        },
+        "b": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "flow://write-schema": {
+      "$id": "flow://write-schema",
+      "properties": {
+        "a": {
+          "type": "integer"
+        },
+        "b": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "not_overwritten": {
+      "properties": {
+        "f": {
+          "type": "string"
+        }
+      }
+    },
+    "replaced": {
+      "$id": "replaced",
+      "properties": {
+        "a": {
+          "type": "integer"
+        },
+        "b": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "flow://inferred-schema"
+    },
+    {
+      "$ref": "flow://write-schema"
+    }
+  ]
+}
