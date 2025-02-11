@@ -2670,6 +2670,7 @@ name = "gazette"
 version = "0.0.0"
 dependencies = [
  "async-compression",
+ "async-trait",
  "bytes",
  "coroutines",
  "doc",

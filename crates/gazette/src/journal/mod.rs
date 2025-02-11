@@ -3,8 +3,11 @@ use proto_gazette::broker;
 use tonic::transport::Channel;
 
 mod append;
+mod append_stream;
 mod list;
 mod read;
+
+pub use append_stream::FramedMessage;
 
 mod read_json_lines;
 pub use read_json_lines::{ReadJsonLine, ReadJsonLines};
