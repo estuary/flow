@@ -20,7 +20,11 @@ const updateAllConnectorPages = (params, titleAddition) => {
             const $title = $cheer("title")
             const titleText = $title.text();
 
-            if (!titleText.includes(titleAddition) && !titleText.startsWith(connector)) {
+            if (!titleText.startsWith('Connector') &&
+                !titleText.startsWith('Dekaf integrations') && 
+                !titleText.includes(titleAddition) && 
+                !titleText.includes('connectors |')
+            ) {
                 console.debug(`    -updating ${fileFullPath}`)
 
                 $title.text(titleText.replace(divider, titleAddition));
