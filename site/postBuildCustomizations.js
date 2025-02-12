@@ -8,6 +8,7 @@ const divider = ' | ';
 const updateAllConnectorPages = (params, titleAddition) => {
     console.log('Customizing BEGIN')
 
+    let updateCount = 0;
     fs.readdirSync(params, {
         recursive: true,
     }).forEach(file => {
@@ -19,13 +20,15 @@ const updateAllConnectorPages = (params, titleAddition) => {
             const titleText = $title.text();
 
             if (!titleText.includes(titleAddition)) {
-                console.log(`-updating ${fileFullPath}`)
+                console.debug(`    -updating ${fileFullPath}`)
 
                 $title.text(titleText.replace(divider, titleAddition));
                 fs.writeFileSync(fileFullPath, $cheer.html());
+                updateCount += 1;
             }
         }
     });
+    console.log(` - updated ${updateCount}`)
     console.log('Customizing DONE')
 
 }
