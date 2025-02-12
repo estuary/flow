@@ -32,9 +32,11 @@ const updateAllConnectorPages = (params, titleAddition) => {
                 // Skip if plural version is there (ex: Capture Connectors)
                 !titleText.toLowerCase().includes(`${connector}s |`.toLowerCase())
             ) {
-                console.debug(`    -updating ${fileFullPath}`)
+                const newTitle = titleText.replace(divider, titleAddition);
+                console.debug(`    - updating ${fileFullPath}`)
+                console.debug(`       "${newTitle}"`)
 
-                $title.text(titleText.replace(divider, titleAddition));
+                $title.text(newTitle);
                 fs.writeFileSync(fileFullPath, $cheer.html());
                 updateCount += 1;
             }
