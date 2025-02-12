@@ -16,8 +16,9 @@ const updateAllConnectorPages = (params, titleAddition) => {
             const fileFullPath = `${connectorsDir}/${file}`;
             const $cheer = cheerio.load(fs.readFileSync(fileFullPath));
             const $title = $cheer("title")
+            const titleText = $title.text();
 
-            if (!$title.text().includes(titleAddition)) {
+            if (!titleText.includes(titleAddition)) {
                 console.log(`-updating ${fileFullPath}`)
 
                 $title.text(titleText.replace(divider, titleAddition));
