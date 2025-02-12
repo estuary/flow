@@ -15,22 +15,14 @@ const updateAllConnectorPages = (params, titleAddition) => {
         if (file.includes('.html')) {
             const $cheer = cheerio.load(fs.readFileSync(`${connectorsDir}/${file}`));
             const $title = $cheer("title")
-            const titleText = $title.text();
 
-            if (!titleText.includes(titleAddition)) {
+            if (!$title.text().includes(titleAddition)) {
                 const fileFullPath = `${connectorsDir}/${file}`;
                 console.log('-updating', {
                     path: fileFullPath
                 })
 
-                const newTitle = titleText.replace(divider, titleAddition);
-
-                $title.text(newTitle);
-
-                console.log(`-title`, {
-                    newTitle
-                })
-
+                $title.text(titleText.replace(divider, titleAddition));
                 fs.writeFileSync(fileFullPath, $cheer.html());
             }
         }
@@ -39,4 +31,4 @@ const updateAllConnectorPages = (params, titleAddition) => {
 
 }
 
-updateAllConnectorPages(connectorsDir, `Connector${divider}`);
+updateAllConnectorPages(connectorsDir, ` Connector${divider}`);

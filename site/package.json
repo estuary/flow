@@ -5,7 +5,7 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
-    "build": "docusaurus build",
+    "build": "docusaurus build; npm run postBuild",
     "postBuild": "node postBuildCustomizations.js",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
