@@ -18,9 +18,7 @@ const updateAllConnectorPages = (params, titleAddition) => {
             const $title = $cheer("title")
 
             if (!$title.text().includes(titleAddition)) {
-                console.log('-updating', {
-                    path: fileFullPath
-                })
+                console.log(`-updating ${fileFullPath}`)
 
                 $title.text(titleText.replace(divider, titleAddition));
                 fs.writeFileSync(fileFullPath, $cheer.html());
