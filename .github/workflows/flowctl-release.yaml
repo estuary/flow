@@ -19,7 +19,7 @@ jobs:
         config:
           # Use the oldest ubuntu version because it'll have an old glibc. Programs built agains
           # an old glibc can link to a newer version, but not the other way around.
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             assetName: flowctl-x86_64-linux
           # On mac, it's the opposite. Programs built on the latest macos can run on older versions,
           # but not the other way around.
@@ -32,7 +32,7 @@ jobs:
 
       # Linux build steps:
       - name: Build Linux
-        if: matrix.config.os == 'ubuntu-20.04'
+        if: matrix.config.os == 'ubuntu-22.04'
         env:
           CC: clang
           CXX: clang++
