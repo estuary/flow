@@ -33,8 +33,8 @@ const updateAllConnectorPages = (params, titleAddition) => {
                 !titleText.toLowerCase().includes(`${connector}s |`.toLowerCase())
             ) {
                 const newTitle = titleText.replace(divider, titleAddition);
-                console.debug(`    - updating ${fileFullPath}`)
-                console.debug(`       "${newTitle}"`)
+                console.debug(`  - updating ${fileFullPath}`)
+                console.debug(`   "${newTitle}"`)
 
                 $title.text(newTitle);
                 fs.writeFileSync(fileFullPath, $cheer.html());
