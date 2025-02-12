@@ -13,11 +13,11 @@ const updateAllConnectorPages = (params, titleAddition) => {
     }).forEach(file => {
 
         if (file.includes('.html')) {
-            const $cheer = cheerio.load(fs.readFileSync(`${connectorsDir}/${file}`));
+            const fileFullPath = `${connectorsDir}/${file}`;
+            const $cheer = cheerio.load(fs.readFileSync(fileFullPath));
             const $title = $cheer("title")
 
             if (!$title.text().includes(titleAddition)) {
-                const fileFullPath = `${connectorsDir}/${file}`;
                 console.log('-updating', {
                     path: fileFullPath
                 })
