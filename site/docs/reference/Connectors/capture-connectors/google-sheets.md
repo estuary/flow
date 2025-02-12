@@ -3,7 +3,7 @@
 
 This connector captures data from a Google Sheets spreadsheet.
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-sheets:dev`](https://ghcr.io/estuary/source-google-sheets:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-sheets-native:dev`](https://ghcr.io/estuary/source-google-sheets-native:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -56,6 +56,16 @@ You'll copy the contents of the downloaded key file into the Service Account Cre
 
 3. Share your Google spreadsheet with the service account. You may either share the sheet so that anyone with the link can view it,
 or share explicitly with the service account's email address.
+
+## Incremental capture
+
+The Google Sheets capture connector can be configured to poll for changes on a per-binding basis using the Interval setting in the Resource Configuration. At each interval, the connector will check the source sheet for changes and perform one of two actions:
+
+1. If there are changes like field updates or new rows, the connector will fully refresh the binding and recapture the entire sheet.
+
+2. If there are no changes, the connector will do nothing and wait until the next interval.
+
+This ensures that the dataset is only reloaded if a change has occurred.
 
 ## Configuration
 

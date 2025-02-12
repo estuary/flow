@@ -25,7 +25,7 @@ To switch to your own bucket, choose a cloud provider and complete the setup ste
 
 * [Azure Blob Storage](#azure-blob-storage)
 
-Once you're done, [get in touch](#give-us-a-ring).
+Once you're done, [add the bucket](#add-the-bucket) in Estuary.
 
 ## Google Cloud Storage buckets
 
@@ -50,11 +50,11 @@ You'll need to grant Estuary Flow access to your S3 bucket.
 
 2. Follow the steps
    to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting in one of the
-   policies below. Policies are available for the US and EU Data Planes.
+   policies below. Use either the global policy or the policy specific to the EU Data Plane.
    Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
 
 <Tabs>
-<TabItem value="US Data Plane policy" default>
+<TabItem value="Global Data Plane policy" default>
 ```json
 {
   "Version": "2012-10-17",
@@ -111,7 +111,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
         "s3:PutObject",
         "s3:DeleteObject"
       ],
-      "Resource": "arn:aws:s3:::YOUR_BUCKET/*"
+      "Resource": "arn:aws:s3:::YOUR-S3-BUCKET/*"
     },
     {
       "Effect": "Allow",
@@ -122,7 +122,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
         ]
       },
       "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::YOUR_BUCKET"
+      "Resource": "arn:aws:s3:::YOUR-S3-BUCKET"
     },
     {
       "Effect": "Allow",
@@ -133,7 +133,7 @@ You'll need to grant Estuary Flow access to your S3 bucket.
         ]
       },
       "Action": "s3:GetBucketPolicy",
-      "Resource": "arn:aws:s3:::YOUR_BUCKET"
+      "Resource": "arn:aws:s3:::YOUR-S3-BUCKET"
     }
   ]
 }

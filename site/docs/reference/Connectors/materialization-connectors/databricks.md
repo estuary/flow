@@ -1,3 +1,6 @@
+
+import ReactPlayer from "react-player";
+
 # Databricks
 
 This connector materializes Flow collections into tables in a Databricks SQL Warehouse.
@@ -7,6 +10,8 @@ The connector first uploads data changes to a [Databricks Unity Catalog Volume](
 From there, it transactionally applies the changes to the Databricks tables.
 
 [`ghcr.io/estuary/materialize-databricks:dev`](https://ghcr.io/estuary/materialize-databricks:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=rXb2NQi6XYQ" />
 
 ## Prerequisites
 

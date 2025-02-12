@@ -93,7 +93,7 @@ reflecting changes on one or both sides of the join. These delta states
 are then fully reduced into the database table, and no other storage _but_
 the table being materialized into is required.
 
-See [join-outer-flow.yaml](join-outer-flow.yaml).
+See [join-outer-flow.yaml](join-outer.flow.yaml).
 
 ### Inner Join using a stateful derivation
 
@@ -118,7 +118,7 @@ with an accumulated RHS.
 This example is _not_ fully reactive. It publishes only on a LHS document,
 paired with a reduced snapshot of the RHS accumulator at that time.
 
-See [join-one-sided.flow.yaml](join-one-sided.yaml).
+See [join-one-sided.flow.yaml](join-one-sided.flow.yaml).
 
 ## Entity attribute values
 
