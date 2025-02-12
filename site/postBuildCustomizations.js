@@ -20,10 +20,17 @@ const updateAllConnectorPages = (params, titleAddition) => {
             const $title = $cheer("title")
             const titleText = $title.text();
 
-            if (!titleText.startsWith('Connector') &&
+            if (
+                // Skip if we are on a specific "root" page
+                !titleText.startsWith(connector) &&
                 !titleText.startsWith('Dekaf integrations') && 
+                !titleText.startsWith('Materialization Protocol') && 
+
+                // Skip if it is already there
                 !titleText.includes(titleAddition) && 
-                !titleText.includes('connectors |')
+
+                // Skip if plural version is there (ex: Capture Connectors)
+                !titleText.includes(`${connector}s |`)
             ) {
                 console.debug(`    -updating ${fileFullPath}`)
 
