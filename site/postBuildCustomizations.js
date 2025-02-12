@@ -22,15 +22,15 @@ const updateAllConnectorPages = (params, titleAddition) => {
 
             if (
                 // Skip if we are on a specific "root" page
-                !titleText.startsWith(connector) &&
-                !titleText.startsWith('Dekaf integrations') && 
-                !titleText.startsWith('Materialization Protocol') && 
+                !titleText.toLowerCase().startsWith(connector.toLowerCase()) &&
+                !titleText.toLowerCase().startsWith('dekaf integrations'.toLowerCase()) && 
+                !titleText.toLowerCase().startsWith('materialization protocol'.toLowerCase()) && 
 
                 // Skip if it is already there
-                !titleText.includes(titleAddition) && 
+                !titleText.toLowerCase().includes(titleAddition) && 
 
                 // Skip if plural version is there (ex: Capture Connectors)
-                !titleText.includes(`${connector}s |`)
+                !titleText.toLowerCase().includes(`${connector}s |`.toLowerCase())
             ) {
                 console.debug(`    -updating ${fileFullPath}`)
 
