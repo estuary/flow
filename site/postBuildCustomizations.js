@@ -3,6 +3,7 @@ const fs = require('fs');
 
 const outputDir = './build';
 const connectorsDir = `${outputDir}/reference/Connectors`
+const connector = 'Connector';
 const divider = ' | ';
 
 const updateAllConnectorPages = (params, titleAddition) => {
@@ -19,7 +20,7 @@ const updateAllConnectorPages = (params, titleAddition) => {
             const $title = $cheer("title")
             const titleText = $title.text();
 
-            if (!titleText.includes(titleAddition)) {
+            if (!titleText.includes(titleAddition) && !titleText.startsWith(connector)) {
                 console.debug(`    -updating ${fileFullPath}`)
 
                 $title.text(titleText.replace(divider, titleAddition));
@@ -33,4 +34,4 @@ const updateAllConnectorPages = (params, titleAddition) => {
 
 }
 
-updateAllConnectorPages(connectorsDir, ` Connector${divider}`);
+updateAllConnectorPages(connectorsDir, ` ${connector}${divider}`);
