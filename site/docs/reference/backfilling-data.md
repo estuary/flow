@@ -84,3 +84,28 @@ The following modes are available:
    This mode lacks the exact correctness properties of the Normal backfill mode.
 
 If you do not choose a specific backfill mode, Flow will default to an automatic mode.
+
+## Advanced backfill configuration in specific systems
+
+### PostgreSQL Capture
+
+PostgreSQL's `xmin` system column can be used as a cursor to keep track of the current location in a table. If you need to re-backfill a Postgres table, you can reduce the affected data volume by specifying a minimum or maximum backfill `XID`. Estuary will only backfill rows greater than or less than the specified `XID`.
+
+This can be especially useful in cases where you do not want to re-backfill a full table, but cannot complete the steps in [Preventing backfills](#preventing-backfills) above, such as if you cannot pause database writes during an upgrade.
+
+To configure this option:
+
+1. Determine the `xmin` value you want to use.
+
+   You can run a query to find a suitable `XID`, such as:
+   `SELECT xmin FROM {your_table_name} WHERE created_at < {desired_timestamp} and created_at > {desired_timestamp};`
+
+2. In the Estuary dashboard, edit your PostgreSQL Capture.
+
+3. Under Endpoint Config, expand **Advanced Options**.
+
+4. Fill out the "Minimum Backfill XID" or "Maximum Backfill XID" field with the `xmin` value you retrieved.
+
+5. Save and publish your changes.
+
+In rare cases, this method may not work as expected, as in situations where a database has already filled up its entire `xmin` space. In such cases of `xmin` wrapping, using both Minimum and Maximum Backfill XID fields can help narrow down a specific range to backfill.

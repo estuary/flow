@@ -2,6 +2,8 @@
 
 This connector captures change events from source tables in a Snowflake database.
 
+For local development or open-source workflows, [`ghcr.io/estuary/source-snowflake:dev`](https://ghcr.io/estuary/source-snowflake:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
 ## Prerequisites
 
 To use this connector, you'll need:

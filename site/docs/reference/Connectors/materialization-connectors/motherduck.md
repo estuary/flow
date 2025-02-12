@@ -4,7 +4,7 @@
 This connector materializes Flow collections into tables in a MotherDuck database.
 
 The connector uses your AWS account to materialize to MotherDuck tables by way of files in an S3
-bucket. The files in the bucket as as a temporary staging area for data storage and retrieval.
+bucket. The files in the bucket are used as a temporary staging area for data storage and retrieval.
 
 [`ghcr.io/estuary/materialize-motherduck:dev`](https://ghcr.io/estuary/materialize-motherduck:dev)
 provides the latest connector image. You can also follow the link in your browser to see past image

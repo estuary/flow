@@ -2,6 +2,8 @@
 description: This connector materializes delta updates of Flow collections into Apache Iceberg tables using Amazon S3 for object storage and AWS Glue as the Iceberg catalog.
 ---
 
+import ReactPlayer from "react-player";
+
 # Apache Iceberg Tables in Amazon S3
 
 This connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of
@@ -15,6 +17,8 @@ tables at a time interval that you set.
 [`ghcr.io/estuary/materialize-s3-iceberg:dev`](https://ghcr.io/estuary/materialize-s3-iceberg:dev)
 provides the latest connector image. You can also follow the link in your browser to see past image
 versions.
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=s0kGGp17pBg" />
 
 ## Prerequisites
 
