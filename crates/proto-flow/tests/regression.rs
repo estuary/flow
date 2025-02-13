@@ -203,6 +203,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
             state_key: "a%2Fcdc%2Ftable+baz.v3".to_string(),
         }],
         network_ports: ex_network_ports(),
+        inactive_bindings: Vec::new(),
     }
 }
 
@@ -240,6 +241,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
             flow::collection_spec::derivation::ShuffleType::Integer as i32,
         ],
         network_ports: ex_network_ports(),
+        inactive_transforms: Vec::new(),
     });
 
     spec
@@ -290,6 +292,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
             state_key: "some%20path.v1".to_string(),
         }],
         network_ports: ex_network_ports(),
+        inactive_bindings: Vec::new(),
     }
 }
 
@@ -575,6 +578,7 @@ fn ex_materialize_request() -> materialize::Request {
             version: "11:22:33:44".to_string(),
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),
+            state_json: json!({"connector":"state"}).to_string(),
         }),
         open: Some(materialize::request::Open {
             materialization: Some(ex_materialization_spec()),
@@ -614,6 +618,7 @@ fn ex_materialize_response() -> materialize::Response {
             resource_config_schema_json: json!({"resource": "schema"}).to_string(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
+            resource_path_pointers: vec!["/schema".to_string(), "/table".to_string()],
         }),
         validated: Some(materialize::response::Validated {
             bindings: vec![materialize::response::validated::Binding {
@@ -639,6 +644,7 @@ fn ex_materialize_response() -> materialize::Response {
         }),
         applied: Some(materialize::response::Applied {
             action_description: "I did some stuff".to_string(),
+            state: Some(ex_connector_state()),
         }),
         opened: Some(materialize::response::Opened {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),

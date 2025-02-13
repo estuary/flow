@@ -31,7 +31,11 @@ expression: json_test(msg)
       "refreshTokenResponseMap": {
         "access": "here"
       }
-    }
+    },
+    "resourcePathPointers": [
+      "/schema",
+      "/table"
+    ]
   },
   "validated": {
     "bindings": [
@@ -55,7 +59,11 @@ expression: json_test(msg)
     ]
   },
   "applied": {
-    "actionDescription": "I did some stuff"
+    "actionDescription": "I did some stuff",
+    "state": {
+      "updated": {"state":"update"},
+      "mergePatch": true
+    }
   },
   "opened": {
     "runtimeCheckpoint": {

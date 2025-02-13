@@ -290,6 +290,7 @@ async fn walk_capture(
         recovery_log_template: Some(recovery_log_template),
         shard_template: Some(shard_template),
         network_ports,
+        inactive_bindings: Vec::new(), // TODO(johnny)
     };
     let dependency_hash = dependencies.compute_hash(model);
 

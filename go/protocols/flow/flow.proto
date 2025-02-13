@@ -232,7 +232,7 @@ message CollectionSpec {
     message Transform {
       // Next tag: 14.
 
-      // Stable name of this transform.
+      // Stable and unique name of this transform.
       string name = 1 [ (gogoproto.casttype) = "Transform" ];
       // Source collection which is read by this transform.
       CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
@@ -285,6 +285,10 @@ message CollectionSpec {
     protocol.JournalSpec recovery_log_template = 6;
     // Network ports of this derivation.
     repeated NetworkPort network_ports = 7;
+    // Transforms which were previously active for this task, but are no longer.
+    // Inactive transforms are unique by their transform name, and have no
+    // overlap with active transforms.
+    repeated Transform inactive_transforms = 8;
   }
   Derivation derivation = 12;
 }
@@ -324,9 +328,8 @@ message CaptureSpec {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "config"
   ];
-  // Bindings of endpoint resources and collections into which they're captured.
-  // Bindings are ordered and unique on the bound collection name,
-  // and are also unique on the resource path.
+  // Bindings between endpoint resources, uniquely identified by their
+  // resource path, and the collections into which they're captured.
   message Binding {
     // Next tag: 6.
 
@@ -355,6 +358,10 @@ message CaptureSpec {
   protocol.JournalSpec recovery_log_template = 7;
   // Network ports of this capture.
   repeated NetworkPort network_ports = 8;
+  // Bindings which were previously active for this task, but are no longer.
+  // Inactive bindings are unique by their resource path, and have no
+  // overlap with active bindings.
+  repeated Binding inactive_bindings = 9;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -375,9 +382,8 @@ message MaterializationSpec {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "config"
   ];
-  // Bindings of endpoint resources and collections from which they're
-  // materialized. Bindings are ordered and unique on the bound collection name,
-  // and are also unique on the resource path.
+  // Bindings between endpoint resources, uniquely identified by their
+  // resource path, and the collections from which they're materialized.
   message Binding {
     // Next tag: 14.
 
@@ -426,6 +432,10 @@ message MaterializationSpec {
   protocol.JournalSpec recovery_log_template = 6;
   // Network ports of this materialization.
   repeated NetworkPort network_ports = 7;
+  // Bindings which were previously active for this task, but are no longer.
+  // Inactive bindings are unique by their resource path, and have no
+  // overlap with active bindings.
+  repeated Binding inactive_bindings = 9;
 }
 
 // OAuth2 describes an OAuth2 provider

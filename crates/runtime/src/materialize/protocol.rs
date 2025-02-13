@@ -47,6 +47,8 @@ pub async fn recv_client_unary(
             );
         }
 
+        // TODO(johnny): load and attach Request.Apply.state_json.
+
         apply.last_materialization = last_spec;
     }
 
@@ -80,6 +82,8 @@ pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Res
     } else {
         verify("client", "unary request").fail(request)
     }
+
+    // TODO(johnny): extract and apply Response.Apply.state to WriteBatch.
 }
 
 pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {

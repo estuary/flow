@@ -272,11 +272,14 @@ func (m *Request_Validate_Binding) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Request_Validate_Binding proto.InternalMessageInfo
 
-// Apply a capture configuration and bindings to its endpoint.
-// Apply is run out-of-band with ongoing connector invocations,
-// and may be run many times for a single capture name,
-// where each invocation has varying bindings, or even no bindings.
-// The connector performs any required setup or cleanup.
+// Apply an updated capture specification to its endpoint,
+// in preparation for an Open of a capture session.
+// Apply is run by the leader shard of a capture task
+// (having key_begin: 0) while the capture is quiescent.
+// Apply may be called multiple times for a given `version` and
+// `last_version`, even if a prior call succeeded from the connector's
+// perspective, so implementations must be idempotent. However, the next
+// session will not Open until it's preceding Apply has durably completed.
 type Request_Apply struct {
 	// Capture to be applied.
 	Capture *flow.CaptureSpec `protobuf:"bytes,1,opt,name=capture,proto3" json:"capture,omitempty"`
@@ -478,20 +481,18 @@ type Response_Spec struct {
 	Protocol uint32 `protobuf:"varint,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	// JSON schema of the connector's configuration.
 	ConfigSchemaJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=config_schema_json,json=configSchema,proto3,casttype=encoding/json.RawMessage" json:"config_schema_json,omitempty"`
-	// JSON schema of the connecor's resource configuration.
+	// JSON schema of the connector's resource configuration.
 	ResourceConfigSchemaJson encoding_json.RawMessage `protobuf:"bytes,3,opt,name=resource_config_schema_json,json=resourceConfigSchema,proto3,casttype=encoding/json.RawMessage" json:"resource_config_schema_json,omitempty"`
-	// URL for connector's documention.
+	// URL for connector's documentation.
 	DocumentationUrl string `protobuf:"bytes,4,opt,name=documentation_url,json=documentationUrl,proto3" json:"documentation_url,omitempty"`
 	// Optional OAuth2 configuration.
 	Oauth2 *flow.OAuth2 `protobuf:"bytes,5,opt,name=oauth2,proto3" json:"oauth2,omitempty"`
-	// One or more JSON pointers, which are used to extract the `resource_path`
-	// from a given `resource` of this connector. For example, a database
-	// capture connector might have a `resource` that's represented like:
-	// `{"schema": "foo", "table": "bar", "otherConfig": true}`. In that case
-	// it could use `resource_path_pointers: ["/schema", "/table"]`, which
-	// would result in a `resource_path` of `["foo", "bar"]`. This allows
-	// `otherConfig` to be changed by the user without impacting the identity of
-	// the resource.
+	// One or more JSON pointers, which are used to extract resource paths
+	// from resource configurations of this connector. For example,
+	// a database connector might have a resource config like:
+	//   {"schema": "foo", "table": "bar", "other": "config", "answer": 42}
+	// The connector would specify `resource_path_pointers: ["/schema", "/table"]`,
+	// which would result in a `resource_path` of `["foo", "bar"]`.
 	ResourcePathPointers []string `protobuf:"bytes,6,rep,name=resource_path_pointers,json=resourcePathPointers,proto3" json:"resource_path_pointers,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

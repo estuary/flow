@@ -516,6 +516,7 @@ async fn walk_derivation(
         recovery_log_template: Some(recovery_log_template),
         shard_template: Some(shard_template),
         network_ports,
+        inactive_transforms: Vec::new(),
     };
 
     Some((built_index, validated_response, built_spec, dependency_hash))

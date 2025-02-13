@@ -283,7 +283,8 @@ expression: json_test(msg)
       ]
     },
     "version": "11:22:33:44",
-    "lastVersion": "00:11:22:33"
+    "lastVersion": "00:11:22:33",
+    "state": {"connector":"state"}
   },
   "open": {
     "materialization": {

@@ -186,6 +186,9 @@ message Response {
     string documentation_url = 4;
     // Optional OAuth2 configuration.
     flow.OAuth2 oauth2 = 5;
+    // Derivations don't use resource_path_pointers,
+    // as transforms are uniquely identified by their name.
+    reserved 6;
   }
   Spec spec = 1;
 

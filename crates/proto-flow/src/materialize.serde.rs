@@ -630,6 +630,9 @@ impl serde::Serialize for request::Apply {
         if !self.last_version.is_empty() {
             len += 1;
         }
+        if !self.state_json.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Apply", len)?;
         if let Some(v) = self.materialization.as_ref() {
             struct_ser.serialize_field("materialization", v)?;
@@ -642,6 +645,9 @@ impl serde::Serialize for request::Apply {
         }
         if !self.last_version.is_empty() {
             struct_ser.serialize_field("lastVersion", &self.last_version)?;
+        }
+        if !self.state_json.is_empty() {
+            struct_ser.serialize_field("state", crate::as_raw_json(&self.state_json)?)?;
         }
         struct_ser.end()
     }
@@ -659,6 +665,8 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             "lastMaterialization",
             "last_version",
             "lastVersion",
+            "state_json",
+            "state",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -667,6 +675,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             Version,
             LastMaterialization,
             LastVersion,
+            StateJson,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -692,6 +701,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             "version" => Ok(GeneratedField::Version),
                             "lastMaterialization" | "last_materialization" => Ok(GeneratedField::LastMaterialization),
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
+                            "state" | "state_json" => Ok(GeneratedField::StateJson),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -715,6 +725,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                 let mut version__ = None;
                 let mut last_materialization__ = None;
                 let mut last_version__ = None;
+                let mut state_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Materialization => {
@@ -741,6 +752,12 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             }
                             last_version__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::StateJson => {
+                            if state_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
+                            }
+                            state_json__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(request::Apply {
@@ -748,6 +765,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                     version: version__.unwrap_or_default(),
                     last_materialization: last_materialization__,
                     last_version: last_version__.unwrap_or_default(),
+                    state_json: state_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                 })
             }
         }
@@ -2195,9 +2213,15 @@ impl serde::Serialize for response::Applied {
         if !self.action_description.is_empty() {
             len += 1;
         }
+        if self.state.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Applied", len)?;
         if !self.action_description.is_empty() {
             struct_ser.serialize_field("actionDescription", &self.action_description)?;
+        }
+        if let Some(v) = self.state.as_ref() {
+            struct_ser.serialize_field("state", v)?;
         }
         struct_ser.end()
     }
@@ -2211,11 +2235,13 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
         const FIELDS: &[&str] = &[
             "action_description",
             "actionDescription",
+            "state",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ActionDescription,
+            State,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2238,6 +2264,7 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                     {
                         match value {
                             "actionDescription" | "action_description" => Ok(GeneratedField::ActionDescription),
+                            "state" => Ok(GeneratedField::State),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2258,6 +2285,7 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut action_description__ = None;
+                let mut state__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ActionDescription => {
@@ -2266,10 +2294,17 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                             }
                             action_description__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::State => {
+                            if state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
+                            }
+                            state__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(response::Applied {
                     action_description: action_description__.unwrap_or_default(),
+                    state: state__,
                 })
             }
         }
@@ -2593,6 +2628,9 @@ impl serde::Serialize for response::Spec {
         if self.oauth2.is_some() {
             len += 1;
         }
+        if !self.resource_path_pointers.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Spec", len)?;
         if self.protocol != 0 {
             struct_ser.serialize_field("protocol", &self.protocol)?;
@@ -2608,6 +2646,9 @@ impl serde::Serialize for response::Spec {
         }
         if let Some(v) = self.oauth2.as_ref() {
             struct_ser.serialize_field("oauth2", v)?;
+        }
+        if !self.resource_path_pointers.is_empty() {
+            struct_ser.serialize_field("resourcePathPointers", &self.resource_path_pointers)?;
         }
         struct_ser.end()
     }
@@ -2627,6 +2668,8 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
             "documentation_url",
             "documentationUrl",
             "oauth2",
+            "resource_path_pointers",
+            "resourcePathPointers",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2636,6 +2679,7 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
             ResourceConfigSchemaJson,
             DocumentationUrl,
             Oauth2,
+            ResourcePathPointers,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2662,6 +2706,7 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                             "resourceConfigSchema" | "resource_config_schema_json" => Ok(GeneratedField::ResourceConfigSchemaJson),
                             "documentationUrl" | "documentation_url" => Ok(GeneratedField::DocumentationUrl),
                             "oauth2" => Ok(GeneratedField::Oauth2),
+                            "resourcePathPointers" | "resource_path_pointers" => Ok(GeneratedField::ResourcePathPointers),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2686,6 +2731,7 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                 let mut resource_config_schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut documentation_url__ = None;
                 let mut oauth2__ = None;
+                let mut resource_path_pointers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Protocol => {
@@ -2720,6 +2766,12 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                             }
                             oauth2__ = map_.next_value()?;
                         }
+                        GeneratedField::ResourcePathPointers => {
+                            if resource_path_pointers__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resourcePathPointers"));
+                            }
+                            resource_path_pointers__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(response::Spec {
@@ -2728,6 +2780,7 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                     resource_config_schema_json: resource_config_schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     documentation_url: documentation_url__.unwrap_or_default(),
                     oauth2: oauth2__,
+                    resource_path_pointers: resource_path_pointers__.unwrap_or_default(),
                 })
             }
         }
