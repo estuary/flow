@@ -71,13 +71,9 @@ pub struct Cli {
     /// List of Kafka broker URLs to try connecting to for group management APIs
     #[arg(long, env = "DEFAULT_BROKER_URLS", value_delimiter = ',')]
     default_broker_urls: Vec<String>,
-    /// The username for the default Kafka broker to use for serving group management APIs.
-    /// Currently only supports SASL PLAIN username/password auth.
-    #[arg(long, env = "DEFAULT_BROKER_USERNAME")]
-    default_broker_username: String,
-    /// The password for the default Kafka broker to use for serving group management APIs
-    #[arg(long, env = "DEFAULT_BROKER_PASSWORD")]
-    default_broker_password: String,
+    /// The AWS region that the default broker lives in
+    #[arg(long, env = "DEFAULT_BROKER_MSK_REGION")]
+    default_broker_msk_region: String,
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
     /// Brokers to use for connections using the legacy refresh-token based connection mode
@@ -174,10 +170,10 @@ async fn main() -> anyhow::Result<()> {
         .into_iter()
         .map(|url| {
             {
-                let parsed = Url::parse(&url).expect("invalid broker URL");
+                let parsed = Url::parse(&url).expect("invalid broker URL {url}");
                 Ok::<_, anyhow::Error>(format!(
                     "tcp://{}:{}",
-                    parsed.host().context("invalid broker URL")?,
+                    parsed.host().context(format!("invalid broker URL {url}"))?,
                     parsed.port().unwrap_or(9092)
                 ))
             }
@@ -191,10 +187,10 @@ async fn main() -> anyhow::Result<()> {
         .into_iter()
         .map(|url| {
             {
-                let parsed = Url::parse(&url).expect("invalid broker URL");
+                let parsed = Url::parse(&url).expect("invalid broker URL {url}");
                 Ok::<_, anyhow::Error>(format!(
                     "tcp://{}:{}",
-                    parsed.host().context("invalid broker URL")?,
+                    parsed.host().context(format!("invalid broker URL {url}"))?,
                     parsed.port().unwrap_or(9092)
                 ))
             }
@@ -224,8 +220,7 @@ async fn main() -> anyhow::Result<()> {
 
     let schema_router = dekaf::registry::build_router(app.clone());
 
-    let broker_username = cli.default_broker_username.as_str();
-    let broker_password = cli.default_broker_password.as_str();
+    let msk_region = cli.default_broker_msk_region.as_str();
     let legacy_broker_username = cli.legacy_mode_broker_username.as_str();
     let legacy_broker_password = cli.legacy_mode_broker_password.as_str();
     if let Some(tls_cfg) = cli.tls {
@@ -283,8 +278,7 @@ async fn main() -> anyhow::Result<()> {
                                     app.clone(),
                                     cli.encryption_secret.to_owned(),
                                     upstream_kafka_urls.clone(),
-                                    broker_username.to_string(),
-                                    broker_password.to_string(),
+                                    msk_region.to_string(),
                                     legacy_mode_kafka_urls.clone(),
                                     legacy_broker_username.to_string(),
                                     legacy_broker_password.to_string()
@@ -324,8 +318,7 @@ async fn main() -> anyhow::Result<()> {
                                     app.clone(),
                                     cli.encryption_secret.to_owned(),
                                     upstream_kafka_urls.clone(),
-                                    broker_username.to_string(),
-                                    broker_password.to_string(),
+                                    msk_region.to_string(),
                                     legacy_mode_kafka_urls.clone(),
                                     legacy_broker_username.to_string(),
                                     legacy_broker_password.to_string()

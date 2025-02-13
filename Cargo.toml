@@ -127,9 +127,9 @@ rkyv = { version = "0.7", features = ["archive_le"] }
 rsasl = { version = "2.1.0", default-features = false, features = [
     "provider",
     "config_builder",
-    "registry_static",
     "scram-sha-1",
     "scram-sha-2",
+    "oauthbearer",
     "plain",
 ] }
 rusqlite = { version = "0.29", features = ["bundled-full"] }
@@ -219,6 +219,12 @@ yaml-merge-keys = { version = "0.5", features = ["serde_yaml"] }
 zip = "0.5"
 zstd = "0.11.2"
 derivative = "2.2.0"
+
+# AWS packages
+aws-config = "1.5.16"
+aws-types = "1.3.5"
+aws-credential-types = "1.2.0"
+aws-msk-iam-sasl-signer = "1.0.0"
 
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
