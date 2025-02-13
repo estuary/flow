@@ -725,6 +725,7 @@ Outcome {
                     },
                 ),
                 network_ports: [],
+                inactive_bindings: [],
             },
             previous_spec: NULL,
             is_touch: 0,

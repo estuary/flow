@@ -78,11 +78,14 @@ message Request {
   }
   Validate validate = 2;
 
-  // Apply a materialization configuration and bindings to its endpoint.
-  // Apply is run out-of-band with ongoing connector invocations,
-  // and may be run many times for a single materialization name,
-  // where each invocation has varying bindings, or even no bindings.
-  // The connector performs any required setup or cleanup.
+  // Apply an updated materialization specification to its endpoint,
+  // in preparation for an Open of a materialization session.
+  // Apply is run by the leader shard of a materialization task
+  // (having key_begin: 0) while the materialization is quiescent.
+  // Apply may be called multiple times for a given `version` and
+  // `last_version`, even if a prior call succeeded from the connector's
+  // perspective, so implementations must be idempotent. However, the next
+  // session will not Open until it's preceding Apply has durably completed.
   message Apply {
     // Materialization to be applied.
     flow.MaterializationSpec materialization = 1;
@@ -92,6 +95,13 @@ message Request {
     flow.MaterializationSpec last_materialization = 4;
     // Version of the last applied MaterializationSpec.
     string last_version = 5;
+    // Last-persisted connector checkpoint state from a previous session.
+    // The Apply RPC may use this state to perform a post-commit apply
+    // of files staged under the `last_materialization` specification.
+    string state_json = 6 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "state"
+    ];
   }
   Apply apply = 3;
 
@@ -119,9 +129,9 @@ message Request {
     // provided to a successful Apply RPC. It's possible that it won't,
     // due to expected propagation races in Flow's distributed runtime.
     string version = 2;
-    // Range of documents to be processed by this invocation.
+    // Range of documents to be processed by this session.
     flow.RangeSpec range = 3;
-    // Last-persisted connector checkpoint state from a previous invocation.
+    // Last-persisted connector checkpoint state from a previous session.
     string state_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "state"
@@ -210,15 +220,22 @@ message Response {
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "configSchema"
     ];
-    // JSON schema of the connecor's resource configuration.
+    // JSON schema of the connector's resource configuration.
     string resource_config_schema_json = 3 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceConfigSchema"
     ];
-    // URL for connector's documention.
+    // URL for connector's documentation.
     string documentation_url = 4;
     // Optional OAuth2 configuration.
     flow.OAuth2 oauth2 = 5;
+    // One or more JSON pointers, which are used to extract resource paths
+    // from resource configurations of this connector. For example,
+    // a database connector might have a resource config like:
+    //   {"schema": "foo", "table": "bar", "other": "config", "answer": 42}
+    // The connector would specify `resource_path_pointers: ["/schema", "/table"]`,
+    // which would result in a `resource_path` of `["foo", "bar"]`.
+    repeated string resource_path_pointers = 6;
   }
   Spec spec = 1;
 
@@ -288,6 +305,10 @@ message Response {
     // Human-readable description of the action that the connector took.
     // If empty, this Apply is to be considered a "no-op".
     string action_description = 1;
+    // Optional *transactional* update to ConnectorState.
+    // This update commits atomically with the Flow recovery log checkpoint
+    // which marks the current specification as having been applied.
+    flow.ConnectorState state = 2;
   }
   Applied applied = 3;
 

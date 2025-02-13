@@ -35,6 +35,7 @@ impl Task {
             shard_template: _,
             shuffle_key_types: _,
             transforms,
+            inactive_transforms: _,
         } = derivation.as_ref().context("missing derivation")?;
 
         if key.is_empty() {

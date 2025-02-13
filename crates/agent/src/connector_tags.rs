@@ -281,9 +281,10 @@ async fn spec_materialization(
         resource_config_schema_json,
         documentation_url,
         oauth2,
+        resource_path_pointers,
     } = spec;
 
-    let oauth = if let Some(oa) = oauth2 {
+    let oauth2 = if let Some(oa) = oauth2 {
         Some(serde_json::value::to_raw_value(&oa).expect("serializing oauth2 config"))
     } else {
         None
@@ -294,10 +295,8 @@ async fn spec_materialization(
             .context("parsing endpoint config schema")?,
         resource_config_schema: RawValue::from_string(resource_config_schema_json)
             .context("parsing resource config schema")?,
-
-        // materialization connectors don't currently specify resrouce_path_pointers, though perhaps they should
-        resource_path_pointers: Vec::new(),
-        oauth2: oauth,
+        resource_path_pointers,
+        oauth2,
     })
 }
 

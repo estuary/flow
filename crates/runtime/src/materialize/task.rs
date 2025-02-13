@@ -20,6 +20,7 @@ impl Task {
             network_ports: _,
             recovery_log_template: _,
             shard_template: _,
+            inactive_bindings: _,
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 

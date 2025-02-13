@@ -101,6 +101,7 @@ async fn run_session(
             version: labeling.build.clone(),
             last_materialization: None,
             last_version: String::new(),
+            state_json: String::new(),
         }),
         ..Default::default()
     }
@@ -116,7 +117,10 @@ async fn run_session(
     match response_rx.try_next().await? {
         Some(applied) if applied.applied.is_some() => {
             if output_apply {
-                print!("[\"applied.actionDescription\", {:?}]\n", applied.applied.as_ref().unwrap().action_description);
+                print!(
+                    "[\"applied.actionDescription\", {:?}]\n",
+                    applied.applied.as_ref().unwrap().action_description
+                );
             }
             () = co.yield_(applied).await;
         }

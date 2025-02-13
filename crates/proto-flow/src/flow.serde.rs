@@ -451,6 +451,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.network_ports.is_empty() {
             len += 1;
         }
+        if !self.inactive_bindings.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -478,6 +481,9 @@ impl serde::Serialize for CaptureSpec {
         if !self.network_ports.is_empty() {
             struct_ser.serialize_field("networkPorts", &self.network_ports)?;
         }
+        if !self.inactive_bindings.is_empty() {
+            struct_ser.serialize_field("inactiveBindings", &self.inactive_bindings)?;
+        }
         struct_ser.end()
     }
 }
@@ -502,6 +508,8 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             "recoveryLogTemplate",
             "network_ports",
             "networkPorts",
+            "inactive_bindings",
+            "inactiveBindings",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -514,6 +522,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             ShardTemplate,
             RecoveryLogTemplate,
             NetworkPorts,
+            InactiveBindings,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -543,6 +552,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             "shardTemplate" | "shard_template" => Ok(GeneratedField::ShardTemplate),
                             "recoveryLogTemplate" | "recovery_log_template" => Ok(GeneratedField::RecoveryLogTemplate),
                             "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
+                            "inactiveBindings" | "inactive_bindings" => Ok(GeneratedField::InactiveBindings),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -570,6 +580,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                 let mut shard_template__ = None;
                 let mut recovery_log_template__ = None;
                 let mut network_ports__ = None;
+                let mut inactive_bindings__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -622,6 +633,12 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             network_ports__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::InactiveBindings => {
+                            if inactive_bindings__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inactiveBindings"));
+                            }
+                            inactive_bindings__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(CaptureSpec {
@@ -633,6 +650,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                     shard_template: shard_template__,
                     recovery_log_template: recovery_log_template__,
                     network_ports: network_ports__.unwrap_or_default(),
+                    inactive_bindings: inactive_bindings__.unwrap_or_default(),
                 })
             }
         }
@@ -1156,6 +1174,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.network_ports.is_empty() {
             len += 1;
         }
+        if !self.inactive_transforms.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation", len)?;
         if self.connector_type != 0 {
             let v = collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1184,6 +1205,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if !self.network_ports.is_empty() {
             struct_ser.serialize_field("networkPorts", &self.network_ports)?;
         }
+        if !self.inactive_transforms.is_empty() {
+            struct_ser.serialize_field("inactiveTransforms", &self.inactive_transforms)?;
+        }
         struct_ser.end()
     }
 }
@@ -1207,6 +1231,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             "recoveryLogTemplate",
             "network_ports",
             "networkPorts",
+            "inactive_transforms",
+            "inactiveTransforms",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1218,6 +1244,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             ShardTemplate,
             RecoveryLogTemplate,
             NetworkPorts,
+            InactiveTransforms,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1246,6 +1273,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             "shardTemplate" | "shard_template" => Ok(GeneratedField::ShardTemplate),
                             "recoveryLogTemplate" | "recovery_log_template" => Ok(GeneratedField::RecoveryLogTemplate),
                             "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
+                            "inactiveTransforms" | "inactive_transforms" => Ok(GeneratedField::InactiveTransforms),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1272,6 +1300,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                 let mut shard_template__ = None;
                 let mut recovery_log_template__ = None;
                 let mut network_ports__ = None;
+                let mut inactive_transforms__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1316,6 +1345,12 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             }
                             network_ports__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::InactiveTransforms => {
+                            if inactive_transforms__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inactiveTransforms"));
+                            }
+                            inactive_transforms__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(collection_spec::Derivation {
@@ -1326,6 +1361,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                     shard_template: shard_template__,
                     recovery_log_template: recovery_log_template__,
                     network_ports: network_ports__.unwrap_or_default(),
+                    inactive_transforms: inactive_transforms__.unwrap_or_default(),
                 })
             }
         }
@@ -3567,6 +3603,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.network_ports.is_empty() {
             len += 1;
         }
+        if !self.inactive_bindings.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -3591,6 +3630,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.network_ports.is_empty() {
             struct_ser.serialize_field("networkPorts", &self.network_ports)?;
         }
+        if !self.inactive_bindings.is_empty() {
+            struct_ser.serialize_field("inactiveBindings", &self.inactive_bindings)?;
+        }
         struct_ser.end()
     }
 }
@@ -3613,6 +3655,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "recoveryLogTemplate",
             "network_ports",
             "networkPorts",
+            "inactive_bindings",
+            "inactiveBindings",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3624,6 +3668,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             ShardTemplate,
             RecoveryLogTemplate,
             NetworkPorts,
+            InactiveBindings,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3652,6 +3697,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             "shardTemplate" | "shard_template" => Ok(GeneratedField::ShardTemplate),
                             "recoveryLogTemplate" | "recovery_log_template" => Ok(GeneratedField::RecoveryLogTemplate),
                             "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
+                            "inactiveBindings" | "inactive_bindings" => Ok(GeneratedField::InactiveBindings),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3678,6 +3724,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut shard_template__ = None;
                 let mut recovery_log_template__ = None;
                 let mut network_ports__ = None;
+                let mut inactive_bindings__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -3722,6 +3769,12 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             network_ports__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::InactiveBindings => {
+                            if inactive_bindings__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inactiveBindings"));
+                            }
+                            inactive_bindings__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(MaterializationSpec {
@@ -3732,6 +3785,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     shard_template: shard_template__,
                     recovery_log_template: recovery_log_template__,
                     network_ports: network_ports__.unwrap_or_default(),
+                    inactive_bindings: inactive_bindings__.unwrap_or_default(),
                 })
             }
         }
