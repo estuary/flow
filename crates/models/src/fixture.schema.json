@@ -1,0 +1,185 @@
+{
+  "$defs": {
+    "PublicFoobar": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "$anchor": "PublicFoobar",
+      "properties": {
+        "an_int": {
+          "description": "(source type: int4)",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "a_string": {
+          "description": "(source type: varchar)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 16
+        },
+        "an_array_of_timestamps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "minItems": 128,
+          "maxItems": 128
+        },
+        "id": {
+          "type": "integer",
+          "description": "(source type: non-nullable int4)"
+        },
+        "complex_subproperty": {
+          "if": {
+            "type": "integer"
+          },
+          "then": {
+            "type": "integer"
+          },
+          "else": {
+            "type": "string"
+          },
+          "anyOf": [
+            {
+              "type": "bool"
+            },
+            {
+              "required": [
+                "foo"
+              ]
+            }
+          ],
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "required": [
+                "bar"
+              ]
+            }
+          ],
+          "allOf": [
+            {
+              "type": "integer",
+              "title": "this is relaxed"
+            },
+            {
+              "required": [
+                "quib"
+              ],
+              "title": "so is this"
+            }
+          ],
+          "description": "We should not relax these complex and non-standard sub-schemas, except allOf"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "_meta": {
+            "properties": {
+              "op": {
+                "const": "d"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "reduce": {
+          "delete": true,
+          "strategy": "merge"
+        }
+      },
+      "else": {
+        "reduce": {
+          "strategy": "merge"
+        }
+      },
+      "required": [
+        "_meta"
+      ],
+      "properties": {
+        "_meta": {
+          "type": "object",
+          "required": [
+            "op",
+            "source"
+          ],
+          "properties": {
+            "before": {
+              "$ref": "#PublicFoobar",
+              "description": "Record state immediately before this change was applied.",
+              "reduce": {
+                "strategy": "firstWriteWins"
+              }
+            },
+            "op": {
+              "enum": [
+                "c",
+                "d",
+                "u"
+              ],
+              "description": "Change operation type: 'c' Create/Insert, 'u' Update, 'd' Delete."
+            },
+            "source": {
+              "properties": {
+                "ts_ms": {
+                  "type": "integer",
+                  "description": "Unix timestamp (in millis) at which this event was recorded by the database."
+                },
+                "schema": {
+                  "type": "string",
+                  "description": "Database schema (namespace) of the event."
+                },
+                "snapshot": {
+                  "type": "boolean",
+                  "description": "Snapshot is true if the record was produced from an initial table backfill and unset if produced from the replication log."
+                },
+                "table": {
+                  "type": "string",
+                  "description": "Database table of the event."
+                },
+                "loc": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array",
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "description": "Location of this WAL event as [last Commit.EndLSN; event LSN; current Begin.FinalLSN]. See https://www.postgresql.org/docs/current/protocol-logicalrep-message-formats.html"
+                },
+                "txid": {
+                  "type": "integer",
+                  "description": "The 32-bit transaction ID assigned by Postgres to the commit which produced this change."
+                }
+              },
+              "type": "object",
+              "required": [
+                "schema",
+                "table",
+                "loc"
+              ]
+            }
+          },
+          "reduce": {
+            "strategy": "merge"
+          }
+        }
+      }
+    },
+    {
+      "$ref": "#PublicFoobar"
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+---
+source: crates/models/src/schemas.rs
+expression: fixture.to_relaxed_schema().to_value()
+---
+{
+  "$defs": {
+    "PublicFoobar": {
+      "$anchor": "PublicFoobar",
+      "properties": {
+        "a_string": {
+          "description": "(source type: varchar)",
+          "minLength": 16
+        },
+        "an_array_of_timestamps": {
+          "items": {},
+          "maxItems": 128,
+          "minItems": 128
+        },
+        "an_int": {
+          "description": "(source type: int4)"
+        },
+        "complex_subproperty": {
+          "allOf": [
+            {
+              "title": "this is relaxed"
+            },
+            {
+              "title": "so is this"
+            }
+          ],
+          "anyOf": [
+            {
+              "type": "bool"
+            },
+            {
+              "required": [
+                "foo"
+              ]
+            }
+          ],
+          "description": "We should not relax these complex and non-standard sub-schemas, except allOf",
+          "else": {
+            "type": "string"
+          },
+          "if": {
+            "type": "integer"
+          },
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "required": [
+                "bar"
+              ]
+            }
+          ],
+          "then": {
+            "type": "integer"
+          }
+        },
+        "id": {
+          "description": "(source type: non-nullable int4)"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "else": {
+        "reduce": {
+          "strategy": "merge"
+        }
+      },
+      "if": {
+        "properties": {
+          "_meta": {
+            "properties": {
+              "op": {
+                "const": "d"
+              }
+            }
+          }
+        }
+      },
+      "properties": {
+        "_meta": {
+          "properties": {
+            "before": {
+              "$ref": "#PublicFoobar",
+              "description": "Record state immediately before this change was applied.",
+              "reduce": {
+                "strategy": "firstWriteWins"
+              }
+            },
+            "op": {
+              "description": "Change operation type: 'c' Create/Insert, 'u' Update, 'd' Delete.",
+              "enum": [
+                "c",
+                "d",
+                "u"
+              ]
+            },
+            "source": {
+              "properties": {
+                "loc": {
+                  "description": "Location of this WAL event as [last Commit.EndLSN; event LSN; current Begin.FinalLSN]. See https://www.postgresql.org/docs/current/protocol-logicalrep-message-formats.html",
+                  "items": {},
+                  "maxItems": 3,
+                  "minItems": 3
+                },
+                "schema": {
+                  "description": "Database schema (namespace) of the event."
+                },
+                "snapshot": {
+                  "description": "Snapshot is true if the record was produced from an initial table backfill and unset if produced from the replication log."
+                },
+                "table": {
+                  "description": "Database table of the event."
+                },
+                "ts_ms": {
+                  "description": "Unix timestamp (in millis) at which this event was recorded by the database."
+                },
+                "txid": {
+                  "description": "The 32-bit transaction ID assigned by Postgres to the commit which produced this change."
+                }
+              }
+            }
+          },
+          "reduce": {
+            "strategy": "merge"
+          }
+        }
+      },
+      "then": {
+        "reduce": {
+          "delete": true,
+          "strategy": "merge"
+        }
+      }
+    },
+    {
+      "$ref": "#PublicFoobar"
+    }
+  ]
+}

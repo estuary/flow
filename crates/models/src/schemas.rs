@@ -33,10 +33,6 @@ impl std::ops::DerefMut for Schema {
     }
 }
 
-type Skim = BTreeMap<String, RawValue>;
-const KEYWORD_DEF: &str = "$defs";
-const KEYWORD_ID: &str = "$id";
-
 impl Schema {
     pub fn new(v: RawValue) -> Self {
         Self(v)
@@ -53,6 +49,8 @@ impl Schema {
     pub const REF_INFERRED_SCHEMA_URL: &'static str = "flow://inferred-schema";
     // URL for referencing the write schema of a collection, which may be used within a read schema.
     pub const REF_WRITE_SCHEMA_URL: &'static str = "flow://write-schema";
+    // URL for referencing the write schema of a collection, which may be used within a read schema.
+    pub const REF_RELAXED_WRITE_SCHEMA_URL: &'static str = "flow://relaxed-write-schema";
 
     /// Returns true if this Schema references the canonical inferred schema URL.
     pub fn references_inferred_schema(&self) -> bool {
@@ -61,6 +59,10 @@ impl Schema {
     /// Returns true if this Schema references the canonical write schema URL.
     pub fn references_write_schema(&self) -> bool {
         REF_WRITE_SCHEMA_RE.is_match(self.get())
+    }
+    /// Returns true if this Schema references the canonical write schema URL.
+    pub fn references_relaxed_write_schema(&self) -> bool {
+        REF_RELAXED_WRITE_SCHEMA_RE.is_match(self.get())
     }
 
     pub fn example_absolute() -> Self {
@@ -80,21 +82,37 @@ impl Schema {
         .unwrap()
     }
 
+    /// Default collection `readSchema`,
+    /// used when schema inference is desired.
     pub fn default_inferred_read_schema() -> Self {
         let read_schema = serde_json::json!({
             "allOf": [
-                {"$ref": "flow://write-schema"},
-                {"$ref": "flow://inferred-schema"}
+                {"$ref": Self::REF_WRITE_SCHEMA_URL}, // TODO(johnny): Switch to Self::REF_RELAXED_WRITE_SCHEMA_URL
+                {"$ref": Self::REF_INFERRED_SCHEMA_URL},
             ],
         });
-        let read_bundle = Self(crate::RawValue::from_value(&read_schema));
-        Self::extend_read_bundle(&read_bundle, None, None)
+        Self(crate::RawValue::from_value(&read_schema))
     }
 
-    /// Extend a bundled Flow read schema, which may include references to the
-    /// canonical collection write schema URI and inferred schema URI,
-    /// with inline definitions that fully resolve these references.
-    /// If an inferred schema is not available then `{}` is used.
+    /// Placeholder definition for `flow://inferred-schema`,
+    /// used when an actual inferred schema is not yet available.
+    pub fn inferred_schema_placeholder() -> &'static Self {
+        &INFERRED_SCHEMA_PLACEHOLDER
+    }
+
+    /// Transform this Schema into a relaxed form which removes all `type`,
+    /// `require`, and `format` keywords of most (but not all) recursive
+    /// sub-schemas, while preserving other keywords.
+    ///
+    /// The primary purpose of relaxed schemas is to transform a collection
+    /// write-schema into a relaxation which is likely to function well when
+    /// intersected with the collection's inferred schema.
+    pub fn to_relaxed_schema(&self) -> serde_json::Result<Self> {
+        let relaxed = serde_json::from_str::<RelaxedSchema>(self.get())?;
+        Ok(Self(serde_json::value::to_raw_value(&relaxed)?.into()))
+    }
+
+    /// TODO(johnny): This is deprecated and will be removed.
     pub fn extend_read_bundle(
         read_bundle: &Self,
         write_bundle: Option<&Self>,
@@ -127,8 +145,11 @@ impl Schema {
         }
 
         Schema::add_defs(read_bundle, &defs)
+            .ok()
+            .unwrap_or_else(|| read_bundle.clone())
     }
 
+    /// TODO(johnny): This is deprecated and will be removed.
     pub fn build_read_schema_bundle(read_schema: &Schema, write_schema: &Schema) -> Schema {
         let mut defs = Vec::new();
         if read_schema.references_write_schema() {
@@ -148,83 +169,113 @@ impl Schema {
             });
         }
         Schema::add_defs(read_schema, &defs)
+            .ok()
+            .unwrap_or_else(|| read_schema.clone())
     }
 
-    fn add_id(id: &str, schema: &Schema) -> RawValue {
-        let mut skim: Skim = serde_json::from_str(schema.get()).unwrap();
-
-        _ = skim.insert(
-            KEYWORD_ID.to_string(),
-            RawValue::from_value(&serde_json::Value::String(id.to_string())),
-        );
-        serde_json::value::to_raw_value(&skim).unwrap().into()
-    }
-
-    fn add_defs(target: &Schema, defs: &[AddDef]) -> Schema {
+    /// Extend this Schema with added $defs definitions.
+    /// The $id keyword of definition is set to its id, and its id is also
+    /// used to key the property of $defs under which the sub-schema lives.
+    pub fn add_defs(&self, defs: &[AddDef]) -> serde_json::Result<Schema> {
         use serde_json::value::to_raw_value;
 
-        let mut read_schema: Skim = serde_json::from_str(target.get()).unwrap();
-        let mut read_defs: Skim = read_schema
+        type Skim = BTreeMap<String, RawValue>;
+        const KEYWORD_DEF: &str = "$defs";
+        const KEYWORD_ID: &str = "$id";
+
+        let mut schema = serde_json::from_str::<Skim>(self.get())?;
+        let mut schema_defs = schema
             .remove(KEYWORD_DEF)
-            .map(|d| serde_json::from_str(d.get()).unwrap())
+            .map(|d| serde_json::from_str::<Skim>(d.get()))
+            .transpose()?
             .unwrap_or_default();
 
         for AddDef {
             id,
-            schema,
+            schema: sub_schema,
             overwrite,
         } in defs
         {
-            if !overwrite && read_defs.contains_key(*id) {
+            if !overwrite && schema_defs.contains_key(*id) {
                 continue;
             }
-            let with_id = Schema::add_id(id, schema);
-            read_defs.insert(id.to_string(), with_id);
+            let mut sub_schema = serde_json::from_str::<Skim>(sub_schema.get())?;
+            _ = sub_schema.insert(
+                KEYWORD_ID.to_string(),
+                RawValue::from_value(&serde_json::Value::String(id.to_string())),
+            );
+            schema_defs.insert(id.to_string(), to_raw_value(&sub_schema)?.into());
         }
 
         // Skip adding defs if they are empty (which means `defs` was empty and there were no
         // pre-existing `$defs` in the schema).
-        if !read_defs.is_empty() {
-            // Re-serialize the updated definitions of the read schema.
-            _ = read_schema.insert(
+        if !schema_defs.is_empty() {
+            _ = schema.insert(
                 KEYWORD_DEF.to_string(),
-                serde_json::value::to_raw_value(&read_defs).unwrap().into(),
+                serde_json::value::to_raw_value(&schema_defs)?.into(),
             );
         }
-        Self(to_raw_value(&read_schema).unwrap().into())
-    }
 
-    /// Removes the bundled write schema from the `$defs` of `self`, returning
-    /// a new schema with the value removed, and a boolean indicating whether the write
-    /// schema def was actually present. We used to bundle the write schema as part of the
-    /// read schema, just like the inferred schema. We're no longer doing that because it's
-    /// confusing to users, so this function removes the bundled write schema. This function
-    /// should only be needed for long enough to update all the inferred schemas, and can then
-    /// be safely removed.
-    pub fn remove_bundled_write_schema(&self) -> (bool, Self) {
-        use serde_json::value::to_raw_value;
-
-        let mut read_schema: Skim = serde_json::from_str(self.0.get()).unwrap();
-        let mut read_defs: Skim = read_schema
-            .get(KEYWORD_DEF)
-            .map(|d| serde_json::from_str(d.get()).unwrap())
-            .unwrap_or_default();
-        let had_write_schema = read_defs.remove(Schema::REF_WRITE_SCHEMA_URL).is_some();
-        read_schema.insert(
-            KEYWORD_DEF.to_string(),
-            to_raw_value(&read_defs).unwrap().into(),
-        );
-        (
-            had_write_schema,
-            Self(to_raw_value(&read_schema).unwrap().into()),
-        )
+        Ok(Self(to_raw_value(&schema)?.into()))
     }
 }
 
-struct AddDef<'a> {
-    id: &'a str,
-    schema: &'a Schema,
-    overwrite: bool,
+// AddDef instances parameterize sub-schemas to be added via Schema::add_defs().
+pub struct AddDef<'a> {
+    // Canonical $id of this schema, which also keys the schema in $defs.
+    pub id: &'a str,
+    // Sub-schema to be inlined into $defs.
+    pub schema: &'a Schema,
+    // Should this definition overwrite one that's already present?
+    pub overwrite: bool,
+}
+
+/// RelaxedSchema is an opinionated relaxation of a JSON-Schema, which removes
+/// the `type`, `required`, and `format` keywords from most (but not all)
+/// recursive sub-schemas. It's purpose is to transform collection write schemas
+/// into relaxed forms which are likely to function well when intersected with
+/// an inferred schema.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum RelaxedSchema {
+    Bool(bool),
+    Obj(RelaxedSchemaObj),
+    Vec(Vec<RelaxedSchema>),
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RelaxedSchemaObj {
+    #[serde(
+        rename = "$defs",
+        alias = "definitions",
+        default,
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    defs: BTreeMap<String, RelaxedSchema>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    all_of: Option<Box<RelaxedSchema>>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    properties: BTreeMap<String, RelaxedSchema>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    items: Option<Box<RelaxedSchema>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    additional_items: Option<Box<RelaxedSchema>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    additional_properties: Option<Box<RelaxedSchema>>,
+
+    // Keywords which are removed from a relaxed schema.
+    #[serde(rename = "type", skip_serializing)]
+    _type: Option<serde_json::Value>,
+    #[serde(rename = "required", default, skip_serializing)]
+    _required: Vec<String>,
+    #[serde(rename = "format", default, skip_serializing)]
+    _format: String,
+
+    // Other keywords are passed-through.
+    #[serde(flatten)]
+    pass_through: BTreeMap<String, serde_json::Value>,
 }
 
 // These patterns let us cheaply detect if a collection schema references the
@@ -241,6 +292,9 @@ lazy_static::lazy_static! {
     ).unwrap();
     static ref REF_WRITE_SCHEMA_RE: regex::Regex = regex::Regex::new(
         &[r#""\$ref"\p{Z}*:\p{Z}*""#, &regex::escape(Schema::REF_WRITE_SCHEMA_URL), "\""].concat()
+    ).unwrap();
+    static ref REF_RELAXED_WRITE_SCHEMA_RE: regex::Regex = regex::Regex::new(
+        &[r#""\$ref"\p{Z}*:\p{Z}*""#, &regex::escape(Schema::REF_RELAXED_WRITE_SCHEMA_URL), "\""].concat()
     ).unwrap();
 
     /// Placeholder used to resolve the `flow://inferred-schema` reference when the actual schema
@@ -263,7 +317,7 @@ lazy_static::lazy_static! {
 
 #[cfg(test)]
 mod test {
-    use super::{RawValue, Schema};
+    use super::{AddDef, RawValue, Schema};
     use serde_json::json;
 
     macro_rules! schema {
@@ -301,8 +355,8 @@ mod test {
     }
 
     #[test]
-    fn test_build_read_schema_bundle() {
-        let write_schema = schema!({
+    fn test_references_and_add_defs() {
+        let sub_schema = schema!({
             "type": "object",
             "properties": {
                 "a": { "type": "integer" },
@@ -310,72 +364,48 @@ mod test {
             }
         });
 
-        // Assert that inferred schema placeholder gets added if needed
-        let read_schema = schema!({
+        let schema = schema!({
             "$defs": {
-                "existing": { "properties": { "f": { "type": "string" }}}
+                "replaced": { "properties": { "f": { "type": "string" }}},
+                "not_overwritten": { "properties": { "f": { "type": "string" }}},
+                "extra": { "properties": { "f": { "type": "string" }}},
             },
             "allOf": [
                 {"$ref": "flow://inferred-schema"},
                 {"$ref": "flow://write-schema"},
             ]
         });
-        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
-        insta::assert_json_snapshot!(result.to_value(), @r###"
-        {
-          "$defs": {
-            "existing": {
-              "properties": {
-                "f": {
-                  "type": "string"
-                }
-              }
-            },
-            "flow://inferred-schema": {
-              "$id": "flow://inferred-schema",
-              "properties": {
-                "_meta": {
-                  "properties": {
-                    "inferredSchemaIsNotAvailable": {
-                      "const": true,
-                      "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
-                    }
-                  },
-                  "required": [
-                    "inferredSchemaIsNotAvailable"
-                  ]
-                }
-              },
-              "required": [
-                "_meta"
-              ]
-            },
-            "flow://write-schema": {
-              "$id": "flow://write-schema",
-              "properties": {
-                "a": {
-                  "type": "integer"
-                },
-                "b": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            }
-          },
-          "allOf": [
-            {
-              "$ref": "flow://inferred-schema"
-            },
-            {
-              "$ref": "flow://write-schema"
-            }
-          ]
-        }
-        "###);
 
-        // Assert that existing defs are unchanged when read schema does not ref anything
-        let read_schema = schema!({
+        assert!(!schema.references_relaxed_write_schema());
+        assert!(schema.references_inferred_schema());
+        assert!(schema.references_write_schema());
+
+        let outcome = schema.add_defs(&[
+            AddDef {
+                id: Schema::REF_WRITE_SCHEMA_URL,
+                schema: &sub_schema,
+                overwrite: true,
+            },
+            AddDef {
+                id: Schema::REF_INFERRED_SCHEMA_URL,
+                schema: &sub_schema,
+                overwrite: true,
+            },
+            AddDef {
+                id: "replaced",
+                schema: &sub_schema,
+                overwrite: true,
+            },
+            AddDef {
+                id: "not_overwritten",
+                schema: &sub_schema,
+                overwrite: false,
+            },
+        ]);
+
+        insta::assert_json_snapshot!(outcome.unwrap().to_value());
+
+        let no_ref_schema = schema!({
             "$defs": {
                 "existing": { "properties": { "f": { "type": "string" }}}
             },
@@ -385,304 +415,14 @@ mod test {
                 "d": { "type": "string" }
             }
         });
-        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
-        insta::assert_json_snapshot!(result.to_value(), @r###"
-        {
-          "$defs": {
-            "existing": {
-              "properties": {
-                "f": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "properties": {
-            "c": {
-              "type": "integer"
-            },
-            "d": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-        "###);
-
-        // Assert that no defs are added when read schema does not ref anything
-        let read_schema = schema!({
-            "type": "object",
-            "properties": {
-                "c": { "type": "integer" },
-                "d": { "type": "string" }
-            }
-        });
-        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
-        insta::assert_json_snapshot!(result.to_value(), @r###"
-        {
-          "properties": {
-            "c": {
-              "type": "integer"
-            },
-            "d": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-        "###);
-
-        // Assert that existing inferred schema def is not overwritten, but that
-        // the write schema def is. Note that in practice any
-        // `flow://write-schema` defs are removed by the publisher prior to
-        // validation, so it should generally not exist when this function is
-        // called. But there's still some collection specs out there that have
-        // inlined write schema defs. Not overwriting the inferred schema def is
-        // necessary in order to avoid replacing an existing
-        // `flow://inferred-schema` def with the placeholder.
-        let read_schema = schema!({
-            "$defs": {
-                "flow://inferred-schema": {
-                    "type": "object",
-                    "properties": {
-                        "c": { "type": "integer" }
-                    }
-                },
-                "flow://write-schema": {
-                    "properties": {
-                        "c": { "const": "should be overwritten" }
-                    }
-                },
-            },
-            "allOf": [
-                {"$ref": "flow://inferred-schema"},
-                {"$ref": "flow://write-schema"},
-            ]
-        });
-        let result = Schema::build_read_schema_bundle(&read_schema, &write_schema);
-        insta::assert_json_snapshot!(result.to_value(), @r###"
-        {
-          "$defs": {
-            "flow://inferred-schema": {
-              "properties": {
-                "c": {
-                  "type": "integer"
-                }
-              },
-              "type": "object"
-            },
-            "flow://write-schema": {
-              "$id": "flow://write-schema",
-              "properties": {
-                "a": {
-                  "type": "integer"
-                },
-                "b": {
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            }
-          },
-          "allOf": [
-            {
-              "$ref": "flow://inferred-schema"
-            },
-            {
-              "$ref": "flow://write-schema"
-            }
-          ]
-        }
-        "###);
+        assert!(!no_ref_schema.references_inferred_schema());
+        assert!(!no_ref_schema.references_relaxed_write_schema());
+        assert!(!no_ref_schema.references_write_schema());
     }
 
     #[test]
-    fn test_extend_read_schema() {
-        let read_schema = Schema::new(RawValue::from_value(&json!({
-            "$defs": {
-                "existing://def": {"type": "array"},
-            },
-            "maxProperties": 10,
-            "allOf": [
-                {"$ref": "flow://inferred-schema"},
-                {"$ref": "flow://write-schema"},
-            ]
-        })));
-        let write_schema = Schema::new(RawValue::from_value(&json!({
-            "$id": "old://value",
-            "required": ["a_key"],
-        })));
-        let inferred_schema = Schema::new(RawValue::from_value(&json!({
-            "$id": "old://value",
-            "minProperties": 5,
-        })));
-
-        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, Some(&write_schema), Some(&inferred_schema)).to_value(), @r###"
-        {
-          "$defs": {
-            "existing://def": {
-              "type": "array"
-            },
-            "flow://inferred-schema": {
-              "$id": "flow://inferred-schema",
-              "minProperties": 5
-            },
-            "flow://write-schema": {
-              "$id": "flow://write-schema",
-              "required": [
-                "a_key"
-              ]
-            }
-          },
-          "allOf": [
-            {
-              "$ref": "flow://inferred-schema"
-            },
-            {
-              "$ref": "flow://write-schema"
-            }
-          ],
-          "maxProperties": 10
-        }
-        "###);
-
-        // Case: no inferred schema is available.
-        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, Some(&write_schema), None).to_value(), @r###"
-        {
-          "$defs": {
-            "existing://def": {
-              "type": "array"
-            },
-            "flow://inferred-schema": {
-              "$id": "flow://inferred-schema",
-              "properties": {
-                "_meta": {
-                  "properties": {
-                    "inferredSchemaIsNotAvailable": {
-                      "const": true,
-                      "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
-                    }
-                  },
-                  "required": [
-                    "inferredSchemaIsNotAvailable"
-                  ]
-                }
-              },
-              "required": [
-                "_meta"
-              ]
-            },
-            "flow://write-schema": {
-              "$id": "flow://write-schema",
-              "required": [
-                "a_key"
-              ]
-            }
-          },
-          "allOf": [
-            {
-              "$ref": "flow://inferred-schema"
-            },
-            {
-              "$ref": "flow://write-schema"
-            }
-          ],
-          "maxProperties": 10
-        }
-        "###);
-
-        // Case: pass `write_schema` which has no references.
-        insta::assert_json_snapshot!(Schema::extend_read_bundle(&write_schema, Some(&write_schema), None).to_value(), @r###"
-        {
-          "$id": "old://value",
-          "required": [
-            "a_key"
-          ]
-        }
-        "###);
-
-        // Case: don't include `write_schema`
-        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, None, Some(&inferred_schema)).to_value(), @r###"
-        {
-          "$defs": {
-            "existing://def": {
-              "type": "array"
-            },
-            "flow://inferred-schema": {
-              "$id": "flow://inferred-schema",
-              "minProperties": 5
-            }
-          },
-          "allOf": [
-            {
-              "$ref": "flow://inferred-schema"
-            },
-            {
-              "$ref": "flow://write-schema"
-            }
-          ],
-          "maxProperties": 10
-        }
-        "###);
-    }
-
-    #[test]
-    fn test_removing_bundled_write_schema() {
-        let read_schema = Schema::new(RawValue::from_value(&json!({
-            "$defs": {
-                "existing://def": {"type": "array"},
-            },
-            "maxProperties": 10,
-            "allOf": [
-                {"$ref": "flow://inferred-schema"},
-                {"$ref": "flow://write-schema"},
-            ]
-        })));
-        let write_schema = Schema::new(RawValue::from_value(&json!({
-            "$id": "old://value",
-            "required": ["a_key"],
-        })));
-        let inferred_schema = Schema::new(RawValue::from_value(&json!({
-            "$id": "old://value",
-            "minProperties": 5,
-        })));
-
-        let bundle =
-            Schema::extend_read_bundle(&read_schema, Some(&write_schema), Some(&inferred_schema));
-        assert_eq!(
-            3,
-            bundle.get().matches(Schema::REF_WRITE_SCHEMA_URL).count(),
-            "schema should contain 'flow://write-schema' 3 times, for $ref, $defs key, and $id"
-        );
-        let (was_removed, new_bundle) = bundle.remove_bundled_write_schema();
-        assert!(was_removed);
-        insta::assert_json_snapshot!(new_bundle.to_value(), @r###"
-        {
-          "$defs": {
-            "existing://def": {
-              "type": "array"
-            },
-            "flow://inferred-schema": {
-              "$id": "flow://inferred-schema",
-              "minProperties": 5
-            }
-          },
-          "allOf": [
-            {
-              "$ref": "flow://inferred-schema"
-            },
-            {
-              "$ref": "flow://write-schema"
-            }
-          ],
-          "maxProperties": 10
-        }
-        "###);
-
-        let (was_removed, _) = new_bundle.remove_bundled_write_schema();
-        assert!(
-            !was_removed,
-            "expected write schema to have already been removed"
-        );
+    fn test_relaxation() {
+        let fixture = Schema::new(RawValue::from_str(include_str!("fixture.schema.json")).unwrap());
+        insta::assert_json_snapshot!(fixture.to_relaxed_schema().unwrap().to_value())
     }
 }

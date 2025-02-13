@@ -111,39 +111,6 @@ pub async fn update_inferred_schema<C: ControlPlane>(
         .await
         .context("fetching inferred schema")?;
 
-    // If the read schema includes a bundled write schema, remove it.
-    // TODO: remove this code once all production collections have been updated.
-    let must_remove_write_schema = read_schema_bundles_write_schema(collection_def);
-    if must_remove_write_schema {
-        let mut pending_pub = PendingPublication::new();
-        let draft = pending_pub.start_spec_update(state, "removing bundled write schema");
-        let draft_row = draft.collections.get_or_insert_with(&collection_name, || {
-            tables::DraftCollection {
-                collection: collection_name.clone(),
-                scope: tables::synthetic_scope(models::CatalogType::Collection, &collection_name),
-                expect_pub_id: Some(state.last_pub_id),
-                model: Some(collection_def.clone()),
-                is_touch: false, // We intend to update the model
-            }
-        });
-        let (removed, new_schema) = collection_def
-            .read_schema
-            .as_ref()
-            .unwrap()
-            .remove_bundled_write_schema();
-        if removed {
-            draft_row.model.as_mut().unwrap().read_schema = Some(new_schema);
-            tracing::info!("removing bundled write schema");
-        } else {
-            tracing::warn!("bundled write schema was not removed");
-        }
-        pending_pub
-            .finish(state, publication_status, control_plane)
-            .await?
-            .error_for_status()?;
-        return Ok(true);
-    }
-
     if let Some(inferred_schema) = maybe_inferred_schema {
         let mut pending_pub = PendingPublication::new();
         let tables::InferredSchema {
@@ -193,124 +160,10 @@ pub async fn update_inferred_schema<C: ControlPlane>(
     Ok(false)
 }
 
-fn read_schema_bundles_write_schema(model: &models::CollectionDef) -> bool {
-    let Some(read_schema) = &model.read_schema else {
-        return false;
-    };
-    // This is a little hacky, but works to identify schemas that bundle the write schema
-    // without needing to actually parse the entire schema. The three expected occurrences
-    // of the url are: the key in `$defs`, the `$id` of the bundled schema, and the `$ref`.
-    read_schema
-        .get()
-        .matches(models::Schema::REF_WRITE_SCHEMA_URL)
-        .count()
-        >= 3
-}
-
 pub fn uses_inferred_schema(collection: &models::CollectionDef) -> bool {
     collection
         .read_schema
         .as_ref()
         .map(models::Schema::references_inferred_schema)
         .unwrap_or(false)
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_read_schema_bundles_write_schema() {
-        let collection_json = r##"{
-          "writeSchema": {
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "type": "object",
-            "x-infer-schema": true
-          },
-          "readSchema": {
-            "$defs": {
-              "flow://inferred-schema": {
-                "$id": "flow://inferred-schema",
-                "$schema": "https://json-schema.org/draft/2019-09/schema",
-                "additionalProperties": false,
-                "properties": {
-                  "id": { "type": "string" },
-                  "a": { "type": "string" },
-                  "hello": { "type": "string" }
-                },
-                "required": [
-                  "aa",
-                  "hello",
-                  "id"
-                ],
-                "type": "object"
-              },
-              "flow://write-schema": {
-                "$id": "flow://write-schema",
-                "properties": {
-                  "id": { "type": "string" }
-                },
-                "required": [
-                  "id"
-                ],
-                "type": "object",
-                "x-infer-schema": true
-              }
-            },
-            "allOf": [
-              {
-                "$ref": "flow://write-schema"
-              },
-              {
-                "$ref": "flow://inferred-schema"
-              }
-            ]
-          },
-          "key": [
-            "/id"
-          ]
-        }"##;
-        let mut collection: models::CollectionDef = serde_json::from_str(collection_json).unwrap();
-        assert!(read_schema_bundles_write_schema(&collection));
-
-        collection.read_schema = Some(models::Schema::new(
-            models::RawValue::from_str(
-                r##"{
-                "$defs": {
-                    "flow://inferred-schema": {
-                    "$id": "flow://inferred-schema",
-                    "$schema": "https://json-schema.org/draft/2019-09/schema",
-                    "additionalProperties": false,
-                    "properties": {
-                        "id": { "type": "string" },
-                        "a": { "type": "string" },
-                        "hello": { "type": "string" }
-                    },
-                    "required": [
-                        "aa",
-                        "hello",
-                        "id"
-                    ],
-                    "type": "object"
-                    }
-                },
-                "allOf": [
-                    {
-                    "$ref": "flow://write-schema"
-                    },
-                    {
-                    "$ref": "flow://inferred-schema"
-                    }
-                ]
-                }"##,
-            )
-            .unwrap(),
-        ));
-
-        assert!(!read_schema_bundles_write_schema(&collection));
-    }
 }

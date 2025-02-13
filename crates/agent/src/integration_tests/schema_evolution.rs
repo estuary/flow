@@ -1,11 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::harness::{draft_catalog, mock_inferred_schema, FailBuild, TestHarness};
-use crate::{
-    controllers::ControllerState,
-    publications::{JobStatus, UncommittedBuild},
-    ControlPlane,
-};
+use crate::{controllers::ControllerState, publications::UncommittedBuild, ControlPlane};
 use models::CatalogType;
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use tables::BuiltRow;
@@ -176,26 +172,6 @@ async fn test_schema_evolution() {
     assert!(totes_spec
         .read_schema_json
         .contains("inferredSchemaIsNotAvailable"));
-    // Assert that the bundled write schema has been removed. We expect one reference to
-    // the write schema url, down from 3 originally.
-    // TODO: we can remove these assertions (and the bundled write schema in the setup) once
-    // all the collections have been updated.
-    let totes_model = totes_state
-        .live_spec
-        .as_ref()
-        .unwrap()
-        .as_collection()
-        .unwrap();
-    assert_eq!(
-        1,
-        totes_model
-            .read_schema
-            .as_ref()
-            .unwrap()
-            .get()
-            .matches(models::Schema::REF_WRITE_SCHEMA_URL)
-            .count()
-    );
     // Assert that the schema in the built spec _does_ contain the bundled write schema
     assert_eq!(
         3,

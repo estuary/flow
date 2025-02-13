@@ -142,6 +142,7 @@ pub fn extend_read_bundle(input: JsValue) -> Result<JsValue, JsValue> {
         write: models::Schema,
         inferred: Option<models::Schema>,
     }
+    let relaxed: Option<models::Schema>;
 
     let Input {
         read,
@@ -150,9 +151,43 @@ pub fn extend_read_bundle(input: JsValue) -> Result<JsValue, JsValue> {
     } = serde_json::from_value(input)
         .map_err(|err| JsValue::from_str(&format!("invalid input: {:?}", err)))?;
 
-    let output = models::Schema::extend_read_bundle(&read, Some(&write), inferred.as_ref());
+    let mut defs = Vec::new();
 
-    serde_wasm_bindgen::to_value(&output).map_err(|err| JsValue::from_str(&format!("{err:?}")))
+    if read.references_write_schema() {
+        defs.push(models::schemas::AddDef {
+            id: models::Schema::REF_WRITE_SCHEMA_URL,
+            schema: &write,
+            overwrite: true,
+        });
+    }
+    if read.references_relaxed_write_schema() {
+        relaxed = inferred
+            .is_some()
+            .then(|| write.to_relaxed_schema())
+            .transpose()
+            .map_err(|err| JsValue::from_str(&format!("{err:?}")))?;
+
+        defs.push(models::schemas::AddDef {
+            id: models::Schema::REF_RELAXED_WRITE_SCHEMA_URL,
+            schema: relaxed.as_ref().unwrap_or(&write),
+            overwrite: true,
+        });
+    }
+    if read.references_inferred_schema() {
+        defs.push(models::schemas::AddDef {
+            id: models::Schema::REF_INFERRED_SCHEMA_URL,
+            schema: inferred
+                .as_ref()
+                .unwrap_or(models::Schema::inferred_schema_placeholder()),
+            overwrite: false,
+        })
+    }
+
+    let outcome = read
+        .add_defs(&defs)
+        .map_err(|err| JsValue::from_str(&format!("{err:?}")))?;
+
+    serde_wasm_bindgen::to_value(&outcome).map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }
 
 #[wasm_bindgen]
