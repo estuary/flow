@@ -162,6 +162,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             bindings: Vec::new(),
             shard_template: Some(shard_template),
             config_json: String::new(),
+            inactive_bindings: Vec::new(),
         };
         live.captures.insert_row(
             capture,
@@ -217,6 +218,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 shard_template: Some(shard_template),
                 shuffle_key_types: Vec::new(),
                 transforms: Vec::new(),
+                inactive_transforms: Vec::new(),
             })
         } else {
             None
@@ -272,6 +274,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             bindings: Vec::new(),
             shard_template: Some(shard_template),
             config_json: String::new(),
+            inactive_bindings: Vec::new(),
         };
         live.materializations.insert_row(
             materialization,

@@ -103,11 +103,14 @@ pub mod request {
             pub backfill: u32,
         }
     }
-    /// Apply a materialization configuration and bindings to its endpoint.
-    /// Apply is run out-of-band with ongoing connector invocations,
-    /// and may be run many times for a single materialization name,
-    /// where each invocation has varying bindings, or even no bindings.
-    /// The connector performs any required setup or cleanup.
+    /// Apply an updated materialization specification to its endpoint,
+    /// in preparation for an Open of a materialization session.
+    /// Apply is run by the leader shard of a materialization task
+    /// (having key_begin: 0) while the materialization is quiescent.
+    /// Apply may be called multiple times for a given `version` and
+    /// `last_version`, even if a prior call succeeded from the connector's
+    /// perspective, so implementations must be idempotent. However, the next
+    /// session will not Open until it's preceding Apply has durably completed.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Apply {
@@ -127,6 +130,11 @@ pub mod request {
         /// Version of the last applied MaterializationSpec.
         #[prost(string, tag = "5")]
         pub last_version: ::prost::alloc::string::String,
+        /// Last-persisted connector checkpoint state from a previous session.
+        /// The Apply RPC may use this state to perform a post-commit apply
+        /// of files staged under the `last_materialization` specification.
+        #[prost(string, tag = "6")]
+        pub state_json: ::prost::alloc::string::String,
     }
     /// Open a materialization stream.
     ///
@@ -158,10 +166,10 @@ pub mod request {
         /// due to expected propagation races in Flow's distributed runtime.
         #[prost(string, tag = "2")]
         pub version: ::prost::alloc::string::String,
-        /// Range of documents to be processed by this invocation.
+        /// Range of documents to be processed by this session.
         #[prost(message, optional, tag = "3")]
         pub range: ::core::option::Option<super::super::flow::RangeSpec>,
-        /// Last-persisted connector checkpoint state from a previous invocation.
+        /// Last-persisted connector checkpoint state from a previous session.
         #[prost(string, tag = "4")]
         pub state_json: ::prost::alloc::string::String,
     }
@@ -270,15 +278,25 @@ pub mod response {
         /// JSON schema of the connector's configuration.
         #[prost(string, tag = "2")]
         pub config_schema_json: ::prost::alloc::string::String,
-        /// JSON schema of the connecor's resource configuration.
+        /// JSON schema of the connector's resource configuration.
         #[prost(string, tag = "3")]
         pub resource_config_schema_json: ::prost::alloc::string::String,
-        /// URL for connector's documention.
+        /// URL for connector's documentation.
         #[prost(string, tag = "4")]
         pub documentation_url: ::prost::alloc::string::String,
         /// Optional OAuth2 configuration.
         #[prost(message, optional, tag = "5")]
         pub oauth2: ::core::option::Option<super::super::flow::OAuth2>,
+        /// One or more JSON pointers, which are used to extract resource paths
+        /// from resource configurations of this connector. For example,
+        /// a database connector might have a resource config like:
+        ///    {"schema": "foo", "table": "bar", "other": "config", "answer": 42}
+        /// The connector would specify `resource_path_pointers: \["/schema", "/table"\]`,
+        /// which would result in a `resource_path` of `\["foo", "bar"\]`.
+        #[prost(string, repeated, tag = "6")]
+        pub resource_path_pointers: ::prost::alloc::vec::Vec<
+            ::prost::alloc::string::String,
+        >,
     }
     /// Validated responds to Request.Validate.
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -410,6 +428,11 @@ pub mod response {
         /// If empty, this Apply is to be considered a "no-op".
         #[prost(string, tag = "1")]
         pub action_description: ::prost::alloc::string::String,
+        /// Optional *transactional* update to ConnectorState.
+        /// This update commits atomically with the Flow recovery log checkpoint
+        /// which marks the current specification as having been applied.
+        #[prost(message, optional, tag = "2")]
+        pub state: ::core::option::Option<super::super::flow::ConnectorState>,
     }
     /// Opened responds to Request.Open.
     /// After Opened, the connector sends only Loaded, Flushed,

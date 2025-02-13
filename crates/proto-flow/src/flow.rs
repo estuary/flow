@@ -300,6 +300,11 @@ pub mod collection_spec {
         /// Network ports of this derivation.
         #[prost(message, repeated, tag = "7")]
         pub network_ports: ::prost::alloc::vec::Vec<super::NetworkPort>,
+        /// Transforms which were previously active for this task, but are no longer.
+        /// Inactive transforms are unique by their transform name, and have no
+        /// overlap with active transforms.
+        #[prost(message, repeated, tag = "8")]
+        pub inactive_transforms: ::prost::alloc::vec::Vec<derivation::Transform>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -309,7 +314,7 @@ pub mod collection_spec {
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Transform {
-            /// Stable name of this transform.
+            /// Stable and unique name of this transform.
             #[prost(string, tag = "1")]
             pub name: ::prost::alloc::string::String,
             /// Source collection which is read by this transform.
@@ -498,12 +503,16 @@ pub struct CaptureSpec {
     /// Network ports of this capture.
     #[prost(message, repeated, tag = "8")]
     pub network_ports: ::prost::alloc::vec::Vec<NetworkPort>,
+    /// Bindings which were previously active for this task, but are no longer.
+    /// Inactive bindings are unique by their resource path, and have no
+    /// overlap with active bindings.
+    #[prost(message, repeated, tag = "9")]
+    pub inactive_bindings: ::prost::alloc::vec::Vec<capture_spec::Binding>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
-    /// Bindings of endpoint resources and collections into which they're captured.
-    /// Bindings are ordered and unique on the bound collection name,
-    /// and are also unique on the resource path.
+    /// Bindings between endpoint resources, uniquely identified by their
+    /// resource path, and the collections into which they're captured.
     ///
     /// Next tag: 6.
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -594,12 +603,16 @@ pub struct MaterializationSpec {
     /// Network ports of this materialization.
     #[prost(message, repeated, tag = "7")]
     pub network_ports: ::prost::alloc::vec::Vec<NetworkPort>,
+    /// Bindings which were previously active for this task, but are no longer.
+    /// Inactive bindings are unique by their resource path, and have no
+    /// overlap with active bindings.
+    #[prost(message, repeated, tag = "9")]
+    pub inactive_bindings: ::prost::alloc::vec::Vec<materialization_spec::Binding>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
-    /// Bindings of endpoint resources and collections from which they're
-    /// materialized. Bindings are ordered and unique on the bound collection name,
-    /// and are also unique on the resource path.
+    /// Bindings between endpoint resources, uniquely identified by their
+    /// resource path, and the collections from which they're materialized.
     ///
     /// Next tag: 14.
     #[allow(clippy::derive_partial_eq_without_eq)]
