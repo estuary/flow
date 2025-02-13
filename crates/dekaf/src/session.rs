@@ -1,8 +1,8 @@
 use super::{App, Collection, Read};
 use crate::{
-    from_downstream_topic_name, from_upstream_topic_name, logging::propagate_task_forwarder,
-    read::BatchResult, to_downstream_topic_name, to_upstream_topic_name, topology::PartitionOffset,
-    KafkaApiClient, SessionAuthentication,
+    api_client::KafkaClientAuth, from_downstream_topic_name, from_upstream_topic_name,
+    logging::propagate_task_forwarder, read::BatchResult, to_downstream_topic_name,
+    to_upstream_topic_name, topology::PartitionOffset, KafkaApiClient, SessionAuthentication,
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -46,8 +46,7 @@ pub struct Session {
     auth: Option<SessionAuthentication>,
     data_preview_state: SessionDataPreviewState,
     broker_urls: Vec<String>,
-    broker_username: String,
-    broker_password: String,
+    msk_region: String,
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
     legacy_mode_broker_urls: Vec<String>,
@@ -61,8 +60,7 @@ impl Session {
         app: Arc<App>,
         secret: String,
         broker_urls: Vec<String>,
-        broker_username: String,
-        broker_password: String,
+        msk_region: String,
         legacy_mode_broker_urls: Vec<String>,
         legacy_mode_broker_username: String,
         legacy_mode_broker_password: String,
@@ -71,8 +69,7 @@ impl Session {
             app,
             client: None,
             broker_urls,
-            broker_username,
-            broker_password,
+            msk_region,
             legacy_mode_broker_urls,
             legacy_mode_broker_username,
             legacy_mode_broker_password,
@@ -87,27 +84,34 @@ impl Session {
         if let Some(ref mut client) = self.client {
             Ok(client)
         } else {
-            let (urls, username, password) = match self.auth {
+            let (auth, urls) = match self.auth {
                 Some(SessionAuthentication::Task(_)) => (
+                    KafkaClientAuth::MSK {
+                        aws_region: self.msk_region.clone(),
+                        provider: aws_config::from_env()
+                            .region(aws_types::region::Region::new(self.msk_region.clone()))
+                            .load()
+                            .await
+                            .credentials_provider()
+                            .unwrap(),
+                        cached: None,
+                    },
                     self.broker_urls.as_slice(),
-                    self.broker_username.clone(),
-                    self.broker_password.clone(),
                 ),
                 Some(SessionAuthentication::User(_)) => (
+                    KafkaClientAuth::NonRefreshing(rsasl::config::SASLConfig::with_credentials(
+                        None,
+                        self.legacy_mode_broker_username.clone(),
+                        self.legacy_mode_broker_password.clone(),
+                    )?),
                     self.legacy_mode_broker_urls.as_slice(),
-                    self.legacy_mode_broker_username.clone(),
-                    self.legacy_mode_broker_password.clone(),
                 ),
                 None => anyhow::bail!("Must be authenticated"),
             };
             self.client.replace(
                 KafkaApiClient::connect(
                     urls,
-                    rsasl::config::SASLConfig::with_credentials(
-                        None,
-                        username,
-                        password,
-                    )?,
+                    auth,
                 ).await.context(
                     "failed to connect or authenticate to upstream Kafka broker used for serving group management APIs",
                 )?

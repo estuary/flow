@@ -13,7 +13,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     io,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
@@ -276,7 +276,7 @@ pub struct KafkaApiClient {
     /// A raw IO stream to the Kafka broker.
     conn: BoxedKafkaConnection,
     url: String,
-    sasl_config: Arc<SASLConfig>,
+    auth: KafkaClientAuth,
     versions: messages::ApiVersionsResponse,
     // Sometimes we need to connect to a particular broker, be it the coordinator
     // for a particular group, or the cluster controller for whatever reason.
@@ -288,15 +288,12 @@ pub struct KafkaApiClient {
 }
 
 impl KafkaApiClient {
-    #[instrument(name = "api_client_connect", skip(sasl_config))]
-    pub async fn connect(
-        broker_urls: &[String],
-        sasl_config: Arc<SASLConfig>,
-    ) -> anyhow::Result<Self> {
+    #[instrument(name = "api_client_connect", skip(auth))]
+    pub async fn connect(broker_urls: &[String], auth: KafkaClientAuth) -> anyhow::Result<Self> {
         tracing::debug!("Attempting to establish new connection");
 
         for url in broker_urls {
-            match Self::try_connect(url, sasl_config.clone()).await {
+            match Self::try_connect(url, auth.clone()).await {
                 Ok(client) => return Ok(client),
                 Err(e) => {
                     let error = e.context(format!("Failed to connect to {}", url));
@@ -312,13 +309,13 @@ impl KafkaApiClient {
     }
 
     /// Attempt to open a connection to a specific broker address
-    async fn try_connect(url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
+    async fn try_connect(url: &str, mut auth: KafkaClientAuth) -> anyhow::Result<Self> {
         let mut conn = async_connect(url)
             .await
             .context("Failed to establish TCP connection")?;
 
         tracing::debug!("Authenticating connection");
-        sasl_auth(&mut conn, url, sasl_config.clone())
+        sasl_auth(&mut conn, url, auth.sasl_config().await?)
             .await
             .context("SASL authentication failed")?;
 
@@ -329,7 +326,7 @@ impl KafkaApiClient {
         Ok(Self {
             conn,
             url: url.to_string(),
-            sasl_config,
+            auth,
             versions,
             clients: HashMap::new(),
         })
@@ -345,7 +342,7 @@ impl KafkaApiClient {
         if let std::collections::hash_map::Entry::Vacant(entry) =
             self.clients.entry(broker_url.to_string())
         {
-            let new_client = Self::try_connect(broker_url, self.sasl_config.clone()).await?;
+            let new_client = Self::try_connect(broker_url, self.auth.clone()).await?;
 
             entry.insert(new_client);
         }
@@ -512,5 +509,67 @@ impl KafkaApiClient {
 
             Ok(())
         }
+    }
+}
+
+#[derive(Clone)]
+pub enum KafkaClientAuth {
+    NonRefreshing(Arc<SASLConfig>),
+    MSK {
+        aws_region: String,
+        provider: aws_credential_types::provider::SharedCredentialsProvider,
+        cached: Option<(Arc<SASLConfig>, i64)>,
+    },
+}
+
+impl KafkaClientAuth {
+    async fn sasl_config(&mut self) -> anyhow::Result<Arc<SASLConfig>> {
+        match self {
+            KafkaClientAuth::NonRefreshing(cfg) => Ok(cfg.clone()),
+            KafkaClientAuth::MSK {
+                aws_region,
+                provider,
+                cached,
+            } => {
+                if let Some((cfg, exp)) = cached {
+                    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+                    if (*exp as u128) - now < 30 {
+                        return Ok(cfg.clone());
+                    }
+                }
+
+                let (token, exp) =
+                    aws_msk_iam_sasl_signer::generate_auth_token_from_credentials_provider(
+                        aws_types::region::Region::new(aws_region.clone()),
+                        provider.clone(),
+                    )
+                    .await?;
+
+                let callback = MSKCredentialsProvider { token };
+
+                let cfg = SASLConfig::builder()
+                    .with_defaults()
+                    .with_callback(callback)?;
+
+                cached.replace((cfg.clone(), exp));
+
+                Ok(cfg)
+            }
+        }
+    }
+}
+
+struct MSKCredentialsProvider {
+    token: String,
+}
+impl rsasl::callback::SessionCallback for MSKCredentialsProvider {
+    fn callback(
+        &self,
+        _session_data: &rsasl::callback::SessionData,
+        _context: &rsasl::callback::Context,
+        request: &mut rsasl::callback::Request<'_>,
+    ) -> Result<(), rsasl::prelude::SessionError> {
+        request.satisfy::<rsasl::property::OAuthBearerToken>(&self.token)?;
+        Ok(())
     }
 }
