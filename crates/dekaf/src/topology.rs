@@ -1,34 +1,85 @@
-use crate::connector::DeletionMode;
-use anyhow::Context;
+use crate::{
+    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
+};
+use anyhow::{anyhow, bail, Context};
 use futures::{StreamExt, TryStreamExt};
-use gazette::{broker, journal, uuid};
+use gazette::{
+    broker::{self, journal_spec},
+    journal, uuid,
+};
+use models::RawValue;
 use proto_flow::flow;
 
-/// Fetch the names of all collections which the current user may read.
-/// Each is mapped into a kafka topic.
-pub async fn fetch_all_collection_names(
-    client: &postgrest::Postgrest,
-) -> anyhow::Result<Vec<String>> {
-    #[derive(serde::Deserialize)]
-    struct Row {
-        catalog_name: String,
+impl UserAuth {
+    /// Fetch the names of all collections which the current user may read.
+    /// Each is mapped into a kafka topic.
+    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
+        let client = self.authenticated_client().await?.pg_client();
+        #[derive(serde::Deserialize)]
+        struct Row {
+            catalog_name: String,
+        }
+        let rows_builder = client
+            .from("live_specs_ext")
+            .eq("spec_type", "collection")
+            .select("catalog_name");
+
+        let items = flow_client::pagination::into_items::<Row>(rows_builder)
+            .map(|res| res.map(|Row { catalog_name }| catalog_name))
+            .try_collect()
+            .await
+            .context("listing current catalog specifications")?;
+
+        Ok(items)
     }
-    let rows_builder = client
-        .from("live_specs_ext")
-        .eq("spec_type", "collection")
-        .select("catalog_name");
+}
 
-    let items = flow_client::pagination::into_items::<Row>(rows_builder)
-        .map(|res| res.map(|Row { catalog_name }| catalog_name))
-        .try_collect()
-        .await
-        .context("listing current catalog specifications")?;
+impl TaskAuth {
+    pub async fn fetch_all_collection_names(&self) -> Vec<String> {
+        self.bindings_by_topic.keys().cloned().collect()
+    }
 
-    Ok(items)
+    pub fn get_binding_for_topic(
+        &self,
+        topic_name: &str,
+    ) -> Option<&(
+        proto_flow::flow::materialization_spec::Binding,
+        connector::DekafResourceConfig,
+    )> {
+        self.bindings_by_topic.get(topic_name)
+    }
+}
+
+impl SessionAuthentication {
+    pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
+        match self {
+            SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
+            SessionAuthentication::Task(auth) => Ok(auth.fetch_all_collection_names().await),
+        }
+    }
+
+    pub fn get_collection_for_topic<'a>(&'a self, topic_name: &'a str) -> anyhow::Result<&'a str> {
+        match self {
+            SessionAuthentication::User(_) => Ok(topic_name),
+            SessionAuthentication::Task(auth) => {
+                let (binding, _resource_config) = auth
+                    .get_binding_for_topic(topic_name)
+                    .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
+
+                Ok(binding
+                    .collection
+                    .as_ref()
+                    .context("missing collection in materialization binding")?
+                    .name
+                    .as_str())
+            }
+        }
+    }
 }
 
 /// Collection is the assembled metadata of a collection being accessed as a Kafka topic.
 pub struct Collection {
+    pub name: String,
     pub journal_client: journal::Client,
     pub key_ptr: Vec<doc::Pointer>,
     pub key_schema: avro::Schema,
@@ -37,9 +88,11 @@ pub struct Collection {
     pub spec: flow::CollectionSpec,
     pub uuid_ptr: doc::Pointer,
     pub value_schema: avro::Schema,
+    pub extractors: Vec<utils::CustomizableExtractor>,
 }
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
+#[derive(Debug)]
 pub struct Partition {
     pub create_revision: i64,
     pub spec: broker::JournalSpec,
@@ -49,103 +102,133 @@ pub struct Partition {
     pub route: broker::Route,
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct PartitionOffset {
     pub fragment_start: i64,
     pub offset: i64,
     pub mod_time: i64,
 }
 
+impl Default for PartitionOffset {
+    fn default() -> Self {
+        Self {
+            mod_time: -1, // UNKNOWN_TIMESTAMP
+            fragment_start: 0,
+            offset: 0,
+        }
+    }
+}
+
 impl Collection {
-    /// Build a Collection by fetching its spec, a authenticated data-plane access token, and its partitions.
+    /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
     pub async fn new(
-        client: &flow_client::Client,
-        collection: &str,
-        deletion_mode: DeletionMode,
+        app: &App,
+        auth: &SessionAuthentication,
+        pg_client: &postgrest::Postgrest,
+        topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
         let not_before = uuid::Clock::default();
-        let pg_client = client.pg_client();
 
-        // Build a journal client and use it to fetch partitions while concurrently
-        // fetching the collection's metadata from the control plane.
-        let client_partitions = async {
-            let journal_client = Self::build_journal_client(&client, collection).await?;
-            let partitions = Self::fetch_partitions(&journal_client, collection).await?;
-            Ok((journal_client, partitions))
-        };
-        let (spec, client_partitions): (anyhow::Result<_>, anyhow::Result<_>) =
-            futures::join!(Self::fetch_spec(&pg_client, collection), client_partitions);
-
-        let Some(spec) = spec? else { return Ok(None) };
-        let (journal_client, partitions) = client_partitions?;
-
-        let key_ptr: Vec<doc::Pointer> =
-            spec.key.iter().map(|p| doc::Pointer::from_str(p)).collect();
-        let uuid_ptr = doc::Pointer::from_str(&spec.uuid_ptr);
-
-        let json_schema = if spec.read_schema_json.is_empty() {
-            &spec.write_schema_json
+        let binding = if let SessionAuthentication::Task(task_auth) = auth {
+            if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name) {
+                Some(binding)
+            } else if let Some(suggested_binding) = task_auth.built_spec.bindings.iter().find(|b| {
+                b.collection
+                    .as_ref()
+                    .expect("missing collection in materialization binding")
+                    .name
+                    == topic_name
+            }) {
+                let correct_topic_name = serde_json::from_str::<
+                    crate::connector::DekafResourceConfig,
+                >(&suggested_binding.resource_config_json)?
+                .topic_name;
+                bail!(
+                    "{topic_name} is not a binding of {}. Did you mean {}?",
+                    task_auth.task_name,
+                    correct_topic_name
+                )
+            } else {
+                bail!("{topic_name} is not a binding of {}", task_auth.task_name)
+            }
         } else {
-            &spec.read_schema_json
+            None
+        };
+
+        let collection_name = &auth.get_collection_for_topic(topic_name)?;
+
+        let Some(collection_spec) = Self::fetch_spec(&pg_client, collection_name).await? else {
+            return Ok(None);
+        };
+        let partition_template_name = collection_spec
+            .partition_template
+            .as_ref()
+            .map(|spec| spec.name.to_owned())
+            .ok_or(anyhow!("missing partition template"))?;
+
+        let journal_client =
+            Self::build_journal_client(app, &auth, collection_name, &partition_template_name)
+                .await?;
+        let partitions = Self::fetch_partitions(&journal_client, collection_name).await?;
+
+        tracing::debug!(?partitions, "Got partitions");
+
+        let key_ptr: Vec<doc::Pointer> = collection_spec
+            .key
+            .iter()
+            .map(|p| doc::Pointer::from_str(p))
+            .collect();
+        let uuid_ptr = doc::Pointer::from_str(&collection_spec.uuid_ptr);
+
+        let json_schema = if collection_spec.read_schema_json.is_empty() {
+            &collection_spec.write_schema_json
+        } else {
+            &collection_spec.read_schema_json
         };
 
         let json_schema = doc::validation::build_bundle(json_schema)?;
         let validator = doc::Validator::new(json_schema)?;
-        let mut shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let collection_schema_shape =
+            doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-        if matches!(deletion_mode, DeletionMode::CDC) {
-            if let Some(meta) = shape
-                .object
-                .properties
-                .iter_mut()
-                .find(|prop| prop.name.to_string() == "_meta".to_string())
-            {
-                if let Err(idx) =
-                    meta.shape.object.properties.binary_search_by(|prop| {
-                        prop.name.to_string().cmp(&"is_deleted".to_string())
-                    })
-                {
-                    meta.shape.object.properties.insert(
-                        idx,
-                        doc::shape::ObjProperty {
-                            name: "is_deleted".into(),
-                            is_required: true,
-                            shape: doc::Shape {
-                                type_: json::schema::types::INTEGER,
-                                ..doc::Shape::nothing()
-                            },
-                        },
-                    );
-                } else {
-                    tracing::warn!(
-                        collection,
-                        "This collection's schema already has a /_meta/is_deleted location!"
-                    );
-                }
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Schema for collection {collection} missing /_meta"
-                ));
-            }
-        }
+        let (value_schema, extractors) = if let Some(binding) = binding {
+            let selection = binding
+                .field_selection
+                .clone()
+                .context("missing field selection in materialization binding")?;
 
-        let (key_schema, value_schema) = avro::shape_to_avro(shape, &key_ptr);
+            utils::build_field_extractors(
+                collection_schema_shape.clone(),
+                selection,
+                collection_spec.projections.clone(),
+                auth.deletions(),
+            )?
+        } else {
+            (
+                avro::shape_to_avro(collection_schema_shape.clone()),
+                vec![doc::Extractor::new("/", &doc::SerPolicy::noop()).into()],
+            )
+        };
+
+        let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
         tracing::debug!(
-            collection,
+            collection_name,
             partitions = partitions.len(),
             "built collection"
         );
 
         Ok(Some(Self {
+            name: collection_name.to_string(),
             journal_client,
             key_ptr,
             key_schema,
             not_before,
             partitions,
-            spec,
+            spec: collection_spec,
             uuid_ptr,
             value_schema,
+            extractors,
         }))
     }
 
@@ -173,17 +256,15 @@ impl Collection {
             built_spec: flow::CollectionSpec,
         }
 
-        let mut rows: Vec<Row> = client
-            .from("live_specs_ext")
-            .eq("spec_type", "collection")
-            .eq("catalog_name", collection)
-            .select("built_spec")
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("listing current collection specifications")?
-            .json()
-            .await?;
+        let mut rows: Vec<Row> = handle_postgrest_response(
+            client
+                .from("live_specs_ext")
+                .eq("spec_type", "collection")
+                .eq("catalog_name", collection)
+                .select("built_spec"),
+        )
+        .await
+        .context("listing current collection specifications")?;
 
         if let Some(Row { built_spec }) = rows.pop() {
             Ok(Some(built_spec))
@@ -193,6 +274,7 @@ impl Collection {
     }
 
     /// Fetch the journals of a collection and map into stable-order partitions.
+    #[tracing::instrument(skip(journal_client))]
     async fn fetch_partitions(
         journal_client: &journal::Client,
         collection: &str,
@@ -204,10 +286,8 @@ impl Collection {
             }),
             ..Default::default()
         };
-        let response = journal_client
-            .list(request)
-            .await
-            .context(format!("fetching partitions for {collection}"))?;
+
+        let response = journal_client.list(request).await?;
 
         let mut partitions = Vec::with_capacity(response.journals.len());
 
@@ -238,72 +318,113 @@ impl Collection {
         let Some(partition) = self.partitions.get(partition_index) else {
             return Ok(None);
         };
-        let (not_before_sec, _) = self.not_before.to_unix();
 
-        let begin_mod_time = if timestamp_millis == -1 {
-            i64::MAX // Sentinel for "largest available offset",
-        } else if timestamp_millis == -2 {
-            0 // Sentinel for "first available offset"
-        } else {
-            let timestamp = timestamp_millis / 1_000;
-            if timestamp < not_before_sec as i64 {
-                not_before_sec as i64
-            } else {
-                timestamp as i64
+        match partition.spec.suspend {
+            Some(suspend) if suspend.level == journal_spec::suspend::Level::Full as i32 => {
+                return Ok(Some(PartitionOffset {
+                    fragment_start: suspend.offset,
+                    offset: suspend.offset,
+                    mod_time: -1, //UNKNOWN_TIMESTAMP
+                }));
             }
-        };
+            _ => {
+                let (not_before_sec, _) = self.not_before.to_unix();
 
-        let request = broker::FragmentsRequest {
-            journal: partition.spec.name.clone(),
-            begin_mod_time,
-            page_limit: 1,
-            ..Default::default()
-        };
-        let response = self.journal_client.list_fragments(request).await?;
-
-        let offset_data = match response.fragments.get(0) {
-            Some(broker::fragments_response::Fragment {
-                spec: Some(spec), ..
-            }) => {
-                if timestamp_millis == -1 {
-                    PartitionOffset {
-                        fragment_start: spec.begin,
-                        // Subtract one to reflect the largest fetch-able offset of the fragment.
-                        offset: spec.end - 1,
-                        mod_time: spec.mod_time,
-                    }
+                let begin_mod_time = if timestamp_millis == -1 {
+                    i64::MAX // Sentinel for "largest available offset",
+                } else if timestamp_millis == -2 {
+                    0 // Sentinel for "first available offset"
                 } else {
-                    PartitionOffset {
-                        fragment_start: spec.begin,
-                        offset: spec.begin,
-                        mod_time: spec.mod_time,
+                    let timestamp = timestamp_millis / 1_000;
+                    if timestamp < not_before_sec as i64 {
+                        not_before_sec as i64
+                    } else {
+                        timestamp as i64
                     }
-                }
+                };
+
+                let request = broker::FragmentsRequest {
+                    journal: partition.spec.name.clone(),
+                    begin_mod_time,
+                    page_limit: 1,
+                    ..Default::default()
+                };
+                let response = self.journal_client.list_fragments(request).await?;
+
+                let offset_data = match response.fragments.get(0) {
+                    Some(broker::fragments_response::Fragment {
+                        spec: Some(spec), ..
+                    }) => {
+                        if timestamp_millis == -1 {
+                            PartitionOffset {
+                                fragment_start: spec.begin,
+                                // Subtract one to reflect the largest fetch-able offset of the fragment.
+                                offset: spec.end - 1,
+                                mod_time: spec.mod_time,
+                            }
+                        } else {
+                            PartitionOffset {
+                                fragment_start: spec.begin,
+                                offset: spec.begin,
+                                mod_time: spec.mod_time,
+                            }
+                        }
+                    }
+                    _ => PartitionOffset::default(),
+                };
+
+                tracing::debug!(
+                    collection = self.spec.name,
+                    ?offset_data,
+                    partition_index,
+                    timestamp_millis,
+                    "fetched offset"
+                );
+
+                return Ok(Some(offset_data));
             }
-            _ => PartitionOffset::default(),
-        };
-
-        tracing::debug!(
-            collection = self.spec.name,
-            ?offset_data,
-            partition_index,
-            timestamp_millis,
-            "fetched offset"
-        );
-
-        Ok(Some(offset_data))
+        }
     }
 
     /// Build a journal client by resolving the collections data-plane gateway and an access token.
     async fn build_journal_client(
-        client: &flow_client::Client,
-        collection: &str,
+        app: &App,
+        auth: &SessionAuthentication,
+        collection_name: &str,
+        partition_template_name: &str,
     ) -> anyhow::Result<journal::Client> {
-        let (_, journal_client) = flow_client::fetch_collection_authorization(client, collection)
-            .await
-            .context(format!("building journal client for {collection}"))?;
+        match auth {
+            SessionAuthentication::User(user_auth) => {
+                let (_, journal_client) = flow_client::fetch_user_collection_authorization(
+                    &user_auth.client,
+                    collection_name,
+                )
+                .await?;
 
-        Ok(journal_client)
+                Ok(journal_client)
+            }
+            SessionAuthentication::Task(task_auth) => {
+                let (journal_client, _claims) = flow_client::fetch_task_authorization(
+                    &app.client_base,
+                    &dekaf_shard_template_id(&task_auth.task_name),
+                    &app.data_plane_fqdn,
+                    &app.data_plane_signer,
+                    proto_flow::capability::AUTHORIZE
+                        | proto_gazette::capability::LIST
+                        | proto_gazette::capability::READ,
+                    gazette::broker::LabelSelector {
+                        include: Some(labels::build_set([(
+                            "name:prefix",
+                            format!("{partition_template_name}/").as_str(),
+                        )])),
+                        exclude: None,
+                    },
+                )
+                .await?;
+
+                Ok(journal_client)
+            }
+        }
     }
 
     async fn registered_schema_id(
@@ -323,40 +444,134 @@ impl Collection {
         let schema: serde_json::Value = serde_json::from_str(&schema.canonical_form()).unwrap();
         let schema_md5 = format!("{:x}", md5::compute(&schema.to_string()));
 
-        let mut rows: Vec<Row> = client
-            .from("registered_avro_schemas")
-            .eq("avro_schema_md5", &schema_md5)
-            .select("registry_id")
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("querying for an already-registered schema")?
-            .json()
-            .await?;
+        let mut rows: Vec<Row> = handle_postgrest_response(
+            client
+                .from("registered_avro_schemas")
+                .eq("avro_schema_md5", &schema_md5)
+                .select("registry_id"),
+        )
+        .await
+        .context("querying for an already-registered schema")?;
 
         if let Some(Row { registry_id }) = rows.pop() {
             return Ok(registry_id);
         }
 
-        let mut rows: Vec<Row> = client
-            .from("registered_avro_schemas")
-            .insert(
+        let mut rows: Vec<Row> = handle_postgrest_response(
+            client.from("registered_avro_schemas").insert(
                 serde_json::json!([{
                     "avro_schema": schema,
                     "catalog_name": catalog_name,
                 }])
                 .to_string(),
-            )
-            .execute()
-            .await
-            .and_then(|r| r.error_for_status())
-            .context("inserting new registered schema")?
-            .json()
-            .await?;
+            ),
+        )
+        .await
+        .context("inserting new registered schema")?;
 
         let registry_id = rows.pop().unwrap().registry_id;
         tracing::info!(schema_md5, registry_id, "registered new Avro schema");
 
         Ok(registry_id)
     }
+}
+
+async fn handle_postgrest_response<T: serde::de::DeserializeOwned>(
+    builder: postgrest::Builder,
+) -> anyhow::Result<T> {
+    let resp = builder.execute().await?;
+    let status = resp.status();
+
+    if status.is_client_error() || status.is_server_error() {
+        bail!(
+            "{}: {}",
+            status.canonical_reason().unwrap_or(status.as_str()),
+            resp.text().await?
+        )
+    } else {
+        Ok(resp.json().await?)
+    }
+}
+
+// Claims returned by `/authorize/dekaf`
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AccessTokenClaims {
+    pub exp: u64,
+}
+#[tracing::instrument(skip(client, data_plane_signer), err)]
+pub async fn fetch_dekaf_task_auth(
+    client: flow_client::Client,
+    shard_template_id: &str,
+    data_plane_fqdn: &str,
+    data_plane_signer: &jsonwebtoken::EncodingKey,
+) -> anyhow::Result<(
+    flow_client::Client,
+    AccessTokenClaims,
+    String,
+    String,
+    proto_flow::flow::MaterializationSpec,
+)> {
+    let request_token = flow_client::client::build_task_authorization_request_token(
+        shard_template_id,
+        data_plane_fqdn,
+        data_plane_signer,
+        proto_flow::capability::AUTHORIZE,
+        Default::default(),
+    )?;
+    let models::authorizations::DekafAuthResponse {
+        token,
+        ops_logs_journal,
+        ops_stats_journal,
+        task_spec,
+        retry_millis: _,
+    } = loop {
+        let response: models::authorizations::DekafAuthResponse = client
+            .agent_unary(
+                "/authorize/dekaf",
+                &models::authorizations::TaskAuthorizationRequest {
+                    token: request_token.clone(),
+                },
+            )
+            .await?;
+        if response.retry_millis != 0 {
+            tracing::warn!(
+                secs = response.retry_millis as f64 / 1000.0,
+                "authorization service tentatively rejected our request, but will retry before failing"
+            );
+            () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
+            continue;
+        }
+        break response;
+    };
+    let claims = flow_client::parse_jwt_claims(token.as_str())?;
+
+    Ok((
+        client.with_user_access_token(Some(token)),
+        claims,
+        ops_logs_journal,
+        ops_stats_journal,
+        serde_json::from_str(
+            task_spec
+                .ok_or(anyhow::anyhow!(
+                    "task_spec is only None when we need to retry the auth request"
+                ))?
+                .get(),
+        )?,
+    ))
+}
+
+pub async fn extract_dekaf_config(
+    spec: &proto_flow::flow::MaterializationSpec,
+) -> anyhow::Result<connector::DekafConfig> {
+    if spec.connector_type != proto_flow::flow::materialization_spec::ConnectorType::Dekaf as i32 {
+        anyhow::bail!("Not a Dekaf materialization")
+    }
+    let config = serde_json::from_str::<models::DekafConfig>(&spec.config_json)?;
+
+    let decrypted_endpoint_config =
+        unseal::decrypt_sops(&RawValue::from_str(&config.config.to_string())?).await?;
+
+    let dekaf_config =
+        serde_json::from_str::<connector::DekafConfig>(&decrypted_endpoint_config.to_string())?;
+    Ok(dekaf_config)
 }

@@ -1,0 +1,7 @@
+---
+source: crates/dekaf/tests/dekaf_integration_test.rs
+expression: "&decoded_payload"
+---
+{
+  "field_a": "foo"
+}

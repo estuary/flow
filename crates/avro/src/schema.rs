@@ -135,7 +135,7 @@ fn object_to_avro(loc: json::Location, obj: doc::shape::ObjShape) -> avro::Schem
     // additional properties, then interpret it as an Avro map.
     if extra.type_ != types::INVALID && obj.properties.is_empty() {
         let schema = shape_to_avro(loc, extra, true);
-        return avro::Schema::Map(Box::new(schema));
+        return avro::Schema::map(schema);
     }
 
     // Otherwise, build a Record which may have a placeholder
@@ -166,7 +166,7 @@ fn object_to_avro(loc: json::Location, obj: doc::shape::ObjShape) -> avro::Schem
 
     if extra.type_ != types::INVALID {
         let schema = shape_to_avro(loc.push_prop(FLOW_EXTRA_NAME), extra, true);
-        let schema = avro::Schema::Map(Box::new(schema));
+        let schema = avro::Schema::map(schema);
 
         fields.push(avro::RecordField {
             aliases: None,
@@ -205,7 +205,7 @@ fn array_to_avro(loc: json::Location, shape: doc::shape::ArrayShape) -> avro::Sc
     }
 
     let items = shape_to_avro(loc.push_prop("_items"), items, true);
-    avro::Schema::Array(Box::new(items))
+    avro::Schema::array(items)
 }
 
 // Map a location into a special Schema holding a string-encoded JSON value.

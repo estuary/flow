@@ -4,12 +4,13 @@ extern crate allocator;
 use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
-use dekaf::{KafkaApiClient, Session};
+use dekaf::{log_appender::GazetteWriter, logging, Session};
 use flow_client::{
-    DEFAULT_AGENT_URL, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+    DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
+    LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
+    LOCAL_PG_URL,
 };
 use futures::{FutureExt, TryStreamExt};
-use rsasl::config::SASLConfig;
 use rustls::pki_types::CertificateDer;
 use std::{
     fs::File,
@@ -18,7 +19,6 @@ use std::{
     sync::Arc,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 use url::Url;
 
 /// A Kafka-compatible proxy for reading Estuary Flow collections.
@@ -29,6 +29,7 @@ pub struct Cli {
     #[arg(
         long,
         default_value = DEFAULT_PG_URL.as_str(),
+        default_value_if("local", "true", Some(LOCAL_PG_URL.as_str())),
         env = "API_ENDPOINT"
     )]
     api_endpoint: Url,
@@ -36,13 +37,22 @@ pub struct Cli {
     #[arg(
         long,
         default_value = DEFAULT_PG_PUBLIC_TOKEN,
+        default_value_if("local", "true", Some(LOCAL_PG_PUBLIC_TOKEN)),
         env = "API_KEY"
     )]
     api_key: String,
+    /// Endpoint of the Estuary agent API to use.
+    #[arg(
+            long,
+            default_value = DEFAULT_AGENT_URL.as_str(),
+            default_value_if("local", "true", Some(LOCAL_AGENT_URL.as_str())),
+            env = "AGENT_ENDPOINT"
+        )]
+    agent_endpoint: Url,
 
     /// When true, override the configured API endpoint and token,
     /// in preference of a local control plane.
-    #[arg(long)]
+    #[arg(long, action(clap::ArgAction::SetTrue))]
     local: bool,
     /// The hostname to advertise when enumerating Kafka "brokers".
     /// This is the hostname at which `dekaf` may be accessed.
@@ -58,12 +68,9 @@ pub struct Cli {
     #[arg(long, default_value = "9094", env = "METRICS_PORT")]
     metrics_port: u16,
 
-    /// The hostname of the default Kafka broker to use for serving group management APIs
-    #[arg(long, env = "DEFAULT_BROKER_HOSTNAME")]
-    default_broker_hostname: String,
-    /// The port of the default Kafka broker to use for serving group management APIs
-    #[arg(long, default_value = "9092", env = "DEFAULT_BROKER_PORT")]
-    default_broker_port: u16,
+    /// List of Kafka broker URLs to try connecting to for group management APIs
+    #[arg(long, env = "DEFAULT_BROKER_URLS", value_delimiter = ',')]
+    default_broker_urls: Vec<String>,
     /// The username for the default Kafka broker to use for serving group management APIs.
     /// Currently only supports SASL PLAIN username/password auth.
     #[arg(long, env = "DEFAULT_BROKER_USERNAME")]
@@ -72,6 +79,19 @@ pub struct Cli {
     #[arg(long, env = "DEFAULT_BROKER_PASSWORD")]
     default_broker_password: String,
 
+    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
+    /// Brokers to use for connections using the legacy refresh-token based connection mode
+    #[arg(long, env = "LEGACY_MODE_BROKER_URLS", value_delimiter = ',')]
+    legacy_mode_broker_urls: Vec<String>,
+    /// The username for the Kafka broker to use for serving group management APIs for connections
+    /// using the legacy refresh-token based connection mode
+    #[arg(long, env = "LEGACY_MODE_BROKER_USERNAME")]
+    legacy_mode_broker_username: String,
+    /// The password for the Kafka broker to use for serving group management API for connections
+    /// using the legacy refresh-token based connection modes
+    #[arg(long, env = "LEGACY_MODE_BROKER_PASSWORD")]
+    legacy_mode_broker_password: String,
+    // ------------------------------------------------------------------------------------------------
     /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
     /// to the upstream Kafka broker, e.g topic names in group management metadata.
     #[arg(long, env = "ENCRYPTION_SECRET")]
@@ -80,6 +100,28 @@ pub struct Cli {
     /// How long to wait for a message before closing an idle connection
     #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     idle_session_timeout: std::time::Duration,
+
+    /// The fully-qualified domain name of the data plane that Dekaf is running inside of
+    #[arg(
+        long,
+        env = "DATA_PLANE_FQDN",
+        default_value=DEFAULT_DATA_PLANE_FQDN,
+        default_value_if("local", "true", Some(LOCAL_DATA_PLANE_FQDN)),
+    )]
+    data_plane_fqdn: String,
+    /// An HMAC key recognized by the data plane that Dekaf is running inside of. Used to
+    /// sign data-plane access token requests.
+    #[arg(
+        long,
+        env = "DATA_PLANE_ACCESS_KEY",
+        default_value_if("local", "true", Some(LOCAL_DATA_PLANE_HMAC)),
+        // This is a work-around to clap_derive's somewhat buggy handling of `default_value_if`.
+        // The end result is that `data_plane_access_key` is required iff `--local` is not specified.
+        // If --local is specified, it will use the value in LOCAL_DATA_PLANE_HMAC unless overridden.
+        // See https://github.com/clap-rs/clap/issues/4086 and https://github.com/clap-rs/clap/issues/4918
+        required(false)
+    )]
+    data_plane_access_key: String,
 
     #[command(flatten)]
     tls: Option<TlsArgs>,
@@ -100,44 +142,66 @@ struct TlsArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
-        .from_env_lossy();
-
-    tracing_subscriber::fmt::fmt()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
-    tracing::info!("Starting dekaf");
-
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .unwrap();
-
     let (api_endpoint, api_key) = if cli.local {
         (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
     } else {
         (cli.api_endpoint, cli.api_key)
     };
 
-    let upstream_kafka_host = format!(
-        "tcp://{}:{}",
-        cli.default_broker_hostname, cli.default_broker_port
-    );
-
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
         secret: cli.encryption_secret.to_owned(),
-        client_base: flow_client::Client::new(
-            DEFAULT_AGENT_URL.to_owned(),
-            api_key,
-            api_endpoint,
-            None,
-        ),
+        data_plane_signer: jsonwebtoken::EncodingKey::from_base64_secret(
+            &cli.data_plane_access_key,
+        )?,
+        data_plane_fqdn: cli.data_plane_fqdn,
+        client_base: flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None),
     });
+
+    logging::install();
+
+    tracing::info!("Starting dekaf");
+
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .unwrap();
+
+    let upstream_kafka_urls = cli
+        .default_broker_urls
+        .clone()
+        .into_iter()
+        .map(|url| {
+            {
+                let parsed = Url::parse(&url).expect("invalid broker URL");
+                Ok::<_, anyhow::Error>(format!(
+                    "tcp://{}:{}",
+                    parsed.host().context("invalid broker URL")?,
+                    parsed.port().unwrap_or(9092)
+                ))
+            }
+            .context(url)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
+    let legacy_mode_kafka_urls = cli
+        .default_broker_urls
+        .into_iter()
+        .map(|url| {
+            {
+                let parsed = Url::parse(&url).expect("invalid broker URL");
+                Ok::<_, anyhow::Error>(format!(
+                    "tcp://{}:{}",
+                    parsed.host().context("invalid broker URL")?,
+                    parsed.port().unwrap_or(9092)
+                ))
+            }
+            .context(url)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    // ------------------------------------------------------------------------------------------------
 
     let mut stop = async {
         tokio::signal::ctrl_c()
@@ -162,6 +226,8 @@ async fn main() -> anyhow::Result<()> {
 
     let broker_username = cli.default_broker_username.as_str();
     let broker_password = cli.default_broker_password.as_str();
+    let legacy_broker_username = cli.legacy_mode_broker_username.as_str();
+    let legacy_broker_password = cli.legacy_mode_broker_password.as_str();
     if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
             tls_cfg.certificate_file.clone().unwrap(),
@@ -210,18 +276,24 @@ async fn main() -> anyhow::Result<()> {
                     };
 
                     tokio::spawn(
-                        serve(
-                            Session::new(
-                                app.clone(),
-                                cli.encryption_secret.to_owned(),
-                                upstream_kafka_host.to_string(),
-                                broker_username.to_string(),
-                                broker_password.to_string()
-                            ),
-                            socket,
-                            addr,
-                            cli.idle_session_timeout,
-                            stop.clone()
+                        logging::forward_logs(
+                            GazetteWriter::new(app.clone()),
+                            serve(
+                                Session::new(
+                                    app.clone(),
+                                    cli.encryption_secret.to_owned(),
+                                    upstream_kafka_urls.clone(),
+                                    broker_username.to_string(),
+                                    broker_password.to_string(),
+                                    legacy_mode_kafka_urls.clone(),
+                                    legacy_broker_username.to_string(),
+                                    legacy_broker_password.to_string()
+                                ),
+                                socket,
+                                addr,
+                                cli.idle_session_timeout,
+                                stop.clone()
+                            )
                         )
                     );
                 }
@@ -245,18 +317,24 @@ async fn main() -> anyhow::Result<()> {
                     socket.set_nodelay(true)?;
 
                     tokio::spawn(
-                        serve(
-                            Session::new(
-                                app.clone(),
-                                cli.encryption_secret.to_owned(),
-                                upstream_kafka_host.to_string(),
-                                broker_username.to_string(),
-                                broker_password.to_string()
-                            ),
-                            socket,
-                            addr,
-                            cli.idle_session_timeout,
-                            stop.clone()
+                        logging::forward_logs(
+                            GazetteWriter::new(app.clone()),
+                            serve(
+                                Session::new(
+                                    app.clone(),
+                                    cli.encryption_secret.to_owned(),
+                                    upstream_kafka_urls.clone(),
+                                    broker_username.to_string(),
+                                    broker_password.to_string(),
+                                    legacy_mode_kafka_urls.clone(),
+                                    legacy_broker_username.to_string(),
+                                    legacy_broker_password.to_string()
+                                ),
+                                socket,
+                                addr,
+                                cli.idle_session_timeout,
+                                stop.clone()
+                            )
                         )
                     );
                 }
@@ -268,7 +346,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(level = "info", ret, err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
+#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
 async fn serve<S>(
     mut session: Session,
     socket: S,

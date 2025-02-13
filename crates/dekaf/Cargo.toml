@@ -13,6 +13,7 @@ license.workspace = true
 allocator = { path = "../allocator" }
 avro = { path = "../avro" }
 doc = { path = "../doc" }
+extractors = { path = "../extractors" }
 flow-client = { path = "../flow-client" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -21,11 +22,13 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-unseal = { path = "../unseal" }
 simd-doc = { path = "../simd-doc" }
+tuple = { path = "../tuple" }
+unseal = { path = "../unseal" }
 
 aes-siv = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
 axum-server = { workspace = true }
@@ -40,6 +43,7 @@ hex = { workspace = true }
 hexdump = { workspace = true }
 humantime = { workspace = true }
 itertools = { workspace = true }
+jsonwebtoken = { workspace = true }
 kafka-protocol = { workspace = true }
 lazy_static = { workspace = true }
 lz4_flex = { workspace = true }
@@ -63,9 +67,26 @@ time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tokio-util = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+tracing-record-hierarchical = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 typestate = { workspace = true }
 url = { workspace = true }
 webpki = { workspace = true }
+apache-avro = { workspace = true }
+
+[dev-dependencies]
+async-process = { path = "../async-process" }
+flowctl = { path = "../flowctl" }
+locate-bin = { path = "../locate-bin" }
+
+apache-avro = { workspace = true }
+insta = { workspace = true }
+rdkafka = { workspace = true }
+reqwest = { workspace = true }
+schema_registry_converter = { workspace = true }
+tempfile = { workspace = true }
+tracing-test = { workspace = true }
