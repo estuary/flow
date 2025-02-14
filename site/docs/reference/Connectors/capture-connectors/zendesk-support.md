@@ -1,4 +1,4 @@
-# Zendesk Support
+# Zendesk Support (Deprecated)
 
 This connector captures data from Zendesk into Flow collections.
 
