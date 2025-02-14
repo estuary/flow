@@ -1,16 +1,13 @@
 use super::{Collection, Partition};
-use crate::connector::DeletionMode;
+use crate::{connector::DeletionMode, log_appender, logging, utils};
 use anyhow::{bail, Context};
 use bytes::{Buf, BufMut, BytesMut};
-use doc::{heap::ArchivedNode, AsNode, HeapNode, OwnedArchivedNode};
+use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
 use gazette::{broker, journal, uuid};
-use kafka_protocol::{
-    protocol::StrBytes,
-    records::{Compression, TimestampType},
-};
-use lazy_static::lazy_static;
+use itertools::Itertools;
+use kafka_protocol::records::{Compression, TimestampType};
 use lz4_flex::frame::BlockMode;
 
 pub struct Read {
@@ -27,11 +24,14 @@ pub struct Read {
     not_before: uuid::Clock,    // Not before this clock.
     stream: ReadJsonLines,      // Underlying document stream.
     uuid_ptr: doc::Pointer,     // Location of document UUID.
-    value_schema: avro::Schema, // Avro schema when encoding values.
     value_schema_id: u32,       // Registry ID of the value's schema.
+    extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>, // Projections to apply
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
     journal_name: String,
+
+    // Stats are aggregated per collection
+    collection_name: String,
 
     // Offset before which no documents should be emitted
     offset_start: i64,
@@ -48,16 +48,14 @@ pub enum BatchResult {
     TimeoutExceededBeforeTarget(bytes::Bytes),
     /// Read no docs, stopped reading because reached timeout
     TimeoutNoData,
+    // Read no docs because the journal is suspended
+    Suspended,
 }
 
 #[derive(Copy, Clone)]
 pub enum ReadTarget {
     Bytes(usize),
     Docs(usize),
-}
-
-lazy_static! {
-    static ref DELETION_INDICATOR_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/is_deleted");
 }
 
 impl Read {
@@ -70,7 +68,7 @@ impl Read {
         value_schema_id: u32,
         rewrite_offsets_from: Option<i64>,
         deletes: DeletionMode,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let (not_before_sec, _) = collection.not_before.to_unix();
 
         let stream = client.clone().read_json_lines(
@@ -87,7 +85,13 @@ impl Read {
             30,
         );
 
-        Self {
+        let avro::Schema::Record(root_schema) = &collection.value_schema else {
+            anyhow::bail!("Invalid schema");
+        };
+
+        let field_schemas = root_schema.fields.iter().cloned().map(|f| f.schema);
+
+        Ok(Self {
             offset,
             last_write_head: offset,
 
@@ -98,14 +102,17 @@ impl Read {
             not_before: collection.not_before,
             stream,
             uuid_ptr: collection.uuid_ptr.clone(),
-            value_schema: collection.value_schema.clone(),
             value_schema_id,
+            extractors: field_schemas
+                .zip(collection.extractors.clone().into_iter())
+                .collect_vec(),
 
             journal_name: partition.spec.name.clone(),
+            collection_name: collection.name.to_owned(),
             rewrite_offsets_from,
             deletes,
             offset_start: offset,
-        }
+        })
     }
 
     #[tracing::instrument(skip_all,fields(journal_name=self.journal_name))]
@@ -118,10 +125,9 @@ impl Read {
             Compression, Record, RecordBatchEncoder, RecordEncodeOptions,
         };
 
-        let mut alloc = bumpalo::Bump::new();
-
         let mut records: Vec<Record> = Vec::new();
-        let mut records_bytes: usize = 0;
+        let mut input_bytes = 0;
+        let mut output_bytes: usize = 0;
 
         // We Avro encode into Vec instead of BytesMut because Vec is
         // better optimized for pushing a single byte at a time.
@@ -135,7 +141,7 @@ impl Read {
         let mut did_timeout = false;
 
         while match target {
-            ReadTarget::Bytes(target_bytes) => records_bytes < target_bytes,
+            ReadTarget::Bytes(target_bytes) => output_bytes < target_bytes,
             ReadTarget::Docs(target_docs) => records.len() < target_docs,
         } {
             let read = match tokio::select! {
@@ -183,6 +189,10 @@ impl Read {
                             Err(err)
                         }
                     }
+                    Err(gazette::RetryError {
+                        inner: gazette::Error::BrokerStatus(broker::Status::Suspended),
+                        ..
+                    }) => return Ok((self, BatchResult::Suspended)),
                     Err(gazette::RetryError { inner, .. }) => Err(inner),
                 }?,
             };
@@ -269,20 +279,7 @@ impl Read {
                     tmp.push(0);
                     tmp.extend(self.value_schema_id.to_be_bytes());
 
-                    if matches!(self.deletes, DeletionMode::CDC) {
-                        let mut heap_node = HeapNode::from_node(root.get(), &alloc);
-                        let foo = DELETION_INDICATOR_PTR
-                            .create_heap_node(&mut heap_node, &alloc)
-                            .context("Unable to add deletion meta indicator")?;
-
-                        *foo = HeapNode::PosInt(if is_deletion { 1 } else { 0 });
-
-                        () = avro::encode(&mut tmp, &self.value_schema, &heap_node)?;
-
-                        alloc.reset();
-                    } else {
-                        () = avro::encode(&mut tmp, &self.value_schema, root.get())?;
-                    }
+                    self.extract_and_encode(root.get(), &mut tmp)?;
 
                     record_bytes += tmp.len();
                     buf.extend_from_slice(&tmp);
@@ -290,6 +287,9 @@ impl Read {
                     Some(buf.split().freeze())
                 };
 
+            if !is_control {
+                input_bytes += next_offset - self.offset;
+            }
             self.offset = next_offset;
 
             // Map documents into a Kafka offset which is their last
@@ -325,7 +325,7 @@ impl Read {
                 transactional: false,
                 value,
             });
-            records_bytes += record_bytes;
+            output_bytes += record_bytes;
         }
 
         let opts = RecordEncodeOptions {
@@ -340,16 +340,36 @@ impl Read {
             first_offset = records.first().map(|r| r.offset).unwrap_or_default(),
             last_offset = records.last().map(|r| r.offset).unwrap_or_default(),
             last_write_head = self.last_write_head,
-            ratio = buf.len() as f64 / (records_bytes + 1) as f64,
-            records_bytes,
+            ratio = buf.len() as f64 / (output_bytes + 1) as f64,
+            output_bytes,
             did_timeout,
             "batch complete"
         );
 
         metrics::counter!("dekaf_documents_read", "journal_name" => self.journal_name.to_owned())
             .increment(records.len() as u64);
+        metrics::counter!("dekaf_bytes_read_in", "journal_name" => self.journal_name.to_owned())
+            .increment(input_bytes as u64);
         metrics::counter!("dekaf_bytes_read", "journal_name" => self.journal_name.to_owned())
-            .increment(records_bytes as u64);
+            .increment(output_bytes as u64);
+
+        // Right: Input documents from journal. Left: Input docs from destination. Out: Right Keys ⋃ Left Keys
+        // Dekaf reads docs from journals, so it emits "right". It doesn't do reduction with a destination system,
+        // so it does not emit "left". And right now, it does not reduce at all, so "out" is the same as "right".
+        logging::get_log_forwarder().send_stats(
+            self.collection_name.to_owned(),
+            ops::stats::Binding {
+                right: Some(ops::stats::DocsAndBytes {
+                    docs_total: records.len() as u32,
+                    bytes_total: input_bytes as u64,
+                }),
+                out: Some(ops::stats::DocsAndBytes {
+                    docs_total: records.len() as u32,
+                    bytes_total: input_bytes as u64,
+                }),
+                left: None,
+            },
+        );
 
         let frozen = buf.freeze();
 
@@ -364,6 +384,37 @@ impl Read {
                 }
             },
         ))
+    }
+
+    /// Handles extracting and avro-encoding a particular field.
+    /// Note that since avro encoding can happen piecewise, there's never a need to
+    /// put together the whole extracted document, and instead we can build up the
+    /// encoded output iteratively
+    fn extract_and_encode<'a>(
+        &'a self,
+        original: &'a doc::ArchivedNode,
+        buf: &mut Vec<u8>,
+    ) -> anyhow::Result<()> {
+        self.extractors
+            .iter()
+            .try_fold(buf, |buf, (schema, extractor)| {
+                // This is the value extracted from the original doc
+                if let Err(e) = match extractor.extract(original) {
+                    Ok(value) => avro::encode(buf, schema, value),
+                    Err(default) => avro::encode(buf, schema, &default.into_owned()),
+                }
+                .context(format!(
+                    "Extracting field {extractor:#?}, schema: {schema:?}"
+                )) {
+                    let debug_serialized = serde_json::to_string(&original.to_debug_json_value())?;
+                    tracing::debug!(extractor=?extractor, ?schema, debug_serialized, ?e, "Failed to encode");
+                    return Err(e);
+                }
+
+                Ok::<_, anyhow::Error>(buf)
+            })?;
+
+        Ok(())
     }
 }
 

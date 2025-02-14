@@ -33,7 +33,7 @@ async-compression = { version = "0.3", features = [
 async-stripe = { version = "0.37", features = ["runtime-tokio-hyper"] }
 async-trait = "0.1"
 atty = "0.2"
-apache-avro = { version = "0.16.0", features = ["snappy"] }
+apache-avro = { version = "0.17.0", features = ["snappy"] }
 
 base64 = "0.13"
 bigdecimal = "0.3.0"
@@ -127,9 +127,9 @@ rkyv = { version = "0.7", features = ["archive_le"] }
 rsasl = { version = "2.1.0", default-features = false, features = [
     "provider",
     "config_builder",
-    "registry_static",
     "scram-sha-1",
     "scram-sha-2",
+    "oauthbearer",
     "plain",
 ] }
 rusqlite = { version = "0.29", features = ["bundled-full"] }
@@ -198,6 +198,7 @@ tracing-subscriber = { version = "0.3", features = [
     "env-filter",
     "fmt",
 ] }
+tracing-record-hierarchical = "0.1.1"
 rustls-native-certs = "0.7.2"
 zeroize = "1.6"
 
@@ -219,6 +220,12 @@ zip = "0.5"
 zstd = "0.11.2"
 derivative = "2.2.0"
 
+# AWS packages
+aws-config = "1.5.16"
+aws-types = "1.3.5"
+aws-credential-types = "1.2.0"
+aws-msk-iam-sasl-signer = "1.0.0"
+
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
 criterion = "0.3"
@@ -227,7 +234,14 @@ insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
 pretty_assertions = "1.4.0"
 rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = { version = "0.4" }
+rdkafka = "0.37"
+schema_registry_converter = { version = "4.2.0", features = [
+    "easy",
+    "avro",
+    "json",
+] }
 serial_test = "0.9"
+tracing-test = "0.2.5"
 wasm-bindgen-test = "0.3.13"
 
 # Used exclusively as build-dependencies

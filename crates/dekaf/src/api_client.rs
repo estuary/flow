@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context};
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, TryStreamExt};
-use gazette::broker;
 use kafka_protocol::{
     error::ParseResponseErrorCode,
     messages::{self, ApiKey},
@@ -11,17 +10,15 @@ use rsasl::{config::SASLConfig, mechname::Mechname, prelude::SASLClient};
 use rustls::RootCertStore;
 use std::{
     boxed::Box,
-    cell::Cell,
     collections::HashMap,
     fmt::Debug,
     io,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use std::{io::BufWriter, pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
-use tokio::sync::RwLock;
 use tokio_rustls::rustls;
-use tokio_util::{codec, task::AbortOnDropHandle};
+use tokio_util::codec;
 use tracing::instrument;
 use url::Url;
 
@@ -279,7 +276,7 @@ pub struct KafkaApiClient {
     /// A raw IO stream to the Kafka broker.
     conn: BoxedKafkaConnection,
     url: String,
-    sasl_config: Arc<SASLConfig>,
+    auth: KafkaClientAuth,
     versions: messages::ApiVersionsResponse,
     // Sometimes we need to connect to a particular broker, be it the coordinator
     // for a particular group, or the cluster controller for whatever reason.
@@ -291,10 +288,53 @@ pub struct KafkaApiClient {
 }
 
 impl KafkaApiClient {
-    /// Returns a [`KafkaApiClient`] for the given broker URL.
-    /// If a client for that broker already exists, return it
-    /// rather than creating a new one.
-    pub async fn connect_to(&mut self, broker_url: &str) -> anyhow::Result<&mut Self> {
+    #[instrument(name = "api_client_connect", skip(auth))]
+    pub async fn connect(broker_urls: &[String], auth: KafkaClientAuth) -> anyhow::Result<Self> {
+        tracing::debug!("Attempting to establish new connection");
+
+        for url in broker_urls {
+            match Self::try_connect(url, auth.clone()).await {
+                Ok(client) => return Ok(client),
+                Err(e) => {
+                    let error = e.context(format!("Failed to connect to {}", url));
+                    tracing::warn!(?error, "Connection attempt failed");
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "Failed to connect to any Kafka brokers. Attempted {} brokers",
+            broker_urls.len()
+        )
+    }
+
+    /// Attempt to open a connection to a specific broker address
+    async fn try_connect(url: &str, mut auth: KafkaClientAuth) -> anyhow::Result<Self> {
+        let mut conn = async_connect(url)
+            .await
+            .context("Failed to establish TCP connection")?;
+
+        tracing::debug!("Authenticating connection");
+        sasl_auth(&mut conn, url, auth.sasl_config().await?)
+            .await
+            .context("SASL authentication failed")?;
+
+        let versions = get_versions(&mut conn)
+            .await
+            .context("Failed to negotiate protocol versions")?;
+
+        Ok(Self {
+            conn,
+            url: url.to_string(),
+            auth,
+            versions,
+            clients: HashMap::new(),
+        })
+    }
+
+    /// Returns a [`KafkaApiClient`] for the given broker URL. If a client
+    /// for that broker already exists, return it rather than creating a new one.
+    async fn client_for_broker(&mut self, broker_url: &str) -> anyhow::Result<&mut Self> {
         if broker_url.eq(self.url.as_str()) {
             return Ok(self);
         }
@@ -302,7 +342,7 @@ impl KafkaApiClient {
         if let std::collections::hash_map::Entry::Vacant(entry) =
             self.clients.entry(broker_url.to_string())
         {
-            let new_client = Self::connect(broker_url, self.sasl_config.clone()).await?;
+            let new_client = Self::try_connect(broker_url, self.auth.clone()).await?;
 
             entry.insert(new_client);
         }
@@ -311,24 +351,6 @@ impl KafkaApiClient {
             .clients
             .get_mut(broker_url)
             .expect("guarinteed to be present"))
-    }
-
-    #[instrument(name = "api_client_connect", skip(sasl_config))]
-    pub async fn connect(broker_url: &str, sasl_config: Arc<SASLConfig>) -> anyhow::Result<Self> {
-        tracing::debug!("Attempting to establish a new connection!");
-        let mut conn = async_connect(broker_url).await?;
-        tracing::debug!("Authenticating opened connection");
-        sasl_auth(&mut conn, broker_url, sasl_config.clone()).await?;
-
-        let versions = get_versions(&mut conn).await?;
-
-        Ok(Self {
-            conn,
-            url: broker_url.to_string(),
-            sasl_config,
-            versions,
-            clients: HashMap::new(),
-        })
     }
 
     /// Send a request and wait for the response. Per Kafka wire protocol docs:
@@ -374,8 +396,7 @@ impl KafkaApiClient {
             )
             .await?;
 
-        let (coord_host, coord_port) = if resp.coordinators.len() > 0 {
-            let coord = resp.coordinators.get(0).expect("already checked length");
+        let (coord_host, coord_port) = if let Some(coord) = resp.coordinators.first() {
             (coord.host.as_str(), coord.port)
         } else {
             (resp.host.as_str(), resp.port)
@@ -386,7 +407,7 @@ impl KafkaApiClient {
         Ok(if coord_host.len() == 0 && coord_port == -1 {
             self
         } else {
-            self.connect_to(&coord_url).await?
+            self.client_for_broker(&coord_url).await?
         })
     }
 
@@ -412,7 +433,7 @@ impl KafkaApiClient {
 
         let controller_url = format!("tcp://{}:{}", controller.host.to_string(), controller.port);
 
-        self.connect_to(&controller_url).await
+        self.client_for_broker(&controller_url).await
     }
 
     pub fn supported_versions<R: Request>(
@@ -488,5 +509,67 @@ impl KafkaApiClient {
 
             Ok(())
         }
+    }
+}
+
+#[derive(Clone)]
+pub enum KafkaClientAuth {
+    NonRefreshing(Arc<SASLConfig>),
+    MSK {
+        aws_region: String,
+        provider: aws_credential_types::provider::SharedCredentialsProvider,
+        cached: Option<(Arc<SASLConfig>, i64)>,
+    },
+}
+
+impl KafkaClientAuth {
+    async fn sasl_config(&mut self) -> anyhow::Result<Arc<SASLConfig>> {
+        match self {
+            KafkaClientAuth::NonRefreshing(cfg) => Ok(cfg.clone()),
+            KafkaClientAuth::MSK {
+                aws_region,
+                provider,
+                cached,
+            } => {
+                if let Some((cfg, exp)) = cached {
+                    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+                    if (*exp as u128) - now < 30 {
+                        return Ok(cfg.clone());
+                    }
+                }
+
+                let (token, exp) =
+                    aws_msk_iam_sasl_signer::generate_auth_token_from_credentials_provider(
+                        aws_types::region::Region::new(aws_region.clone()),
+                        provider.clone(),
+                    )
+                    .await?;
+
+                let callback = MSKCredentialsProvider { token };
+
+                let cfg = SASLConfig::builder()
+                    .with_defaults()
+                    .with_callback(callback)?;
+
+                cached.replace((cfg.clone(), exp));
+
+                Ok(cfg)
+            }
+        }
+    }
+}
+
+struct MSKCredentialsProvider {
+    token: String,
+}
+impl rsasl::callback::SessionCallback for MSKCredentialsProvider {
+    fn callback(
+        &self,
+        _session_data: &rsasl::callback::SessionData,
+        _context: &rsasl::callback::Context,
+        request: &mut rsasl::callback::Request<'_>,
+    ) -> Result<(), rsasl::prelude::SessionError> {
+        request.satisfy::<rsasl::property::OAuthBearerToken>(&self.token)?;
+        Ok(())
     }
 }
