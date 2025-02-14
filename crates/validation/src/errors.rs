@@ -81,7 +81,7 @@ pub enum Error {
     PtrRegexUnmatched { ptr: String, unmatched: String },
     #[error("location {ptr} is prohibited from ever existing by the schema {schema}")]
     PtrCannotExist { ptr: String, schema: Url },
-    #[error("location {ptr} accepts {type_:?} in schema {schema}, but locations used as keys may only be null-able numbers, strings, or booleans")]
+    #[error("location {ptr} accepts {type_:?} in schema {schema}, but locations used as keys may only be null-able integers, strings, or booleans")]
     KeyWrongType {
         ptr: String,
         type_: types::Set,
