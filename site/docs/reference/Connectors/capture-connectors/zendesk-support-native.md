@@ -8,20 +8,33 @@ It is available for use in the Flow web application. For local development or op
 
 The following data resources are supported through the Zendesk API:
 
+* [Account attributes](https://developer.zendesk.com/api-reference/ticketing/ticket-management/skill_based_routing/#list-account-attributes)
 * [Audit logs](https://developer.zendesk.com/api-reference/ticketing/account-configuration/audit_logs/#list-audit-logs)
+* [Automations](https://developer.zendesk.com/api-reference/ticketing/business-rules/automations/#list-automations)
 * [Brands](https://developer.zendesk.com/api-reference/ticketing/account-configuration/brands/)
+* [Custom roles](https://developer.zendesk.com/api-reference/ticketing/account-configuration/custom_roles/)
+* [Group memberships](https://developer.zendesk.com/api-reference/ticketing/groups/group_memberships/)
 * [Groups](https://developer.zendesk.com/api-reference/ticketing/groups/groups/)
 * [Macros](https://developer.zendesk.com/api-reference/ticketing/business-rules/macros/)
+* [Organizations](https://developer.zendesk.com/api-reference/ticketing/ticket-management/incremental_exports/#incremental-organization-export)
 * [Organization memberships](https://developer.zendesk.com/api-reference/ticketing/organizations/organization_memberships/)
+* [Posts](https://developer.zendesk.com/api-reference/help_center/help-center-api/posts/#list-posts)
+* [Post comments](https://developer.zendesk.com/api-reference/help_center/help-center-api/post_comments/#list-comments)
+* [Post comment votes](https://developer.zendesk.com/api-reference/help_center/help-center-api/votes/#list-votes)
+* [Post votes](https://developer.zendesk.com/api-reference/help_center/help-center-api/votes/#list-votes)
 * [Satisfaction ratings](https://developer.zendesk.com/api-reference/ticketing/ticket-management/satisfaction_ratings/)
+* [Schedules](https://developer.zendesk.com/api-reference/ticketing/ticket-management/schedules/)
+* [SLA policies](https://developer.zendesk.com/api-reference/ticketing/business-rules/sla_policies/)
 * [Tags](https://developer.zendesk.com/api-reference/ticketing/ticket-management/tags/)
 * [Ticket audits](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_audits/)
 * [Ticket comments](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/)
 * [Ticket fields](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_fields/)
+* [Ticket forms](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_forms/)
 * [Ticket metrics](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_metrics/)
 * [Ticket metric events](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_metric_events/)
 * [Ticket skips](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_skips/)
 * [Tickets](https://developer.zendesk.com/api-reference/ticketing/ticket-management/incremental_exports/#incremental-ticket-export-cursor-based)
+* [Topics](https://developer.zendesk.com/api-reference/help_center/help-center-api/topics/#list-topics)
 * [Users](https://developer.zendesk.com/api-reference/ticketing/ticket-management/incremental_exports/#incremental-user-export-cursor-based)
 
 By default, each resource is mapped to a Flow collection through a separate binding.
