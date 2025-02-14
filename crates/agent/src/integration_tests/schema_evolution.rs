@@ -45,14 +45,6 @@ async fn test_schema_evolution() {
                                 "pre-existing": { "type": "integer" }
                             }
                         },
-                        // Include write schema to start, and expect that this is removed
-                        "flow://write-schema": {
-                            "$id": "flow://write-schema",
-                            "type": "object",
-                            "properties": {
-                                "id": { "type": "string" }
-                            }
-                        }
                     },
                     "allOf": [
                         {"$ref": "flow://write-schema"},
