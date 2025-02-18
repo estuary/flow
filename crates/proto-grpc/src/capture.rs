@@ -42,7 +42,7 @@ pub mod connector_client {
     ///      documents of all such messages in a single transaction.
     /// :Response.Checkpoint:
     ///    - The connector tells the runtime of a checkpoint: a watermark in the
-    ///      captured documents stream which is eligble to be used as a
+    ///      captured documents stream which is eligible to be used as a
     ///      transaction commit boundary.
     ///    - Whether the checkpoint becomes a commit boundary is at the
     ///      discretion of the Flow runtime. It may combine multiple checkpoints
@@ -217,7 +217,7 @@ pub mod connector_server {
     ///      documents of all such messages in a single transaction.
     /// :Response.Checkpoint:
     ///    - The connector tells the runtime of a checkpoint: a watermark in the
-    ///      captured documents stream which is eligble to be used as a
+    ///      captured documents stream which is eligible to be used as a
     ///      transaction commit boundary.
     ///    - Whether the checkpoint becomes a commit boundary is at the
     ///      discretion of the Flow runtime. It may combine multiple checkpoints
