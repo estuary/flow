@@ -93,9 +93,8 @@ impl Task {
         let combiner_spec = self
             .bindings
             .iter()
-            .enumerate()
-            .map(|(index, binding)| binding.combiner_spec().context(index))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|binding| binding.combiner_spec())
+            .collect::<Vec<_>>();
 
         let state_schema = doc::reduce::merge_patch_schema().to_string();
         let state_schema = doc::validation::build_bundle(&state_schema).unwrap();
@@ -156,6 +155,12 @@ impl Binding {
         let partition_extractors =
             extractors::for_fields(&partition_fields, &projections, &ser_policy)?;
 
+        let built_schema = doc::validation::build_bundle(&write_schema_json)
+            .context("collection write_schema_json is not a JSON schema")?;
+        let validator =
+            doc::Validator::new(built_schema).context("could not build a schema validator")?;
+        let write_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
         Ok(Self {
             collection_name: name.clone(),
             collection_generation_id,
@@ -165,22 +170,21 @@ impl Binding {
             resource_path: resource_path.clone(),
             ser_policy,
             write_schema_json: write_schema_json.clone(),
+            write_shape,
         })
     }
 
-    pub fn combiner_spec(
-        &self,
-    ) -> anyhow::Result<(bool, Vec<doc::Extractor>, String, doc::Validator)> {
-        let built_schema = doc::validation::build_bundle(&self.write_schema_json)
-            .context("collection write_schema_json is not a JSON schema")?;
-        let validator =
-            doc::Validator::new(built_schema).context("could not build a schema validator")?;
+    pub fn combiner_spec(&self) -> (bool, Vec<doc::Extractor>, String, doc::Validator) {
+        // These are safe to unwrap() because they were previously run over
+        // `self.write_schema_json` by Binding::new().
+        let built_schema = doc::validation::build_bundle(&self.write_schema_json).unwrap();
+        let validator = doc::Validator::new(built_schema).unwrap();
 
-        Ok((
+        (
             false,
             self.key_extractors.clone(),
             format!("captured collection {}", self.collection_name),
             validator,
-        ))
+        )
     }
 }
