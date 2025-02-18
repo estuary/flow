@@ -25,7 +25,7 @@ pub mod metrics_server;
 pub mod registry;
 
 mod api_client;
-pub use api_client::KafkaApiClient;
+pub use api_client::{KafkaApiClient, KafkaClientAuth};
 
 use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use flow_client::client::{refresh_authorizations, RefreshToken};
