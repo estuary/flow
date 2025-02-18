@@ -72,6 +72,10 @@ expression: json_test(msg)
     "binding": 2,
     "doc": {"captured":"doc"}
   },
+  "sourcedSchema": {
+    "binding": 3,
+    "documentSchema": {"format":"date-time","type":"string"}
+  },
   "checkpoint": {
     "state": {
       "updated": {"state":"update"},
