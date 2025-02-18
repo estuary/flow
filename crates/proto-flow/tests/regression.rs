@@ -456,6 +456,10 @@ fn ex_capture_response() -> capture::Response {
             binding: 2,
             doc_json: json!({"captured":"doc"}).to_string(),
         }),
+        sourced_schema: Some(capture::response::SourcedSchema {
+            binding: 3,
+            schema_json: json!({"type": "string", "format": "date-time"}).to_string(),
+        }),
         checkpoint: Some(capture::response::Checkpoint {
             state: Some(ex_connector_state()),
         }),

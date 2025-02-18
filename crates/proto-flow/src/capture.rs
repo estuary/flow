@@ -162,6 +162,8 @@ pub mod request {
         pub checkpoints: u32,
     }
 }
+/// Spec responds to Request.Spec.
+/// Next tag: 9
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Response {
@@ -177,6 +179,8 @@ pub struct Response {
     pub opened: ::core::option::Option<response::Opened>,
     #[prost(message, optional, tag = "6")]
     pub captured: ::core::option::Option<response::Captured>,
+    #[prost(message, optional, tag = "8")]
+    pub sourced_schema: ::core::option::Option<response::SourcedSchema>,
     #[prost(message, optional, tag = "7")]
     pub checkpoint: ::core::option::Option<response::Checkpoint>,
     /// Reserved for internal use.
@@ -185,7 +189,6 @@ pub struct Response {
 }
 /// Nested message and enum types in `Response`.
 pub mod response {
-    /// Spec responds to Request.Spec.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Spec {
@@ -312,6 +315,36 @@ pub mod response {
         /// Published JSON document.
         #[prost(string, tag = "2")]
         pub doc_json: ::prost::alloc::string::String,
+    }
+    /// SourcedSchema notifies the runtime of a source-defined schema of the
+    /// indicated binding. It's not required that the connector know that the
+    /// schema has actually changed since a last SourcedSchema.
+    /// It's encouraged for connectors to emit SourcedSchema liberally,
+    /// such as on startup, or periodically, or upon encountering a previously
+    /// unseen column.
+    ///
+    /// SourcedSchema may be a partial schema: it may schematize some
+    /// specific field(s) and not others that are in active use.
+    ///
+    /// SourcedSchema should be maximally restrictive. It should disallow
+    /// `types` and `additionalProperties` which are not explicitly being
+    /// schematized. The platform will union a SourcedSchema with all other
+    /// SourcedSchema messages of the binding, as well as additional inference
+    /// updates required to fit Captured documents.
+    ///
+    /// SourcedSchema is transactional. It may be interleaved with zero or more
+    /// Captured documents, and multiple SourcedSchema messages may be emitted
+    /// for a single binding, but an emitted SourcedSchema has no effect until
+    /// it's followed by a Checkpoint.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct SourcedSchema {
+        /// Index of the Open binding for which the schema applies.
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
+        /// JSON schema of documents produced by this binding.
+        #[prost(string, tag = "2")]
+        pub schema_json: ::prost::alloc::string::String,
     }
     /// Checkpoint all preceding documents of this invocation since the last checkpoint.
     /// The Flow runtime may begin to commit documents in a transaction.
