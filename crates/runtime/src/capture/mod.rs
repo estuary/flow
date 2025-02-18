@@ -44,6 +44,8 @@ struct Binding {
     ser_policy: doc::SerPolicy,
     // Write schema of the target collection.
     write_schema_json: String,
+    // Inferred Shape of written documents.
+    write_shape: doc::Shape,
 }
 
 #[derive(Debug)]
@@ -58,6 +60,8 @@ pub struct Transaction {
     started_at: std::time::SystemTime,
     // Statistics of (read documents, combined documents) for each binding.
     stats: BTreeMap<u32, (DocsAndBytes, DocsAndBytes)>,
+    // Sourced schema updates of this transaction.
+    sourced_schemas: BTreeMap<usize, doc::Shape>,
     // Set of bindings which updated their inferred Shape this transaction.
     updated_inferences: BTreeSet<usize>,
 }
@@ -85,6 +89,7 @@ impl Transaction {
             connector_eof: false,
             started_at: std::time::SystemTime::UNIX_EPOCH,
             stats: Default::default(),
+            sourced_schemas: Default::default(),
             updated_inferences: Default::default(),
         }
     }

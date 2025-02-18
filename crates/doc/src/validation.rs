@@ -17,7 +17,7 @@ pub use json::schema::build::build_schema;
 pub fn build_bundle(bundle: &str) -> Result<Schema, json::schema::build::Error> {
     let mut schema = build_schema(
         url::Url::parse("schema://bundle").unwrap(),
-        &serde_json::from_str(bundle).unwrap(),
+        &serde_json::from_str(bundle).map_err(json::schema::build::Error::FormatErr)?,
     )?;
 
     // Tweak scope to remove a synthetic resource pointer that was previously

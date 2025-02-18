@@ -385,7 +385,7 @@ pub fn recv_connector_captured(
     let uuid_ptr = &task
         .bindings
         .get(binding_index as usize)
-        .with_context(|| "invalid captured binding {binding}")?
+        .with_context(|| format!("invalid captured binding {binding_index}"))?
         .document_uuid_ptr;
 
     if !uuid_ptr.0.is_empty() {
@@ -400,6 +400,80 @@ pub fn recv_connector_captured(
     stats.0.bytes_total += doc_json.len() as u64;
 
     txn.captured_bytes += doc_json.len();
+    Ok(())
+}
+
+pub fn recv_connector_sourced_schema(
+    sourced: response::SourcedSchema,
+    task: &Task,
+    txn: &mut Transaction,
+) -> anyhow::Result<()> {
+    let response::SourcedSchema {
+        binding,
+        schema_json,
+    } = sourced;
+
+    tracing::debug!(schema=%schema_json, binding, "sourced schema");
+
+    let built_schema = doc::validation::build_bundle(&schema_json).with_context(|| {
+        format!(
+            "couldn't parse sourced schema as JSON Schema (target {})",
+            task.bindings[binding as usize].collection_name
+        )
+    })?;
+    let validator = doc::Validator::new(built_schema).with_context(|| {
+        format!(
+            "couldn't build a sourced schema validator (target {})",
+            task.bindings[binding as usize].collection_name
+        )
+    })?;
+    let sourced_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
+    // Track this SourcedSchema by its binding, union-ing with another SourcedSchema if present.
+    let entry = txn
+        .sourced_schemas
+        .entry(binding as usize)
+        .or_insert(doc::Shape::nothing());
+
+    *entry = doc::Shape::union(
+        std::mem::replace(entry, doc::Shape::nothing()),
+        sourced_shape,
+    );
+
+    Ok(())
+}
+
+pub fn apply_sourced_schemas(
+    shapes: &mut [doc::Shape],
+    task: &Task,
+    txn: &mut Transaction,
+) -> anyhow::Result<()> {
+    let Transaction {
+        sourced_schemas,
+        updated_inferences,
+        ..
+    } = txn;
+
+    for (binding, sourced_shape) in std::mem::take(sourced_schemas) {
+        let write_shape = task
+            .bindings
+            .get(binding)
+            .with_context(|| format!("invalid sourced schema binding {binding}"))?
+            .write_shape
+            .clone();
+
+        // By construction, we cannot capture documents which don't adhere to
+        // the write schema. Intersect it to avoid generating incompatible
+        // inference updates.
+        let sourced_shape = doc::Shape::intersect(sourced_shape, write_shape);
+
+        shapes[binding] = doc::Shape::union(
+            std::mem::replace(&mut shapes[binding], doc::Shape::nothing()),
+            sourced_shape,
+        );
+        updated_inferences.insert(binding);
+    }
+
     Ok(())
 }
 
