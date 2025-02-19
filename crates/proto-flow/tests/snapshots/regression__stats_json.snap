@@ -10,7 +10,8 @@ expression: json_test(msg)
     "kind": "derivation",
     "name": "my/cool/task",
     "keyBegin": "00112233",
-    "rClockBegin": "aabbccdd"
+    "rClockBegin": "aabbccdd",
+    "build": "0011223344556677"
   },
   "ts": "1970-01-01T00:00:00+00:00",
   "openSecondsTotal": 3.14159,

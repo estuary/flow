@@ -52,6 +52,9 @@ pub struct ShardRef {
     /// The hex-encoded inclusive beginning of the shard's assigned r_clock range.
     #[prost(string, tag = "4")]
     pub r_clock_begin: ::prost::alloc::string::String,
+    /// The id of the build that's currently active.
+    #[prost(string, tag = "5")]
+    pub build: ::prost::alloc::string::String,
 }
 /// Common Meta sub-document of Log and Stats documents.
 #[allow(clippy::derive_partial_eq_without_eq)]
