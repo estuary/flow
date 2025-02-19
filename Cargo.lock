@@ -2308,6 +2308,7 @@ dependencies = [
  "allocator",
  "anyhow",
  "apache-avro",
+ "arc-swap",
  "async-process",
  "async-trait",
  "avro",
