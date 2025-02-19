@@ -281,16 +281,17 @@ func (t *taskBase[TaskSpec]) heartbeatLoop(shard consumer.Shard) {
 				return
 			}
 
+			// This is no ordinary log. The `eventType` identifies it as an
+			// event that will be delivered by the ops catalog to the control
+			// plane, which will take action in response.
 			ops.PublishLog(
 				t.opsPublisher,
 				ops.Log_error,
 				"shard failed",
 				"error", err,
 				"assignment", shard.Assignment().Decoded,
+				"eventType", "shardFailure",
 			)
-
-			// TODO(johnny): Notify control-plane of failure.
-
 			return
 		}
 	}
