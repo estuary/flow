@@ -86,6 +86,8 @@ apache-avro = { workspace = true }
 async-process = { path = "../async-process" }
 flowctl = { path = "../flowctl" }
 locate-bin = { path = "../locate-bin" }
+sources = { path = "../sources" }
+validation-tests = { path = "../validation-tests" }
 
 apache-avro = { workspace = true }
 insta = { workspace = true }

@@ -1,0 +1,42 @@
+---
+source: crates/dekaf/tests/dekaf_schema_test.rs
+expression: output?
+---
+Record(
+    [
+        (
+            "key",
+            String(
+                "first",
+            ),
+        ),
+        (
+            "field_a",
+            String(
+                "foo",
+            ),
+        ),
+        (
+            "field_b",
+            String(
+                "bar",
+            ),
+        ),
+        (
+            "flow_published_at",
+            Union(
+                0,
+                Record(
+                    [
+                        (
+                            "json",
+                            String(
+                                "null",
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        ),
+    ],
+)

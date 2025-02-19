@@ -1,0 +1,37 @@
+---
+source: crates/dekaf/tests/dekaf_schema_test.rs
+expression: output?
+---
+Record(
+    [
+        (
+            "id",
+            Long(
+                671963468,
+            ),
+        ),
+        (
+            "conflicts",
+            Union(
+                1,
+                Null,
+            ),
+        ),
+        (
+            "flow_published_at",
+            Union(
+                0,
+                Record(
+                    [
+                        (
+                            "json",
+                            String(
+                                "null",
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        ),
+    ],
+)

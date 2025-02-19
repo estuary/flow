@@ -1,5 +1,5 @@
 [package]
-name = "validation"
+name = "validation-tests"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -16,19 +16,24 @@ json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
 sources = { path = "../sources" }
-tables = { path = "../tables" }
+tables = { path = "../tables", features = ["persist"] }
+validation = { path = "../validation" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+insta = { workspace = true }
 itertools = { workspace = true }
+json-patch = { workspace = true }
 lazy_static = { workspace = true }
 pbjson-types = { workspace = true }
 regex = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 strsim = { workspace = true }
 superslice = { workspace = true }
 thiserror = { workspace = true }

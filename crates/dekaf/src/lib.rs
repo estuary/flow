@@ -13,9 +13,10 @@ mod topology;
 use topology::{Collection, Partition};
 
 mod read;
+pub use read::extract_and_encode;
 use read::Read;
 
-mod utils;
+pub mod utils;
 
 mod session;
 pub use session::Session;
