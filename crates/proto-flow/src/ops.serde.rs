@@ -647,6 +647,9 @@ impl serde::Serialize for ShardRef {
         if !self.r_clock_begin.is_empty() {
             len += 1;
         }
+        if !self.build.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.ShardRef", len)?;
         if self.kind != 0 {
             let v = TaskType::try_from(self.kind)
@@ -661,6 +664,9 @@ impl serde::Serialize for ShardRef {
         }
         if !self.r_clock_begin.is_empty() {
             struct_ser.serialize_field("rClockBegin", &self.r_clock_begin)?;
+        }
+        if !self.build.is_empty() {
+            struct_ser.serialize_field("build", &self.build)?;
         }
         struct_ser.end()
     }
@@ -678,6 +684,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
             "keyBegin",
             "r_clock_begin",
             "rClockBegin",
+            "build",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -686,6 +693,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
             Name,
             KeyBegin,
             RClockBegin,
+            Build,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -711,6 +719,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                             "name" => Ok(GeneratedField::Name),
                             "keyBegin" | "key_begin" => Ok(GeneratedField::KeyBegin),
                             "rClockBegin" | "r_clock_begin" => Ok(GeneratedField::RClockBegin),
+                            "build" => Ok(GeneratedField::Build),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -734,6 +743,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                 let mut name__ = None;
                 let mut key_begin__ = None;
                 let mut r_clock_begin__ = None;
+                let mut build__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Kind => {
@@ -760,6 +770,12 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                             }
                             r_clock_begin__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Build => {
+                            if build__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("build"));
+                            }
+                            build__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(ShardRef {
@@ -767,6 +783,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                     name: name__.unwrap_or_default(),
                     key_begin: key_begin__.unwrap_or_default(),
                     r_clock_begin: r_clock_begin__.unwrap_or_default(),
+                    build: build__.unwrap_or_default(),
                 })
             }
         }
