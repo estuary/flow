@@ -13,7 +13,7 @@ expression: captured_logs
       "task_name": "my_task"
     },
     "level": "error",
-    "message": "Invalid stats document emitted! Cannot emit 0 for `bytes_total` or `docs_total`!",
+    "message": "Invalid stats document emitted! Cannot emit 0 for just one of `bytes_total` or `docs_total`!",
     "shard": {
       "keyBegin": "00000000",
       "kind": "materialization",
