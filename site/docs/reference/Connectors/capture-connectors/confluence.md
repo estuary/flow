@@ -9,11 +9,11 @@ This connector is based on an open-source connector from a third party, with mod
 
 ## Supported data resources
 
-When you [configure the connector](#endpoint), you specify your email, api and domain name
+When you [configure the connector](#configuration), you specify your email, API, and domain name.
 
 From your selection, the following data resources are captured:
 
-### resources
+### Resources
 
  - [Audit](https://developer.atlassian.com/cloud/confluence/rest/api-group-audit/#api-wiki-rest-api-audit-get)
  - [Blog Posts](https://developer.atlassian.com/cloud/confluence/rest/api-group-content/#api-wiki-rest-api-content-get)
