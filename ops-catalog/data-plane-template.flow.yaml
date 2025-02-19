@@ -24,6 +24,26 @@ collections:
         location: /shard/name
         partition: true
 
+  ops/rollups/L1/BASE_NAME/events:
+    schema: logs.schema.yaml
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      event_type:
+        location: /fields/eventType
+        partition: true
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        - name: logs
+          source: ops/tasks/BASE_NAME/logs
+          shuffle: any
+          lambda: |
+            select json($flow_document) where $fields$eventType is not null;
+
   ops/rollups/L1/BASE_NAME/inferred-schemas:
     schema: inferred-schemas.schema.yaml
     key: [/collection_name]
