@@ -14,6 +14,7 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/types"
+	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
@@ -88,6 +89,24 @@ func (p *OpsPublisher) PublishStats(
 		},
 	)
 	return err
+}
+
+// PublishConnectorLog is just like PublishLog, except it sanitizes the
+// `eventType` field of any logs, in order to prevent connectors from publishing
+// any events other than `connectorStatus`.
+func (p *OpsPublisher) PublishConnectorLog(out ops.Log) {
+	if eventType, ok := out.FieldsJsonMap["eventType"]; ok && !bytes.Equal([]byte(eventType), []byte("\"connectorStatus\"")) {
+		logrus.WithFields(logrus.Fields{
+			"rejectedEventType": eventType,
+			"task":              p.shard.Name,
+			"logTS":             out.Timestamp,
+			"shardKeyBegin":     p.shard.KeyBegin,
+			"shardRClockBegin":  p.shard.RClockBegin,
+		}).Warn("sanitizing unrecognized eventType from connector log")
+		delete(out.FieldsJsonMap, "eventType")
+		out.FieldsJsonMap["__orig_eventType"] = eventType
+	}
+	p.PublishLog(out)
 }
 
 func (p *OpsPublisher) PublishLog(out ops.Log) {
