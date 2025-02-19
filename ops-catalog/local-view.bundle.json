@@ -44,6 +44,62 @@
             },
             "recommended": false
           }
+        },
+        {
+          "resource": {"table":"connector_status"},
+          "source": {
+            "name": "ops.us-central1.v1/events/L2",
+            "partitions": {
+              "include": {
+                "event_type": [
+                  "connectorStatus"
+                ]
+              },
+              "exclude": {}
+            }
+          },
+          "fields": {
+            "include": {
+              "catalog_name": {},
+              "flow_document": {}
+            },
+            "exclude": [
+              "shard_key_begin",
+              "shard_r_clock_begin",
+              "shard/keyBegin",
+              "shard/rClockBegin"
+            ],
+            "recommended": false
+          }
+        },
+        {
+          "resource": {"table":"shard_failures","delta_updates":true},
+          "source": {
+            "name": "ops.us-central1.v1/events/L2",
+            "partitions": {
+              "include": {
+                "event_type": [
+                  "shardFailure"
+                ]
+              },
+              "exclude": {}
+            }
+          },
+          "fields": {
+            "include": {
+              "build": {"DDL":"flowid"},
+              "catalog_name": {},
+              "flow_document": {},
+              "ts": {}
+            },
+            "exclude": [
+              "shard_key_begin",
+              "shard_r_clock_begin",
+              "shard/keyBegin",
+              "shard/rClockBegin"
+            ],
+            "recommended": false
+          }
         }
       ]
     }

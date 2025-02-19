@@ -21,6 +21,17 @@ properties:
   fields:
     description: Map of keys and values that are associated with this log entry.
     type: object
+    properties:
+      eventType:
+        type: string
+        description: |
+          Identifies this log message as an event of the given type. Events
+          are special logs that are meant to be observed by the Flow control plane.
+      error:
+        type: string
+        description: |
+          If the log entry is an error, this field contains the error message.
+    additionalProperties: true
 required:
   - shard
   - ts

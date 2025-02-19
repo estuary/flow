@@ -1,3 +1,6 @@
+# When editing this catalog, regenerate its bundle via:
+#  flowctl raw bundle --source ops-catalog/local-view.flow.yaml  > ops-catalog/local-view.bundle.json
+
 materializations:
   ops.us-central1.v1/stats-view:
     endpoint:
@@ -37,3 +40,41 @@ materializations:
             errors: {}
             failures: {}
             flow_document: {}
+
+      - source:
+          name: ops.us-central1.v1/events/L2
+          partitions:
+            include:
+              event_type: ["connectorStatus"]
+        resource:
+          table: connector_status
+        fields:
+          recommended: false
+          include:
+            catalog_name: {}
+            flow_document: {}
+          exclude:
+            - shard_key_begin
+            - shard_r_clock_begin
+            - shard/keyBegin
+            - shard/rClockBegin
+      - source:
+          name: ops.us-central1.v1/events/L2
+          partitions:
+            include:
+              event_type: ["shardFailure"]
+        resource:
+          table: shard_failures
+          delta_updates: true
+        fields:
+          recommended: false
+          include:
+            catalog_name: {}
+            build: { "DDL": "flowid" }
+            ts: {}
+            flow_document: {}
+          exclude:
+            - shard_key_begin
+            - shard_r_clock_begin
+            - shard/keyBegin
+            - shard/rClockBegin
