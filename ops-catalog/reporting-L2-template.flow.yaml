@@ -2,6 +2,28 @@
 #  flowctl raw bundle --source ops-catalog/reporting-L2-template.flow.yaml  > ops-catalog/reporting-L2-template.bundle.json
 
 collections:
+  ops.us-central1.v1/events/L2:
+    schema: logs.schema.yaml
+    key: [/fields/eventTarget, /fields/eventType]
+    projections:
+      event_type:
+        location: /fields/eventType
+        partition: true
+      event_target: /fields/eventTarget
+      catalog_name: /fields/eventTarget
+      build: /shard/build
+      # Error is expected to be present for shard failure events, though other
+      # types of events may also communicate errors using this field.
+      error: /fields/error
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        - name: logs
+          source: ops/rollups/L1/BASE_NAME/events
+          shuffle: any
+          lambda: |
+            select json($flow_document);
 
   ops.us-central1.v1/inferred-schemas/L2:
     schema: inferred-schemas.schema.yaml

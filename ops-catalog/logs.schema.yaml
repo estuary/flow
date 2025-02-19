@@ -21,6 +21,7 @@ properties:
   fields:
     description: Map of keys and values that are associated with this log entry.
     type: object
+    additionalProperties: true
 required:
   - shard
   - ts

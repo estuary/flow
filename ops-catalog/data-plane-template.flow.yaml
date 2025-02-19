@@ -24,6 +24,29 @@ collections:
         location: /shard/name
         partition: true
 
+  ops/rollups/L1/BASE_NAME/events:
+    schema: events.schema.yaml
+    key: [/fields/eventTarget, /eventType]
+    projections:
+      event_type:
+        location: /fields/eventType
+        partition: true
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        - name: logs
+          source: ops/tasks/BASE_NAME/logs
+          shuffle: any
+          # Important: only outputs documents that validate against the schema.
+          lambda: |
+            select json($flow_document)
+              where json_type($fields, '$.eventType') = 'text'
+              and json_type($fields, '$.eventTarget') = 'text'
+              and json_type($fields, '$.error') in ('null', 'text');
+      shards:
+        minTxnDuration: 5s
+
   ops/rollups/L1/BASE_NAME/inferred-schemas:
     schema: inferred-schemas.schema.yaml
     key: [/collection_name]
