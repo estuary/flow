@@ -100,8 +100,10 @@ async fn do_create_data_plane(
     let data_plane_name = format!("ops/dp/{base_name}");
     let ops_l1_inferred_name = format!("ops/rollups/L1/{base_name}/inferred-schemas");
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
+    let ops_l1_events_name = format!("ops/rollups/L1/{base_name}/events");
     let ops_l2_inferred_transform = format!("from.{data_plane_fqdn}");
     let ops_l2_stats_transform = format!("from.{data_plane_fqdn}");
+    let ops_l2_events_transform = format!("from.{data_plane_fqdn}");
     let ops_logs_name = format!("ops/tasks/{base_name}/logs");
     let ops_stats_name = format!("ops/tasks/{base_name}/stats");
 
@@ -149,21 +151,23 @@ async fn do_create_data_plane(
             ops_stats_name,
             ops_l1_inferred_name,
             ops_l1_stats_name,
+            ops_l1_events_name,
             ops_l2_inferred_transform,
             ops_l2_stats_transform,
+            ops_l2_events_transform,
             broker_address,
             reactor_address,
             hmac_keys,
             enable_l2,
             pulumi_stack
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
         )
         on conflict (data_plane_name) do update set
-            broker_address = $9,
-            reactor_address = $10,
+            broker_address = $11,
+            reactor_address = $12,
             -- Don't replace non-empty hmac_keys with empty ones.
-            hmac_keys = case when array_length($11, 1) > 0 then $11
+            hmac_keys = case when array_length($13, 1) > 0 then $13
                         else data_planes.hmac_keys end
         returning logs_token
         ;
@@ -174,8 +178,10 @@ async fn do_create_data_plane(
         &ops_stats_name as &String,
         &ops_l1_inferred_name as &String,
         &ops_l1_stats_name as &String,
+        &ops_l1_events_name as &String,
         &ops_l2_inferred_transform,
         &ops_l2_stats_transform,
+        &ops_l2_events_transform,
         broker_address,
         reactor_address,
         hmac_keys.as_slice(),
