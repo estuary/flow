@@ -22,6 +22,9 @@ pub struct Shard {
     key_begin: HexU32,
     /// The inclusive beginning of the shard's assigned rClock range.
     r_clock_begin: HexU32,
+    /// The id of the build that the shard is currently running
+    #[serde(default)]
+    build: String,
 }
 
 impl From<Shard> for ShardRef {
@@ -31,6 +34,7 @@ impl From<Shard> for ShardRef {
             name,
             key_begin,
             r_clock_begin,
+            build,
         }: Shard,
     ) -> Self {
         Self {
@@ -38,6 +42,7 @@ impl From<Shard> for ShardRef {
             name,
             key_begin: format!("{:08x}", key_begin.0),
             r_clock_begin: format!("{:08x}", r_clock_begin.0),
+            build,
         }
     }
 }
