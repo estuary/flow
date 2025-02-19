@@ -2,6 +2,7 @@
 // Intersected Shapes impose *all* of their constraints,
 // like a JSON Schema `allOf` keyword.
 use super::*;
+use crate::FailedValidation;
 use itertools::{EitherOrBoth, Itertools};
 
 impl Reduction {
@@ -235,7 +236,7 @@ impl Shape {
         let description = lhs.description.or(rhs.description);
         let reduction = lhs.reduction.intersect(rhs.reduction);
         let provenance = lhs.provenance.intersect(rhs.provenance);
-        let default = lhs.default.or(rhs.default);
+        let default = intersect_default(type_, lhs.default, rhs.default);
         let secret = lhs.secret.or(rhs.secret);
 
         let mut annotations = rhs.annotations;
@@ -306,6 +307,32 @@ pub fn intersect_enum(
                 });
             let it = filter_enums_to_types(type_, it);
             Some(it.collect())
+        }
+    }
+}
+
+pub fn intersect_default(
+    type_: types::Set,
+    lhs: Option<Box<(Value, Option<FailedValidation>)>>,
+    rhs: Option<Box<(Value, Option<FailedValidation>)>>,
+) -> Option<Box<(Value, Option<FailedValidation>)>> {
+    match (lhs, rhs) {
+        (None, None) => None,
+        (Some(l), None) | (None, Some(l)) => {
+            if type_.overlaps(types::Set::for_value(&l.as_ref().0)) {
+                Some(l)
+            } else {
+                None
+            }
+        }
+        (Some(l), Some(r)) => {
+            if type_.overlaps(types::Set::for_value(&l.as_ref().0)) {
+                Some(l)
+            } else if type_.overlaps(types::Set::for_value(&r.as_ref().0)) {
+                Some(r)
+            } else {
+                None
+            }
         }
     }
 }
@@ -391,5 +418,33 @@ mod test {
             },
             actual
         );
+    }
+
+    #[test]
+    fn test_default_intersection() {
+        let shape_with_reasonable_default = shape_from(
+            r#"
+            allOf:
+                - type: ["string", "null"]
+                  default: "hello"
+                - type: "string"
+            "#,
+        );
+
+        assert_eq!(
+            shape_with_reasonable_default.default.unwrap().as_ref().0,
+            serde_json::json!("hello")
+        );
+
+        let shape = shape_from(
+            r#"
+            allOf:
+                - type: ["string", "null"]
+                  default: null
+                - type: "string"
+            "#,
+        );
+
+        assert_eq!(shape.default, None);
     }
 }
