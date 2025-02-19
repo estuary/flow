@@ -1,4 +1,4 @@
-mod common;
+use validation_tests as common;
 
 const MODEL_YAML: &str = include_str!("model.yaml");
 
