@@ -2,7 +2,9 @@ use crate::log_appender::{self, GazetteWriter, TaskForwarder};
 use futures::Future;
 use lazy_static::lazy_static;
 use rand::Rng;
-use tracing::{level_filters::LevelFilter, Instrument};
+use tracing::Instrument;
+use tracing::{level_filters::LevelFilter, Level};
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 // These are accessible anywhere inside the call stack of a future wrapped with [`forward_logs()`].
@@ -10,12 +12,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 // from the point at which you call `forward_logs()` downwards will get forwarded to the same journal.
 tokio::task_local! {
     static TASK_FORWARDER: TaskForwarder<GazetteWriter>;
-    static LOG_LEVEL: std::cell::Cell<ops::LogLevel>;
+    static LOG_LEVEL: std::cell::Cell<&'static tracing_subscriber::filter::Targets>;
 }
 
 pub fn install() {
     // Build a tracing_subscriber::Filter which uses our dynamic log level.
-    let log_filter = tracing_subscriber::filter::DynFilterFn::new(move |metadata, _cx| {
+    let log_filter = tracing_subscriber::filter::DynFilterFn::new(move |metadata, ctx| {
         if metadata
             .fields()
             .iter()
@@ -24,20 +26,9 @@ pub fn install() {
             return false;
         }
 
-        let cur_level = match metadata.level().as_str() {
-            "TRACE" => ops::LogLevel::Trace as i32,
-            "DEBUG" => ops::LogLevel::Debug as i32,
-            "INFO" => ops::LogLevel::Info as i32,
-            "WARN" => ops::LogLevel::Warn as i32,
-            "ERROR" => ops::LogLevel::Error as i32,
-            _ => ops::LogLevel::UndefinedLevel as i32,
-        };
-
-        cur_level
-            <= LOG_LEVEL
-                .try_with(|log_level| log_level.get())
-                .unwrap_or(ops::LogLevel::Info)
-                .into()
+        LOG_LEVEL
+            .try_with(|filter| filter.get().enabled(&metadata, ctx.to_owned()))
+            .unwrap_or_else(|_| metadata.level() <= &tracing::metadata::Level::INFO)
     });
 
     // We want to be able to control Dekaf's own logging output via the RUST_LOG environment variable like usual.
@@ -51,6 +42,7 @@ pub fn install() {
 
     let registry = tracing_subscriber::registry()
         .with(tracing_record_hierarchical::HierarchicalRecord::default())
+        .with(fmt_layer)
         .with(
             ops::tracing::Layer::new(
                 |log| {
@@ -59,8 +51,7 @@ pub fn install() {
                 std::time::SystemTime::now,
             )
             .with_filter(log_filter),
-        )
-        .with(fmt_layer);
+        );
 
     registry.init();
 }
@@ -73,6 +64,22 @@ lazy_static! {
         producer_id[0] |= 0x01;
         gazette::uuid::Producer::from_bytes(producer_id)
     };
+    static ref ERROR_FILTER: Targets = "error".parse().unwrap();
+    static ref WARN_FILTER: Targets = "warn".parse().unwrap();
+    static ref INFO_FILTER: Targets = "warn,dekaf=info".parse().unwrap();
+    static ref DEBUG_FILTER: Targets = "debug,simple_crypt=warn,aws_configure=warn,h2=warn".parse().unwrap();
+    static ref TRACE_FILTER: Targets = "trace,simple_crypt=warn,aws_configure=warn,h2=warn".parse().unwrap();
+
+}
+
+fn build_log_filter(level: ops::LogLevel) -> &'static tracing_subscriber::filter::Targets {
+    match level {
+        ops::LogLevel::Error => &ERROR_FILTER,
+        ops::LogLevel::Warn => &WARN_FILTER,
+        ops::LogLevel::Info | ops::LogLevel::UndefinedLevel => &INFO_FILTER,
+        ops::LogLevel::Debug => &DEBUG_FILTER,
+        ops::LogLevel::Trace => &TRACE_FILTER,
+    }
 }
 
 /// Capture all log messages emitted by the passed future and all of its descendants, and writes them out
@@ -90,7 +97,7 @@ where
     let forwarder = TaskForwarder::new(PRODUCER.to_owned(), writer);
 
     LOG_LEVEL.scope(
-        ops::LogLevel::Info.into(),
+        std::cell::Cell::new(build_log_filter(ops::LogLevel::Info)),
         TASK_FORWARDER.scope(
             forwarder,
             fut.instrument(tracing::info_span!(
@@ -111,7 +118,7 @@ pub fn propagate_task_forwarder<F, O>(fut: F) -> impl Future<Output = O>
 where
     F: Future<Output = O>,
 {
-    let current_level = LOG_LEVEL.get();
+    let current_level = LOG_LEVEL.with(|l| l.clone());
     let current_forwarder = TASK_FORWARDER.get();
 
     LOG_LEVEL.scope(
@@ -125,5 +132,7 @@ pub fn get_log_forwarder() -> TaskForwarder<GazetteWriter> {
 }
 
 pub fn set_log_level(level: ops::LogLevel) {
-    LOG_LEVEL.with(|cell| cell.set(level))
+    LOG_LEVEL.with(|current_level| {
+        current_level.set(build_log_filter(level));
+    })
 }
