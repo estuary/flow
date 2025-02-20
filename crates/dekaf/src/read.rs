@@ -143,7 +143,8 @@ impl Read {
         };
 
         let mut records: Vec<Record> = Vec::new();
-        let mut input_bytes = 0;
+        let mut stats_bytes: u64 = 0;
+        let mut stats_records = 0;
         let mut output_bytes: usize = 0;
 
         // We Avro encode into Vec instead of BytesMut because Vec is
@@ -305,7 +306,8 @@ impl Read {
                 };
 
             if !is_control {
-                input_bytes += next_offset - self.offset;
+                stats_bytes += (next_offset - self.offset) as u64;
+                stats_records += 1;
             }
             self.offset = next_offset;
 
@@ -366,7 +368,7 @@ impl Read {
         metrics::counter!("dekaf_documents_read", "journal_name" => self.journal_name.to_owned())
             .increment(records.len() as u64);
         metrics::counter!("dekaf_bytes_read_in", "journal_name" => self.journal_name.to_owned())
-            .increment(input_bytes as u64);
+            .increment(stats_bytes as u64);
         metrics::counter!("dekaf_bytes_read", "journal_name" => self.journal_name.to_owned())
             .increment(output_bytes as u64);
 
@@ -377,12 +379,12 @@ impl Read {
             self.collection_name.to_owned(),
             ops::stats::Binding {
                 right: Some(ops::stats::DocsAndBytes {
-                    docs_total: records.len() as u32,
-                    bytes_total: input_bytes as u64,
+                    docs_total: stats_records,
+                    bytes_total: stats_bytes,
                 }),
                 out: Some(ops::stats::DocsAndBytes {
-                    docs_total: records.len() as u32,
-                    bytes_total: input_bytes as u64,
+                    docs_total: stats_records,
+                    bytes_total: stats_bytes,
                 }),
                 left: None,
             },
