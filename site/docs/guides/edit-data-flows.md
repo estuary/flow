@@ -55,7 +55,7 @@ You may have to re-authenticate with the source system. Be sure to have current 
 Editing a capture only affects how it will work going forward.
 Data that was captured before editing will reflect the original configuration.
 
-# Edit a materialization
+## Edit a materialization
 
 To edit a materialization:
 

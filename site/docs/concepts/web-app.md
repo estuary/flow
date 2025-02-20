@@ -287,7 +287,7 @@ Documents are organized by their collection key value. Click a key from the list
 **2:** The collection's [schema](./schemas.md) displayed in a read only table. The table columns can be sorted to more easily find what you need.
 
 :::tip
-If you need to modify a collection, edit the [capture](#editing-captures) or [derivation](./derivations.md) that provides its data.
+If you need to modify a collection, edit the [capture](./captures.md) or [derivation](./derivations.md) that provides its data.
 :::
 
 ## Materialization Details Page

@@ -84,7 +84,7 @@ The values and specification sample below provide configuration details specific
 
 #### Endpoint
 
-The following properties reflect the Service Account Key authentication method. If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google--in-the-flow-web-app), so some of these properties aren't required.
+The following properties reflect the Service Account Key authentication method. If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google-in-the-flow-web-app), so some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|

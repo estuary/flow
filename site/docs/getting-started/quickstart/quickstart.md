@@ -19,7 +19,7 @@ When you register for Flow, your account will use Flow's secure cloud storage bu
 Data in Flow's cloud storage bucket is deleted 20 days after collection.
 
 For production use cases, you
-should [configure your own cloud storage bucket to use with Flow](#configuring-your-cloud-storage-bucket-for-use-with-flow).
+should [configure your own cloud storage bucket to use with Flow](../installation.mdx).
 
 ## Step 1. Set up a Capture<a id="step-2-set-up-a-capture"></a>
 

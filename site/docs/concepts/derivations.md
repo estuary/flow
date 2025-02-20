@@ -336,7 +336,7 @@ It will also generate a `deno.json` file in your top-level directory,
 which is designed to work with developer tooling like
 [VSCode's Deno extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno).
 
-[See the Current Account Balances tutorial for a concrete example of modules](#current-account-balances).
+[See the Current Account Balances tutorial for a concrete example of modules](../getting-started/tutorials/derivations_acmebank.md#current-account-balances).
 
 ### State
 
@@ -607,7 +607,7 @@ the sensor failed to produce a measurement.
 Flow read delays are very efficient and scale better
 than managing very large numbers of fine-grain timers.
 
-[See Grouped Windows of Transfers for an example using a read delay](#grouped-windows-of-transfers)
+[See Grouped Windows of Transfers for an example using a read delay](../getting-started/tutorials/derivations_acmebank.md#grouped-windows-of-transfers)
 
 [Learn more from the Citi Bike "idle bikes" example](https://github.com/estuary/flow/blob/master/examples/citi-bike/idle-bikes.flow.yaml)
 
@@ -674,9 +674,9 @@ This means that, when you implement a derivation,
 you get to choose where **accumulation** will happen:
 
  1. Your lambdas can update and query aggregates stored in [internal task state](#internal-state).
-    [Approving Transfers](#approving-transfers) is an example that maintains account balances in a SQLite table.
+    [Approving Transfers](../getting-started/tutorials/derivations_acmebank.md#approving-transfers) is an example that maintains account balances in a SQLite table.
  2. Or, your lambdas can compute *changes* of an aggregate, which are then reduced by Flow using reduction annotations.
-    [Current Account Balances](#current-account-balances) is an example that combines a lambda with a reduce annotation.
+    [Current Account Balances](../getting-started/tutorials/derivations_acmebank.md#current-account-balances) is an example that combines a lambda with a reduce annotation.
 
 These two approaches can produce equivalent results,
 but they do so in very different ways.

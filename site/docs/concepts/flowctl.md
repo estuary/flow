@@ -142,7 +142,7 @@ They typically include:
   Files used by `npm` to manage dependencies and your Data Flow's associated JavaScript project.
   You may customize `package.json`,
   but its `dependencies` stanza will be overwritten by the
-  [npmDependencies](derivations.md#npm-dependencies)
+  [npmDependencies](./import.md#importing-derivation-resources)
   of your Flow specification source files, if any exist.
 
 When you run commands like `flowctl catalog publish` or `flowctl draft author`, you can use the `--source-dir` flag
@@ -167,7 +167,7 @@ you must define the lambda in an accompanying TypeScript module, and reference t
 in the derivation's definition. To facilitate this,
 you can generate a stub of the module using `flowctl generate`
 and simply write the function bodies.
-[Learn more about this workflow.](./derivations.md#creating-typescript-modules)
+[Learn more about this workflow.](./derivations.md#modules)
 
 If a TypeScript module exists, `flowctl` will never overwrite it,
 even if you update or expand your specifications such that the required interfaces have changed.

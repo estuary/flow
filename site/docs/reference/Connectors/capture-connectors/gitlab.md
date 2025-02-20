@@ -9,7 +9,7 @@ This connector is based on an open-source connector from a third party, with mod
 
 ## Supported data resources
 
-When you [configure the connector](#endpoint), you may provide a list of GitLab Groups or Projects from which to capture data.
+When you [configure the connector](#configuration), you may provide a list of GitLab Groups or Projects from which to capture data.
 
 From your selection, the following data resources are captured:
 

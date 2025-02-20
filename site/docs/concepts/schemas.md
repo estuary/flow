@@ -138,7 +138,7 @@ collections:
 
 To fix the above schema, change `required` to `[id, value]`.
 
-[Learn more of how schemas can be expressed within collections](collections.md#Schemas).
+[Learn more of how schemas can be expressed within collections](./collections.md#schemas).
 
 ### Organization
 
@@ -403,7 +403,7 @@ Note that `$ref: flow://write-schema` expands to the current `writeSchema`. When
 
 When you first publish a collection using the inferred schema, `flow://inferred-schema` expands to a special placeholder schema that rejects *all* documents. This is to ensure that a non-placeholder inferred schema has been published before allowing any documents to be materialized. Once data is captured to the collection, the inferred schema immediately updates to strictly and minimally describe the captured.
 
-Because the effective `readSchema` is only ever updated when the collection is published, the best option is usually to use the inferred schema in conjunction with [autoDiscover](/concepts/captures/#autodiscover).
+Because the effective `readSchema` is only ever updated when the collection is published, the best option is usually to use the inferred schema in conjunction with [autoDiscover](./captures.md#automatically-update-captures).
 
 ## `default` annotations
 

@@ -39,7 +39,7 @@ You can use Flow's **schema evolutions** feature to quickly and simultaneously u
 
 Collection specs may change for a variety of reasons, such as:
 
-- The source system is a database, and someone ran an `ALTER TABLE` statement on a captured table, so you need to update the collection schema (through [AutoDiscover](../captures.md#autodiscover) or manually).
+- The source system is a database, and someone ran an `ALTER TABLE` statement on a captured table, so you need to update the collection schema (through [AutoDiscover](../captures.md#automatically-update-captures) or manually).
 - The source system contains unstructured data, and some data with a different shape was just captured so you need to update the collection schema (through AutoDiscover or manually).
 - Someone manually changed the collection's logical partitions.
 
@@ -53,7 +53,7 @@ When you attempt to publish a breaking change to a collection in the Flow web ap
 
 Click the **Apply** button to trigger an evolution and update all necessary specification to keep your Data Flow functioning. Then, review and publish your draft.
 
-If you enabled [AutoDiscover](../captures.md#autodiscover) on a capture, any breaking changes that it introduces will trigger an automatic schema evolution, so long as you selected the **Breaking change re-versions collections** option (`evolveIncompatibleCollections`).
+If you enabled [AutoDiscover](../captures.md#automatically-update-captures) on a capture, any breaking changes that it introduces will trigger an automatic schema evolution, so long as you selected the **Breaking change re-versions collections** option (`evolveIncompatibleCollections`).
 
 ## What do schema evolutions do?
 
