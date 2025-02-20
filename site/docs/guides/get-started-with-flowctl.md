@@ -1,6 +1,6 @@
 # Getting Started With flowctl
 
-After your account has been activated through the [web app](#get-started-with-the-flow-web-application), you can begin to work with your data flows from the command line.
+After your account has been activated through the [web app](../concepts/web-app.md), you can begin to work with your data flows from the command line.
 This is not required, but it enables more advanced workflows or might simply be your preference.
 
 Flow has a single binary, **flowctl**.

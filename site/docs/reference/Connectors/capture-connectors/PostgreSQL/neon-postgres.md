@@ -198,8 +198,8 @@ If a change event occurs on a row that contains a TOASTed value, _but the TOASTe
 As a result, the connector emits a row update with the value omitted, which might cause
 unexpected results in downstream catalog tasks if adjustments are not made.
 
-The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](../../../../concepts/connectors.md#flowctl-discover)
-or use the [Flow UI](../../../../concepts/connectors.md#flow-ui) to create your capture.
+The PostgreSQL connector handles TOASTed values for you when you follow the [standard discovery workflow](/concepts/captures.md#discovery)
+or use the [Flow UI](/concepts/web-app.md) to create your capture.
 It uses [merge](../../../reduction-strategies/merge.md) [reductions](../../../../concepts/schemas.md#reductions)
 to fill in the previous known TOASTed value in cases when that value is omitted from a row update.
 

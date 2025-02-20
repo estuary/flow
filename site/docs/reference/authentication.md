@@ -7,7 +7,7 @@ sidebar_position: 1
 Read, write, and admin capabilities over Flow catalogs and the [collections](../concepts/collections.md) that comprise them
 are granted to Flow users through **capabilities**.
 
-Capabilities are granted in terms of **prefixes** within the Flow [namespace](../concepts/README.md#namespace).
+Capabilities are granted in terms of **prefixes** within the Flow [namespace](../concepts/catalogs.md#namespace).
 By default, each organization has a unique top-level prefix.
 For example, if you worked for Acme Co, your assigned organization prefix would be `acmeCo/`.
 You may further divide your namespace however you'd like; for example `acmeCo/anvils` and `acmeCo/roadrunners`.

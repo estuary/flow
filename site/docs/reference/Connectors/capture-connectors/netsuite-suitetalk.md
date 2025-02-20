@@ -28,7 +28,7 @@ These two different connection modes have some key differences:
 - Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
 - Allowed access to all Account permissions options
 - A new integration with token-based authentication
-- A custom role with access to objects you want to capture _or_ a purchased SuiteAnalytics Module. See [setup](#setup).
+- A custom role with access to objects you want to capture _or_ a purchased SuiteAnalytics Module. See [setup](#general-setup).
 - A new user assigned to the custom role
 - Access token generated for the custom role
 

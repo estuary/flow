@@ -113,7 +113,7 @@ materializations:
 Flow materializations are **continuous materialized views**.
 They maintain a representation of the collection within the endpoint system
 that is updated in near real-time. It's indexed on the
-[collection key](collections.md#collection-keys).
+[collection key](collections.md#keys).
 As the materialization runs, it ensures that all collection documents
 and their accumulated [reductions](../#reductions) are reflected in this
 managed endpoint resource.

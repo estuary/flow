@@ -40,7 +40,7 @@ Flow automatically balances these two extremes to optimize each task,
 but it may be useful in some cases to control transaction duration.
 For example, materializations to large analytical warehouses may benefit from longer transactions,
 which can reduce cost by performing more data reduction before landing data in the warehouse.
-Some endpoint systems, like [BigQuery](../../reference/Connectors/materialization-connectors/BigQuery.md#performance-considerations), limit the number of table operations you can perform.
+Some endpoint systems, like [BigQuery](../../reference/materialization-sync-schedule.md), limit the number of table operations you can perform.
 Longer transaction durations ensure that you don't exceed these limits.
 
 You can set the minimum and maximum transaction duration in a task's [shards configuration](../../reference/Configuring-task-shards.md).

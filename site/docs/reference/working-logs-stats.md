@@ -18,7 +18,7 @@ You can view a subset of logs and statistics for individual tasks in the Flow we
 
 After you publish a new [capture](../guides/create-dataflow.md#create-a-capture) or [materialization](../guides/create-dataflow.md#create-a-materialization), a pop-up window appears that displays the task's logs.
 Once you close the window, you can't regain access to the full logs in the web app.
-For a complete view of logs, use [flowctl](#accessing-logs-and-statistics-from-the-command-line) or [materialize the logs collection](#accessing-logs-or-stats-by-materialization) to an outside system.
+For a complete view of logs, use [flowctl](#accessing-logs-and-statistics-from-the-command-line).
 
 However, if a task fails, you can view the logs associated with the error(s) that caused the failure.
 In the **Details** view of the published capture or materialization, click the name of its shard to display the logs.

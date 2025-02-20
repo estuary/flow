@@ -131,7 +131,7 @@ Using the example above, it'd be called `anvil-status.migration.0.sql`.
 For help writing your derivation, start with these examples:
 
 * [Continuous materialized view tutorial](../../getting-started/tutorials/continuous-materialized-view.md)
-* [Acme Bank examples](../../concepts/derivations.md#tutorial)
+* [Acme Bank examples](../../getting-started/tutorials/derivations_acmebank.md)
 
 The main [derivations page](../../concepts/derivations.md) includes many other examples and in-depth explanations of how derivations work.
 :::
@@ -199,7 +199,7 @@ Using the example above, it'd be called `anvil-status.ts`.
 4. In the TypeScript file, write your transformation.
 
 :::info Tip
-For help writing a TypeScript derivation, start with [this example](../../concepts/derivations.md#current-account-balances).
+For help writing a TypeScript derivation, start with [this example](../transform_data_using_typescript.md).
 
 The main [derivations page](../../concepts/derivations.md) includes many other examples and in-depth explanations of how derivations work.
 :::
