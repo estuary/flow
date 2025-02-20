@@ -78,7 +78,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/f_one",
@@ -108,7 +107,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/f_two",
@@ -138,7 +136,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/f_x",
@@ -159,7 +156,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -182,7 +178,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -212,7 +207,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -451,7 +445,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/f_one",
@@ -481,7 +474,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/f_two",
@@ -511,7 +503,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/f_x",
@@ -532,7 +523,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -555,7 +545,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -585,7 +574,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -724,7 +712,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/d_one",
@@ -754,7 +741,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/d_two",
@@ -784,7 +770,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -807,7 +792,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -837,7 +821,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -938,7 +921,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/f_one",
@@ -968,7 +950,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/f_two",
@@ -998,7 +979,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/f_x",
@@ -1019,7 +999,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "",
@@ -1042,7 +1021,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/uuid",
@@ -1072,7 +1050,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                         ],
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -1392,7 +1369,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/f_one",
@@ -1422,7 +1398,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/f_two",
@@ -1452,7 +1427,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/f_x",
@@ -1473,7 +1447,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -1496,7 +1469,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -1526,7 +1498,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",

@@ -1136,6 +1136,9 @@ impl serde::Serialize for Response {
         if self.captured.is_some() {
             len += 1;
         }
+        if self.sourced_schema.is_some() {
+            len += 1;
+        }
         if self.checkpoint.is_some() {
             len += 1;
         }
@@ -1161,6 +1164,9 @@ impl serde::Serialize for Response {
         if let Some(v) = self.captured.as_ref() {
             struct_ser.serialize_field("captured", v)?;
         }
+        if let Some(v) = self.sourced_schema.as_ref() {
+            struct_ser.serialize_field("sourcedSchema", v)?;
+        }
         if let Some(v) = self.checkpoint.as_ref() {
             struct_ser.serialize_field("checkpoint", v)?;
         }
@@ -1185,6 +1191,8 @@ impl<'de> serde::Deserialize<'de> for Response {
             "applied",
             "opened",
             "captured",
+            "sourced_schema",
+            "sourcedSchema",
             "checkpoint",
             "internal",
             "$internal",
@@ -1198,6 +1206,7 @@ impl<'de> serde::Deserialize<'de> for Response {
             Applied,
             Opened,
             Captured,
+            SourcedSchema,
             Checkpoint,
             Internal,
         }
@@ -1227,6 +1236,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                             "applied" => Ok(GeneratedField::Applied),
                             "opened" => Ok(GeneratedField::Opened),
                             "captured" => Ok(GeneratedField::Captured),
+                            "sourcedSchema" | "sourced_schema" => Ok(GeneratedField::SourcedSchema),
                             "checkpoint" => Ok(GeneratedField::Checkpoint),
                             "$internal" | "internal" => Ok(GeneratedField::Internal),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -1254,6 +1264,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                 let mut applied__ = None;
                 let mut opened__ = None;
                 let mut captured__ = None;
+                let mut sourced_schema__ = None;
                 let mut checkpoint__ = None;
                 let mut internal__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -1294,6 +1305,12 @@ impl<'de> serde::Deserialize<'de> for Response {
                             }
                             captured__ = map_.next_value()?;
                         }
+                        GeneratedField::SourcedSchema => {
+                            if sourced_schema__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sourcedSchema"));
+                            }
+                            sourced_schema__ = map_.next_value()?;
+                        }
                         GeneratedField::Checkpoint => {
                             if checkpoint__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("checkpoint"));
@@ -1317,6 +1334,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                     applied: applied__,
                     opened: opened__,
                     captured: captured__,
+                    sourced_schema: sourced_schema__,
                     checkpoint: checkpoint__,
                     internal: internal__.unwrap_or_default(),
                 })
@@ -1980,6 +1998,117 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
             }
         }
         deserializer.deserialize_struct("capture.Response.Opened", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for response::SourcedSchema {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.binding != 0 {
+            len += 1;
+        }
+        if !self.schema_json.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("capture.Response.SourcedSchema", len)?;
+        if self.binding != 0 {
+            struct_ser.serialize_field("binding", &self.binding)?;
+        }
+        if !self.schema_json.is_empty() {
+            struct_ser.serialize_field("documentSchema", crate::as_raw_json(&self.schema_json)?)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for response::SourcedSchema {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "binding",
+            "schema_json",
+            "documentSchema",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Binding,
+            SchemaJson,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "binding" => Ok(GeneratedField::Binding),
+                            "documentSchema" | "schema_json" => Ok(GeneratedField::SchemaJson),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = response::SourcedSchema;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct capture.Response.SourcedSchema")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::SourcedSchema, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut binding__ = None;
+                let mut schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Binding => {
+                            if binding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("binding"));
+                            }
+                            binding__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::SchemaJson => {
+                            if schema_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("documentSchema"));
+                            }
+                            schema_json__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(response::SourcedSchema {
+                    binding: binding__.unwrap_or_default(),
+                    schema_json: schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("capture.Response.SourcedSchema", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for response::Spec {
