@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script>
 <script id="runllm-widget-script" type="module" src="https://widget.runllm.com" runllm-name="Estuary AI Assistant" runllm-assistant-id="253" runllm-position="BOTTOM_RIGHT" runllm-keyboard-shortcut="Mod+j" runllm-preset="docusaurus" async runllm-theme-color="#5072EB" runllm-brand-logo="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_a373037876/estuary_logo_a373037876.png" runllm-support-email="support@estuary.dev" runllm-community-url="https://go.estuary.dev/slack" runllm-community-type="slack"></script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.55cab47c.js" defer="defer"></script>
-<script src="/assets/js/main.7e7f603f.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.abfa8a42.js" defer="defer"></script>
+<script src="/assets/js/main.483ace41.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -39,7 +39,7 @@ The spec serves as a formal contract between the capture and the materialization
 <p>You can use Flow&#x27;s <strong>schema evolutions</strong> feature to quickly and simultaneously update other parts of a Data Flow so you&#x27;re able to re-start it without error when you introduce a collection change.</p>
 <p>Collection specs may change for a variety of reasons, such as:</p>
 <ul>
-<li>The source system is a database, and someone ran an <code>ALTER TABLE</code> statement on a captured table, so you need to update the collection schema (through <a href="/concepts/captures/#autodiscover">AutoDiscover</a> or manually).</li>
+<li>The source system is a database, and someone ran an <code>ALTER TABLE</code> statement on a captured table, so you need to update the collection schema (through <a href="/concepts/captures/#automatically-update-captures">AutoDiscover</a> or manually).</li>
 <li>The source system contains unstructured data, and some data with a different shape was just captured so you need to update the collection schema (through AutoDiscover or manually).</li>
 <li>Someone manually changed the collection&#x27;s logical partitions.</li>
 </ul>
@@ -48,7 +48,7 @@ The spec serves as a formal contract between the capture and the materialization
 <p>When you attempt to publish a breaking change to a collection in the Flow web app, you get an error message that looks similar to this one:</p>
 <p><img decoding="async" loading="lazy" src="/assets/images/ui-evolution-re-create-de574ca2333327fc911cc8ff0e46c5b9.png" width="2498" height="862" class="img_ev3q"></p>
 <p>Click the <strong>Apply</strong> button to trigger an evolution and update all necessary specification to keep your Data Flow functioning. Then, review and publish your draft.</p>
-<p>If you enabled <a href="/concepts/captures/#autodiscover">AutoDiscover</a> on a capture, any breaking changes that it introduces will trigger an automatic schema evolution, so long as you selected the <strong>Breaking change re-versions collections</strong> option (<code>evolveIncompatibleCollections</code>).</p>
+<p>If you enabled <a href="/concepts/captures/#automatically-update-captures">AutoDiscover</a> on a capture, any breaking changes that it introduces will trigger an automatic schema evolution, so long as you selected the <strong>Breaking change re-versions collections</strong> option (<code>evolveIncompatibleCollections</code>).</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="what-do-schema-evolutions-do">What do schema evolutions do?<a class="hash-link" aria-label="Direct link to What do schema evolutions do?" title="Direct link to What do schema evolutions do?" href="/concepts/advanced/evolutions/#what-do-schema-evolutions-do">​</a></h2>
 <p>The schema evolution feature is available in the Flow web app when you&#x27;re editing pre-existing Flow entities.
 It notices when one of your edits would cause other components of the Data Flow to fail, alerts you, and gives you the option to automatically update the specs of these components to prevent failure.</p>
