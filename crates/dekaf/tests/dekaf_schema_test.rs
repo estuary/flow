@@ -212,15 +212,14 @@ async fn roundtrip(
         endpoint_config.deletions,
     )?;
 
-    let avro::Schema::Record(root_schema) = &avro_schema else {
-        anyhow::bail!("Invalid schema");
-    };
+    extract_and_decode(docs, extractors, avro_schema)
+}
 
-    let field_schemas = root_schema.fields.iter().cloned().map(|f| f.schema);
-    let extractors = field_schemas
-        .zip(extractors.clone().into_iter())
-        .collect_vec();
-
+fn extract_and_decode(
+    docs: Vec<serde_json::Value>,
+    extractors: Vec<(apache_avro::Schema, dekaf::utils::CustomizableExtractor)>,
+    avro_schema: apache_avro::Schema,
+) -> anyhow::Result<Vec<Result<apache_avro::types::Value, apache_avro::Error>>> {
     docs.into_iter()
         .map(|doc| {
             // Extract and encode document
@@ -391,6 +390,131 @@ async fn test_field_selection_recommended_fields() -> anyhow::Result<()> {
     .await?
     {
         insta::assert_debug_snapshot!(output?);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_deletions() -> anyhow::Result<()> {
+    for (idx, doc) in roundtrip(
+        dekaf::connector::DekafConfig {
+            deletions: dekaf::connector::DeletionMode::CDC,
+            strict_topic_names: false,
+            token: "1234".to_string(),
+        },
+        json!({
+            "schema": {
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "_meta": {
+                        "properties": {
+                            "op": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "key",
+                    "_meta",
+                ],
+            },
+            "key": [
+                "/key"
+            ]
+        }),
+        json!({
+            "recommended": true
+        }),
+        vec![
+            json!({
+                "key": "first",
+                "_meta": {
+                    "op": "c"
+                },
+            }),
+            json!({
+                "key": "second",
+                "_meta": {
+                    "op": "d"
+                },
+            }),
+        ],
+    )
+    .await?
+    .into_iter()
+    .enumerate()
+    {
+        insta::assert_debug_snapshot!(format!("deletions-{}", idx), doc?);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_old_style_deletions() -> anyhow::Result<()> {
+    let shape = json_schema_to_shape(
+        r#"{
+       "properties": {
+            "key": {
+                "type": "string"
+            },
+            "_meta": {
+                "properties": {
+                    "op": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "additionalProperties": {
+            "type": "string"
+        },
+        "type": "object",
+        "required": [
+            "key",
+            "_meta"
+        ]
+    }"#,
+    )?;
+
+    let (avro_schema, extractors) =
+        dekaf::utils::build_LEGACY_field_extractors(shape, connector::DeletionMode::CDC)?;
+
+    let decoded = extract_and_decode(
+        vec![
+            json!({
+                "key": "first",
+                "_meta": {
+                    "op": "c"
+                },
+            }),
+            json!({
+                "key": "second",
+                "_meta": {
+                    "op": "d"
+                },
+            }),
+            json!({
+                "key": "second",
+                "_meta": {
+                    "op": "d"
+                },
+                "additional": "I should end up in _flow_extra"
+            }),
+        ],
+        extractors,
+        avro_schema,
+    )?;
+
+    for (idx, doc) in decoded.into_iter().enumerate() {
+        insta::assert_debug_snapshot!(format!("old-deletions-{}", idx), doc?);
     }
 
     Ok(())

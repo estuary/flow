@@ -1,12 +1,17 @@
 use crate::{
-    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
+    connector::{self, DeletionMode},
+    dekaf_shard_template_id,
+    utils::{self, CustomizableExtractor},
+    App, SessionAuthentication, TaskAuth, UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
+use avro::shape_to_avro;
 use futures::{StreamExt, TryStreamExt};
 use gazette::{
     broker::{self, journal_spec},
     journal, uuid,
 };
+use itertools::Itertools;
 use models::RawValue;
 use proto_flow::flow;
 
@@ -88,7 +93,7 @@ pub struct Collection {
     pub spec: flow::CollectionSpec,
     pub uuid_ptr: doc::Pointer,
     pub value_schema: avro::Schema,
-    pub extractors: Vec<utils::CustomizableExtractor>,
+    pub extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>,
 }
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
@@ -204,10 +209,7 @@ impl Collection {
                 auth.deletions(),
             )?
         } else {
-            (
-                avro::shape_to_avro(collection_schema_shape.clone()),
-                vec![doc::Extractor::new(doc::Pointer::empty(), &doc::SerPolicy::noop()).into()],
-            )
+            utils::build_LEGACY_field_extractors(collection_schema_shape.clone(), auth.deletions())?
         };
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
