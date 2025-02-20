@@ -492,7 +492,23 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
     }
 
     pub fn send_stats(&self, collection_name: String, stats: ops::stats::Binding) {
-        self.send_message(TaskWriterMessage::Stats((collection_name, stats)))
+        if stats
+            .left
+            .is_some_and(|s| s.bytes_total == 0 || s.docs_total == 0)
+            || stats
+                .right
+                .is_some_and(|s| s.bytes_total == 0 || s.docs_total == 0)
+            || stats
+                .out
+                .is_some_and(|s| s.bytes_total == 0 || s.docs_total == 0)
+        {
+            tracing::error!(
+                ?stats,
+                "Invalid stats document emitted! Cannot emit 0 for `bytes_total` or `docs_total`!"
+            );
+        } else {
+            self.send_message(TaskWriterMessage::Stats((collection_name, stats)))
+        }
     }
 
     fn send_message(&self, msg: TaskWriterMessage) {
@@ -851,6 +867,36 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("test_stats", stats).await;
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_partial_stats() {
+        setup(|logs, stats| async move {
+            {
+                MOCK_LOG_FORWARDER
+                    .get()
+                    .set_task_name("my_task".to_string());
+
+                MOCK_LOG_FORWARDER.get().send_stats(
+                    "test_collection".to_string(),
+                    ops::stats::Binding {
+                        left: Some(ops::stats::DocsAndBytes {
+                            docs_total: 1,
+                            bytes_total: 0,
+                        }),
+                        ..Default::default()
+                    },
+                );
+
+                MOCK_LOG_FORWARDER.get().shutdown();
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            assert_output("test_stats_partial_logs", logs).await;
+            assert_output("test_stats_partial_stats", stats).await;
         })
         .await;
     }
