@@ -1,17 +1,20 @@
 use crate::connector::DeletionMode;
 use avro::{located_shape_to_avro, shape_to_avro};
 use doc::shape::location;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use proto_flow::flow;
 use std::{borrow::Cow, iter};
 
 lazy_static! {
     static ref META_OP_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/op");
+    static ref META_IS_DELETED_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/is_deleted");
 }
 
 #[derive(Debug, Clone)]
 pub enum CustomizableExtractor {
     Extractor(doc::Extractor),
+    RootExtractorWithIsDeleted,
     IsDeleted,
 }
 
@@ -33,7 +36,26 @@ impl CustomizableExtractor {
                     None => 0,
                 };
 
-                Err(Cow::Owned(serde_json::json!({"is_deleted": deletion})))
+                Err(Cow::Owned(serde_json::json!(deletion)))
+            }
+            CustomizableExtractor::RootExtractorWithIsDeleted => {
+                let deletion = match META_OP_PTR.query(doc) {
+                    Some(n) => match n.as_node() {
+                        doc::Node::String(s) if s == "d" => 1,
+                        _ => 0,
+                    },
+                    None => 0,
+                };
+
+                let mut full_doc = serde_json::to_value(&doc::SerPolicy::noop().on(doc)).unwrap();
+
+                if let Some(meta_is_deleted) = META_IS_DELETED_PTR.create_value(&mut full_doc) {
+                    *meta_is_deleted = serde_json::json!(deletion);
+
+                    Err(Cow::Owned(full_doc))
+                } else {
+                    Ok(doc)
+                }
             }
         }
     }
@@ -50,10 +72,10 @@ pub fn build_field_extractors(
     fields: flow::FieldSelection,
     projections: Vec<flow::Projection>,
     deletions: DeletionMode,
-) -> anyhow::Result<(avro::Schema, Vec<CustomizableExtractor>)> {
+) -> anyhow::Result<(avro::Schema, Vec<(avro::Schema, CustomizableExtractor)>)> {
     let policy = doc::SerPolicy::noop();
 
-    let (mut fields, mut extractors) = fields
+    let mut extractor_schemas = fields
         .keys
         .into_iter()
         .chain(fields.values.into_iter())
@@ -98,57 +120,102 @@ pub fn build_field_extractors(
                 );
             }
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .unzip::<_, _, Vec<_>, Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
 
     if matches!(deletions, DeletionMode::CDC) {
         let mut shape = doc::Shape::nothing();
         shape.type_ = json::schema::types::INTEGER;
 
-        // In order to maintain backwards compatibility, when CDC deletions mode is
-        // enabled we should emit {"_meta": {"is_deleted": 1}} instead of a root-level field
         let avro_field = avro::RecordField {
             schema: shape_to_avro(shape),
-            name: "is_deleted".to_string(),
+            name: "_is_deleted".to_string(),
             doc: None,
             aliases: None,
             default: None,
             order: apache_avro::schema::RecordFieldOrder::Ascending,
-            position: 0,
+            position: extractor_schemas.len(),
             custom_attributes: Default::default(),
         };
 
-        let meta_field = avro::RecordField {
-            name: "_meta".to_string(),
-            schema: avro::Schema::Record(avro::RecordSchema {
-                name: "root._meta.is_deleted".into(),
-                aliases: None,
-                doc: None,
-                fields: vec![avro_field],
-                lookup: Default::default(),
-                attributes: Default::default(),
-            }),
-            doc: None,
-            aliases: None,
-            default: None,
-            order: apache_avro::schema::RecordFieldOrder::Ascending,
-            position: fields.len(),
-            custom_attributes: Default::default(),
-        };
-
-        fields.push(meta_field);
-        extractors.push(CustomizableExtractor::IsDeleted);
+        extractor_schemas.push((avro_field, CustomizableExtractor::IsDeleted));
     }
 
     let schema = avro::Schema::Record(avro::RecordSchema {
         name: "root".into(),
         aliases: None,
         doc: None,
-        fields: fields,
+        fields: extractor_schemas
+            .iter()
+            .map(|(field, _)| field.clone())
+            .collect_vec(),
         lookup: Default::default(),
         attributes: Default::default(),
     });
 
-    Ok((schema, extractors))
+    Ok((
+        schema,
+        extractor_schemas
+            .into_iter()
+            .map(|(field, extractor)| (field.schema, extractor))
+            .collect_vec(),
+    ))
+}
+
+pub fn build_LEGACY_field_extractors(
+    mut schema: doc::Shape,
+    deletions: DeletionMode,
+) -> anyhow::Result<(avro::Schema, Vec<(avro::Schema, CustomizableExtractor)>)> {
+    if matches!(deletions, DeletionMode::CDC) {
+        if let Some(meta) = schema
+            .object
+            .properties
+            .iter_mut()
+            .find(|prop| prop.name.to_string() == "_meta".to_string())
+        {
+            if let Err(idx) = meta
+                .shape
+                .object
+                .properties
+                .binary_search_by(|prop| prop.name.to_string().cmp(&"is_deleted".to_string()))
+            {
+                meta.shape.object.properties.insert(
+                    idx,
+                    doc::shape::ObjProperty {
+                        name: "is_deleted".into(),
+                        is_required: true,
+                        shape: doc::Shape {
+                            type_: json::schema::types::INTEGER,
+                            ..doc::Shape::nothing()
+                        },
+                    },
+                );
+            } else {
+                tracing::warn!(
+                    "This collection's schema already has a /_meta/is_deleted location!"
+                );
+            }
+        } else {
+            return Err(anyhow::anyhow!("Schema missing /_meta"));
+        }
+
+        let schema = avro::shape_to_avro(schema.clone());
+
+        Ok((
+            schema.clone(),
+            vec![(schema, CustomizableExtractor::RootExtractorWithIsDeleted)],
+        ))
+    } else {
+        let schema = avro::shape_to_avro(schema.clone());
+
+        Ok((
+            schema.clone(),
+            vec![(
+                schema,
+                CustomizableExtractor::Extractor(doc::Extractor::new(
+                    doc::Pointer::empty(),
+                    &doc::SerPolicy::noop(),
+                )),
+            )],
+        ))
+    }
 }
