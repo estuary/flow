@@ -6,12 +6,14 @@ use proto_flow::flow;
 use std::{borrow::Cow, iter};
 
 lazy_static! {
+    static ref META_PTR: doc::Pointer = doc::Pointer::from_str("/_meta");
     static ref META_OP_PTR: doc::Pointer = doc::Pointer::from_str("/_meta/op");
 }
 
 #[derive(Debug, Clone)]
 pub enum CustomizableExtractor {
     Extractor(doc::Extractor),
+    MetaExtractorWithIsDeleted,
     IsDeleted,
 }
 
@@ -33,7 +35,29 @@ impl CustomizableExtractor {
                     None => 0,
                 };
 
-                Err(Cow::Owned(serde_json::json!({"is_deleted": deletion})))
+                Err(Cow::Owned(serde_json::json!(deletion)))
+            }
+            CustomizableExtractor::MetaExtractorWithIsDeleted => {
+                let deletion = match META_OP_PTR.query(doc) {
+                    Some(n) => match n.as_node() {
+                        doc::Node::String(s) if s == "d" => 1,
+                        _ => 0,
+                    },
+                    None => 0,
+                };
+
+                match META_PTR.query(doc) {
+                    Some(meta) => {
+                        let mut val = meta.to_debug_json_value();
+                        if let serde_json::Value::Object(meta_obj) = &mut val {
+                            meta_obj.insert("is_deleted".to_string(), serde_json::json!(deletion));
+                            Err(Cow::Owned(val))
+                        } else {
+                            Err(Cow::Owned(serde_json::json!({"is_deleted": deletion})))
+                        }
+                    }
+                    None => Err(Cow::Owned(serde_json::json!({"is_deleted": deletion}))),
+                }
             }
         }
     }
@@ -106,29 +130,9 @@ pub fn build_field_extractors(
         let mut shape = doc::Shape::nothing();
         shape.type_ = json::schema::types::INTEGER;
 
-        // In order to maintain backwards compatibility, when CDC deletions mode is
-        // enabled we should emit {"_meta": {"is_deleted": 1}} instead of a root-level field
         let avro_field = avro::RecordField {
             schema: shape_to_avro(shape),
-            name: "is_deleted".to_string(),
-            doc: None,
-            aliases: None,
-            default: None,
-            order: apache_avro::schema::RecordFieldOrder::Ascending,
-            position: 0,
-            custom_attributes: Default::default(),
-        };
-
-        let meta_field = avro::RecordField {
-            name: "_meta".to_string(),
-            schema: avro::Schema::Record(avro::RecordSchema {
-                name: "root._meta.is_deleted".into(),
-                aliases: None,
-                doc: None,
-                fields: vec![avro_field],
-                lookup: Default::default(),
-                attributes: Default::default(),
-            }),
+            name: "_is_deleted".to_string(),
             doc: None,
             aliases: None,
             default: None,
@@ -137,7 +141,7 @@ pub fn build_field_extractors(
             custom_attributes: Default::default(),
         };
 
-        fields.push(meta_field);
+        fields.push(avro_field);
         extractors.push(CustomizableExtractor::IsDeleted);
     }
 
