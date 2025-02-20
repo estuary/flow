@@ -437,11 +437,8 @@ impl Collection {
             registry_id: u32,
         }
 
-        // Note the canonical form of the schema strips away some important metadata
-        // that we require while encoding, such as default values.
-        // It's fully sufficient for readers, though.
         // We map into a serde_json::Value to ensure stability of property order when content-summing.
-        let schema: serde_json::Value = serde_json::from_str(&schema.canonical_form()).unwrap();
+        let schema: serde_json::Value = serde_json::to_value(&schema).unwrap();
         let schema_md5 = format!("{:x}", md5::compute(&schema.to_string()));
 
         let mut rows: Vec<Row> = handle_postgrest_response(
