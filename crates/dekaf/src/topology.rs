@@ -1,12 +1,17 @@
 use crate::{
-    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
+    connector::{self, DeletionMode},
+    dekaf_shard_template_id,
+    utils::{self, CustomizableExtractor},
+    App, SessionAuthentication, TaskAuth, UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
+use avro::shape_to_avro;
 use futures::{StreamExt, TryStreamExt};
 use gazette::{
     broker::{self, journal_spec},
     journal, uuid,
 };
+use itertools::Itertools;
 use models::RawValue;
 use proto_flow::flow;
 
@@ -188,7 +193,7 @@ impl Collection {
 
         let json_schema = doc::validation::build_bundle(json_schema)?;
         let validator = doc::Validator::new(json_schema)?;
-        let collection_schema_shape =
+        let mut collection_schema_shape =
             doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
         let (value_schema, extractors) = if let Some(binding) = binding {
@@ -204,10 +209,90 @@ impl Collection {
                 auth.deletions(),
             )?
         } else {
-            (
-                avro::shape_to_avro(collection_schema_shape.clone()),
-                vec![doc::Extractor::new(doc::Pointer::empty(), &doc::SerPolicy::noop()).into()],
-            )
+            if matches!(auth.deletions(), DeletionMode::CDC) {
+                if let Some(meta) = collection_schema_shape
+                    .object
+                    .properties
+                    .iter_mut()
+                    .find(|prop| prop.name.to_string() == "_meta".to_string())
+                {
+                    if let Err(idx) = meta.shape.object.properties.binary_search_by(|prop| {
+                        prop.name.to_string().cmp(&"is_deleted".to_string())
+                    }) {
+                        meta.shape.object.properties.insert(
+                            idx,
+                            doc::shape::ObjProperty {
+                                name: "is_deleted".into(),
+                                is_required: true,
+                                shape: doc::Shape {
+                                    type_: json::schema::types::INTEGER,
+                                    ..doc::Shape::nothing()
+                                },
+                            },
+                        );
+                    } else {
+                        tracing::warn!(
+                            "This collection's schema already has a /_meta/is_deleted location!"
+                        );
+                    }
+                } else {
+                    return Err(anyhow::anyhow!("Schema missing /_meta"));
+                }
+
+                let schema = avro::shape_to_avro(collection_schema_shape.clone());
+
+                let avro::Schema::Record(root_schema) = &schema else {
+                    anyhow::bail!("Invalid schema");
+                };
+                let field_schemas = root_schema.fields.iter().cloned().map(|f| f);
+
+                (
+                    schema.clone(),
+                    field_schemas
+                        .map(|s| {
+                            if s.name == "_flow_extra" {
+                                CustomizableExtractor::Extractor(doc::Extractor::new(
+                                    doc::Pointer::empty(),
+                                    &doc::SerPolicy::noop(),
+                                ))
+                            } else if s.name == "_meta" {
+                                CustomizableExtractor::MetaExtractorWithIsDeleted
+                            } else {
+                                CustomizableExtractor::Extractor(doc::Extractor::new(
+                                    doc::Pointer::from_str(&format!("/{}", s.name)),
+                                    &doc::SerPolicy::noop(),
+                                ))
+                            }
+                        })
+                        .collect_vec(),
+                )
+            } else {
+                let schema = avro::shape_to_avro(collection_schema_shape.clone());
+
+                let avro::Schema::Record(root_schema) = &schema else {
+                    anyhow::bail!("Invalid schema");
+                };
+                let field_schemas = root_schema.fields.iter().cloned().map(|f| f);
+
+                (
+                    schema.clone(),
+                    field_schemas
+                        .map(|s| {
+                            if s.name == "_flow_extra" {
+                                CustomizableExtractor::Extractor(doc::Extractor::new(
+                                    doc::Pointer::empty(),
+                                    &doc::SerPolicy::noop(),
+                                ))
+                            } else {
+                                CustomizableExtractor::Extractor(doc::Extractor::new(
+                                    doc::Pointer::from_str(&format!("/{}", s.name)),
+                                    &doc::SerPolicy::noop(),
+                                ))
+                            }
+                        })
+                        .collect_vec(),
+                )
+            }
         };
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);

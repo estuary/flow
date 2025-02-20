@@ -85,29 +85,14 @@ impl Read {
             30,
         );
 
-        let extractors = match auth {
-            SessionAuthentication::User(_) => {
-                if collection.extractors.len() != 1 {
-                    anyhow::bail!("Expecting only one extractor!");
-                }
-                vec![(
-                    collection.value_schema.clone(),
-                    collection
-                        .extractors
-                        .first()
-                        .expect("Just checked above")
-                        .to_owned(),
-                )]
-            }
-            SessionAuthentication::Task(_) => {
-                let avro::Schema::Record(root_schema) = &collection.value_schema else {
-                    anyhow::bail!("Invalid schema");
-                };
-                let field_schemas = root_schema.fields.iter().cloned().map(|f| f.schema);
-                field_schemas
-                    .zip(collection.extractors.clone().into_iter())
-                    .collect_vec()
-            }
+        let extractors = {
+            let avro::Schema::Record(root_schema) = &collection.value_schema else {
+                anyhow::bail!("Invalid schema");
+            };
+            let field_schemas = root_schema.fields.iter().cloned().map(|f| f.schema);
+            field_schemas
+                .zip(collection.extractors.clone().into_iter())
+                .collect_vec()
         };
 
         Ok(Self {
