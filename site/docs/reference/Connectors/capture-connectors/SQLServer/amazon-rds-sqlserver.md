@@ -24,12 +24,10 @@ To capture change events from SQL Server tables using this connector, you need:
   on the database and the individual tables to be captured.
   (This creates _change tables_ in the database, from which the connector reads.)
 
-- A **watermarks table**. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
-
 - A user role with:
   - `SELECT` permissions on the CDC schema and the schemas that contain tables to be captured.
   - Access to the change tables created as part of the SQL Server CDC process.
-  - `SELECT`, `INSERT`, and `UPDATE` permissions on the watermarks table
+  - The `VIEW DATABASE STATE` or (in newer versions of SQL Server) `VIEW DATABASE PERFORMANCE STATE` permission.
 
 ## Setup
 
@@ -58,12 +56,11 @@ CREATE USER flow_capture FOR LOGIN flow_capture;
 -- Add similar queries for any other schemas that contain tables you want to capture.
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
--- Create the watermarks table and grant permissions.
-CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
-GRANT SELECT, INSERT, UPDATE ON dbo.flow_watermarks TO flow_capture;
--- Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
--- You should add similar query for all other tables you intend to capture.
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture';
+-- Grant the 'VIEW DATABASE STATE' permission.
+GRANT VIEW DATABASE STATE TO flow_capture;
+-- Enable CDC on tables. The below query enables CDC on table 'dbo.foobar',
+-- you should add similar query for all other tables you intend to capture.
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'foobar', @role_name = 'flow_capture';
 ```
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
@@ -86,7 +83,6 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
 | `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query.                                                    | integer | `4096`                     |
 | `/advanced/skip_backfills`      | Skip Backfills      | A comma-separated list of fully-qualified table names which should not be backfilled.                                                       | string  |                            |
-| `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"dbo.flow_watermarks"`    |
 
 #### Bindings
 
