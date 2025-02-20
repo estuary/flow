@@ -130,29 +130,9 @@ pub fn build_field_extractors(
         let mut shape = doc::Shape::nothing();
         shape.type_ = json::schema::types::INTEGER;
 
-        // In order to maintain backwards compatibility, when CDC deletions mode is
-        // enabled we should emit {"_meta": {"is_deleted": 1}} instead of a root-level field
         let avro_field = avro::RecordField {
             schema: shape_to_avro(shape),
-            name: "is_deleted".to_string(),
-            doc: None,
-            aliases: None,
-            default: None,
-            order: apache_avro::schema::RecordFieldOrder::Ascending,
-            position: 0,
-            custom_attributes: Default::default(),
-        };
-
-        let meta_field = avro::RecordField {
-            name: "_meta".to_string(),
-            schema: avro::Schema::Record(avro::RecordSchema {
-                name: "root._meta.is_deleted".into(),
-                aliases: None,
-                doc: None,
-                fields: vec![avro_field],
-                lookup: Default::default(),
-                attributes: Default::default(),
-            }),
+            name: "_is_deleted".to_string(),
             doc: None,
             aliases: None,
             default: None,
@@ -161,7 +141,7 @@ pub fn build_field_extractors(
             custom_attributes: Default::default(),
         };
 
-        fields.push(meta_field);
+        fields.push(avro_field);
         extractors.push(CustomizableExtractor::IsDeleted);
     }
 
