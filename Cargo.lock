@@ -2366,6 +2366,7 @@ dependencies = [
  "serde_json",
  "simd-doc",
  "socket2",
+ "sources",
  "tempfile",
  "time 0.3.36",
  "tokio",
@@ -2382,6 +2383,7 @@ dependencies = [
  "typestate",
  "unseal",
  "url",
+ "validation-tests",
  "webpki",
 ]
 
@@ -8050,6 +8052,36 @@ dependencies = [
  "doc",
  "extractors",
  "futures",
+ "itertools 0.10.5",
+ "json",
+ "labels",
+ "lazy_static",
+ "models",
+ "pbjson-types",
+ "proto-flow",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sources",
+ "strsim 0.10.0",
+ "superslice",
+ "tables",
+ "thiserror",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "validation-tests"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "assemble",
+ "bytes",
+ "doc",
+ "extractors",
+ "futures",
  "insta",
  "itertools 0.10.5",
  "json",
@@ -8072,6 +8104,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "url",
+ "validation",
 ]
 
 [[package]]
