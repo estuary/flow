@@ -5,7 +5,7 @@ sidebar_position: 5
 
 :::caution Beta
 This page is outdated. It does not reflect the current state of the Flow web application and the
-[authorization model](./authentication.md#authorizing-users-and-authenticating-with-flow) used to share
+[authorization model](./authentication.md) used to share
 entities in Flow catalogs. Updates are coming soon.
 :::
 
@@ -171,4 +171,4 @@ Every Flow collection has a name, and that name _must_ be unique within a runnin
 
 For example, imagine your catalog for the inside sales team has a collection just named `customers`. If you later try to import a catalog from the outside sales team that also contains a `customers` collection, 💥 there's a collision. A better collection name would be `acme/inside-sales/customers`. This allows a catalog to include customer data from separate teams, and also separate organizations.
 
-[Learn more about the Flow namespace.](../concepts/README.md#namespace)
+[Learn more about the Flow namespace.](../concepts/catalogs.md#namespace)

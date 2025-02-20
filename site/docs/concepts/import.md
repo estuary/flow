@@ -110,7 +110,7 @@ and, in certain cases, the NPM dependencies of that TypeScript module.
 
 These imports are specified in the derivation specification, _not_ in the `import` section of the specification file.
 
-For more information, see [Derivation specification](./derivations.md#specification) and [creating TypeScript modules](./derivations.md#creating-typescript-modules).
+For more information, see [Derivation specification](./derivations.md#specification) and [creating TypeScript modules](./derivations.md#modules).
 
 ## Import paths
 
