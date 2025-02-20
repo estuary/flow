@@ -172,7 +172,7 @@ pub async fn unary_materialize(
 
 // Largely lifted from materialize-kafka
 // TODO(jshearer): Expose this logic somewhere that materialize-kafka can use it
-fn constraint_for_projection(
+pub fn constraint_for_projection(
     projection: &flow::Projection,
     resource_config: &DekafResourceConfig,
     endpoint_config: &DekafConfig,
