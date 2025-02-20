@@ -56,6 +56,7 @@ pub enum Role {
     Etcd,
     Gazette,
     Reactor,
+    Bastion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
