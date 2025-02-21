@@ -143,6 +143,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Microsoft SQL Server
   - [Configuration](./SQLServer/)
   - Package - ghcr.io/estuary/source-sqlserver:dev
+- Monday
+  - [Configuration](./monday.md)
+  - Package - ghcr.io/estuary/source-monday:dev
 - MongoDB
   - [Configuration](./MongoDB/mongodb.md)
   - Package - ghcr.io/estuary/source-mongodb:dev
