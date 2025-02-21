@@ -1,39 +1,16 @@
 use crate::{
-    controllers::ControllerErrorExt, controlplane::ControlPlane, publications::PublicationResult,
+    controllers::{ControllerErrorExt, Inbox},
+    controlplane::ControlPlane,
+    publications::PublicationResult,
 };
 use anyhow::Context;
 use models::{
     draft_error,
-    status::publications::{ActivationStatus, PublicationInfo, PublicationStatus},
+    status::publications::{PublicationInfo, PublicationStatus},
     Id,
 };
 
-use super::{backoff_data_plane_activate, ControllerState};
-
-/// Activates the spec in the data plane if necessary.
-pub async fn update_activation<C: ControlPlane>(
-    status: &mut ActivationStatus,
-    state: &ControllerState,
-    control_plane: &C,
-) -> anyhow::Result<()> {
-    if state.last_build_id > status.last_activated {
-        let name = state.catalog_name.clone();
-        let built_spec = state.built_spec.as_ref().expect("built_spec must be Some");
-
-        crate::timeout(
-            std::time::Duration::from_secs(60),
-            control_plane.data_plane_activate(name, built_spec, state.data_plane_id),
-            || "Timeout while activating into data-plane",
-        )
-        .await
-        .with_retry(backoff_data_plane_activate(state.failures))
-        .context("failed to activate into data-plane")?;
-
-        tracing::debug!(last_activated = %state.last_build_id, "activated");
-        status.last_activated = state.last_build_id;
-    }
-    Ok(())
-}
+use super::ControllerState;
 
 fn is_touch_pub(draft: &tables::DraftCatalog) -> bool {
     draft.tests.iter().all(|r| r.is_touch)
