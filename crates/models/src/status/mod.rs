@@ -1,3 +1,4 @@
+pub mod activation;
 pub mod capture;
 pub mod catalog_test;
 pub mod collection;
@@ -85,7 +86,7 @@ impl ControllerStatus {
     }
 
     /// Returns the activation status, if this status is for a capture, collection, or materialization.
-    pub fn activation_status(&self) -> Option<&publications::ActivationStatus> {
+    pub fn activation_status(&self) -> Option<&activation::ActivationStatus> {
         match self {
             ControllerStatus::Capture(c) => Some(&c.activation),
             ControllerStatus::Collection(c) => Some(&c.activation),
@@ -165,6 +166,27 @@ impl ControllerStatus {
     }
 }
 
+/// Identifies the specific task shard that is the source of an event. This
+/// matches the shape of the `shard` field in an `ops.Log` message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShardRef {
+    /// The name of the task
+    pub name: String,
+    /// The key range of the task as a hex string. Together with rClockBegin, this
+    /// uniquely identifies a specific task shard.
+    pub key_begin: String,
+    /// The rClock range of the task as a hex string. Together with keyBegin, this
+    /// uniquely identifies a specific task shard.
+    pub r_clock_begin: String,
+    /// The id of the build that the shard was running when the event was
+    /// generated. This can be compared against the `last_build_id` of the live
+    /// spec to determine whether the event happened with the most rececnt
+    /// version of the published spec (it did if the `last_build_id` is the
+    /// same).
+    pub build: Id,
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::{BTreeSet, VecDeque};
@@ -174,8 +196,9 @@ mod test {
     use super::*;
     use crate::draft_error::Error;
     use crate::publications::{AffectedConsumer, IncompatibleCollection, JobStatus, RejectedField};
+    use crate::status::activation::ActivationStatus;
     use crate::status::materialization::{MaterializationStatus, SourceCaptureStatus};
-    use crate::status::publications::{ActivationStatus, PublicationInfo, PublicationStatus};
+    use crate::status::publications::{PublicationInfo, PublicationStatus};
     use crate::Id;
 
     #[test]
@@ -214,6 +237,10 @@ mod test {
         let status = ControllerStatus::Materialization(MaterializationStatus {
             activation: ActivationStatus {
                 last_activated: Id::new([1, 2, 3, 4, 4, 3, 2, 1]),
+                last_activated_at: Some("2024-01-02T03:04:05.06Z".parse().unwrap()),
+                last_failure: None,
+                recent_failure_count: 3,
+                next_retry: Some("2025-01-02T03:04:05.06Z".parse().unwrap()),
             },
             source_capture: Some(SourceCaptureStatus {
                 up_to_date: false,
