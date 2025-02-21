@@ -2,8 +2,9 @@ use crate::log_appender::{self, GazetteWriter, TaskForwarder};
 use futures::Future;
 use lazy_static::lazy_static;
 use rand::Rng;
-use std::sync::Arc;
-use tracing::{level_filters::LevelFilter, Instrument};
+use tracing::Instrument;
+use tracing::{level_filters::LevelFilter, Level};
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 // These are accessible anywhere inside the call stack of a future wrapped with [`forward_logs()`].
@@ -11,7 +12,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 // from the point at which you call `forward_logs()` downwards will get forwarded to the same journal.
 tokio::task_local! {
     static TASK_FORWARDER: TaskForwarder<GazetteWriter>;
-    static LOG_LEVEL: Arc<arc_swap::ArcSwap<tracing_subscriber::filter::Targets>>;
+    static LOG_LEVEL: std::cell::Cell<&'static tracing_subscriber::filter::Targets>;
 }
 
 pub fn install() {
@@ -26,7 +27,7 @@ pub fn install() {
         }
 
         LOG_LEVEL
-            .try_with(|filter| filter.load().enabled(&metadata, ctx.to_owned()))
+            .try_with(|filter| filter.get().enabled(&metadata, ctx.to_owned()))
             .unwrap_or_else(|_| metadata.level() <= &tracing::metadata::Level::INFO)
     });
 
@@ -63,18 +64,32 @@ lazy_static! {
         producer_id[0] |= 0x01;
         gazette::uuid::Producer::from_bytes(producer_id)
     };
+    static ref ERROR_FILTER: Targets = Targets::new().with_default(LevelFilter::from_level(Level::ERROR));
+    static ref WARN_FILTER: Targets = Targets::new().with_default(LevelFilter::from_level(Level::WARN));
+    static ref INFO_FILTER: Targets = Targets::new()
+            .with_default(LevelFilter::from_level(Level::WARN))
+            .with_target("dekaf", Level::INFO);
+    static ref DEBUG_FILTER: Targets = Targets::new()
+        .with_default(LevelFilter::from_level(Level::DEBUG))
+        .with_target("simple_crypt", Level::WARN)
+        .with_target("aws_configure", Level::WARN)
+        .with_target("h2", Level::WARN);
+    static ref TRACE_FILTER: Targets = Targets::new()
+        .with_default(LevelFilter::from_level(Level::TRACE))
+        .with_target("simple_crypt", Level::WARN)
+        .with_target("aws_configure", Level::WARN)
+        .with_target("h2", Level::WARN);
+
 }
 
-fn build_log_filter(level: ops::LogLevel) -> tracing_subscriber::filter::Targets {
-    let filter = match level {
-        ops::LogLevel::Error => "error",
-        ops::LogLevel::Warn => "warn",
-        ops::LogLevel::Info | ops::LogLevel::UndefinedLevel => "warn,dekaf=info",
-        ops::LogLevel::Debug => "debug,simple_crypt=warn,aws_config=warn,h2=warn",
-        ops::LogLevel::Trace => "trace,simple_crypt=warn,aws_config=warn,h2=warn",
-    };
-
-    filter.parse().expect("Filters should be correct")
+fn build_log_filter(level: ops::LogLevel) -> &'static tracing_subscriber::filter::Targets {
+    match level {
+        ops::LogLevel::Error => &ERROR_FILTER,
+        ops::LogLevel::Warn => &WARN_FILTER,
+        ops::LogLevel::Info | ops::LogLevel::UndefinedLevel => &INFO_FILTER,
+        ops::LogLevel::Debug => &DEBUG_FILTER,
+        ops::LogLevel::Trace => &TRACE_FILTER,
+    }
 }
 
 /// Capture all log messages emitted by the passed future and all of its descendants, and writes them out
@@ -92,9 +107,7 @@ where
     let forwarder = TaskForwarder::new(PRODUCER.to_owned(), writer);
 
     LOG_LEVEL.scope(
-        Arc::new(arc_swap::ArcSwap::new(Arc::new(build_log_filter(
-            ops::LogLevel::Info,
-        )))),
+        std::cell::Cell::new(build_log_filter(ops::LogLevel::Info)),
         TASK_FORWARDER.scope(
             forwarder,
             fut.instrument(tracing::info_span!(
@@ -130,6 +143,6 @@ pub fn get_log_forwarder() -> TaskForwarder<GazetteWriter> {
 
 pub fn set_log_level(level: ops::LogLevel) {
     LOG_LEVEL.with(|current_level| {
-        current_level.store(Arc::new(build_log_filter(level)));
+        current_level.set(build_log_filter(level));
     })
 }
