@@ -6,24 +6,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-/// Status of the activation of the task in the data-plane
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
-pub struct ActivationStatus {
-    /// The build id that was last activated in the data plane.
-    /// If this is less than the `last_build_id` of the controlled spec,
-    /// then an activation is still pending.
-    #[serde(default = "Id::zero", skip_serializing_if = "Id::is_zero")]
-    pub last_activated: Id,
-}
-
-impl Default for ActivationStatus {
-    fn default() -> Self {
-        Self {
-            last_activated: Id::zero(),
-        }
-    }
-}
-
 /// Summary of a publication that was attempted by a controller.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct PublicationInfo {

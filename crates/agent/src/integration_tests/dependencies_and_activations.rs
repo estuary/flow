@@ -7,8 +7,353 @@ use crate::{
     },
     ControlPlane,
 };
-use models::CatalogType;
+use models::{status::ShardRef, CatalogType};
 use uuid::Uuid;
+
+#[tokio::test]
+#[serial_test::serial]
+async fn test_shard_failures_and_retries() {
+    let mut harness = TestHarness::init("test_shard_failures_and_retries").await;
+    let user_id = harness.setup_tenant("pandas").await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "pandas/bamboo": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"]
+            },
+            "pandas/luck": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"],
+                "derive": {
+                    "using": {
+                        "sqlite": { "migrations": [] }
+                    },
+                    "transforms": [
+                        {
+                            "name": "fromHoots",
+                            "source": "pandas/bamboo",
+                            "lambda": "select $id;",
+                            "shuffle": "any"
+                        }
+                    ]
+                }
+            }
+        },
+        "captures": {
+            "pandas/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": { "table": "bamboo" },
+                        "target": "pandas/bamboo"
+                    }
+                ]
+            }
+        },
+        "materializations": {
+            "pandas/materialize": {
+                "endpoint": {
+                    "connector": {
+                        "image": "materialize/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": { "table": "bamboo" },
+                        "source": "pandas/bamboo"
+                    },
+                    {
+                        "resource": { "table": "luck" },
+                        "source": "pandas/luck"
+                    }
+                ]
+            }
+        },
+        "tests": {
+            "pandas/test-test": {
+                "description": "a test of testing",
+                "steps": [
+                    {"ingest": {
+                        "collection": "pandas/bamboo",
+                        "documents": [{"id": "shooty shoot!"}]
+                    }},
+                    {"verify": {
+                        "collection": "pandas/luck",
+                        "documents": [{"id": "wooty woot!"}]
+                    }}
+                ]
+            }
+        }
+    }));
+
+    let result = harness
+        .control_plane()
+        .publish(
+            Some(format!("initial publication")),
+            Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .expect("initial publish failed");
+    assert!(
+        result.status.is_success(),
+        "publication failed with: {:?}",
+        result.draft_errors()
+    );
+
+    harness.run_pending_controllers(None).await;
+    harness.control_plane().assert_activations(
+        "initial activations",
+        vec![
+            ("pandas/capture", Some(CatalogType::Capture)),
+            ("pandas/materialize", Some(CatalogType::Materialization)),
+            ("pandas/bamboo", Some(CatalogType::Collection)),
+            ("pandas/luck", Some(CatalogType::Collection)),
+        ],
+    );
+    //harness.control_plane().reset_activations();
+
+    let before_capture_state = harness.get_controller_state("pandas/capture").await;
+    let before_activation = before_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation
+        .last_activated_at
+        .unwrap();
+
+    let capture_shard = ShardRef {
+        name: "pandas/capture".to_string(),
+        build: before_capture_state.last_build_id,
+        key_begin: "00000000".to_string(),
+        r_clock_begin: "00000000".to_string(),
+    };
+
+    fail_shard(&mut harness, &capture_shard).await;
+
+    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
+    // Assert that the capture was activated again, and that the status reflects both the
+    // failure and the subsequent activation.
+    harness.control_plane().assert_activations(
+        "after restart",
+        vec![("pandas/capture", Some(CatalogType::Capture))],
+    );
+    let capture_activation = &after_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation;
+    assert_eq!(
+        capture_activation.last_activated, before_capture_state.last_build_id,
+        "the activated build id should not have changed"
+    );
+    assert_eq!(1, capture_activation.recent_failure_count);
+    assert!(
+        capture_activation.next_retry.is_none(),
+        "next_retry should be None because it should have already been re-activated"
+    );
+    let reactivation_ts = capture_activation.last_activated_at.unwrap();
+    assert!(
+        reactivation_ts > before_activation,
+        "expected last_activated_at to be greater than before_activation"
+    );
+
+    // Now simulate multiple consecutive failures, and assert that the
+    // controller backs off before attempting to activate again
+    for _ in 0..5 {
+        fail_shard(&mut harness, &capture_shard).await;
+    }
+
+    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
+    harness
+        .control_plane()
+        .assert_activations("after repeated failures", Vec::new());
+    let capture_activation = &after_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation;
+    assert_eq!(
+        capture_activation.last_activated_at.unwrap(),
+        reactivation_ts,
+        "last_activated_at should not have changed"
+    );
+    assert!(capture_activation.next_retry.is_some());
+    assert_eq!(6, capture_activation.recent_failure_count);
+
+    // Assert that the restart gets performed and recorded properly
+    override_next_retry_now("pandas/capture", &mut harness).await;
+
+    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
+    harness.control_plane().assert_activations(
+        "after restart",
+        vec![("pandas/capture", Some(CatalogType::Capture))],
+    );
+    let capture_activation = &after_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation;
+    assert!(
+        capture_activation.last_activated_at.unwrap() > reactivation_ts,
+        "activation timestamp should have been updated"
+    );
+    assert!(
+        capture_activation.next_retry.is_none(),
+        "next_retry should have been cleared"
+    );
+    assert_eq!(6, capture_activation.recent_failure_count);
+
+    // fail the shard again, and expect another backoff
+    let last_activation_ts = capture_activation.last_activated_at.unwrap();
+    fail_shard(&mut harness, &capture_shard).await;
+    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
+    let capture_activation = &after_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation;
+    assert_eq!(
+        capture_activation.last_activated_at.unwrap(),
+        last_activation_ts,
+        "activation timestamp should be the same"
+    );
+    harness
+        .control_plane()
+        .assert_activations("after repeated failures", Vec::new());
+    let prev_build_id = capture_activation.last_activated;
+
+    // Now publish the capture, and expect that it gets activated immediately
+    let mut draft = tables::DraftCatalog::default();
+    draft.captures.insert(tables::DraftCapture {
+        capture: models::Capture::new("pandas/capture"),
+        scope: tables::synthetic_scope("capture", "pandas/capture"),
+        expect_pub_id: None,
+        model: after_capture_state
+            .live_spec
+            .as_ref()
+            .and_then(|s| s.as_capture())
+            .cloned(),
+        is_touch: true, // even a touch publication is enough to trigger an immediate retry
+    });
+    harness
+        .control_plane()
+        .publish(None, Uuid::new_v4(), draft, None)
+        .await
+        .unwrap();
+
+    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
+    let capture_activation = &after_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation;
+    harness.control_plane().assert_activations(
+        "after subsequent publication",
+        vec![("pandas/capture", Some(CatalogType::Capture))],
+    );
+    assert!(
+        capture_activation.last_activated_at.unwrap() > last_activation_ts,
+        "activation timestamp should have been updated"
+    );
+    assert!(
+        capture_activation.next_retry.is_none(),
+        "next_retry should have been cleared"
+    );
+    assert!(
+        capture_activation.last_activated > prev_build_id,
+        "expect activated build id to increase"
+    );
+    assert_eq!(
+        0, capture_activation.recent_failure_count,
+        "recent failure count should have been reset"
+    );
+
+    // Fail the shard again, and expect that it gets restarted immediately.
+    // I.e. the retry backoff should have been reset due to the recent publication.
+    let last_activation_ts = capture_activation.last_activated_at.unwrap();
+    let capture_shard = ShardRef {
+        build: capture_activation.last_activated,
+        ..capture_shard
+    };
+    fail_shard(&mut harness, &capture_shard).await;
+    let after_capture_state = harness.run_pending_controller("pandas/capture").await;
+    harness.control_plane().assert_activations(
+        "after subsequent publication",
+        vec![("pandas/capture", Some(CatalogType::Capture))],
+    );
+    let capture_activation = &after_capture_state
+        .current_status
+        .unwrap_capture()
+        .activation;
+    assert!(
+        capture_activation.last_activated_at.unwrap() > last_activation_ts,
+        "activation timestamp should have been updated"
+    );
+    assert!(
+        capture_activation.next_retry.is_none(),
+        "next_retry should have been cleared"
+    );
+    assert_eq!(1, capture_activation.recent_failure_count);
+}
+
+async fn override_next_retry_now(catalog_name: &str, harness: &mut TestHarness) {
+    let retry_at = harness.control_plane().current_time().to_rfc3339();
+    tracing::debug!(%catalog_name, %retry_at, "overrieding next_retry");
+    sqlx::query!(
+        r#"update controller_jobs set
+        status = jsonb_set(status::jsonb, '{activation, next_retry}', to_jsonb($2::text))::json
+        where live_spec_id = (select id from live_specs where catalog_name = $1)
+        and status->'activation'->>'next_retry' is not null
+        returning 1 as "must_exist: bool";"#,
+        catalog_name,
+        retry_at,
+    )
+    .fetch_one(&harness.pool)
+    .await
+    .expect("failed to override next_retry time");
+}
+
+async fn fail_shard(harness: &mut TestHarness, shard: &ShardRef) {
+    let fields = serde_json::from_str(
+        r#"{
+            "eventType": "shardFailure",
+            "error": "a test error"
+        }"#,
+    )
+    .unwrap();
+    let ts = harness.control_plane().current_time();
+    let event = serde_json::to_value(models::status::activation::ShardFailure {
+        shard: shard.clone(),
+        ts,
+        message: "test shard failure".to_string(),
+        fields,
+    })
+    .unwrap();
+
+    sqlx::query!(
+        r#"insert into shard_failures(catalog_name, build, ts, flow_document) values ($1::catalog_name, $2::flowid, $3, $4)"#,
+        shard.name.as_str() as &str,
+        shard.build as models::Id,
+        ts,
+        event,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to insert shard failure");
+}
 
 #[tokio::test]
 #[serial_test::serial]

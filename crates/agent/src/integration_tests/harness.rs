@@ -17,6 +17,7 @@ use crate::{
 };
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
+use models::status::activation::ShardFailure;
 use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use serde::Deserialize;
@@ -1301,6 +1302,21 @@ impl ControlPlane for TestControlPlane {
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
         self.inner.notify_dependents(live_spec_id).await
+    }
+
+    async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>> {
+        self.inner.get_shard_failures(catalog_name).await
+    }
+
+    async fn delete_shard_failures(
+        &self,
+        catalog_name: String,
+        min_build: Id,
+        min_ts: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        self.inner
+            .delete_shard_failures(catalog_name, min_build, min_ts)
+            .await
     }
 
     async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {

@@ -1,9 +1,9 @@
 mod auto_discover;
 use super::{
     backoff_data_plane_activate, dependencies::Dependencies, ControlPlane, ControllerErrorExt,
-    ControllerState, NextRun,
+    ControllerState, Inbox, NextRun,
 };
-use crate::controllers::{periodic, publication_status};
+use crate::controllers::{activation, periodic, publication_status};
 use anyhow::Context;
 use itertools::Itertools;
 use models::status::capture::{AutoDiscoverStatus, CaptureStatus};
@@ -11,6 +11,7 @@ use models::status::capture::{AutoDiscoverStatus, CaptureStatus};
 pub async fn update<C: ControlPlane>(
     status: &mut CaptureStatus,
     state: &ControllerState,
+    events: &Inbox,
     control_plane: &C,
     model: &models::CaptureDef,
 ) -> anyhow::Result<Option<NextRun>> {
@@ -39,9 +40,10 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    publication_status::update_activation(&mut status.activation, state, control_plane)
-        .await
-        .with_retry(backoff_data_plane_activate(state.failures))?;
+    let activate_next_run =
+        activation::update_activation(&mut status.activation, state, events, control_plane)
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))?;
 
     publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
         .await
@@ -78,5 +80,9 @@ pub async fn update<C: ControlPlane>(
     };
 
     let periodic_next = periodic::next_periodic_publish(state);
-    Ok(NextRun::earliest([ad_next, periodic_next]))
+    Ok(NextRun::earliest([
+        ad_next,
+        periodic_next,
+        activate_next_run,
+    ]))
 }
