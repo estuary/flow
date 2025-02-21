@@ -2,6 +2,7 @@ pub mod activation;
 pub mod capture;
 pub mod catalog_test;
 pub mod collection;
+pub mod connector;
 pub mod materialization;
 pub mod publications;
 
@@ -29,6 +30,8 @@ pub struct StatusResponse {
     /// value of `/status/activations/last_activated` in order to determine
     /// whether the most recent build has been activated in the data plane.
     pub last_build_id: Id,
+    /// The status of the connector, if present.
+    pub connector_status: Option<connector::ConnectorStatus>,
     /// Time at which the controller is next scheduled to run. Or null if there
     /// is no run scheduled.
     #[schemars(schema_with = "option_datetime_schema")]
