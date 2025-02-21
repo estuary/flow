@@ -237,6 +237,64 @@ fn extract_and_decode(
 }
 
 #[tokio::test]
+async fn test_allof_with_null_default() -> anyhow::Result<()> {
+    for output in roundtrip(
+        connector::DekafConfig {
+            deletions: connector::DeletionMode::Kafka,
+            token: "1234".to_string(),
+            strict_topic_names: false,
+        },
+        json!({
+          "schema": {
+            "allOf": [
+              {
+                "properties": {
+                  "id": {
+                    "title": "Id",
+                    "type": "integer"
+                  },
+                  "conflicts": {
+                    "type": ["integer", "null"],
+                    "default": null,
+                    "title": "Updatedbyuserid"
+                  }
+                },
+                "required": ["id"],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "id": {
+                    "title": "Id",
+                    "type": "integer"
+                  },
+                  "conflicts": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["id"],
+                "type": "object"
+              }
+            ]
+          },
+          "key": ["/id"]
+        }),
+        json!({
+            "recommended": true
+        }),
+        vec![json!({
+          "id": 671963468
+        })],
+    )
+    .await?
+    {
+        insta::assert_debug_snapshot!(output?);
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_field_selection_specific_fields() -> anyhow::Result<()> {
     for output in roundtrip(
         dekaf::connector::DekafConfig {
