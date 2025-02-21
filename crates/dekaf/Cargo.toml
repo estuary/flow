@@ -29,6 +29,7 @@ unseal = { path = "../unseal" }
 aes-siv = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+arc-swap = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }
 axum-server = { workspace = true }
