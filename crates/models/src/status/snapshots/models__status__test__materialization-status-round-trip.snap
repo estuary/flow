@@ -73,10 +73,18 @@ StatusSnapshot {
             },
             activation: ActivationStatus {
                 last_activated: 0102030404030201,
+                last_activated_at: Some(
+                    2024-01-02T03:04:05.060Z,
+                ),
+                last_failure: None,
+                recent_failure_count: 3,
+                next_retry: Some(
+                    2025-01-02T03:04:05.060Z,
+                ),
             },
         },
     ),
-    json: "{\n  \"type\": \"Materialization\",\n  \"source_capture\": {\n    \"up_to_date\": false,\n    \"add_bindings\": [\n      \"snails/shells\"\n    ]\n  },\n  \"publications\": {\n    \"dependency_hash\": \"abc12345\",\n    \"max_observed_pub_id\": \"0102030405060708\",\n    \"history\": [\n      {\n        \"id\": \"0403020101020304\",\n        \"created\": \"2024-05-30T09:10:11Z\",\n        \"completed\": \"2024-05-30T09:10:11Z\",\n        \"detail\": \"some detail\",\n        \"result\": {\n          \"type\": \"buildFailed\",\n          \"incompatible_collections\": [\n            {\n              \"collection\": \"snails/water\",\n              \"affected_materializations\": [\n                {\n                  \"name\": \"snails/materialize\",\n                  \"fields\": [\n                    {\n                      \"field\": \"a_field\",\n                      \"reason\": \"do not like\"\n                    }\n                  ],\n                  \"resource_path\": [\n                    \"water\"\n                  ]\n                }\n              ]\n            }\n          ]\n        },\n        \"errors\": [\n          {\n            \"catalog_name\": \"snails/shells\",\n            \"scope\": \"flow://materializations/snails/shells\",\n            \"detail\": \"a_field simply cannot be tolerated\"\n          }\n        ]\n      }\n    ]\n  },\n  \"activation\": {\n    \"last_activated\": \"0102030404030201\"\n  }\n}",
+    json: "{\n  \"type\": \"Materialization\",\n  \"source_capture\": {\n    \"up_to_date\": false,\n    \"add_bindings\": [\n      \"snails/shells\"\n    ]\n  },\n  \"publications\": {\n    \"dependency_hash\": \"abc12345\",\n    \"max_observed_pub_id\": \"0102030405060708\",\n    \"history\": [\n      {\n        \"id\": \"0403020101020304\",\n        \"created\": \"2024-05-30T09:10:11Z\",\n        \"completed\": \"2024-05-30T09:10:11Z\",\n        \"detail\": \"some detail\",\n        \"result\": {\n          \"type\": \"buildFailed\",\n          \"incompatible_collections\": [\n            {\n              \"collection\": \"snails/water\",\n              \"affected_materializations\": [\n                {\n                  \"name\": \"snails/materialize\",\n                  \"fields\": [\n                    {\n                      \"field\": \"a_field\",\n                      \"reason\": \"do not like\"\n                    }\n                  ],\n                  \"resource_path\": [\n                    \"water\"\n                  ]\n                }\n              ]\n            }\n          ]\n        },\n        \"errors\": [\n          {\n            \"catalog_name\": \"snails/shells\",\n            \"scope\": \"flow://materializations/snails/shells\",\n            \"detail\": \"a_field simply cannot be tolerated\"\n          }\n        ]\n      }\n    ]\n  },\n  \"activation\": {\n    \"last_activated\": \"0102030404030201\",\n    \"last_activated_at\": \"2024-01-02T03:04:05.060Z\",\n    \"recent_failure_count\": 3,\n    \"next_retry\": \"2025-01-02T03:04:05.060Z\"\n  }\n}",
     parsed: Materialization(
         MaterializationStatus {
             source_capture: Some(
@@ -147,6 +155,14 @@ StatusSnapshot {
             },
             activation: ActivationStatus {
                 last_activated: 0102030404030201,
+                last_activated_at: Some(
+                    2024-01-02T03:04:05.060Z,
+                ),
+                last_failure: None,
+                recent_failure_count: 3,
+                next_retry: Some(
+                    2025-01-02T03:04:05.060Z,
+                ),
             },
         },
     ),

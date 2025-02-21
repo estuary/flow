@@ -3,9 +3,9 @@ use std::collections::BTreeSet;
 use super::{
     backoff_data_plane_activate, dependencies::Dependencies, periodic,
     publication_status::PendingPublication, ControlPlane, ControllerErrorExt, ControllerState,
-    NextRun,
+    Inbox, NextRun,
 };
-use crate::controllers::publication_status;
+use crate::controllers::{activation, publication_status};
 use anyhow::Context;
 use itertools::Itertools;
 use models::status::{
@@ -16,6 +16,7 @@ use models::status::{
 pub async fn update<C: ControlPlane>(
     status: &mut CollectionStatus,
     state: &ControllerState,
+    events: &Inbox,
     control_plane: &C,
     model: &models::CollectionDef,
 ) -> anyhow::Result<Option<NextRun>> {
@@ -51,9 +52,10 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    publication_status::update_activation(&mut status.activation, state, control_plane)
-        .await
-        .with_retry(backoff_data_plane_activate(state.failures))?;
+    let activation_next =
+        activation::update_activation(&mut status.activation, state, events, control_plane)
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))?;
 
     publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
         .await?;
@@ -70,7 +72,11 @@ pub async fn update<C: ControlPlane>(
     } else {
         None
     };
-    Ok(NextRun::earliest([inferred_schema_next, periodic_next]))
+    Ok(NextRun::earliest([
+        inferred_schema_next,
+        periodic_next,
+        activation_next,
+    ]))
 }
 
 /// Disables transforms that source from deleted collections.

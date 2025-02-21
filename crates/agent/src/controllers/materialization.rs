@@ -1,8 +1,9 @@
 use super::{
+    activation,
     dependencies::Dependencies,
     periodic,
     publication_status::{self, PendingPublication},
-    ControlPlane, ControllerErrorExt, ControllerState, NextRun,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun,
 };
 use crate::publications::{PublicationResult, RejectedField};
 use anyhow::Context;
@@ -22,6 +23,7 @@ use tables::{utils::pointer_for_schema, LiveRow};
 pub async fn update<C: ControlPlane>(
     status: &mut MaterializationStatus,
     state: &ControllerState,
+    events: &Inbox,
     control_plane: &C,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<Option<NextRun>> {
@@ -86,11 +88,14 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    publication_status::update_activation(&mut status.activation, state, control_plane).await?;
+    let activation_next =
+        activation::update_activation(&mut status.activation, state, events, control_plane).await?;
 
     // There isn't any call to notify dependents because nothing currently can depend on a materialization.
-
-    Ok(periodic::next_periodic_publish(state))
+    Ok(NextRun::earliest([
+        periodic::next_periodic_publish(state),
+        activation_next,
+    ]))
 }
 
 /// Publishes, and handles any incompatibleCollections by automatically
