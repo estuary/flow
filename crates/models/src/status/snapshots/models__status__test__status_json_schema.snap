@@ -6,11 +6,44 @@ expression: schema
   "$schema": "https://json-schema.org/draft/2019-09/schema",
   "definitions": {
     "ActivationStatus": {
-      "description": "Status of the activation of the task in the data-plane",
+      "description": "Status of the task shards running in the data-plane. This records information about the activations of builds in the data-plane, including any subsequent re-activations due to shard failures.",
       "properties": {
         "last_activated": {
           "$ref": "#/definitions/Id",
           "description": "The build id that was last activated in the data plane. If this is less than the `last_build_id` of the controlled spec, then an activation is still pending."
+        },
+        "last_activated_at": {
+          "description": "The time at which the last data plane activation was performed. This could have been in order to activate a recent publication, or in response to a shard failure.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_failure": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ShardFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The most recent shard failure to have been observed. The presence of a failure here does not necessarily mean that the shard is currently in a failed state, as it may have been re-activated since the failure occurred."
+        },
+        "next_retry": {
+          "description": "The next time at which failed task shards will be re-activated. If this is present, then there has been at least one observed shard failure, which the controller has not yet handled.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recent_failure_count": {
+          "description": "Count of shard failures that have been observed over the last 24 hours for the currently activated build. This resets to 0 when a newly published build is activated.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
         }
       },
       "type": "object"
@@ -642,6 +675,65 @@ expression: schema
       "required": [
         "field",
         "reason"
+      ],
+      "type": "object"
+    },
+    "ShardFailure": {
+      "description": "The shape of a connector status, which matches that of an ops::Log.",
+      "properties": {
+        "fields": {
+          "additionalProperties": true,
+          "description": "Arbitrary JSON that can be used to communicate additional details. The specific fields and their meanings are up to the connector, except for the flow `/events` fields: `eventType`, `eventTarget`, and `error`, which are restricted to string values.",
+          "type": "object"
+        },
+        "message": {
+          "description": "The message is meant to be presented to users, and may use Markdown formatting.",
+          "type": "string"
+        },
+        "shard": {
+          "$ref": "#/definitions/ShardRef",
+          "description": "The specific shard that failed"
+        },
+        "ts": {
+          "description": "The time at which the failure occurred",
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "message",
+        "shard",
+        "ts"
+      ],
+      "type": "object"
+    },
+    "ShardRef": {
+      "description": "Identifies the specific task shard that is the source of an event. This matches the shape of the `shard` field in an `ops.Log` message.",
+      "properties": {
+        "build": {
+          "$ref": "#/definitions/Id",
+          "description": "The id of the build that the shard was running when the event was generated. This can be compared against the `last_build_id` of the live spec to determine whether the event happened with the most rececnt version of the published spec (it did if the `last_build_id` is the same)."
+        },
+        "keyBegin": {
+          "description": "The key range of the task as a hex string. Together with rClockBegin, this uniquely identifies a specific task shard.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of the task",
+          "type": "string"
+        },
+        "rClockBegin": {
+          "description": "The rClock range of the task as a hex string. Together with keyBegin, this uniquely identifies a specific task shard.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "build",
+        "keyBegin",
+        "name",
+        "rClockBegin"
       ],
       "type": "object"
     },
