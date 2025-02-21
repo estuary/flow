@@ -1,3 +1,4 @@
+pub(crate) mod activation;
 pub(crate) mod capture;
 pub(crate) mod catalog_test;
 pub(crate) mod collection;
@@ -16,7 +17,7 @@ use serde::Serialize;
 use sqlx::types::Uuid;
 use std::fmt::Debug;
 
-pub use executor::LiveSpecControllerExecutor;
+pub use executor::{Event, Inbox, LiveSpecControllerExecutor};
 
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a higher version than this will be ignored.
@@ -330,6 +331,7 @@ fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
 async fn controller_update<C: ControlPlane>(
     status: &mut ControllerStatus,
     state: &ControllerState,
+    events: &Inbox,
     control_plane: &C,
 ) -> anyhow::Result<Option<NextRun>> {
     let Some(live_spec) = &state.live_spec else {
@@ -365,20 +367,20 @@ async fn controller_update<C: ControlPlane>(
     let next_run = match live_spec {
         AnySpec::Capture(c) => {
             let capture_status = status.as_capture_mut()?;
-            capture::update(capture_status, state, control_plane, c).await?
+            capture::update(capture_status, state, events, control_plane, c).await?
         }
         AnySpec::Collection(c) => {
             let collection_status = status.as_collection_mut()?;
-            collection::update(collection_status, state, control_plane, c).await?
+            collection::update(collection_status, state, events, control_plane, c).await?
         }
         AnySpec::Materialization(m) => {
             let materialization_status = status.as_materialization_mut()?;
 
-            materialization::update(materialization_status, state, control_plane, m).await?
+            materialization::update(materialization_status, state, events, control_plane, m).await?
         }
         AnySpec::Test(t) => {
             let test_status = status.as_test_mut()?;
-            catalog_test::update(test_status, state, control_plane, t).await?
+            catalog_test::update(test_status, state, events, control_plane, t).await?
         }
     };
     tracing::info!(?next_run, "finished controller update");

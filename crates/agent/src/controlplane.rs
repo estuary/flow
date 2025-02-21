@@ -1,7 +1,7 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use gazette::{broker, journal, shard};
-use models::CatalogType;
+use models::{status::activation::ShardFailure, CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -54,6 +54,15 @@ pub trait ControlPlane: Send + Sync {
     /// Returns the current time. Having controllers access the current time through this api
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
+
+    async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>>;
+
+    async fn delete_shard_failures(
+        &self,
+        catalog_name: String,
+        min_build_id: Id,
+        min_ts: DateTime<Utc>,
+    ) -> anyhow::Result<()>;
 
     /// Activates the given built spec in the data plane.
     async fn data_plane_activate(
@@ -253,6 +262,49 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
         agent_sql::controllers::notify_dependents(live_spec_id, &self.pool).await?;
+        Ok(())
+    }
+
+    async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>> {
+        sqlx::query_scalar!(
+            r#"
+            select
+                flow_document as "failure: ShardFailure"
+            from shard_failures
+            where catalog_name = $1
+            order by ts asc
+            "#,
+            catalog_name,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("fetching shard failures")
+    }
+
+    async fn delete_shard_failures(
+        &self,
+        catalog_name: String,
+        min_build_id: Id,
+        min_ts: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        let deleted_count = sqlx::query_scalar!(
+            r#"
+            with del as (
+                delete from shard_failures
+                    where catalog_name = $1
+                    and (build < $2::flowid or ts < $3)
+                    returning ts
+            )
+            select count(*) from del
+            "#,
+            catalog_name,
+            min_build_id as Id,
+            min_ts,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .context("clearing shard failures")?;
+        tracing::debug!(%min_build_id, %min_ts, ?deleted_count, "deleted old failure records");
         Ok(())
     }
 
