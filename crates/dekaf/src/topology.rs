@@ -559,6 +559,7 @@ pub async fn fetch_dekaf_task_auth(
     ))
 }
 
+#[tracing::instrument(skip(spec))]
 pub async fn extract_dekaf_config(
     spec: &proto_flow::flow::MaterializationSpec,
 ) -> anyhow::Result<connector::DekafConfig> {
@@ -567,10 +568,13 @@ pub async fn extract_dekaf_config(
     }
     let config = serde_json::from_str::<models::DekafConfig>(&spec.config_json)?;
 
+    tracing::debug!("Trying to decrypt dekaf config");
     let decrypted_endpoint_config =
         unseal::decrypt_sops(&RawValue::from_str(&config.config.to_string())?).await?;
 
     let dekaf_config =
         serde_json::from_str::<connector::DekafConfig>(&decrypted_endpoint_config.to_string())?;
+
+    tracing::debug!("Decrypted dekaf config");
     Ok(dekaf_config)
 }
