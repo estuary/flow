@@ -13,6 +13,7 @@ expression: captured_logs
     "level": "info",
     "message": "From before task name, should be visible",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -40,6 +41,7 @@ expression: captured_logs
     "level": "info",
     "message": "From inside nested span but before task_name, should be visible",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -76,6 +78,7 @@ expression: captured_logs
     "level": "info",
     "message": "Log from nested span after task name marker",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -113,6 +116,7 @@ expression: captured_logs
     "level": "info",
     "message": "Back in session span after task name",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -142,6 +146,7 @@ expression: captured_logs
     "level": "info",
     "message": "In child of session span after task name",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
