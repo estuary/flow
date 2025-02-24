@@ -121,6 +121,9 @@ pub struct ControlExports {
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
+    pub bastion_address: Option<String>,
+    pub bastion_private_key: Option<String>,
+}
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct PulumiStackResourceChanges {

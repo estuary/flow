@@ -928,6 +928,8 @@ impl automations::Outcome for Outcome {
             gcp_service_account_email,
             hmac_keys,
             ssh_key: _,
+            bastion_address,
+            bastion_private_key,
         }) = self.publish_exports
         {
             _ = sqlx::query!(
@@ -937,7 +939,9 @@ impl automations::Outcome for Outcome {
                     aws_link_endpoints = $4,
                     cidr_blocks = $5,
                     gcp_service_account_email = $6,
-                    hmac_keys = $7
+                    hmac_keys = $7,
+                    bastion_address = $8,
+                    bastion_private_key = $9
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -947,6 +951,8 @@ impl automations::Outcome for Outcome {
                 &cidr_blocks,
                 gcp_service_account_email,
                 &hmac_keys,
+                bastion_address,
+                bastion_private_key,
             )
             .execute(&mut *txn)
             .await
