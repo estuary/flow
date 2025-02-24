@@ -9,7 +9,7 @@ impl Task {
             collection,
             range,
             state_json: _,
-            version: _,
+            version,
         } = open.clone().open.context("expected Open")?;
 
         let response::Opened {} = opened.opened.as_ref().context("expected Opened")?;
@@ -55,6 +55,7 @@ impl Task {
             name: collection_name.clone(),
             key_begin: format!("{:08x}", range.key_begin),
             r_clock_begin: format!("{:08x}", range.r_clock_begin),
+            build: version.clone(),
         };
 
         let transforms = transforms

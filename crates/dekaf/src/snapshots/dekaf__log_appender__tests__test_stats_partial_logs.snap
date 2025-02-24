@@ -15,6 +15,7 @@ expression: captured_logs
     "level": "error",
     "message": "Invalid stats document emitted! Cannot emit 0 for `bytes_total` or `docs_total`!",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",

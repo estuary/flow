@@ -58,6 +58,8 @@ message ShardRef {
   string key_begin = 3;
   // The hex-encoded inclusive beginning of the shard's assigned r_clock range.
   string r_clock_begin = 4;
+  // The id of the build that's currently active.
+  string build = 5;
 }
 
 // Common Meta sub-document of Log and Stats documents.

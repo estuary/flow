@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
-use super::{dependencies::Dependencies, periodic, ControlPlane, ControllerState, NextRun};
+use super::{dependencies::Dependencies, periodic, ControlPlane, ControllerState, Inbox, NextRun};
 use models::status::catalog_test::TestStatus;
 
 pub async fn update<C: ControlPlane>(
     status: &mut TestStatus,
     state: &ControllerState,
+    _events: &Inbox,
     control_plane: &C,
     _model: &models::TestDef,
 ) -> anyhow::Result<Option<NextRun>> {
