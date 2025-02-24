@@ -121,4 +121,27 @@ pub struct ControlExports {
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct PulumiStackResourceChanges {
+    #[serde(default)]
+    pub same: usize,
+    #[serde(default)]
+    pub update: usize,
+    #[serde(default)]
+    pub delete: usize,
+    #[serde(default)]
+    pub create: usize,
+}
+
+impl PulumiStackResourceChanges {
+    pub fn changed(&self) -> bool {
+        return self.update > 0 || self.delete > 0 || self.create > 0
+    }
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PulumiStackHistory {
+    pub resource_changes: PulumiStackResourceChanges,
 }
