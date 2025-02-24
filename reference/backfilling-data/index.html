@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script>
 <script id="runllm-widget-script" type="module" src="https://widget.runllm.com" runllm-name="Estuary AI Assistant" runllm-assistant-id="253" runllm-position="BOTTOM_RIGHT" runllm-keyboard-shortcut="Mod+j" runllm-preset="docusaurus" async runllm-theme-color="#5072EB" runllm-brand-logo="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_a373037876/estuary_logo_a373037876.png" runllm-support-email="support@estuary.dev" runllm-community-url="https://go.estuary.dev/slack" runllm-community-type="slack"></script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.22cb8c54.js" defer="defer"></script>
-<script src="/assets/js/main.f4c2b1a4.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.07194768.js" defer="defer"></script>
+<script src="/assets/js/main.3f91974e.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -22,11 +22,14 @@
 <p>Preventing backfills when possible can help save costs and computational resources. You may find it appropriate to skip the backfill, especially for extremely large datasets or tables.</p>
 <p>In this case, many connectors allow you to turn off backfilling on a per-stream or per-table basis. See each individual connector&#x27;s properties for details.</p>
 <h3 class="anchor anchorWithStickyNavbar_LWe7" id="preventing-backfills-during-database-upgrades">Preventing backfills during database upgrades<a class="hash-link" aria-label="Direct link to Preventing backfills during database upgrades" title="Direct link to Preventing backfills during database upgrades" href="/reference/backfilling-data/#preventing-backfills-during-database-upgrades">​</a></h3>
-<p>It is common to want to prevent backfills when performing database maintenance, as database upgrades can kick off a new backfill with Flow. Whether or not a database upgrade automatically performs a backfill depends on the database itself.</p>
 <p>During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Flow relies on these methods to keep its place, upgrades will disrupt the Flow pipeline in these cases.</p>
-<p>If a database upgrade <strong>will</strong> affect these or similar resources, you can manually prevent a backfill.
-If a database upgrade <strong>will not</strong> affect these resources, the Flow connector should simply resume when the upgrade completes.</p>
-<p>For example, Postgres currently deletes or requires users to drop logical replication slots during a major version upgrade. To prevent a backfill during the upgrade, follow these steps:</p>
+<ul>
+<li>If a database upgrade <strong>will not</strong> affect these resources, the Flow connector should simply resume when the upgrade completes and no action is required.</li>
+<li>If a database upgrade <strong>will</strong> affect these or similar resources, you may need to trigger a backfill after the upgrade completes.</li>
+</ul>
+<p>The easiest and most bulletproof solution when this happens is to backfill all bindings of the impacted capture(s) after performing the upgrade. This will permit the captures to recreate entities as necessary, establish a new CDC position, and then backfill all table contents to ensure that any changes which might have occurred in the meantime are correctly captured.</p>
+<p>However, it is common to want to avoid a full backfill when performing this sort of database maintenance, as these backfills may take some time and require a significant amount of extra data movement even if nothing has actually changed. Some connectors provide features which may be used to accomplish this, however they typically require some amount of extra setup or user knowledge to guarantee certain invariants (put simply: if there were a more efficient way to re-establish consistency in the general case, that&#x27;s what we would already be doing when asked to backfill the data again).</p>
+<p>For example, Postgres currently deletes or requires users to drop logical replication slots during a major version upgrade. To prevent a full backfill during the upgrade, follow these steps:</p>
 <ol>
 <li>
 <p>Pause database writes so no further changes can occur.</p>
@@ -43,7 +46,7 @@ If a database upgrade <strong>will not</strong> affect these resources, the Flow
 <li>
 <p>Backfill each binding of the capture using the <a href="/reference/backfilling-data/#backfill-modes">&quot;Only Changes&quot; backfill mode</a>.</p>
 <ul>
-<li>This will not cause a full backfill. &quot;Backfilling&quot; the bindings resets the WAL (Write-Ahead Log) position for the capture, essentially resetting its place. The &quot;Only Changes&quot; mode will skip re-reading existing table content.</li>
+<li>This will not cause a full backfill. &quot;Backfilling&quot; all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to &quot;jump ahead&quot; to the current end of the WAL. The &quot;Only Changes&quot; mode will skip re-reading existing table content.</li>
 </ul>
 </li>
 <li>
