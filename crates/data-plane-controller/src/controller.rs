@@ -529,19 +529,32 @@ impl Controller {
         )
         .await?;
 
-        self.logs_tx
-            .send(logs::Line {
-                token: state.logs_token,
-                stream: "controller".to_string(),
-                line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
-            })
-            .await
-            .context("failed to send to logs sink")?;
+        let stack::PulumiStackHistory { resource_changes } = self.last_pulumi_run(&state, &checkout).await?;
 
-        state.status = Status::AwaitDNS1;
         state.last_pulumi_up = chrono::Utc::now();
-
-        Ok(DNS_TTL)
+        if resource_changes.changed() {
+            self.logs_tx
+                .send(logs::Line {
+                    token: state.logs_token,
+                    stream: "controller".to_string(),
+                    line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+                })
+                .await
+                .context("failed to send to logs sink")?;
+            state.status = Status::AwaitDNS1;
+            Ok(DNS_TTL)
+        } else {
+            self.logs_tx
+                .send(logs::Line {
+                    token: state.logs_token,
+                    stream: "controller".to_string(),
+                    line: format!("No changes detected, continuing to Ansible."),
+                })
+                .await
+                .context("failed to send to logs sink")?;
+            state.status = Status::Ansible;
+            Ok(POLL_AGAIN)
+        }
     }
 
     #[tracing::instrument(
@@ -694,19 +707,32 @@ impl Controller {
         )
         .await?;
 
-        self.logs_tx
-            .send(logs::Line {
-                token: state.logs_token,
-                stream: "controller".to_string(),
-                line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
-            })
-            .await
-            .context("failed to send to logs sink")?;
+        let stack::PulumiStackHistory { resource_changes } = self.last_pulumi_run(&state, &checkout).await?;
 
-        state.status = Status::AwaitDNS2;
         state.last_pulumi_up = chrono::Utc::now();
-
-        Ok(DNS_TTL)
+        if resource_changes.changed() {
+            self.logs_tx
+                .send(logs::Line {
+                    token: state.logs_token,
+                    stream: "controller".to_string(),
+                    line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+                })
+                .await
+                .context("failed to send to logs sink")?;
+            state.status = Status::AwaitDNS2;
+            Ok(DNS_TTL)
+        } else {
+            self.logs_tx
+                .send(logs::Line {
+                    token: state.logs_token,
+                    stream: "controller".to_string(),
+                    line: format!("No changes detected, done."),
+                })
+                .await
+                .context("failed to send to logs sink")?;
+            state.status = Status::Idle;
+            Ok(POLL_AGAIN)
+        }
     }
 
     #[tracing::instrument(
@@ -809,6 +835,41 @@ impl Controller {
         .context("failed to write stack YAML")?;
 
         Ok(checkout)
+    }
+
+    async fn last_pulumi_run(&self, state: &State, checkout: &repo::Checkout) -> anyhow::Result<stack::PulumiStackHistory>  {
+        // Check if any resources changed
+        let output = async_process::output(
+            async_process::Command::new("pulumi")
+                .arg("stack")
+                .arg("history")
+                .arg("--stack")
+                .arg(&state.stack_name)
+                .arg("--json")
+                .arg("--page-size")
+                .arg("1")
+                .arg("--cwd")
+                .arg(&checkout.path())
+                .envs(self.pulumi_secret_envs())
+                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                .env("VIRTUAL_ENV", checkout.path().join("venv")),
+        )
+        .await?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "pulumi stack history output failed: {}",
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+
+        let mut out: Vec<stack::PulumiStackHistory> = serde_json::from_slice(&output.stdout).context("failed to parse pulumi stack history output")?;
+
+        let Some(result) = out.pop() else {
+            anyhow::bail!("failed to parse pulumi stack history output: empty array");
+        };
+
+        return Ok(result)
     }
 }
 
