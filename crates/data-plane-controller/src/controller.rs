@@ -163,11 +163,21 @@ impl automations::Executor for Controller {
 
 impl Controller {
     fn pulumi_secret_envs(&self) -> Vec<(&str, String)> {
-        ["ARM_CLIENT_ID", "ARM_CLIENT_SECRET", "ARM_TENANT_ID", "ARM_SUBSCRIPTION_ID", "VULTR_API_KEY"]
-            .iter()
-            .map(|key|
-                (*key, std::env::var(format!("DPC_{key}")).unwrap_or_default())
-            ).collect()
+        [
+            "ARM_CLIENT_ID",
+            "ARM_CLIENT_SECRET",
+            "ARM_TENANT_ID",
+            "ARM_SUBSCRIPTION_ID",
+            "VULTR_API_KEY",
+        ]
+        .iter()
+        .map(|key| {
+            (
+                *key,
+                std::env::var(format!("DPC_{key}")).unwrap_or_default(),
+            )
+        })
+        .collect()
     }
 
     async fn on_start(
@@ -529,7 +539,8 @@ impl Controller {
         )
         .await?;
 
-        let stack::PulumiStackHistory { resource_changes } = self.last_pulumi_run(&state, &checkout).await?;
+        let stack::PulumiStackHistory { resource_changes } =
+            self.last_pulumi_run(&state, &checkout).await?;
 
         state.last_pulumi_up = chrono::Utc::now();
         if resource_changes.changed() {
@@ -707,7 +718,8 @@ impl Controller {
         )
         .await?;
 
-        let stack::PulumiStackHistory { resource_changes } = self.last_pulumi_run(&state, &checkout).await?;
+        let stack::PulumiStackHistory { resource_changes } =
+            self.last_pulumi_run(&state, &checkout).await?;
 
         state.last_pulumi_up = chrono::Utc::now();
         if resource_changes.changed() {
@@ -837,7 +849,11 @@ impl Controller {
         Ok(checkout)
     }
 
-    async fn last_pulumi_run(&self, state: &State, checkout: &repo::Checkout) -> anyhow::Result<stack::PulumiStackHistory>  {
+    async fn last_pulumi_run(
+        &self,
+        state: &State,
+        checkout: &repo::Checkout,
+    ) -> anyhow::Result<stack::PulumiStackHistory> {
         // Check if any resources changed
         let output = async_process::output(
             async_process::Command::new("pulumi")
@@ -863,13 +879,14 @@ impl Controller {
             );
         }
 
-        let mut out: Vec<stack::PulumiStackHistory> = serde_json::from_slice(&output.stdout).context("failed to parse pulumi stack history output")?;
+        let mut out: Vec<stack::PulumiStackHistory> = serde_json::from_slice(&output.stdout)
+            .context("failed to parse pulumi stack history output")?;
 
         let Some(result) = out.pop() else {
             anyhow::bail!("failed to parse pulumi stack history output: empty array");
         };
 
-        return Ok(result)
+        return Ok(result);
     }
 }
 
@@ -928,6 +945,7 @@ impl automations::Outcome for Outcome {
             gcp_service_account_email,
             hmac_keys,
             ssh_key: _,
+            bastion_private_key,
         }) = self.publish_exports
         {
             _ = sqlx::query!(
@@ -937,7 +955,8 @@ impl automations::Outcome for Outcome {
                     aws_link_endpoints = $4,
                     cidr_blocks = $5,
                     gcp_service_account_email = $6,
-                    hmac_keys = $7
+                    hmac_keys = $7,
+                    bastion_private_key = $8
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -947,6 +966,7 @@ impl automations::Outcome for Outcome {
                 &cidr_blocks,
                 gcp_service_account_email,
                 &hmac_keys,
+                bastion_private_key,
             )
             .execute(&mut *txn)
             .await
