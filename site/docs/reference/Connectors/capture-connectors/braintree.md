@@ -24,7 +24,7 @@ The connector automatically discovers bindings for the Braintree resources liste
 * [Transactions](https://developer.paypal.com/braintree/docs/reference/response/transaction/python)
 
 :::tip
-All incremental streams except Transactions only capture **creates**, not updates, of resources due to Braintree API limitations. To capture updates to these resources, regular backfills are required. Please reach out via [email](mailto:support@estuary.dev) or [Slack](https://go.estuary.dev/slack) to set up and schedule regular backfills.
+All incremental streams except Transactions only capture **creates**, not updates, of resources due to Braintree API limitations. To capture updates to these resources, periodic backfills are required. These backfills can be scheduled with the `schedule` resource config setting. By default, these streams backfill at 20:00 UTC every Friday.
 :::
 
 ## Prerequisites
@@ -59,6 +59,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
 | `/interval` | Interval | Interval between data syncs | string | PT5M |
+| `/schedule` | Backfill schedule | The schedule for automatically backfilling this binding. Accepts a cron expression. For example, a schedule of `0 20 * * 5` means the binding will initiate a new backfill at 20:00 UTC every Friday. If left empty, the binding will not automatically backfill. | string | |
 
 ### Sample
 
@@ -85,10 +86,12 @@ captures:
       - resource:
           name: credit_card_verifications
           interval: PT5M
+          schedule: "0 20 * * 5"
         target: ${PREFIX}/credit_card_verifications
       - resource:
           name: customers
           interval: PT5M
+          schedule: "0 20 * * 5"
         target: ${PREFIX}/customers
       - resource:
           name: discounts
@@ -97,6 +100,7 @@ captures:
       - resource:
           name: disputes
           interval: PT5M
+          schedule: "0 20 * * 5"
         target: ${PREFIX}/disputes
       - resource:
           name: merchant_accounts
@@ -113,6 +117,7 @@ captures:
       - resource:
           name: subscriptions
           interval: PT5M
+          schedule: "0 20 * * 5"
         target: ${PREFIX}/subscriptions
       - resource:
           name: transactions
