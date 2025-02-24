@@ -13,6 +13,7 @@ expression: captured_logs
     "level": "info",
     "message": "Test log data before setting name, you should see me",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -41,6 +42,7 @@ expression: captured_logs
     "level": "info",
     "message": "Test log data with a task name!",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",

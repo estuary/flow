@@ -1,7 +1,6 @@
 use crate::{dekaf_shard_template_id, topology::fetch_dekaf_task_auth, App};
 use anyhow::Context;
 use async_trait::async_trait;
-use bytes::Bytes;
 use flow_client::fetch_task_authorization;
 use futures::{Stream, StreamExt, TryStreamExt};
 use gazette::{
@@ -10,7 +9,6 @@ use gazette::{
     RetryError,
 };
 use proto_gazette::message_flags;
-use rand::Rng;
 use std::{
     collections::{BTreeMap, VecDeque},
     marker::PhantomData,
@@ -23,7 +21,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 #[derive(Debug)]
 enum TaskWriterMessage {
-    SetTaskName(String),
+    SetTaskName { name: String, build: String },
     Log(ops::Log),
     Stats((String, ops::stats::Binding)),
     Shutdown,
@@ -82,7 +80,7 @@ pub trait TaskWriter: Send + Sync {
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static;
 
-    async fn set_task_name(&mut self, name: String) -> anyhow::Result<()>;
+    async fn set_task_name(&mut self, shard: ops::ShardRef) -> anyhow::Result<()>;
 }
 
 #[derive(Clone)]
@@ -90,16 +88,16 @@ pub struct GazetteWriter {
     app: Arc<App>,
     logs_appender: Option<GazetteAppender>,
     stats_appender: Option<GazetteAppender>,
-    task_name: Option<String>,
+    shard: Option<ops::ShardRef>,
 }
 
 #[async_trait]
 impl TaskWriter for GazetteWriter {
-    async fn set_task_name(&mut self, task_name: String) -> anyhow::Result<()> {
-        let (logs_appender, stats_appender) = self.get_appenders(task_name.as_str()).await?;
+    async fn set_task_name(&mut self, shard: ops::ShardRef) -> anyhow::Result<()> {
+        let (logs_appender, stats_appender) = self.get_appenders(shard.name.as_str()).await?;
         self.logs_appender.replace(logs_appender);
         self.stats_appender.replace(stats_appender);
-        self.task_name.replace(task_name);
+        self.shard.replace(shard);
 
         Ok(())
     }
@@ -134,7 +132,7 @@ impl GazetteWriter {
     pub fn new(app: Arc<App>) -> Self {
         Self {
             app: app,
-            task_name: None,
+            shard: None,
             logs_appender: None,
             stats_appender: None,
         }
@@ -308,11 +306,12 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
         let mut pending_logs = VecDeque::new();
         let mut stats = StatsAggregator::default();
 
-        let task_name = loop {
+        let shard_ref = loop {
             match logs_rx.recv().await {
-                Some(TaskWriterMessage::SetTaskName(name)) => {
-                    writer.set_task_name(name.to_owned()).await?;
-                    break name;
+                Some(TaskWriterMessage::SetTaskName { name, build }) => {
+                    let shard = dekaf_shard_ref(name, build);
+                    writer.set_task_name(shard.clone()).await?;
+                    break shard;
                 }
                 Some(TaskWriterMessage::Log(log)) => {
                     pending_logs.push_front(log);
@@ -353,7 +352,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                 Err(append_error) = Self::append_logs_to_writer(
                     &mut writer,
                     &mut pending_logs,
-                    task_name.clone(),
+                    shard_ref.clone(),
                     uuid_producer.clone(),
                 ), if pending_logs.len() > 0 => {
                     tracing::error!(?append_error, "Error appending logs");
@@ -366,7 +365,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                             let serialized = Self::serialize_stats(
                                 uuid_producer,
                                 current_stats.clone(),
-                                task_name.to_owned(),
+                                shard_ref.clone(),
                             );
                             futures::stream::once(async move { Ok(serialized.clone().into()) })
                         }).await {
@@ -377,8 +376,8 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
 
                 msg = event_stream.next() => {
                     match msg {
-                        Some(TaskWriterMessage::SetTaskName(new_name)) => {
-                            anyhow::bail!("You can't change the task name after it has already been set ({task_name} -> {new_name})");
+                        Some(TaskWriterMessage::SetTaskName{name, build}) => {
+                            anyhow::bail!("You can't change the task name after it has already been set ({shard_ref:?} -> ({name}, {build})");
                         },
                         Some(TaskWriterMessage::Log(mut log)) => {
                             for well_known in WELL_KNOWN_LOG_FIELDS {
@@ -411,7 +410,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                     let serialized = Self::serialize_stats(
                         uuid_producer,
                         remaining_stats.clone(),
-                        task_name.to_owned(),
+                        shard_ref.clone(),
                     );
                     futures::stream::once(async move { Ok(serialized.clone().into()) })
                 })
@@ -427,7 +426,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
     fn serialize_stats(
         producer: Producer,
         stats: BTreeMap<String, ops::stats::Binding>,
-        task_name: String,
+        shard: ops::ShardRef,
     ) -> bytes::Bytes {
         let uuid = gazette::uuid::build(
             producer,
@@ -444,7 +443,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                 uuid: uuid.to_string(),
             }),
             open_seconds_total: Default::default(),
-            shard: Some(dekaf_shard_ref(task_name)),
+            shard: Some(shard),
             timestamp: Some(proto_flow::as_timestamp(SystemTime::now())),
             txn_count: 0,
         };
@@ -455,7 +454,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
         bytes::Bytes::from(buf)
     }
 
-    fn serialize_log(producer: Producer, mut log: ops::Log, task_name: String) -> bytes::Bytes {
+    fn serialize_log(producer: Producer, mut log: ops::Log) -> bytes::Bytes {
         let uuid = gazette::uuid::build(
             producer,
             gazette::uuid::Clock::from_time(std::time::SystemTime::now()),
@@ -465,18 +464,19 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
             uuid: uuid.to_string(),
         });
 
-        log.shard = Some(dekaf_shard_ref(task_name));
-
         let mut buf = serde_json::to_vec(&log).expect("Value always serializes");
         buf.push(b'\n');
 
         bytes::Bytes::from(buf)
     }
 
-    pub fn set_task_name(&self, name: String) {
+    pub fn set_task_name(&self, name: String, build: String) {
         use tracing_record_hierarchical::SpanExt;
 
-        self.send_message(TaskWriterMessage::SetTaskName(name.to_owned()));
+        self.send_message(TaskWriterMessage::SetTaskName {
+            name: name.clone(),
+            build,
+        });
 
         // Also set the task name on the parent span so it's included in the logs. This also adds it
         // to the logs that Dekaf writes to stdout, which makes debugging issues much easier.
@@ -543,21 +543,19 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
     async fn append_logs_to_writer(
         writer: &mut W,
         pending_logs: &mut Vec<ops::Log>,
-        task_name: String,
+        shard_ref: ops::ShardRef,
         uuid_producer: Producer,
     ) -> anyhow::Result<()> {
         let logs_to_append = mem::take(pending_logs);
 
         writer
             .append_logs(move || {
+                let shard = shard_ref.clone();
                 futures::stream::iter(logs_to_append.clone().into_iter().map({
-                    let value = task_name.clone();
-                    move |log| {
-                        let serialized = TaskForwarder::<W>::serialize_log(
-                            uuid_producer.clone(),
-                            log,
-                            value.to_owned(),
-                        );
+                    move |mut log| {
+                        log.shard = Some(shard.clone());
+                        let serialized =
+                            TaskForwarder::<W>::serialize_log(uuid_producer.clone(), log);
                         Ok(serialized)
                     }
                 }))
@@ -566,18 +564,20 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
     }
 }
 
-fn dekaf_shard_ref(task_name: String) -> ops::ShardRef {
+fn dekaf_shard_ref(task_name: String, build: String) -> ops::ShardRef {
     ops::ShardRef {
         kind: ops::TaskType::Materialization.into(),
         name: task_name,
         key_begin: "00000000".to_string(),
         r_clock_begin: "00000000".to_string(),
+        build,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
     use futures::Future;
     use insta::assert_json_snapshot;
     use itertools::Itertools;
@@ -597,7 +597,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TaskWriter for MockLogWriter {
-        async fn set_task_name(&mut self, _: String) -> anyhow::Result<()> {
+        async fn set_task_name(&mut self, _shard: ops::ShardRef) -> anyhow::Result<()> {
             Ok(())
         }
 
@@ -728,9 +728,10 @@ mod tests {
             {
                 info!("Test log data before setting name, you should see me");
 
-                MOCK_LOG_FORWARDER
-                    .get()
-                    .set_task_name("my_task".to_string());
+                MOCK_LOG_FORWARDER.get().set_task_name(
+                    "my_task".to_string(),
+                    "11:22:33:44:55:66:77:88".parse().unwrap(),
+                );
 
                 info!("Test log data with a task name!");
             };
@@ -755,9 +756,10 @@ mod tests {
 
                 info!("Test log data without a task name yet!");
 
-                MOCK_LOG_FORWARDER
-                    .get()
-                    .set_task_name("my_task".to_string());
+                MOCK_LOG_FORWARDER.get().set_task_name(
+                    "my_task".to_string(),
+                    "11:22:33:44:55:66:77:88".parse().unwrap(),
+                );
 
                 let child_span = info_span!("child_span");
                 let child_guard = child_span.enter();
@@ -811,9 +813,10 @@ mod tests {
 
                 info!("From inside nested span but before task_name, should be visible");
 
-                MOCK_LOG_FORWARDER
-                    .get()
-                    .set_task_name("my_task".to_string());
+                MOCK_LOG_FORWARDER.get().set_task_name(
+                    "my_task".to_string(),
+                    "11:22:33:44:55:66:77:88".parse().unwrap(),
+                );
 
                 info!("Log from nested span after task name marker");
 
@@ -838,9 +841,10 @@ mod tests {
     async fn test_stats() {
         setup(|_logs, stats| async move {
             {
-                MOCK_LOG_FORWARDER
-                    .get()
-                    .set_task_name("my_task".to_string());
+                MOCK_LOG_FORWARDER.get().set_task_name(
+                    "my_task".to_string(),
+                    "11:22:33:44:55:66:77:88".parse().unwrap(),
+                );
 
                 MOCK_LOG_FORWARDER.get().send_stats(
                     "test_collection".to_string(),
@@ -875,9 +879,10 @@ mod tests {
     async fn test_partial_stats() {
         setup(|logs, stats| async move {
             {
-                MOCK_LOG_FORWARDER
-                    .get()
-                    .set_task_name("my_task".to_string());
+                MOCK_LOG_FORWARDER.get().set_task_name(
+                    "my_task".to_string(),
+                    "11:22:33:44:55:66:77:88".parse().unwrap(),
+                );
 
                 MOCK_LOG_FORWARDER.get().send_stats(
                     "test_collection".to_string(),
