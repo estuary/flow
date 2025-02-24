@@ -15,14 +15,16 @@ In this case, many connectors allow you to turn off backfilling on a per-stream 
 
 ### Preventing backfills during database upgrades
 
-It is common to want to prevent backfills when performing database maintenance, as database upgrades can kick off a new backfill with Flow. Whether or not a database upgrade automatically performs a backfill depends on the database itself.
-
 During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Flow relies on these methods to keep its place, upgrades will disrupt the Flow pipeline in these cases.
 
-If a database upgrade **will** affect these or similar resources, you can manually prevent a backfill.
-If a database upgrade **will not** affect these resources, the Flow connector should simply resume when the upgrade completes.
+- If a database upgrade **will not** affect these resources, the Flow connector should simply resume when the upgrade completes and no action is required.
+- If a database upgrade **will** affect these or similar resources, you may need to trigger a backfill after the upgrade completes.
 
-For example, Postgres currently deletes or requires users to drop logical replication slots during a major version upgrade. To prevent a backfill during the upgrade, follow these steps:
+The easiest and most bulletproof solution when this happens is to backfill all bindings of the impacted capture(s) after performing the upgrade. This will permit the captures to recreate entities as necessary, establish a new CDC position, and then backfill all table contents to ensure that any changes which might have occurred in the meantime are correctly captured.
+
+However, it is common to want to avoid a full backfill when performing this sort of database maintenance, as these backfills may take some time and require a significant amount of extra data movement even if nothing has actually changed. Some connectors provide features which may be used to accomplish this, however they typically require some amount of extra setup or user knowledge to guarantee certain invariants (put simply: if there were a more efficient way to re-establish consistency in the general case, that's what we would already be doing when asked to backfill the data again).
+
+For example, Postgres currently deletes or requires users to drop logical replication slots during a major version upgrade. To prevent a full backfill during the upgrade, follow these steps:
 
 1. Pause database writes so no further changes can occur.
 
@@ -32,7 +34,7 @@ For example, Postgres currently deletes or requires users to drop logical replic
 3. Perform the database upgrade.
 
 4. Backfill each binding of the capture using the ["Only Changes" backfill mode](#backfill-modes).
-   - This will not cause a full backfill. "Backfilling" the bindings resets the WAL (Write-Ahead Log) position for the capture, essentially resetting its place. The "Only Changes" mode will skip re-reading existing table content.
+   - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to "jump ahead" to the current end of the WAL. The "Only Changes" mode will skip re-reading existing table content.
 
 5. Resume database writes.
 
