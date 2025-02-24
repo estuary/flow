@@ -13,6 +13,7 @@ expression: captured_logs
     "level": "info",
     "message": "Test log data before setting name, you should see me",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -40,6 +41,7 @@ expression: captured_logs
     "level": "info",
     "message": "Test log data without a task name yet!",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -77,6 +79,7 @@ expression: captured_logs
     "level": "info",
     "message": "I should have a client ID",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
@@ -124,6 +127,7 @@ expression: captured_logs
     "level": "info",
     "message": "I should also have a client ID",
     "shard": {
+      "build": "11:22:33:44:55:66:77:88",
       "keyBegin": "00000000",
       "kind": "materialization",
       "name": "my_task",
