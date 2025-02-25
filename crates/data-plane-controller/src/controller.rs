@@ -543,29 +543,30 @@ impl Controller {
             self.last_pulumi_run(&state, &checkout).await?;
 
         state.last_pulumi_up = chrono::Utc::now();
-        if resource_changes.changed() {
-            self.logs_tx
-                .send(logs::Line {
-                    token: state.logs_token,
-                    stream: "controller".to_string(),
-                    line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
-                })
-                .await
-                .context("failed to send to logs sink")?;
-            state.status = Status::AwaitDNS1;
-            Ok(DNS_TTL)
+        let (status, wait_time, log_line) = if resource_changes.changed() {
+            (
+                Status::AwaitDNS1,
+                DNS_TTL,
+                format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+            )
         } else {
-            self.logs_tx
-                .send(logs::Line {
-                    token: state.logs_token,
-                    stream: "controller".to_string(),
-                    line: format!("No changes detected, continuing to Ansible."),
-                })
-                .await
-                .context("failed to send to logs sink")?;
-            state.status = Status::Ansible;
-            Ok(POLL_AGAIN)
-        }
+            (
+                Status::Ansible,
+                POLL_AGAIN,
+                "No changes detected, continuing to Ansible.".to_string(),
+            )
+        };
+
+        self.logs_tx
+            .send(logs::Line {
+                token: state.logs_token,
+                stream: "controller".to_string(),
+                line: log_line,
+            })
+            .await
+            .context("failed to send to logs sink")?;
+        state.status = status;
+        Ok(wait_time)
     }
 
     #[tracing::instrument(
@@ -722,29 +723,31 @@ impl Controller {
             self.last_pulumi_run(&state, &checkout).await?;
 
         state.last_pulumi_up = chrono::Utc::now();
-        if resource_changes.changed() {
-            self.logs_tx
-                .send(logs::Line {
-                    token: state.logs_token,
-                    stream: "controller".to_string(),
-                    line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
-                })
-                .await
-                .context("failed to send to logs sink")?;
-            state.status = Status::AwaitDNS2;
-            Ok(DNS_TTL)
+
+        let (status, wait_time, log_line) = if resource_changes.changed() {
+            (
+                Status::AwaitDNS2,
+                DNS_TTL,
+                format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+            )
         } else {
-            self.logs_tx
-                .send(logs::Line {
-                    token: state.logs_token,
-                    stream: "controller".to_string(),
-                    line: format!("No changes detected, done."),
-                })
-                .await
-                .context("failed to send to logs sink")?;
-            state.status = Status::Idle;
-            Ok(POLL_AGAIN)
-        }
+            (
+                Status::Ansible,
+                POLL_AGAIN,
+                "No changes detected, done.".to_string(),
+            )
+        };
+
+        self.logs_tx
+            .send(logs::Line {
+                token: state.logs_token,
+                stream: "controller".to_string(),
+                line: log_line,
+            })
+            .await
+            .context("failed to send to logs sink")?;
+        state.status = status;
+        Ok(wait_time)
     }
 
     #[tracing::instrument(
