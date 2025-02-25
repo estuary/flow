@@ -26,6 +26,7 @@ You'll need a PostgreSQL database setup with the following:
   - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
 - A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
   - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
+  - **For read-only environments**, the capture can operate in read-only mode which does not require a watermarks table. See [Read-Only Captures](#read-only-captures) for details.
 
 ## Setup
 
@@ -71,6 +72,59 @@ This is desirable in most cases, as it ensures that a complete view of your tabl
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
+
+## Read-Only Captures
+
+The PostgreSQL CDC connector supports capturing data in "read-only" mode which does not
+require a watermark table or watermark writes. This is not the default mode of operation
+because it comes with one very significant caveat: you must ensure there are frequent
+changes to at least one of the tables being captured.
+
+:::warning
+When using a read-only capture, you must either ensure that some table you are capturing
+is modified regularly, or else create a dedicated "heartbeat" table which is updated
+every few minutes and include that in the capture.
+:::
+
+PostgreSQL logical replication can only acknowledge changes which modify at least one
+table in the publication. If all of the tables being captured are idle while there are
+significant changes to other tables on the same server, the replication slot cannot
+advance and PostgreSQL WAL retention will continue to grow, potentially without bound (see [WAL Retention and Tuning Parameters](#wal-retention-and-tuning-parameters))
+for more information.
+
+To enable read-only operation:
+
+- In the Flow web app: Select the "Read-Only Capture" checkbox in the "Advanced Options" section of the capture configuration.
+- In the YAML configuration: Set read_only_capture: true in the advanced section of the config.
+
+### Capturing from Read-Only Standbys
+
+A read-only capture can be used to capture from a read-only standby replica. This feature can
+be useful when you want to offload the impact of CDC operations from your primary database to
+a replica.
+
+In addition to the requirement that there be frequent writes to at least one captured table,
+there is one other significant constraint on this setup: the `hot_standby_feedback` setting
+must be enabled on the standby from which you intend to capture.
+
+This setting prevents the primary database from vacuuming rows that are still needed by the
+standby for logical decoding. If not enabled, catalog metadata may get vacuumed on the primary
+DB while still needed for logical decoding on the standby. This is not a rare edge case, and
+will frequently be observed if there are even a few minutes of downtime or replication lag.
+
+This will cause the logical replication slot to be invalidated, breaking the capture process.
+
+The solution is to set `hot_standby_feedback = on` so that the standby replica will keep the
+upstream database informed about what catalog metadata needs to be retained. To enable hot
+standby feedback on a Google CLoud SQL PostgreSQL instance:
+
+1. Navigate to your replica instance in the Google Cloud Console
+2. Click "Edit configuration"
+3. In the Flags section, click "ADD A DATABASE FLAG"
+4. Select `hot_standby_feedback` and set it to `on`
+5. Click "Save" and wait for the instance to restart
+
+You can verify whether the setting is enabled by running `SHOW hot_standby_feedback;`
 
 ## Configuration
 
