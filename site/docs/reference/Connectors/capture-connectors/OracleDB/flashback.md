@@ -1,4 +1,3 @@
-
 # OracleDB (Flashback)
 This connector captures data from OracleDB into Flow collections using [Oracle Flashback](https://www.oracle.com/database/technologies/flashback/).
 
