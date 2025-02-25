@@ -492,7 +492,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
     }
 
     pub fn send_stats(&self, collection_name: String, stats: ops::stats::Binding) {
-        if stats
+        let is_any_stats_invalid = stats
             .left
             .is_some_and(|s| (s.bytes_total == 0) != (s.docs_total == 0))
             || stats
@@ -500,15 +500,14 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                 .is_some_and(|s| (s.bytes_total == 0) != (s.docs_total == 0))
             || stats
                 .out
-                .is_some_and(|s| (s.bytes_total == 0) != (s.docs_total == 0))
-        {
-            tracing::error!(
-                ?stats,
-                "Invalid stats document emitted! Cannot emit 0 for just one of `bytes_total` or `docs_total`!"
-            );
-        } else {
-            self.send_message(TaskWriterMessage::Stats((collection_name, stats)))
-        }
+                .is_some_and(|s| (s.bytes_total == 0) != (s.docs_total == 0));
+
+        assert!(!is_any_stats_invalid,
+            "Invalid stats document emitted! Cannot emit 0 for just one of `bytes_total` or `docs_total`! {:?}",
+            stats
+        );
+
+        self.send_message(TaskWriterMessage::Stats((collection_name, stats)));
     }
 
     fn send_message(&self, msg: TaskWriterMessage) {
@@ -872,6 +871,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[should_panic]
     async fn test_partial_stats() {
         setup(|logs, stats| async move {
             {
