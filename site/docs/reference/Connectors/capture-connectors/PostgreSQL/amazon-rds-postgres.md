@@ -26,6 +26,7 @@ You'll need a PostgreSQL database setup with the following:
   - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
 - A watermarks table. The watermarks table is a small “scratch space” to which the connector occasionally writes a small amount of data to ensure accuracy when backfilling preexisting table contents.
   - In more restricted setups, this must be created manually, but can be created automatically if the connector has suitable permissions.
+  - **For read-only environments**, the capture can operate in read-only mode which does not require a watermarks table. See [Read-Only Captures](#read-only-captures) for details.
 
 ## Setup
 
@@ -83,6 +84,113 @@ This is desirable in most cases, as it ensures that a complete view of your tabl
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
+
+## WAL Retention and Tuning Parameters
+
+Postgres logical replication works by reading change events from the writeahead log,
+reordering WAL events in memory on the server, and sending them to the client in the
+order that transactions were committed. The replication slot used by the capture is
+essentially a cursor into that logical sequence of changes.
+
+Because of how Postgres reorders WAL events into atomic transactions, there are two
+distinct LSNs which matter when it comes to WAL retention. The `confirmed_flush_lsn`
+property of a replication slot represents the latest event in the WAL which has been
+sent to and confirmed by the client. However there may be some number of uncommitted
+changes prior to this point in the WAL which are still relevant and will be sent to
+the client in later transactions. Thus there is also a `restart_lsn` property which
+represents the point in the WAL from which logical decoding must resume in the future
+if the replication connection is closed and restarted.
+
+The server cannot clean up old WAL files so long as there are active replication slots
+whose `restart_lsn` position requires them. There are two ways that `restart_lsn` might
+get stuck at a particular point in the WAL:
+
+1. When a capture is deleted, disabled, or repeatedly failing for other reasons,
+   it is not able to advance the `confirmed_flush_lsn` and thus `restart_lsn` cannot
+   advance either.
+2. When a long-running transaction is open on the server the `restart_lsn` of a
+   replication slot may be unable to advance even though `confirmed_flush_lsn` is.
+
+By default Postgres will retain an unbounded amount of WAL data and fill up the entire
+disk if a replication slot stops advancing. There are two ways to address this:
+
+1. When deleting a capture, make sure that the replication slot is also successfully deleted.
+   - You can list replication slots with the query `SELECT * FROM pg_replication_slots` and
+     can drop the replication slot manually with `pg_drop_replication_slot('flow_slot')`.
+2. The database setting `max_slot_wal_keep_size` can be used to bound the maximum amount of
+   WAL data which a replication slot can force the database to retain.
+   - This setting defaults to `-1` (unlimited) but should be set on production databases
+     to protect them from unbounded WAL retention filling up the entire disk.
+   - Proper sizing of this setting is complex for reasons discussed below, but a value
+     of `50GB` should be enough for many databases.
+
+When the `max_slot_wal_keep_size` limit is exceeded, Postgres will terminate any active
+replication connections using that slot and invalidate the replication slot so that it
+can no longer be used. If Postgres invalidates the replication slot, the Flow capture
+using that slot will fail and manual intervention will be required to restart the capture
+and re-backfill all tables.
+
+Setting too low of a limit for `max_slot_wal_keep_size` can cause additional failures
+in the presence of long-running transactions. Even when a client is actively receiving
+and acknowledging replication events, a long-running transaction can cause the `restart_lsn`
+of the replication slot to remain stuck until that transaction commits. Thus the value of
+`max_slot_wal_keep_size` needs to be set high enough to avoid this happening. The precise
+value depends on the overall change rate of your database and worst-case transaction open
+time, but there is no downside to using a larger value provided you have enough free disk
+space.
+
+## Read-Only Captures
+
+The PostgreSQL CDC connector supports capturing data in "read-only" mode which does not
+require a watermark table or watermark writes. This is not the default mode of operation
+because it comes with one very significant caveat: you must ensure there are frequent
+changes to at least one of the tables being captured.
+
+:::warning
+When using a read-only capture, you must either ensure that some table you are capturing
+is modified regularly, or else create a dedicated "heartbeat" table which is updated
+every few minutes and include that in the capture.
+:::
+
+PostgreSQL logical replication can only acknowledge changes which modify at least one
+table in the publication. If all of the tables being captured are idle while there are
+significant changes to other tables on the same server, the replication slot cannot
+advance and PostgreSQL WAL retention will continue to grow, potentially without bound (see [WAL Retention and Tuning Parameters](#wal-retention-and-tuning-parameters))
+for more information.
+
+To enable read-only operation:
+
+- In the Flow web app: Select the "Read-Only Capture" checkbox in the "Advanced Options" section of the capture configuration.
+- In the YAML configuration: Set read_only_capture: true in the advanced section of the config.
+
+### Capturing from Read-Only Standbys
+
+A read-only capture can be used to capture from a read-only standby replica. This feature can
+be useful when you want to offload the impact of CDC operations from your primary database to
+a replica.
+
+In addition to the requirement that there be frequent writes to at least one captured table,
+there is one other significant constraint on this setup: the `hot_standby_feedback` setting
+must be enabled on the standby from which you intend to capture.
+
+This setting prevents the primary database from vacuuming rows that are still needed by the
+standby for logical decoding. If not enabled, catalog metadata may get vacuumed on the primary
+DB while still needed for logical decoding on the standby. This is not a rare edge case, and
+will frequently be observed if there are even a few minutes of downtime or replication lag.
+
+This will cause the logical replication slot to be invalidated, breaking the capture process.
+
+The solution is to set `hot_standby_feedback = on` so that the standby replica will keep the
+upstream database informed about what catalog metadata needs to be retained. To enable hot
+standby feedback on an Amazon RDS PostgreSQL instance:
+
+1. Navigate to the RDS Console > Parameter Groups
+2. Select the parameter group associated with your read replica
+3. Search for "hot_standby_feedback" and set it to 1 (on)
+4. Apply the parameter group to your read replica
+5. You may need to restart the replica for the change to take effect
+
+You can verify whether the setting is enabled by running `SHOW hot_standby_feedback;`
 
 ## Configuration
 
