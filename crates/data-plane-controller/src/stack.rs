@@ -122,6 +122,7 @@ pub struct ControlExports {
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
     pub bastion_private_key: Option<String>,
+    pub azure_application_name: String,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -138,7 +139,7 @@ pub struct PulumiStackResourceChanges {
 
 impl PulumiStackResourceChanges {
     pub fn changed(&self) -> bool {
-        return self.update > 0 || self.delete > 0 || self.create > 0
+        return self.update > 0 || self.delete > 0 || self.create > 0;
     }
 }
 

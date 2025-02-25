@@ -857,7 +857,7 @@ impl Controller {
         state: &State,
         checkout: &repo::Checkout,
     ) -> anyhow::Result<stack::PulumiStackHistory> {
-        // Check if any resources changed
+        // Check last run of pulumi
         let output = async_process::output(
             async_process::Command::new("pulumi")
                 .arg("stack")
@@ -949,6 +949,7 @@ impl automations::Outcome for Outcome {
             hmac_keys,
             ssh_key: _,
             bastion_private_key,
+            azure_application_name,
         }) = self.publish_exports
         {
             _ = sqlx::query!(
@@ -959,7 +960,8 @@ impl automations::Outcome for Outcome {
                     cidr_blocks = $5,
                     gcp_service_account_email = $6,
                     hmac_keys = $7,
-                    bastion_private_key = $8
+                    bastion_private_key = $8,
+                    azure_application_name = $9
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -970,6 +972,7 @@ impl automations::Outcome for Outcome {
                 gcp_service_account_email,
                 &hmac_keys,
                 bastion_private_key,
+                azure_application_name,
             )
             .execute(&mut *txn)
             .await
