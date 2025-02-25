@@ -179,6 +179,11 @@ async fn serve_session<L: LogHandler>(
         // Atomic WriteBatch into which we'll stage connector and runtime state updates.
         let mut wb = rocksdb::WriteBatch::default();
 
+        // Apply sourced schemas to inference before we widen from documents.
+        // Assuming documents fit the source shape, this prevents unnecessary
+        // widening (consider a schema with tight minItems / maxItems bounds).
+        apply_sourced_schemas(&mut shapes, &task, &mut txn)?;
+
         while let Some(drained) = drainer.drain_next()? {
             let response = send_client_captured_or_checkpoint(
                 &mut buf,
@@ -263,9 +268,15 @@ async fn read_checkpoint(
     task: &Task,
     txn: &mut Transaction,
 ) -> anyhow::Result<()> {
-    // Read all Captured responses of the checkpoint.
-    while let Some(captured) = response.captured {
-        recv_connector_captured(accumulator, captured, task, txn)?;
+    // Read all Captured and SourcedSchema responses of the checkpoint.
+    loop {
+        if let Some(captured) = response.captured {
+            recv_connector_captured(accumulator, captured, task, txn)?;
+        } else if let Some(sourced) = response.sourced_schema {
+            recv_connector_sourced_schema(sourced, task, txn)?;
+        } else {
+            break;
+        }
 
         // Read next response.
         response = match connector_rx.try_next().await? {
