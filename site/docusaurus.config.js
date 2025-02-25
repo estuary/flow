@@ -133,6 +133,7 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      image: 'img/estuary-new.png',
       navbar: {
         title: 'Estuary Flow',
         logo: {
