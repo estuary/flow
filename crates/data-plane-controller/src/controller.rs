@@ -163,11 +163,21 @@ impl automations::Executor for Controller {
 
 impl Controller {
     fn pulumi_secret_envs(&self) -> Vec<(&str, String)> {
-        ["ARM_CLIENT_ID", "ARM_CLIENT_SECRET", "ARM_TENANT_ID", "ARM_SUBSCRIPTION_ID", "VULTR_API_KEY"]
-            .iter()
-            .map(|key|
-                (*key, std::env::var(format!("DPC_{key}")).unwrap_or_default())
-            ).collect()
+        [
+            "ARM_CLIENT_ID",
+            "ARM_CLIENT_SECRET",
+            "ARM_TENANT_ID",
+            "ARM_SUBSCRIPTION_ID",
+            "VULTR_API_KEY",
+        ]
+        .iter()
+        .map(|key| {
+            (
+                *key,
+                std::env::var(format!("DPC_{key}")).unwrap_or_default(),
+            )
+        })
+        .collect()
     }
 
     async fn on_start(
@@ -529,19 +539,34 @@ impl Controller {
         )
         .await?;
 
+        let stack::PulumiStackHistory { resource_changes } =
+            self.last_pulumi_run(&state, &checkout).await?;
+
+        state.last_pulumi_up = chrono::Utc::now();
+        let (status, wait_time, log_line) = if resource_changes.changed() {
+            (
+                Status::AwaitDNS1,
+                DNS_TTL,
+                format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+            )
+        } else {
+            (
+                Status::Ansible,
+                POLL_AGAIN,
+                "No changes detected, continuing to Ansible.".to_string(),
+            )
+        };
+
         self.logs_tx
             .send(logs::Line {
                 token: state.logs_token,
                 stream: "controller".to_string(),
-                line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+                line: log_line,
             })
             .await
             .context("failed to send to logs sink")?;
-
-        state.status = Status::AwaitDNS1;
-        state.last_pulumi_up = chrono::Utc::now();
-
-        Ok(DNS_TTL)
+        state.status = status;
+        Ok(wait_time)
     }
 
     #[tracing::instrument(
@@ -694,19 +719,35 @@ impl Controller {
         )
         .await?;
 
+        let stack::PulumiStackHistory { resource_changes } =
+            self.last_pulumi_run(&state, &checkout).await?;
+
+        state.last_pulumi_up = chrono::Utc::now();
+
+        let (status, wait_time, log_line) = if resource_changes.changed() {
+            (
+                Status::AwaitDNS2,
+                DNS_TTL,
+                format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+            )
+        } else {
+            (
+                Status::Ansible,
+                POLL_AGAIN,
+                "No changes detected, done.".to_string(),
+            )
+        };
+
         self.logs_tx
             .send(logs::Line {
                 token: state.logs_token,
                 stream: "controller".to_string(),
-                line: format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
+                line: log_line,
             })
             .await
             .context("failed to send to logs sink")?;
-
-        state.status = Status::AwaitDNS2;
-        state.last_pulumi_up = chrono::Utc::now();
-
-        Ok(DNS_TTL)
+        state.status = status;
+        Ok(wait_time)
     }
 
     #[tracing::instrument(
@@ -810,6 +851,46 @@ impl Controller {
 
         Ok(checkout)
     }
+
+    async fn last_pulumi_run(
+        &self,
+        state: &State,
+        checkout: &repo::Checkout,
+    ) -> anyhow::Result<stack::PulumiStackHistory> {
+        // Check if any resources changed
+        let output = async_process::output(
+            async_process::Command::new("pulumi")
+                .arg("stack")
+                .arg("history")
+                .arg("--stack")
+                .arg(&state.stack_name)
+                .arg("--json")
+                .arg("--page-size")
+                .arg("1")
+                .arg("--cwd")
+                .arg(&checkout.path())
+                .envs(self.pulumi_secret_envs())
+                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                .env("VIRTUAL_ENV", checkout.path().join("venv")),
+        )
+        .await?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "pulumi stack history output failed: {}",
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+
+        let mut out: Vec<stack::PulumiStackHistory> = serde_json::from_slice(&output.stdout)
+            .context("failed to parse pulumi stack history output")?;
+
+        let Some(result) = out.pop() else {
+            anyhow::bail!("failed to parse pulumi stack history output: empty array");
+        };
+
+        return Ok(result);
+    }
 }
 
 impl automations::Outcome for Outcome {
@@ -867,6 +948,9 @@ impl automations::Outcome for Outcome {
             gcp_service_account_email,
             hmac_keys,
             ssh_key: _,
+            bastion_address,
+            bastion_private_key,
+            azure_application_name,
         }) = self.publish_exports
         {
             _ = sqlx::query!(
@@ -876,7 +960,10 @@ impl automations::Outcome for Outcome {
                     aws_link_endpoints = $4,
                     cidr_blocks = $5,
                     gcp_service_account_email = $6,
-                    hmac_keys = $7
+                    hmac_keys = $7,
+                    bastion_address = $8,
+                    bastion_private_key = $9,
+                    azure_application_name = $10
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -886,6 +973,9 @@ impl automations::Outcome for Outcome {
                 &cidr_blocks,
                 gcp_service_account_email,
                 &hmac_keys,
+                bastion_address,
+                bastion_private_key,
+                azure_application_name,
             )
             .execute(&mut *txn)
             .await
