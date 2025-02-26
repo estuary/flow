@@ -1,0 +1,79 @@
+{
+  "stack": {
+    "config": {
+      "est-dry-dock:model": {
+        "fqdn": "the-subdomain.dp.estuary-data.com",
+        "name": "ops/dp/private/AcmeCo/aws-us-west-2-c1",
+        "builds_root": "gs://estuary-control/builds/",
+        "deployments": [
+          {
+            "role": "etcd",
+            "current": 3,
+            "desired": 3,
+            "template": {
+              "zone": "a",
+              "region": "us-west-2",
+              "provider": "aws",
+              "ami_image_id": "ami-01a8b7cc84780badb",
+              "instance_type": "m5d.large"
+            },
+            "oci_image": "quay.io/coreos/etcd:v3.5.17"
+          },
+          {
+            "role": "gazette",
+            "current": 9,
+            "desired": 9,
+            "template": {
+              "zone": "a",
+              "region": "us-west-2",
+              "provider": "aws",
+              "ami_image_id": "ami-01a8b7cc84780badb",
+              "instance_type": "r5d.large"
+            },
+            "oci_image": "ghcr.io/gazette/broker:v0.100"
+          },
+          {
+            "role": "reactor",
+            "current": 7,
+            "desired": 7,
+            "template": {
+              "zone": "a",
+              "region": "us-west-2",
+              "provider": "aws",
+              "ami_image_id": "ami-01a8b7cc84780badb",
+              "instance_type": "r5d.xlarge"
+            },
+            "oci_image": "ghcr.io/estuary/flow:v0.5.11"
+          }
+        ],
+        "gcp_project": "the-gcp-project",
+        "ssh_subnets": [
+          "35.209.143.159/32",
+          "2600:1900:4000:97c7::/128",
+          "34.136.233.238/32"
+        ],
+        "data_buckets": [
+          "gs://estuary-trial",
+          "gs://estuary-flow-poc"
+        ],
+        "aws_assume_role": {
+          "role_arn": "arn:aws:iam::12345678:role/estuary",
+          "external_id": "c90634a4-0000-404d-ba7f-0facfba5b5cd"
+        },
+        "builds_kms_keys": [
+          "projects/the-project/locations/us-central1/keyRings/the-key-ring/cryptoKeys/the-key"
+        ],
+        "control_plane_api": "https://agent-api-amj6adhsnq-uc.a.run.app/"
+      }
+    },
+    "encryptedkey": "encryptedkey",
+    "secretsprovider": "gcpkms://projects/the-project/locations/us-central1/keyRings/the-key-ring/cryptoKeys/the-key"
+  },
+  "status": "Idle",
+  "logs_token": "4cb6ceef-36bc-4f57-89b9-8e4b11f82f0b",
+  "stack_name": "private-AcmeCo-aws-us-west-2-c1",
+  "last_refresh": "2025-02-26T15:23:07.693050947Z",
+  "data_plane_id": "1122334455667788",
+  "deploy_branch": "main",
+  "last_pulumi_up": "2025-02-26T15:46:19.720962982Z"
+}
