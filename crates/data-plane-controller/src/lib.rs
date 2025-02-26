@@ -162,16 +162,21 @@ async fn run_cmd(
     cmd.stderr(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
 
+    let args: Vec<_> = std::iter::once(cmd.get_program())
+        .chain(cmd.get_args())
+        .map(|s| s.to_os_string())
+        .collect();
+
     logs_tx
         .send(logs::Line {
             token: logs_token,
             stream: "controller".to_string(),
-            line: format!("Starting {stream}: {cmd:?}"),
+            line: format!("Starting {stream}: {args:?}"),
         })
         .await
         .context("failed to send to logs sink")?;
 
-    tracing::info!(?cmd, "starting command");
+    tracing::info!(?args, "starting command");
 
     let mut child: async_process::Child = cmd.spawn()?.into();
 
@@ -189,8 +194,16 @@ async fn run_cmd(
     );
 
     let ((), (), status) = futures::try_join!(stdout, stderr, child.wait())?;
+    tracing::info!(?args, ?status, "command completed");
 
-    tracing::info!(?cmd, ?status, "command completed");
+    logs_tx
+        .send(logs::Line {
+            token: logs_token,
+            stream: "controller".to_string(),
+            line: format!("Completed {stream} ({status}): {args:?}"),
+        })
+        .await
+        .context("failed to send to logs sink")?;
 
     if !status.success() {
         let err = NonZeroExit {
