@@ -2258,6 +2258,7 @@ dependencies = [
  "futures",
  "humantime",
  "humantime-serde",
+ "insta",
  "ipnetwork",
  "itertools 0.10.5",
  "models",

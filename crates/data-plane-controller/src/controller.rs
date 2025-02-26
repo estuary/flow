@@ -1,7 +1,9 @@
-use super::{logs, run_cmd, stack};
+use super::{
+    logs, run_cmd,
+    stack::{self, State, Status},
+};
 use crate::repo;
 use anyhow::Context;
-use itertools::{EitherOrBoth, Itertools};
 use std::collections::VecDeque;
 
 pub struct Controller {
@@ -21,76 +23,6 @@ pub enum Message {
     Preview,
     Refresh,
     Converge,
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct State {
-    // DataPlane which this controller manages.
-    data_plane_id: models::Id,
-    // Git branch of the dry-dock repo for this data-plane.
-    deploy_branch: String,
-    // DateTime of the last `pulumi up` for this data-plane.
-    last_pulumi_up: chrono::DateTime<chrono::Utc>,
-    // DateTime of the last `pulumi refresh` for this data-plane.
-    last_refresh: chrono::DateTime<chrono::Utc>,
-    // Token to which controller logs are directed.
-    logs_token: sqlx::types::Uuid,
-    // Pulumi configuration for this data-plane.
-    stack: stack::PulumiStack,
-    // Name of the data-plane "stack" within the Pulumi tooling.
-    stack_name: String,
-    // Status of this controller.
-    status: Status,
-
-    // Is this controller disabled?
-    // When disabled, refresh and converge operations are queued but not run.
-    #[serde(default, skip_serializing_if = "is_false")]
-    disabled: bool,
-
-    // Is there a pending preview for this data-plane?
-    #[serde(default, skip_serializing_if = "is_false")]
-    pending_preview: bool,
-    // Is there a pending refresh for this data-plane?
-    #[serde(default, skip_serializing_if = "is_false")]
-    pending_refresh: bool,
-    // Is there a pending converge for this data-plane?
-    #[serde(default, skip_serializing_if = "is_false")]
-    pending_converge: bool,
-
-    // When Some, updated Pulumi stack exports to be written back into the `data_planes` row.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    publish_exports: Option<stack::ControlExports>,
-    // When true, an updated Pulumi stack model to be written back into the `data_planes` row.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    publish_stack: Option<stack::PulumiStack>,
-}
-
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-pub enum Status {
-    Idle,
-    /// Controller is setting the encryption key for Pulumi stack secrets.
-    SetEncryption,
-    /// Controller is previewing changes proposed by Pulumi without applying them.
-    PulumiPreview,
-    /// Controller is refreshing any remotely-changed resources,
-    /// such as replaced EC2 instances.
-    PulumiRefresh,
-    /// Controller is creating any scaled-up cloud resources,
-    /// updating DNS records for resources which are scaling down,
-    /// and updating the Ansible inventory.
-    PulumiUp1,
-    /// Controller is awaiting DNS propagation for any replaced resources
-    /// as well as resources which are scaling down.
-    AwaitDNS1,
-    /// Controller is running Ansible to initialize and refresh servers.
-    Ansible,
-    /// Controller is updating DNS records for resources which have now
-    /// started and is destroying any scaled-down cloud resources which
-    /// have now stopped.
-    PulumiUp2,
-    /// Controller is awaiting DNS propagation for any scaled-up
-    /// resources which have now started.
-    AwaitDNS2,
 }
 
 #[derive(Debug)]
@@ -210,8 +142,6 @@ impl Controller {
         state: &mut State,
         inbox: &mut VecDeque<(models::Id, Option<Message>)>,
     ) -> anyhow::Result<std::time::Duration> {
-        // Handle received messages by clearing corresponding state
-        // to force the explicitly-requested action.
         while let Some((from_id, message)) = inbox.pop_front() {
             match message {
                 Some(Message::Disable) => state.disabled = true,
@@ -227,121 +157,24 @@ impl Controller {
         }
 
         // Refresh configuration from the current data_planes row.
-        let State {
-            deploy_branch: next_deploy_branch,
-            logs_token: next_logs_token,
-            stack:
-                stack::PulumiStack {
-                    config: next_config,
-                    encrypted_key: next_encrypted_key,
-                    secrets_provider: next_secrets_provider,
-                },
-            stack_name: next_stack_name,
-            ..
-        } = self
+        let next = self
             .fetch_row_state(pool, task_id, state.data_plane_id)
             .await?;
 
         // Sanity check that variables which should not change, haven't.
-        if state.stack.encrypted_key != next_encrypted_key {
-            anyhow::bail!(
-                "pulumi stack encrypted key cannot change from {} to {next_encrypted_key}",
-                state.stack.encrypted_key,
-            );
-        }
-        if state.stack.secrets_provider != next_secrets_provider {
-            anyhow::bail!(
-                "pulumi stack secrets provider cannot change from {} to {next_secrets_provider}",
-                state.stack.secrets_provider,
-            );
-        }
-        if state.stack_name != next_stack_name {
-            anyhow::bail!(
-                "pulumi stack name cannot change from {} to {next_stack_name}",
-                state.stack_name
-            );
-        }
-        if state.logs_token != next_logs_token {
-            anyhow::bail!(
-                "data-plane logs token cannot change from {} to {next_logs_token}",
-                state.logs_token
-            );
-        }
-        if state.stack.config.model.gcp_project != next_config.model.gcp_project {
-            anyhow::bail!(
-                "pulumi stack gcp_project cannot change from {} to {}",
-                state.stack.config.model.gcp_project,
-                next_config.model.gcp_project,
-            );
-        }
-        for (index, zipped) in state
-            .stack
-            .config
-            .model
-            .deployments
-            .iter()
-            .zip_longest(next_config.model.deployments.iter())
-            .enumerate()
-        {
-            match zipped {
-                EitherOrBoth::Left(cur_deployment) => {
-                    anyhow::bail!(
-                        "cannot remove deployment {cur_deployment:?} at index {index}; scale it down with `desired` = 0 instead"
-                    );
-                }
-                EitherOrBoth::Right(next_deployment) => {
-                    if next_deployment.current != 0 {
-                        anyhow::bail!(
-                            "new deployment {next_deployment:?} at index {index} must have `current` = 0; scale up using `desired` instead"
-                        );
-                    } else if next_deployment.desired == 0 {
-                        anyhow::bail!(
-                            "new deployment {next_deployment:?} at index {index} must have `desired` > 0"
-                        );
-                    }
-                }
-                EitherOrBoth::Both(
-                    current @ stack::Deployment {
-                        current: cur_current,
-                        oci_image: cur_oci_image,
-                        role: cur_role,
-                        template: cur_template,
-                        desired: _,            // Allowed to change.
-                        oci_image_override: _, // Allowed to change.
-                    },
-                    next @ stack::Deployment {
-                        current: next_current,
-                        oci_image: next_oci_image,
-                        role: next_role,
-                        template: next_template,
-                        desired: _,            // Allowed to change.
-                        oci_image_override: _, // Allowed to change.
-                    },
-                ) => {
-                    if cur_current != next_current
-                        || cur_oci_image != next_oci_image
-                        || cur_role != next_role
-                        || cur_template != next_template
-                    {
-                        anyhow::bail!(
-                            "invalid transition of deployment at index {index} (you many only append new deployments or update `desired` or `oci_image_override` of this one): {current:?} =!=> {next:?}"
-                        );
-                    }
-                }
-            }
-        }
+        () = State::verify_transition(&state, &next)?;
 
         // Periodically perform a refresh to detect remote changes to resources.
         if state.last_refresh + REFRESH_INTERVAL < chrono::Utc::now() {
             state.pending_refresh = true;
         }
         // Changes to branch or stack configuration require a convergence pass.
-        if state.deploy_branch != next_deploy_branch {
-            state.deploy_branch = next_deploy_branch;
+        if state.deploy_branch != next.deploy_branch {
+            state.deploy_branch = next.deploy_branch;
             state.pending_converge = true;
         }
-        if state.stack.config != next_config {
-            state.stack.config = next_config;
+        if state.stack.config != next.stack.config {
+            state.stack.config = next.stack.config;
             state.pending_converge = true;
         }
 
@@ -361,6 +194,15 @@ impl Controller {
             // Start a pending refresh operation.
             state.status = Status::PulumiRefresh;
             state.pending_refresh = false;
+            Ok(POLL_AGAIN)
+        } else if !state.pending_converge
+            && (state.stack.config.model)
+                .evaluate_release_steps(&Self::fetch_releases(pool, state.data_plane_id).await?)
+        {
+            // We intended to converge, but will first write back the updated config.
+            state.status = Status::Idle;
+            state.pending_converge = true;
+            state.publish_stack = Some(state.stack.clone());
             Ok(POLL_AGAIN)
         } else if state.pending_converge {
             // Start a pending convergence operation.
@@ -695,10 +537,7 @@ impl Controller {
             .config
             .model
             .deployments
-            .retain_mut(|deployment| {
-                deployment.current = deployment.desired;
-                deployment.current != 0
-            });
+            .retain_mut(stack::Deployment::mark_current);
 
         state.status = Status::PulumiUp2;
         state.publish_exports = Some(control);
@@ -843,6 +682,29 @@ impl Controller {
             publish_exports: None,
             publish_stack: None,
         })
+    }
+
+    async fn fetch_releases(
+        pool: &sqlx::PgPool,
+        data_plane_id: models::Id,
+    ) -> anyhow::Result<Vec<stack::Release>> {
+        let rows = sqlx::query_as!(
+            stack::Release,
+            r#"
+            SELECT
+                prev_image,
+                next_image,
+                step
+            FROM data_plane_releases
+            WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')
+            "#,
+            data_plane_id as models::Id,
+        )
+        .fetch_all(pool)
+        .await
+        .context("failed to fetch data-plane releases")?;
+
+        Ok(rows)
     }
 
     async fn checkout(&self, state: &State) -> anyhow::Result<repo::Checkout> {
@@ -1020,7 +882,3 @@ const DNS_TTL_DRY_RUN: std::time::Duration = std::time::Duration::from_secs(10);
 const IDLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const POLL_AGAIN: std::time::Duration = std::time::Duration::ZERO;
 const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
-
-fn is_false(b: &bool) -> bool {
-    !b
-}

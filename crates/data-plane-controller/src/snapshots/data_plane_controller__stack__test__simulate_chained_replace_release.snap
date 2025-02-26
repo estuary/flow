@@ -1,0 +1,290 @@
+---
+source: crates/data-plane-controller/src/stack.rs
+expression: "&simulate_rollout(&mut stack.config.model, releases)"
+---
+[
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 3,
+      "current": 3
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 2,
+      "current": 3,
+      "rollout": {
+        "target": 0,
+        "step": 1
+      }
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 0,
+      "current": 0,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 1,
+      "current": 2,
+      "rollout": {
+        "target": 0,
+        "step": 1
+      }
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 1,
+      "current": 0,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 0,
+      "current": 1,
+      "rollout": {
+        "target": 0,
+        "step": 1
+      }
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 2,
+      "current": 1,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 3,
+      "current": 2,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 2,
+      "current": 3,
+      "rollout": {
+        "target": 0,
+        "step": 1
+      }
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.7",
+      "desired": 0,
+      "current": 0,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 1,
+      "current": 2,
+      "rollout": {
+        "target": 0,
+        "step": 1
+      }
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.7",
+      "desired": 1,
+      "current": 0,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 0,
+      "current": 1,
+      "rollout": {
+        "target": 0,
+        "step": 1
+      }
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.7",
+      "desired": 2,
+      "current": 1,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.7",
+      "desired": 3,
+      "current": 2,
+      "rollout": {
+        "target": 3,
+        "step": 1
+      }
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.7",
+      "desired": 3,
+      "current": 3
+    }
+  ]
+]
