@@ -732,7 +732,7 @@ impl Controller {
             )
         } else {
             (
-                Status::Ansible,
+                Status::Idle,
                 POLL_AGAIN,
                 "No changes detected, done.".to_string(),
             )
