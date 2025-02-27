@@ -948,7 +948,7 @@ impl automations::Outcome for Outcome {
             gcp_service_account_email,
             hmac_keys,
             ssh_key: _,
-            bastion_private_key,
+            bastion_tunnel_private_key,
             azure_application_name,
         }) = self.publish_exports
         {
@@ -960,7 +960,7 @@ impl automations::Outcome for Outcome {
                     cidr_blocks = $5,
                     gcp_service_account_email = $6,
                     hmac_keys = $7,
-                    bastion_private_key = $8,
+                    bastion_tunnel_private_key = $8,
                     azure_application_name = $9
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
@@ -971,7 +971,7 @@ impl automations::Outcome for Outcome {
                 &cidr_blocks,
                 gcp_service_account_email,
                 &hmac_keys,
-                bastion_private_key,
+                bastion_tunnel_private_key,
                 azure_application_name,
             )
             .execute(&mut *txn)
