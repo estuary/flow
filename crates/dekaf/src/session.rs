@@ -126,6 +126,10 @@ impl Session {
         &mut self,
         request: messages::SaslHandshakeRequest,
     ) -> anyhow::Result<messages::SaslHandshakeResponse> {
+        if let Some(_) = self.auth {
+            anyhow::bail!("This session is already authenticated")
+        }
+
         let mut response = messages::SaslHandshakeResponse::default();
         response.mechanisms.push(StrBytes::from_static_str("PLAIN"));
 
@@ -140,6 +144,10 @@ impl Session {
         &mut self,
         request: messages::SaslAuthenticateRequest,
     ) -> anyhow::Result<messages::SaslAuthenticateResponse> {
+        if let Some(_) = self.auth {
+            anyhow::bail!("This session is already authenticated")
+        }
+
         let mut it = request
             .auth_bytes
             .split(|b| *b == 0) // SASL uses NULL to separate components.
