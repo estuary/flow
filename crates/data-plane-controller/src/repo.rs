@@ -40,6 +40,7 @@ impl Repo {
                     .arg("clean")
                     .arg("--force")
                     .current_dir(dir.path()),
+                false,
                 "git-clean",
                 logs_tx,
                 logs_token,
@@ -55,6 +56,7 @@ impl Repo {
             async_process::Command::new("git")
                 .arg("fetch")
                 .current_dir(dir.path()),
+            false,
             "git-fetch",
             logs_tx,
             logs_token,
@@ -69,6 +71,7 @@ impl Repo {
                 .arg("--quiet")
                 .arg(format!("origin/{branch}"))
                 .current_dir(dir.path()),
+            false,
             "git-checkout",
             logs_tx,
             logs_token,
@@ -81,6 +84,7 @@ impl Repo {
                 .current_dir(dir.path())
                 .env("VIRTUAL_ENV", dir.path().join("venv"))
                 .env("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring"),
+            false,
             "poetry-install",
             &logs_tx,
             logs_token,
@@ -108,6 +112,7 @@ impl Repo {
                 .arg("clone")
                 .arg(&self.inner.repo)
                 .arg(dir.path()),
+            false,
             "git-clone",
             logs_tx,
             logs_token,
@@ -119,6 +124,7 @@ impl Repo {
                 .arg("-m")
                 .arg("venv")
                 .arg(dir.path().join("venv")),
+            false,
             "python-venv",
             logs_tx,
             logs_token,

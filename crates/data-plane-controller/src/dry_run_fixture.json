@@ -1,0 +1,40 @@
+{
+  "ansible": {
+    "all": {
+      "children": {},
+      "vars": {}
+    }
+  },
+  "control": {
+    "aws_iam_user_arn": "arn:aws:iam::123456:user/data-planes/data-plane-abcd",
+    "aws_link_endpoints": [
+      {
+        "dns_entries": [
+          {
+            "dns_name": "vpce-123-abc.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+            "hosted_zone_id": "ZZ1"
+          },
+          {
+            "dns_name": "vpce-123-abc-us-east-1a.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+            "hosted_zone_id": "ZZ1"
+          }
+        ],
+        "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-foo"
+      }
+    ],
+    "azure_application_name": "data-plane-123.dp.estuary-data.com",
+    "bastion_tunnel_private_key": "bastion_tunnel_private_key fixture",
+    "cidr_blocks": [
+      "2600:1234:567:8900::/56",
+      "12.34.56.78/32",
+      "23.45.67.89/32"
+    ],
+    "gcp_service_account_email": "data-plane-abcd@project.iam.gserviceaccount.com",
+    "hmac_keys": [
+      "a2V5MQ==",
+      "a2V5Mg==",
+      "a2V5Mw=="
+    ],
+    "ssh_key": "ssh_key fixture"
+  }
+}
