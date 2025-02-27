@@ -64,6 +64,11 @@ pub struct Args {
         default_value = "gs://estuary-pulumi"
     )]
     state_backend: url::Url,
+    /// When running in dry-run mode, the controller performs git checkouts but
+    /// merely simulates Pulumi and Ansible commands without actually running them.
+    /// It's not required that the Pulumi stacks of data planes actually exist.
+    #[clap(long = "dry-run")]
+    dry_run: bool,
 }
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
@@ -116,6 +121,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     let server = automations::Server::new()
         .register(controller::Controller {
+            dry_run: args.dry_run,
             logs_tx,
             repo,
             secrets_provider: args.secrets_provider,
@@ -154,6 +160,7 @@ impl std::fmt::Display for NonZeroExit {
 
 async fn run_cmd(
     cmd: &mut async_process::Command,
+    dry_run: bool,
     stream: &str,
     logs_tx: &logs::Tx,
     logs_token: sqlx::types::Uuid,
@@ -178,23 +185,28 @@ async fn run_cmd(
 
     tracing::info!(?args, "starting command");
 
-    let mut child: async_process::Child = cmd.spawn()?.into();
+    let status = if dry_run {
+        std::process::ExitStatus::default()
+    } else {
+        let mut child: async_process::Child = cmd.spawn()?.into();
 
-    let stdout = logs::capture_lines(
-        logs_tx,
-        format!("{stream}:0"),
-        logs_token,
-        child.stdout.take().unwrap(),
-    );
-    let stderr = logs::capture_lines(
-        logs_tx,
-        format!("{stream}:1"),
-        logs_token,
-        child.stderr.take().unwrap(),
-    );
+        let stdout = logs::capture_lines(
+            logs_tx,
+            format!("{stream}:0"),
+            logs_token,
+            child.stdout.take().unwrap(),
+        );
+        let stderr = logs::capture_lines(
+            logs_tx,
+            format!("{stream}:1"),
+            logs_token,
+            child.stderr.take().unwrap(),
+        );
 
-    let ((), (), status) = futures::try_join!(stdout, stderr, child.wait())?;
-    tracing::info!(?args, ?status, "command completed");
+        let ((), (), status) = futures::try_join!(stdout, stderr, child.wait())?;
+        status
+    };
+    tracing::info!(?args, %status, "command completed");
 
     logs_tx
         .send(logs::Line {
