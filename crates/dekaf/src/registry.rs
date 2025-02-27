@@ -44,18 +44,22 @@ async fn attach_logger(
 ) -> Response {
     let writer = GazetteWriter::new(app);
 
-    logging::forward_logs(writer, async move {
-        if let Some(user_agent) = request.headers().get(USER_AGENT) {
-            match user_agent.to_str() {
-                Ok(user_agent) => {
-                    tracing::Span::current()
-                        .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, user_agent);
-                }
-                Err(e) => tracing::warn!(?e, "Got bad user agent header"),
-            };
-        }
-        next.run(request).await
-    })
+    logging::forward_logs(
+        writer,
+        tokio_util::sync::CancellationToken::new(),
+        async move {
+            if let Some(user_agent) = request.headers().get(USER_AGENT) {
+                match user_agent.to_str() {
+                    Ok(user_agent) => {
+                        tracing::Span::current()
+                            .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, user_agent);
+                    }
+                    Err(e) => tracing::warn!(?e, "Got bad user agent header"),
+                };
+            }
+            next.run(request).await
+        },
+    )
     .await
 }
 

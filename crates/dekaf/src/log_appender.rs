@@ -1,7 +1,6 @@
 use crate::{dekaf_shard_template_id, topology::fetch_dekaf_task_auth, App};
 use anyhow::Context;
 use async_trait::async_trait;
-use bytes::Bytes;
 use flow_client::fetch_task_authorization;
 use futures::{Stream, StreamExt, TryStreamExt};
 use gazette::{
@@ -10,7 +9,6 @@ use gazette::{
     RetryError,
 };
 use proto_gazette::message_flags;
-use rand::Rng;
 use std::{
     collections::{BTreeMap, VecDeque},
     marker::PhantomData,
@@ -283,14 +281,24 @@ const WELL_KNOWN_LOG_FIELDS: &'static [&'static str] = &[
 pub const LOG_MESSAGE_QUEUE_SIZE: usize = 50;
 
 impl<W: TaskWriter + 'static> TaskForwarder<W> {
-    pub fn new(producer: Producer, writer: W) -> Self {
+    pub fn new(
+        producer: Producer,
+        writer: W,
+        stop_signal: tokio_util::sync::CancellationToken,
+    ) -> Self {
         let (logs_tx, logs_rx) =
             tokio::sync::mpsc::channel::<TaskWriterMessage>(LOG_MESSAGE_QUEUE_SIZE);
 
         let handle = tokio::spawn(async move {
             if let Err(e) = Self::start(logs_rx, writer, producer).await {
                 tracing::error!(error = ?e, "Log forwarding errored");
-            }
+                // For the moment, only cancel sessions for which the logging actually failed.
+                // Importantly, until we get rid of refresh-token-based auth for Dekaf, we'll have
+                // legitimate sessions (those with SessionAuthentication::User) that intentionally
+                // call `TaskForwarder::shutdown()` (since they're not associated with any task to
+                // receive their logs). We still want these sessions to continue to function.
+                stop_signal.cancel();
+            };
         });
 
         Self {
@@ -586,6 +594,7 @@ mod tests {
     use tracing::{info, info_span};
     use tracing::{instrument::WithSubscriber, Instrument};
 
+    use bytes::Bytes;
     use tracing_record_hierarchical::SpanExt;
     use tracing_subscriber::prelude::*;
 
@@ -649,6 +658,7 @@ mod tests {
         F: FnOnce(
             Arc<tokio::sync::Mutex<VecDeque<Bytes>>>,
             Arc<tokio::sync::Mutex<VecDeque<Bytes>>>,
+            tokio_util::sync::CancellationToken,
         ) -> Fut,
         Fut: Future,
     {
@@ -666,11 +676,12 @@ mod tests {
             ))
             .with(tracing_subscriber::fmt::Layer::default());
 
+        let token = tokio_util::sync::CancellationToken::new();
         MOCK_LOG_FORWARDER
             .scope(
-                TaskForwarder::new(producer, mock_writer),
+                TaskForwarder::new(producer, mock_writer, token.clone()),
                 async move {
-                    f(logs, stats)
+                    f(logs, stats, token)
                         .instrument(tracing::info_span!(
                             "test_session",
                             { SESSION_TASK_NAME_FIELD_MARKER } = tracing::field::Empty,
@@ -709,7 +720,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_logging_with_no_task_name() {
-        setup(|logs, _stats| async move {
+        setup(|logs, _stats, cancelled| async move {
             {
                 info!("Test log data, you shouldn't be able to see me");
             }
@@ -718,13 +729,14 @@ mod tests {
 
             let captured_logs = logs.lock().await;
             assert!(captured_logs.is_empty());
+            assert!(!cancelled.is_cancelled());
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_logging_with_task_name() {
-        setup(|logs, _stats| async move {
+        setup(|logs, _stats, cancelled| async move {
             {
                 info!("Test log data before setting name, you should see me");
 
@@ -738,13 +750,14 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("session_logger_and_task_name", logs).await;
+            assert!(!cancelled.is_cancelled());
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_logging_with_client_id_hierarchical() {
-        setup(|logs, _stats| async move {
+        setup(|logs, _stats, cancelled| async move {
             {
                 info!("Test log data before setting name, you should see me");
                 let session_span = info_span!(
@@ -774,13 +787,14 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("session_logger_and_task_name_hierarchical", logs).await;
+            assert!(!cancelled.is_cancelled());
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_session_subscriber_layer_taskless() {
-        setup(|logs, _stats| async move {
+        setup(|logs, _stats, cancelled| async move {
             {
                 info!("Logged without name, you shouldn't see me because of the shutdown");
 
@@ -796,13 +810,14 @@ mod tests {
                 captured_logs.is_empty(),
                 "Expected no logs for taskless session"
             );
+            assert!(!cancelled.is_cancelled());
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_session_subscriber_layer_nested_spans() {
-        setup(|logs, _stats| async move {
+        setup(|logs, _stats, cancelled| async move {
             {
                 info!("From before task name, should be visible");
 
@@ -830,13 +845,14 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("nested_spans", logs).await;
+            assert!(!cancelled.is_cancelled());
         })
         .await;
     }
 
     #[tokio::test]
     async fn test_stats() {
-        setup(|_logs, stats| async move {
+        setup(|_logs, stats, cancelled| async move {
             {
                 MOCK_LOG_FORWARDER
                     .get()
@@ -860,12 +876,14 @@ mod tests {
                     },
                 );
 
+                // Shutdown to force flushing stats
                 MOCK_LOG_FORWARDER.get().shutdown();
             }
 
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             assert_output("test_stats", stats).await;
+            assert!(!cancelled.is_cancelled());
         })
         .await;
     }
@@ -873,7 +891,7 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn test_partial_stats() {
-        setup(|logs, stats| async move {
+        setup(|logs, stats, cancelled| async move {
             {
                 MOCK_LOG_FORWARDER
                     .get()
@@ -897,6 +915,7 @@ mod tests {
 
             assert_output("test_stats_partial_logs", logs).await;
             assert_output("test_stats_partial_stats", stats).await;
+            assert!(cancelled.is_cancelled());
         })
         .await;
     }
