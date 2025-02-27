@@ -25,7 +25,7 @@
       "derive": {
         "using": {
           "typescript": {
-            "module": "import { IDerivation, Document, SourceFromBaseName } from 'flow/ops.us-central1.v1/catalog-stats-L2.ts';\n\n// Implementation for derivation ops.us-central1.v1/catalog-stats-L2.\nexport class Derivation extends IDerivation {\n    fromBaseName(read: { doc: SourceFromBaseName }): Document[] {\n        return [read.doc]\n    }\n}"
+            "module": "import { IDerivation, Document, SourceFromBaseName } from 'flow/ops.us-central1.v1/catalog-stats-L2.ts';\n\n// Implementation for derivation ops.us-central1.v1/catalog-stats-L2.\nexport class Derivation extends IDerivation {\n    fromBaseName(read: { doc: SourceFromBaseName }): Document[] {\n        return [read.doc];\n    }\n}\n"
           }
         },
         "transforms": [
