@@ -3,7 +3,7 @@
     "ops.us-central1.v1/stats-view": {
       "endpoint": {
         "connector": {
-          "image": "ghcr.io/estuary/materialize-postgres:dev",
+          "image": "ghcr.io/estuary/materialize-postgres:local",
           "config": {"address":"supabase_db_flow.supabase_network_flow:5432","database":"postgres","password":"stats_loader_password","user":"stats_loader"}
         }
       },

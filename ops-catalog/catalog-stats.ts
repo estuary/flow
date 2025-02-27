@@ -25,17 +25,23 @@ export class Derivation extends IDerivation {
         const ts = new Date(source.ts);
         const grains = grainsFromTS(ts);
 
-        const taskDocs = mapStatsToDocsByGrain(grains, taskStats(source)).map((doc) => ({
-            ...doc,
-            // For documents generated specific to this task, retain the detailed information about
-            // the task itself.
-            taskStats: {
-                capture: source.capture,
-                derive: source.derive,
-                materialize: source.materialize,
-                interval: source.interval,
-            },
-        }));
+        const taskDocs = mapStatsToDocsByGrain(grains, taskStats(source)).map((doc) => {
+            if (doc.catalogName.endsWith("/")) {
+                return doc;
+            } else {
+                // For documents generated specific to this task, retain the detailed information about
+                // the task itself.
+                return {
+                    ...doc,
+                    taskStats: {
+                        capture: source.capture,
+                        derive: source.derive,
+                        materialize: source.materialize,
+                        interval: source.interval,
+                    },
+                }
+            }
+        });
 
         // Documents generated for collections involved in this task will not have associated
         // detailed task information. If the collection is a derivation, that will be accounted for
@@ -82,14 +88,47 @@ type StatsData = {
     [k: string]: Document["statsSummary"];
 };
 
-const mapStatsToDocsByGrain = (grains: TimeGrain[], stats: StatsData): Document[] =>
-    Object.entries(stats).flatMap(([catalogName, statsSummary]) =>
+function catalogPrefixes(catalogName: string): string[] {
+    let splits = catalogName.split("/");
+    let out: string[] = [];
+    for (let i = 1; i < splits.length; i++) {
+        let parts = splits.slice(0, i);
+        let name = parts.join("/") + "/";
+        out.push(name);
+    }
+    return out;
+}
+
+function mapStatsToDocsByGrain(grains: TimeGrain[], stats: StatsData): Document[] {
+    let docs = Object.entries(stats).flatMap(([catalogName, statsSummary]) =>
         grains.map((g) => ({
             ...g,
             catalogName,
             statsSummary,
         }))
     );
+
+    let out: Document[] = docs.slice();
+    // Also emit stats for each catalog name prefix.
+    for (var doc of docs) {
+        let prefixes = catalogPrefixes(doc.catalogName);
+        for (var p of prefixes) {
+            let newDoc = {
+                ...doc,
+                catalogName: p,
+            };
+            // Remove the `taskStats` from these prefix stats documents, because
+            // they contain the raw stats broken down by binding, which would
+            // otherwise result in objects with a potentially absurd number of
+            // keys after they get reduced.
+            // if (newDoc.taskStats) {
+            //     delete newDoc['taskStats'];
+            // }
+            out.push(newDoc);
+        }
+    }
+    return out;
+}
 
 const taskStats = (source: SourceStats): StatsData => {
     const stats: Document["statsSummary"] = {};
