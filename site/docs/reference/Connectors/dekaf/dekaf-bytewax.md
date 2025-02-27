@@ -1,5 +1,9 @@
 # Bytewax
 
+:::warning
+This guide uses a legacy method of connecting with Dekaf and is presented for historical purposes. For new integrations or to migrate your existing Dekaf setup to the new workflow, see the [Dekaf materialization connector](../materialization-connectors/Dekaf/dekaf.md).
+:::
+
 This guide demonstrates how to use Estuary Flow to stream data to Bytewax using the Kafka-compatible Dekaf API.
 
 [Bytewax](https://bytewax.io/) is a Python framework for building scalable dataflow applications, designed for
@@ -43,7 +47,7 @@ high-throughput, low-latency data processing tasks.
         "sasl.username": "{}",
         "sasl.password": os.getenv("DEKAF_TOKEN"),
     })
-    
+
     flow = Dataflow()
     flow.input("input", src)
     flow.input("input", KafkaInputConfig(KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC))

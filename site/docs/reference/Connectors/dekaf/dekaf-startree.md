@@ -1,5 +1,9 @@
 # StarTree
 
+:::warning
+This guide uses a legacy method of connecting with Dekaf and is presented for historical purposes. For new integrations or to migrate your existing Dekaf setup to the new workflow, see the [Dekaf materialization connector](../materialization-connectors/Dekaf/dekaf.md).
+:::
+
 In this guide, you'll learn how to use Estuary Flow to push data streams to StarTree using the Kafka data source.
 
 [StarTree](https://startree.ai/) is a real-time analytics platform built on Apache Pinot, designed for performing fast,
