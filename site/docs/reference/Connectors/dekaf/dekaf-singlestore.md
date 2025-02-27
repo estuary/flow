@@ -1,5 +1,9 @@
 # SingleStore (Cloud)
 
+:::warning
+This guide uses a legacy method of connecting with Dekaf and is presented for historical purposes. For new integrations or to migrate your existing Dekaf setup to the new workflow, see the [Dekaf materialization connector](../materialization-connectors/Dekaf/dekaf.md).
+:::
+
 This guide demonstrates how to use Estuary Flow to stream data to SingleStore using the Kafka-compatible Dekaf API.
 
 [SingleStore](https://www.singlestore.com/) is a distributed SQL database designed for data-intensive applications,
@@ -18,7 +22,7 @@ offering high performance for both transactional and analytical workloads.
 
     ```sql
     CREATE TABLE test_table (id NUMERIC, server_name VARCHAR(255), title VARCHAR(255));
-    
+
     CREATE PIPELINE test AS
             LOAD DATA KAFKA "dekaf.estuary-data.com:9092/demo/wikipedia/recentchange-sampled"
             CONFIG '{

@@ -1,5 +1,9 @@
 # Materialize
 
+:::warning
+This guide uses a legacy method of connecting with Dekaf and is presented for historical purposes. For new integrations or to migrate your existing Dekaf setup to the new workflow, see the [Dekaf materialization connector](../materialization-connectors/Dekaf/dekaf.md).
+:::
+
 In this guide, you'll learn how to use Materialize to ingest data from Estuary Flow.
 
 [Materialize](https://materialize.com/) is an operational data warehouse for real-time analytics that uses standard SQL
@@ -17,7 +21,7 @@ for defining transformations and queries.
    CREATE
    SECRET estuary_refresh_token AS
      'your_generated_token_here';
-   
+
    CREATE
    CONNECTION estuary_connection TO KAFKA (
        BROKER 'dekaf.estuary-data.com',
@@ -26,7 +30,7 @@ for defining transformations and queries.
        SASL USERNAME = '{}',
        SASL PASSWORD = SECRET estuary_refresh_token
    );
-   
+
    CREATE
    CONNECTION csr_estuary_connection TO CONFLUENT SCHEMA REGISTRY (
        URL 'https://dekaf.estuary-data.com',

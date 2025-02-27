@@ -1,5 +1,9 @@
 # Imply Polaris
 
+:::warning
+This guide uses a legacy method of connecting with Dekaf and is presented for historical purposes. For new integrations or to migrate your existing Dekaf setup to the new workflow, see the [Dekaf materialization connector](../materialization-connectors/Dekaf/dekaf.md).
+:::
+
 This guide demonstrates how to use Estuary Flow to stream data to Imply Polaris using the Kafka-compatible Dekaf API.
 
 [Imply Polaris](https://imply.io/polaris) is a fully managed, cloud-native Database-as-a-Service (DBaaS) built on Apache

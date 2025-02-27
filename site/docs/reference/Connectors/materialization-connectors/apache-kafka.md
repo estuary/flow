@@ -8,6 +8,8 @@ versions.
 
 Messages with this connector are currently delivered using an at-least-once non-transactional mode of operation rather than exactly-once. [Let us know](mailto:support@estuary.dev) if your use case requires transaction support.
 
+If you want to integrate with a Kafka consumer without managing your own broker and registry, see the [Dekaf](./Dekaf/dekaf.md) connector instead.
+
 ## Supported message formats
 
 This connectors supports materializing Kafka messages encoded in Avro or JSON

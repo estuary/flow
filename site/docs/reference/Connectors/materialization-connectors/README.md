@@ -53,6 +53,8 @@ In the future, other open-source materialization connectors from third parties c
 * Databricks
   * [Configuration](./databricks.md)
   * Package — ghcr.io/estuary/materialize-databricks:dev
+* Dekaf
+  * [Configuration](./Dekaf/dekaf.md)
 * Elasticsearch
   * [Configuration](./Elasticsearch.md)
   * Package — ghcr.io/estuary/materialize-elasticsearch:dev
@@ -119,3 +121,5 @@ In the future, other open-source materialization connectors from third parties c
 * TimescaleDB
   * [Configuration](./timescaledb.md)
   * Package - ghcr.io/estuary/materialize-timescaledb:dev
+* Tinybird
+  * [Configuration](./Dekaf/tinybird.md)
