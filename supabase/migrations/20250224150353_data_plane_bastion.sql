@@ -3,7 +3,7 @@
 begin;
 
 -- Private key to be used for connecting to bastion
-ALTER TABLE public.data_planes ADD bastion_private_key TEXT;
+ALTER TABLE public.data_planes ADD bastion_tunnel_private_key TEXT;
 
 -- Azure application name for authorizing Azure storage access
 ALTER TABLE public.data_planes ADD azure_application_name TEXT;
