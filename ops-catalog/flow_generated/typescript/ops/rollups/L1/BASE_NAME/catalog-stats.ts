@@ -84,10 +84,18 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
 
 // Generated for read documents of sourced collection ops/tasks/BASE_NAME/logs.
 export type SourceLogs = /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
-    fields?: /* Map of keys and values that are associated with this log entry. */ Record<string, unknown>;
+    fields?: /* Map of keys and values that are associated with this log entry. */ {
+        error?: /* If the log entry is an error, this field contains the error message.
+ */ string;
+        eventType?: /* Identifies this log message as an event of the given type. Events
+are special logs that are meant to be observed by the Flow control plane.
+ */ string;
+        [k: string]: unknown | undefined;
+    };
     level: "debug" | "error" | "info" | "trace" | "warn";
     message?: string;
     shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        build?: /* The id of the build that this shard was running at the time the log was written */ string;
         keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
         kind: /* The type of the catalog task */ "capture" | "derivation" | "materialization";
         name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -152,6 +160,7 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
     };
     openSecondsTotal?: /* Total time that the transaction was open before starting to commit */ number;
     shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        build?: /* The id of the build that this shard was running at the time the log was written */ string;
         keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
         kind: /* The type of the catalog task */ "capture" | "derivation" | "materialization";
         name: /* The name of the catalog task (without the task type prefix) */ string;
