@@ -90,11 +90,15 @@ fn build_log_filter(level: ops::LogLevel) -> &'static tracing_subscriber::filter
 /// The log forwarder can be configured (i.e to inform it of the log journal, once it's known) via [`get_log_forwarder()`].
 ///  - Note: This will panic if called from outside the context of a future wrapped by [`forward_logs()`]!
 /// The level filter can be dynamically configured for new messages via [`set_log_level()`].
-pub fn forward_logs<F, O>(writer: GazetteWriter, fut: F) -> impl Future<Output = O>
+pub fn forward_logs<F, O>(
+    writer: GazetteWriter,
+    stop_signal: tokio_util::sync::CancellationToken,
+    fut: F,
+) -> impl Future<Output = O>
 where
     F: Future<Output = O>,
 {
-    let forwarder = TaskForwarder::new(PRODUCER.to_owned(), writer);
+    let forwarder = TaskForwarder::new(PRODUCER.to_owned(), writer, stop_signal);
 
     LOG_LEVEL.scope(
         std::cell::Cell::new(build_log_filter(ops::LogLevel::Info)),
