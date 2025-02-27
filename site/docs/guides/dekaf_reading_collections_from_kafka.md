@@ -1,14 +1,5 @@
 # Connecting to Estuary Flow from Kafka using Dekaf
 
-:::note Dekaf is currently in beta.
-
-Reporting is not yet supported for Dekaf, but is coming.
-
-We're currently not charging for use of Dekaf, but will eventually charge under our standard data movement pricing
-
-We appreciate your feedback as we continue to refine and enhance this feature.
-:::
-
 **Dekaf** is Estuary Flow's Kafka API compatibility layer, allowing consumers to read data from Estuary Flow collections
 as if they were Kafka topics. Additionally, Dekaf provides a schema registry API for managing schemas. This guide will
 walk you through the steps to connect to Estuary Flow using Dekaf and its schema registry.
@@ -28,21 +19,42 @@ walk you through the steps to connect to Estuary Flow using Dekaf and its schema
 
 ## Connection Details
 
-To connect to Estuary Flow via Dekaf, you need the following connection details:
+To connect to Estuary Flow via Dekaf, use the following connection details in conjunction with a
+[Dekaf materialization connector](../reference/Connectors/materialization-connectors/Dekaf/dekaf.md):
 
 - **Broker Address**: `dekaf.estuary-data.com`
 - **Schema Registry Address**: `https://dekaf.estuary-data.com`
 - **Security Protocol**: `SASL_SSL`
 - **SASL Mechanism**: `PLAIN`
-- **SASL Username**: `{}`
-- **SASL Password**: Estuary Refresh Token ([Generate a refresh token](/guides/how_to_generate_refresh_token) in
-  the dashboard)
-- **Schema Registry Username**: `{}`
-- **Schema Registry Password**: The same Estuary Refresh Token as above
+- **SASL Username**: The task name of your Dekaf materialization
+- **SASL Password**: The auth token from your Dekaf materialization
+- **Schema Registry Username**: The task name of your Dekaf materialization
+- **Schema Registry Password**: The auth token from your Dekaf materialization
 
 ## How to Connect to Dekaf
 
-### 1. [Generate an Estuary Flow refresh token](/guides/how_to_generate_refresh_token)
+### 1. Create a Dekaf materialization connector
+
+1. From the [Estuary dashboard](https://dashboard.estuary.dev), navigate to the **Destinations** tab.
+
+2. Click **New Materialization** and choose a Dekaf connector.
+
+   - There are several Dekaf connector variations besides the generic "Dekaf," such as Tinybird. Currently, they don't behave appreciably differently from each other.
+   You may use the different variations to keep your data organized, manage what data you share, and see at a glance where your data is going.
+
+3. Provide a **name** and **auth token** to your materialization.
+
+   - The full task name, which includes your materialization name, will be used as the **username** when consumers connect to Dekaf.
+
+   - The auth token that you provide will be used as the **password** when consumers connect to Dekaf. Make sure to use a secure token.
+
+4. (Optional) Adjust additional configuration details, such as the **Strict Topic Names** or **Deletion Mode** settings.
+
+5. Choose data collections to materialize. Click **Source from capture** or add individual collections.
+
+   - Each collection you add to the materialization will be available for consumers to read as a **topic**. By default, the topic name is the collection name.
+
+6. Select **Next**, then **Save and Publish**.
 
 ### 2. Set Up Your Kafka Client
 
@@ -60,8 +72,8 @@ conf = {
     'bootstrap_servers': 'dekaf.estuary-data.com:9092',
     'security_protocol': 'SASL_SSL',
     'sasl_mechanism': 'PLAIN',
-    'sasl_plain_username': '{}',
-    'sasl_plain_password': 'Your_Estuary_Refresh_Token',
+    'sasl_plain_username': 'Your_Org/Your_Prefix/Your_Materialization',
+    'sasl_plain_password': 'Your_Auth_Token',
     'group_id': 'your_group_id',
     'auto_offset_reset': 'earliest'
 }
@@ -98,12 +110,12 @@ kcat -C \
     -X broker.address.family=v4 \
     -X security.protocol=SASL_SSL \
     -X sasl.mechanism=PLAIN \
-    -X sasl.username="{}" \
-    -X sasl.password="Your_Estuary_Refresh_Token" \
+    -X sasl.username="Your_Org/Your_Prefix/Your_Materialization" \
+    -X sasl.password="Your_Auth_Token" \
     -b dekaf.estuary-data.com:9092 \
-    -t "full/nameof/estuarycollection" \
+    -t "Your_Topic_Name" \
     -p 0 \
     -o beginning \
     -s avro \
-    -r https://{}:{Your_Estuary_Refresh_Token}@dekaf.estuary-data.com
+    -r https://{Your_Org/Your_Prefix/Your_Materialization}:{Your_Auth_Token}@dekaf.estuary-data.com
 ```

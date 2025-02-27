@@ -1,5 +1,9 @@
 # Integrating ClickHouse Cloud with Estuary Flow via Dekaf
 
+:::warning
+This guide uses a legacy method of connecting with Dekaf and is presented for historical purposes. For new integrations or to migrate your existing Dekaf setup to the new workflow, see the [Dekaf materialization connector](../materialization-connectors/Dekaf/dekaf.md).
+:::
+
 ## Overview
 
 This guide covers how to integrate ClickHouse Cloud with Estuary Flow using Dekaf, Estuary’s Kafka API compatibility
