@@ -121,7 +121,7 @@ pub struct ControlExports {
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
-    pub bastion_private_key: Option<String>,
+    pub bastion_tunnel_private_key: Option<String>,
     pub azure_application_name: String,
 }
 
