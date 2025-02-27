@@ -5,6 +5,7 @@ use itertools::{EitherOrBoth, Itertools};
 use std::collections::VecDeque;
 
 pub struct Controller {
+    pub dry_run: bool,
     pub logs_tx: super::logs::Tx,
     pub repo: super::repo::Repo,
     pub secrets_provider: String,
@@ -382,16 +383,17 @@ impl Controller {
         () = run_cmd(
             async_process::Command::new("pulumi")
                 .arg("stack")
-                .arg("change-secrets-provider")
-                .arg("--stack")
+                .arg("init")
                 .arg(&state.stack_name)
+                .arg("--secrets-provider")
+                .arg(&self.secrets_provider)
                 .arg("--non-interactive")
                 .arg("--cwd")
                 .arg(&checkout.path())
-                .arg(&self.secrets_provider)
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("PULUMI_CONFIG_PASSPHRASE", "")
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
+            self.dry_run,
             "pulumi-change-secrets-provider",
             &self.logs_tx,
             state.logs_token,
@@ -407,11 +409,17 @@ impl Controller {
         )
         .context("failed to read stack YAML")?;
 
-        let updated: stack::PulumiStack =
+        let mut updated: stack::PulumiStack =
             serde_yaml::from_slice(&updated).context("failed to parse stack from YAML")?;
+
+        if self.dry_run {
+            // We didn't actually run Pulumi, so it didn't set an encrypted key.
+            updated.encrypted_key = "dry-run-fixture".to_string()
+        }
 
         state.stack.secrets_provider = self.secrets_provider.clone();
         state.stack.encrypted_key = updated.encrypted_key;
+        state.pending_converge = true;
         state.publish_stack = Some(state.stack.clone());
         state.status = Status::Idle;
 
@@ -437,6 +445,7 @@ impl Controller {
                 .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
+            self.dry_run,
             "pulumi-preview",
             &self.logs_tx,
             state.logs_token,
@@ -471,6 +480,7 @@ impl Controller {
                 .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
+            self.dry_run,
             "pulumi-refresh",
             &self.logs_tx,
             state.logs_token,
@@ -493,6 +503,7 @@ impl Controller {
                     .envs(self.pulumi_secret_envs())
                     .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                     .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                self.dry_run,
                 "pulumi-refresh-changed",
                 &self.logs_tx,
                 state.logs_token,
@@ -533,28 +544,25 @@ impl Controller {
                 .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
+            self.dry_run,
             "pulumi-up-one",
             &self.logs_tx,
             state.logs_token,
         )
         .await?;
 
+        // DNS propagation backoff is relative to this moment.
+        state.last_pulumi_up = chrono::Utc::now();
+
         let stack::PulumiStackHistory { resource_changes } =
             self.last_pulumi_run(&state, &checkout).await?;
 
-        state.last_pulumi_up = chrono::Utc::now();
-        let (status, wait_time, log_line) = if resource_changes.changed() {
-            (
-                Status::AwaitDNS1,
-                DNS_TTL,
-                format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
-            )
+        let log_line = if resource_changes.changed() {
+            state.status = Status::AwaitDNS1;
+            format!("Waiting {:?} for DNS propagation.", self.dns_ttl())
         } else {
-            (
-                Status::Ansible,
-                POLL_AGAIN,
-                "No changes detected, continuing to Ansible.".to_string(),
-            )
+            state.status = Status::Ansible;
+            "No changes detected, continuing to Ansible.".to_string()
         };
 
         self.logs_tx
@@ -565,8 +573,8 @@ impl Controller {
             })
             .await
             .context("failed to send to logs sink")?;
-        state.status = status;
-        Ok(wait_time)
+
+        Ok(POLL_AGAIN)
     }
 
     #[tracing::instrument(
@@ -574,7 +582,7 @@ impl Controller {
         fields(data_plane_id = ?state.data_plane_id),
     )]
     async fn on_await_dns_1(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let remainder = (state.last_pulumi_up + DNS_TTL) - chrono::Utc::now();
+        let remainder = (state.last_pulumi_up + self.dns_ttl()) - chrono::Utc::now();
 
         if remainder > chrono::TimeDelta::zero() {
             // PostgreSQL doesn't support nanosecond precision, so we must strip them.
@@ -596,34 +604,39 @@ impl Controller {
         let checkout = self.checkout(state).await?;
 
         // Load exported Pulumi state.
-        let output = async_process::output(
-            async_process::Command::new("pulumi")
-                .arg("stack")
-                .arg("output")
-                .arg("--stack")
-                .arg(&state.stack_name)
-                .arg("--json")
-                .arg("--non-interactive")
-                .arg("--show-secrets")
-                .arg("--cwd")
-                .arg(&checkout.path())
-                .envs(self.pulumi_secret_envs())
-                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                .env("VIRTUAL_ENV", checkout.path().join("venv")),
-        )
-        .await?;
+        let output = if self.dry_run {
+            include_bytes!("dry_run_fixture.json").to_vec()
+        } else {
+            let output = async_process::output(
+                async_process::Command::new("pulumi")
+                    .arg("stack")
+                    .arg("output")
+                    .arg("--stack")
+                    .arg(&state.stack_name)
+                    .arg("--json")
+                    .arg("--non-interactive")
+                    .arg("--show-secrets")
+                    .arg("--cwd")
+                    .arg(&checkout.path())
+                    .envs(self.pulumi_secret_envs())
+                    .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+            )
+            .await?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "pulumi stack output failed: {}",
-                String::from_utf8_lossy(&output.stderr),
-            );
-        }
+            if !output.status.success() {
+                anyhow::bail!(
+                    "pulumi stack output failed: {}",
+                    String::from_utf8_lossy(&output.stderr),
+                );
+            }
+            output.stdout
+        };
 
         let stack::PulumiExports {
             ansible,
             mut control,
-        } = serde_json::from_slice(&output.stdout).context("failed to parse pulumi output")?;
+        } = serde_json::from_slice(&output).context("failed to parse pulumi output")?;
 
         // Install Ansible requirements.
         () = run_cmd(
@@ -632,6 +645,7 @@ impl Controller {
                 .arg("--role-file")
                 .arg("requirements.yml")
                 .current_dir(checkout.path()),
+            false, // This can be run in --dry-run.
             "ansible-install",
             &self.logs_tx,
             state.logs_token,
@@ -667,6 +681,7 @@ impl Controller {
                 .arg("data-plane.ansible.yaml")
                 .current_dir(checkout.path())
                 .env("ANSIBLE_FORCE_COLOR", "1"),
+            self.dry_run,
             "ansible-playbook",
             &self.logs_tx,
             state.logs_token,
@@ -713,29 +728,25 @@ impl Controller {
                 .envs(self.pulumi_secret_envs())
                 .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                 .env("VIRTUAL_ENV", checkout.path().join("venv")),
+            self.dry_run,
             "pulumi-up-two",
             &self.logs_tx,
             state.logs_token,
         )
         .await?;
 
+        // DNS propagation backoff is relative to this moment.
+        state.last_pulumi_up = chrono::Utc::now();
+
         let stack::PulumiStackHistory { resource_changes } =
             self.last_pulumi_run(&state, &checkout).await?;
 
-        state.last_pulumi_up = chrono::Utc::now();
-
-        let (status, wait_time, log_line) = if resource_changes.changed() {
-            (
-                Status::AwaitDNS2,
-                DNS_TTL,
-                format!("Waiting {DNS_TTL:?} for DNS propagation before continuing."),
-            )
+        let log_line = if resource_changes.changed() {
+            state.status = Status::AwaitDNS2;
+            format!("Waiting {:?} for DNS propagation.", self.dns_ttl())
         } else {
-            (
-                Status::Idle,
-                POLL_AGAIN,
-                "No changes detected, done.".to_string(),
-            )
+            state.status = Status::Idle;
+            "No changes detected, done.".to_string()
         };
 
         self.logs_tx
@@ -746,8 +757,8 @@ impl Controller {
             })
             .await
             .context("failed to send to logs sink")?;
-        state.status = status;
-        Ok(wait_time)
+
+        Ok(POLL_AGAIN)
     }
 
     #[tracing::instrument(
@@ -755,7 +766,7 @@ impl Controller {
         fields(data_plane_id = ?state.data_plane_id),
     )]
     async fn on_await_dns_2(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let remainder = (state.last_pulumi_up + DNS_TTL) - chrono::Utc::now();
+        let remainder = (state.last_pulumi_up + self.dns_ttl()) - chrono::Utc::now();
 
         if remainder > chrono::TimeDelta::zero() {
             // PostgreSQL doesn't support nanosecond precision, so we must strip them.
@@ -857,6 +868,19 @@ impl Controller {
         state: &State,
         checkout: &repo::Checkout,
     ) -> anyhow::Result<stack::PulumiStackHistory> {
+        if self.dry_run {
+            // Return a fixture which "detects changes" roughly half the time,
+            // so that dry runs exercise both awaiting and skipping DNS.
+            return Ok(stack::PulumiStackHistory {
+                resource_changes: stack::PulumiStackResourceChanges {
+                    create: (state.last_pulumi_up.timestamp() % 2) as usize,
+                    delete: 0,
+                    same: 0,
+                    update: 0,
+                },
+            });
+        }
+
         // Check last run of pulumi
         let output = async_process::output(
             async_process::Command::new("pulumi")
@@ -890,6 +914,14 @@ impl Controller {
         };
 
         return Ok(result);
+    }
+
+    fn dns_ttl(&self) -> std::time::Duration {
+        if self.dry_run {
+            DNS_TTL_DRY_RUN
+        } else {
+            DNS_TTL_ACTUAL
+        }
     }
 }
 
@@ -983,7 +1015,8 @@ impl automations::Outcome for Outcome {
     }
 }
 
-const DNS_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const DNS_TTL_ACTUAL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const DNS_TTL_DRY_RUN: std::time::Duration = std::time::Duration::from_secs(10);
 const IDLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const POLL_AGAIN: std::time::Duration = std::time::Duration::ZERO;
 const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
