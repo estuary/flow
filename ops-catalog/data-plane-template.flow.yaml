@@ -43,6 +43,8 @@ collections:
           shuffle: any
           lambda: |
             select json($flow_document) where $fields$eventType is not null;
+      shards:
+        minTxnDuration: 5s
 
   ops/rollups/L1/BASE_NAME/inferred-schemas:
     schema: inferred-schemas.schema.yaml

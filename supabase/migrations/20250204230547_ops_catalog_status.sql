@@ -120,9 +120,9 @@ alter table public.data_planes alter column ops_l1_events_name set not null;
 alter table public.data_planes alter column ops_l2_events_transform set not null;
 
 -- We need to update the `catalog_stats*` tables in order to allow a trailing
--- slash in the `catalog_name`. This is a gross and annoying process because
--- there's views that depend on that column, which all need to be dropped and
--- re-created. We also need to drop and re-create the rls policy.
+-- slash in the `catalog_name` and add `txn_count`. This is a gross and annoying
+-- process because there's views that depend on that column, which all need to
+-- be dropped and re-created. We also need to drop and re-create the rls policy.
 drop policy "Users must be authorized to the catalog name" on public.catalog_stats;
 drop VIEW internal.new_free_trial_tenants;
 drop view public.alert_all;
@@ -137,6 +137,14 @@ alter table public.catalog_stats_hourly alter column catalog_name type text usin
 alter table public.catalog_stats_daily alter column catalog_name type text using catalog_name::text;
 alter table public.catalog_stats_monthly alter column catalog_name type text using catalog_name::text;
 alter table public.catalog_stats alter column catalog_name type text using catalog_name::text;
+
+alter table public.catalog_stats_hourly add column txn_count bigint;
+alter table public.catalog_stats_daily add column txn_count bigint;
+alter table public.catalog_stats_monthly add column txn_count bigint;
+alter table public.catalog_stats add column txn_count bigint;
+
+comment on column public.catalog_stats.txn_count is
+    'Total number of transactions that have been successfully processed';
 
 ALTER TABLE ONLY public.catalog_stats ATTACH PARTITION public.catalog_stats_daily FOR VALUES IN ('daily');
 ALTER TABLE ONLY public.catalog_stats ATTACH PARTITION public.catalog_stats_hourly FOR VALUES IN ('hourly');
