@@ -596,7 +596,7 @@ pub async fn resolve_storage_mappings(
             m.catalog_prefix,
             m.spec
         from prefixes p
-        join storage_mappings m on m.catalog_prefix = p.prefix;
+        join storage_mappings m on starts_with(m.catalog_prefix, p.prefix);
         "#,
         tenant_names as Vec<&str>,
     )
