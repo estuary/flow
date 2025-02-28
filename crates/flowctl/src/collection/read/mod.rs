@@ -32,10 +32,6 @@ pub struct ReadBounds {
     /// The actual start of the read will always be at a fragment boundary, and thus may include data from significantly before the requested time period.
     #[clap(long)]
     pub since: Option<humantime::Duration>,
-
-    /// Journal offset to begin reading from. If `--since` is specified, both constraints apply. Defaults to the earliest available offset.
-    #[clap(long, default_value = "0")]
-    pub offset: i64,
 }
 
 /// Reads collection data and prints it to stdout. This function has a number of limitations at present:
@@ -116,7 +112,7 @@ pub async fn read_collection_journal(
     let mut lines = journal_client.read_json_lines(
         broker::ReadRequest {
             journal: journal_name.to_string(),
-            offset: bounds.offset,
+            offset: 0,
             block: bounds.follow,
             begin_mod_time,
             // TODO(johnny): Set `do_not_proxy: true` once cronut is migrated.
