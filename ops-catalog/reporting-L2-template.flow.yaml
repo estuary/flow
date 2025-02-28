@@ -3,7 +3,7 @@
 
 collections:
   ops.us-central1.v1/events/L2:
-    schema: logs.schema.yaml
+    schema: events.schema.yaml
     key: [/fields/eventTarget, /fields/eventType]
     projections:
       event_type:
@@ -54,6 +54,7 @@ collections:
       bytes_read_from_me: /statsSummary/readFromMe/bytesTotal
       docs_read_from_me: /statsSummary/readFromMe/docsTotal
       usage_seconds: /statsSummary/usageSeconds
+      txn_count: /statsSummary/txnCount
       warnings: /statsSummary/warnings
       errors: /statsSummary/errors
       failures: /statsSummary/failures

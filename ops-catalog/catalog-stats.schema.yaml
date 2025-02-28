@@ -26,6 +26,9 @@ properties:
   statsSummary:
     type: object
     properties:
+      txnCount:
+        $ref: "#/$defs/logCount"
+        description: Total number of transactions that have been successfully processed
       readByMe:
         $ref: stats.schema.yaml#/$defs/docsAndBytes
       readFromMe:
