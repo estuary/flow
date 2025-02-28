@@ -328,7 +328,7 @@ ALTER VIEW public.alert_all OWNER TO postgres;
 -- to have this function just directly query the tenant-level rollups instead of
 -- aggregating all of the individual tasks, but we can't do that yet because the
 -- aggregates will be incomplete for the current month.
-CREATE FUNCTION internal.billing_report_202308(billed_prefix public.catalog_prefix, billed_month timestamp with time zone) RETURNS jsonb
+CREATE or replace FUNCTION internal.billing_report_202308(billed_prefix public.catalog_prefix, billed_month timestamp with time zone) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 declare
