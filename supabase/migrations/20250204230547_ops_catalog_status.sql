@@ -120,9 +120,9 @@ alter table public.data_planes alter column ops_l1_events_name set not null;
 alter table public.data_planes alter column ops_l2_events_transform set not null;
 
 -- We need to update the `catalog_stats*` tables in order to allow a trailing
--- slash in the `catalog_name`. This is a gross and annoying process because
--- there's views that depend on that column, which all need to be dropped and
--- re-created. We also need to drop and re-create the rls policy.
+-- slash in the `catalog_name` and add `txn_count`. This is a gross and annoying
+-- process because there's views that depend on that column, which all need to
+-- be dropped and re-created. We also need to drop and re-create the rls policy.
 drop policy "Users must be authorized to the catalog name" on public.catalog_stats;
 drop VIEW internal.new_free_trial_tenants;
 drop view public.alert_all;
@@ -137,6 +137,14 @@ alter table public.catalog_stats_hourly alter column catalog_name type text usin
 alter table public.catalog_stats_daily alter column catalog_name type text using catalog_name::text;
 alter table public.catalog_stats_monthly alter column catalog_name type text using catalog_name::text;
 alter table public.catalog_stats alter column catalog_name type text using catalog_name::text;
+
+alter table public.catalog_stats_hourly add column txn_count bigint;
+alter table public.catalog_stats_daily add column txn_count bigint;
+alter table public.catalog_stats_monthly add column txn_count bigint;
+alter table public.catalog_stats add column txn_count bigint;
+
+comment on column public.catalog_stats.txn_count is
+    'Total number of transactions that have been successfully processed';
 
 ALTER TABLE ONLY public.catalog_stats ATTACH PARTITION public.catalog_stats_daily FOR VALUES IN ('daily');
 ALTER TABLE ONLY public.catalog_stats ATTACH PARTITION public.catalog_stats_hourly FOR VALUES IN ('hourly');
@@ -167,7 +175,10 @@ CREATE VIEW internal.new_free_trial_tenants AS WITH hours_by_day AS (
     public.tenants as t
     join public.catalog_stats_daily cs on t.tenant :: text = cs.catalog_name
   WHERE
-    t.trial_start IS NULL -- Where the tenant has used more than 52.8 hours of task time in a given day.
+    -- We run set_new_free_trials daily, so don't bother looking at old data. 7 days is so
+    -- we can tolerate up to 7 days of failures.
+    cs.ts >= (now() - '7 days'::interval)
+    and t.trial_start IS NULL -- Where the tenant has used more than 52.8 hours of task time in a given day.
     and (
       cs.usage_seconds :: numeric / 3600.0
     ) > 52.8
@@ -181,7 +192,8 @@ hours_by_month AS (
     public.tenants t
     join public.catalog_stats_monthly cs on t.tenant :: text = cs.catalog_name
   WHERE
-    t.trial_start IS NULL
+    cs.ts >= date_trunc('month', now() AT TIME ZONE 'UTC')
+    and t.trial_start IS NULL
     and (
       cs.usage_seconds :: numeric / 3600.0
     ) > (24 * 31 * 2):: numeric * 1.1
@@ -199,7 +211,8 @@ gbs_by_month AS (
     public.tenants t
     join public.catalog_stats_monthly cs on t.tenant = cs.catalog_name
   WHERE
-    t.trial_start IS NULL
+    cs.ts >= date_trunc('month', now() AT TIME ZONE 'UTC')
+    and t.trial_start IS NULL
     and ceil(
       (
         cs.bytes_written_by_me + cs.bytes_read_by_me

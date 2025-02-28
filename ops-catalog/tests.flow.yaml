@@ -126,166 +126,660 @@ tests:
             name: ops/rollups/L1/BASE_NAME/catalog-stats
 
           documents: &docs # Capture task
-            - catalogName: "tenant/test/cap"
-              grain: "daily"
-              ts: "2022-04-03T00:00:00.000Z"
+            - catalogName: tenant/
+              grain: daily
               statsSummary:
-                writtenByMe: { bytesTotal: 130, docsTotal: 12 }
-                warnings: 2
                 errors: 1
                 failures: 1
-            - catalogName: "tenant/test/cap"
-              grain: "hourly"
-              ts: "2022-04-03T02:00:00.000Z"
-              statsSummary:
-                writtenByMe: { bytesTotal: 85, docsTotal: 8 }
-              # Expect the raw capture stats were passed through.
-              taskStats:
-                capture: *captureTaskStats1
-            - catalogName: "tenant/test/cap"
-              grain: "hourly"
-              ts: "2022-04-03T03:00:00.000Z"
-              statsSummary:
-                writtenByMe: { bytesTotal: 45, docsTotal: 4 }
-              taskStats:
-                capture: *captureTaskStats2
-            - catalogName: "tenant/test/cap"
-              grain: "monthly"
-              ts: "2022-04-01T00:00:00.000Z"
-              statsSummary:
-                writtenByMe: { bytesTotal: 130, docsTotal: 12 }
-
-              # Collection & derivation combo entity
-            - catalogName: "tenant/test/collection"
-              grain: "daily"
-              ts: "2022-04-03T00:00:00.000Z" # Capture day
-              statsSummary:
-                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
-            - catalogName: "tenant/test/collection"
-              grain: "daily"
-              ts: "2022-04-04T00:00:00.000Z" # Materialization day
-              statsSummary:
-                readFromMe: { bytesTotal: 150, docsTotal: 10 }
-            - catalogName: "tenant/test/collection"
-              grain: "daily"
-              ts: "2022-04-05T00:00:00.000Z" # Derivation day
-              statsSummary:
-                readByMe: { bytesTotal: 90, docsTotal: 18 }
-                writtenByMe: { bytesTotal: 75, docsTotal: 7 }
-                writtenToMe: { bytesTotal: 75, docsTotal: 7 }
-            - catalogName: "tenant/test/collection"
-              grain: "hourly"
-              ts: "2022-04-03T02:00:00.000Z" # Capture hour 1
-              statsSummary:
-                writtenToMe: { bytesTotal: 20, docsTotal: 2 }
-            - catalogName: "tenant/test/collection"
-              grain: "hourly"
-              ts: "2022-04-03T03:00:00.000Z" # Capture hour 2
-              statsSummary:
-                writtenToMe: { bytesTotal: 45, docsTotal: 4 }
-            - catalogName: "tenant/test/collection"
-              grain: "hourly"
-              ts: "2022-04-04T03:00:00.000Z" # Materialization hour
-              statsSummary:
-                readFromMe: { bytesTotal: 150, docsTotal: 10 }
-            - catalogName: "tenant/test/collection"
-              grain: "hourly"
-              ts: "2022-04-05T05:00:00.000Z" # Derivation hour
-              statsSummary:
-                readByMe: { bytesTotal: 90, docsTotal: 18 }
-                writtenByMe: { bytesTotal: 75, docsTotal: 7 }
-                writtenToMe: { bytesTotal: 75, docsTotal: 7 }
-            - catalogName: "tenant/test/collection"
-              grain: "monthly"
-              ts: "2022-04-01T00:00:00.000Z" # Same month for capture, materialization, and derivation.
-              statsSummary:
-                readByMe: { bytesTotal: 90, docsTotal: 18 }
-                writtenByMe: { bytesTotal: 75, docsTotal: 7 }
-                readFromMe: { bytesTotal: 150, docsTotal: 10 }
-                writtenToMe: { bytesTotal: 140, docsTotal: 13 }
-
-              # The materialization task.
-            - catalogName: "tenant/test/mat"
-              grain: "daily"
-              ts: "2022-04-04T00:00:00.000Z"
-              statsSummary:
-                readByMe: { bytesTotal: 225, docsTotal: 15 }
-            - catalogName: "tenant/test/mat"
-              grain: "hourly"
-              ts: "2022-04-04T03:00:00.000Z"
-              statsSummary:
-                readByMe: { bytesTotal: 225, docsTotal: 15 }
-            - catalogName: "tenant/test/mat"
-              grain: "monthly"
-              ts: "2022-04-01T00:00:00.000Z"
-              statsSummary:
-                readByMe: { bytesTotal: 225, docsTotal: 15 }
-
-              # The "other" bound capture collection.
-            - catalogName: "tenant/test/otherCaptureCollection"
-              grain: "daily"
+                txnCount: 4
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 130
+                  docsTotal: 12
+                writtenToMe:
+                  bytesTotal: 130
+                  docsTotal: 12
               ts: "2022-04-03T00:00:00.000Z"
+            - catalogName: tenant/
+              grain: daily
               statsSummary:
-                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
-            - catalogName: "tenant/test/otherCaptureCollection"
-              grain: "hourly"
-              ts: "2022-04-03T02:00:00.000Z"
-              statsSummary:
-                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
-            - catalogName: "tenant/test/otherCaptureCollection"
-              grain: "monthly"
-              ts: "2022-04-01T00:00:00.000Z"
-              statsSummary:
-                writtenToMe: { bytesTotal: 65, docsTotal: 6 }
-
-              # The "other" bound materialization collection.
-            - catalogName: "tenant/test/otherMaterializationCollection"
-              grain: "daily"
+                readByMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                readFromMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                txnCount: 2
               ts: "2022-04-04T00:00:00.000Z"
+            - catalogName: tenant/
+              grain: daily
               statsSummary:
-                readFromMe: { bytesTotal: 75, docsTotal: 5 }
-            - catalogName: "tenant/test/otherMaterializationCollection"
-              grain: "hourly"
+                readByMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                readFromMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+                writtenToMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+              ts: "2022-04-05T00:00:00.000Z"
+            - catalogName: tenant/
+              grain: hourly
+              statsSummary:
+                errors: 1
+                failures: 1
+                txnCount: 2
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 85
+                  docsTotal: 8
+                writtenToMe:
+                  bytesTotal: 85
+                  docsTotal: 8
+              ts: "2022-04-03T02:00:00.000Z"
+            - catalogName: tenant/
+              grain: hourly
+              statsSummary:
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 45
+                  docsTotal: 4
+                writtenToMe:
+                  bytesTotal: 45
+                  docsTotal: 4
+              ts: "2022-04-03T03:00:00.000Z"
+            - catalogName: tenant/
+              grain: hourly
+              statsSummary:
+                readByMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                readFromMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                txnCount: 2
               ts: "2022-04-04T03:00:00.000Z"
+            - catalogName: tenant/
+              grain: hourly
               statsSummary:
-                readFromMe: { bytesTotal: 75, docsTotal: 5 }
-            - catalogName: "tenant/test/otherMaterializationCollection"
-              grain: "monthly"
-              ts: "2022-04-01T00:00:00.000Z"
-              statsSummary:
-                readFromMe: { bytesTotal: 75, docsTotal: 5 }
-
-              # Source collections for the derivation.
-            - catalogName: "tenant/test/source-collection1"
-              grain: "daily"
-              ts: "2022-04-05T00:00:00.000Z"
-              statsSummary:
-                readFromMe: { bytesTotal: 60, docsTotal: 12 }
-            - catalogName: "tenant/test/source-collection1"
-              grain: "hourly"
+                readByMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                readFromMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+                writtenToMe:
+                  bytesTotal: 75
+                  docsTotal: 7
               ts: "2022-04-05T05:00:00.000Z"
+            - catalogName: tenant/
+              grain: monthly
               statsSummary:
-                readFromMe: { bytesTotal: 60, docsTotal: 12 }
-            - catalogName: "tenant/test/source-collection1"
-              grain: "monthly"
+                errors: 1
+                failures: 1
+                readByMe:
+                  bytesTotal: 315
+                  docsTotal: 33
+                readFromMe:
+                  bytesTotal: 315
+                  docsTotal: 33
+                txnCount: 8
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 205
+                  docsTotal: 19
+                writtenToMe:
+                  bytesTotal: 205
+                  docsTotal: 19
               ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: daily
               statsSummary:
-                readFromMe: { bytesTotal: 60, docsTotal: 12 }
-            - catalogName: "tenant/test/source-collection2"
-              grain: "daily"
+                errors: 1
+                failures: 1
+                txnCount: 4
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 130
+                  docsTotal: 12
+                writtenToMe:
+                  bytesTotal: 130
+                  docsTotal: 12
+              ts: "2022-04-03T00:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: daily
+              statsSummary:
+                readByMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                readFromMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                txnCount: 2
+              ts: "2022-04-04T00:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: daily
+              statsSummary:
+                readByMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                readFromMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+                writtenToMe:
+                  bytesTotal: 75
+                  docsTotal: 7
               ts: "2022-04-05T00:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: hourly
               statsSummary:
-                readFromMe: { bytesTotal: 30, docsTotal: 6 }
-            - catalogName: "tenant/test/source-collection2"
-              grain: "hourly"
+                errors: 1
+                failures: 1
+                txnCount: 2
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 85
+                  docsTotal: 8
+                writtenToMe:
+                  bytesTotal: 85
+                  docsTotal: 8
+              ts: "2022-04-03T02:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: hourly
+              statsSummary:
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 45
+                  docsTotal: 4
+                writtenToMe:
+                  bytesTotal: 45
+                  docsTotal: 4
+              ts: "2022-04-03T03:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: hourly
+              statsSummary:
+                readByMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                readFromMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                txnCount: 2
+              ts: "2022-04-04T03:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: hourly
+              statsSummary:
+                readByMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                readFromMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+                writtenToMe:
+                  bytesTotal: 75
+                  docsTotal: 7
               ts: "2022-04-05T05:00:00.000Z"
+            - catalogName: tenant/test/
+              grain: monthly
               statsSummary:
-                readFromMe: { bytesTotal: 30, docsTotal: 6 }
-            - catalogName: "tenant/test/source-collection2"
-              grain: "monthly"
+                errors: 1
+                failures: 1
+                readByMe:
+                  bytesTotal: 315
+                  docsTotal: 33
+                readFromMe:
+                  bytesTotal: 315
+                  docsTotal: 33
+                txnCount: 8
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 205
+                  docsTotal: 19
+                writtenToMe:
+                  bytesTotal: 205
+                  docsTotal: 19
               ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/cap
+              grain: daily
               statsSummary:
-                readFromMe: { bytesTotal: 30, docsTotal: 6 }
+                errors: 1
+                failures: 1
+                txnCount: 4
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 130
+                  docsTotal: 12
+              taskStats:
+                capture:
+                  tenant/test/collection:
+                    out:
+                      bytesTotal: 65
+                      docsTotal: 6
+                    right:
+                      bytesTotal: 50
+                      docsTotal: 4
+                  tenant/test/otherCaptureCollection:
+                    out:
+                      bytesTotal: 65
+                      docsTotal: 6
+                    right:
+                      bytesTotal: 55
+                      docsTotal: 5
+              ts: "2022-04-03T00:00:00.000Z"
+            - catalogName: tenant/test/cap
+              grain: hourly
+              statsSummary:
+                errors: 1
+                failures: 1
+                txnCount: 2
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 85
+                  docsTotal: 8
+              taskStats:
+                capture:
+                  tenant/test/collection:
+                    out:
+                      bytesTotal: 20
+                      docsTotal: 2
+                    right:
+                      bytesTotal: 15
+                      docsTotal: 1
+                  tenant/test/otherCaptureCollection:
+                    out:
+                      bytesTotal: 65
+                      docsTotal: 6
+                    right:
+                      bytesTotal: 55
+                      docsTotal: 5
+              ts: "2022-04-03T02:00:00.000Z"
+            - catalogName: tenant/test/cap
+              grain: hourly
+              statsSummary:
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 45
+                  docsTotal: 4
+              taskStats:
+                capture:
+                  tenant/test/collection:
+                    out:
+                      bytesTotal: 45
+                      docsTotal: 4
+                    right:
+                      bytesTotal: 35
+                      docsTotal: 3
+              ts: "2022-04-03T03:00:00.000Z"
+            - catalogName: tenant/test/cap
+              grain: monthly
+              statsSummary:
+                errors: 1
+                failures: 1
+                txnCount: 4
+                warnings: 2
+                writtenByMe:
+                  bytesTotal: 130
+                  docsTotal: 12
+              taskStats:
+                capture:
+                  tenant/test/collection:
+                    out:
+                      bytesTotal: 65
+                      docsTotal: 6
+                    right:
+                      bytesTotal: 50
+                      docsTotal: 4
+                  tenant/test/otherCaptureCollection:
+                    out:
+                      bytesTotal: 65
+                      docsTotal: 6
+                    right:
+                      bytesTotal: 55
+                      docsTotal: 5
+              ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: daily
+              statsSummary:
+                writtenToMe:
+                  bytesTotal: 65
+                  docsTotal: 6
+              ts: "2022-04-03T00:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: daily
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 150
+                  docsTotal: 10
+              ts: "2022-04-04T00:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: daily
+              statsSummary:
+                readByMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+                writtenToMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+              taskStats:
+                derive:
+                  out:
+                    bytesTotal: 75
+                    docsTotal: 7
+                  transforms:
+                    transform1:
+                      input:
+                        bytesTotal: 20
+                        docsTotal: 5
+                      source: tenant/test/source-collection1
+                      update:
+                        out:
+                          bytesTotal: 1
+                          docsTotal: 1
+                        secondsTotal: 1
+                    transform2:
+                      input:
+                        bytesTotal: 30
+                        docsTotal: 6
+                      publish:
+                        out:
+                          bytesTotal: 2
+                          docsTotal: 2
+                        secondsTotal: 2
+                      source: tenant/test/source-collection2
+                    transform3:
+                      input:
+                        bytesTotal: 40
+                        docsTotal: 7
+                      publish:
+                        out:
+                          bytesTotal: 2
+                          docsTotal: 2
+                        secondsTotal: 2
+                      source: tenant/test/source-collection1
+              ts: "2022-04-05T00:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: hourly
+              statsSummary:
+                writtenToMe:
+                  bytesTotal: 20
+                  docsTotal: 2
+              ts: "2022-04-03T02:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: hourly
+              statsSummary:
+                writtenToMe:
+                  bytesTotal: 45
+                  docsTotal: 4
+              ts: "2022-04-03T03:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: hourly
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 150
+                  docsTotal: 10
+              ts: "2022-04-04T03:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: hourly
+              statsSummary:
+                readByMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+                writtenToMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+              taskStats:
+                derive:
+                  out:
+                    bytesTotal: 75
+                    docsTotal: 7
+                  transforms:
+                    transform1:
+                      input:
+                        bytesTotal: 20
+                        docsTotal: 5
+                      source: tenant/test/source-collection1
+                      update:
+                        out:
+                          bytesTotal: 1
+                          docsTotal: 1
+                        secondsTotal: 1
+                    transform2:
+                      input:
+                        bytesTotal: 30
+                        docsTotal: 6
+                      publish:
+                        out:
+                          bytesTotal: 2
+                          docsTotal: 2
+                        secondsTotal: 2
+                      source: tenant/test/source-collection2
+                    transform3:
+                      input:
+                        bytesTotal: 40
+                        docsTotal: 7
+                      publish:
+                        out:
+                          bytesTotal: 2
+                          docsTotal: 2
+                        secondsTotal: 2
+                      source: tenant/test/source-collection1
+              ts: "2022-04-05T05:00:00.000Z"
+            - catalogName: tenant/test/collection
+              grain: monthly
+              statsSummary:
+                readByMe:
+                  bytesTotal: 90
+                  docsTotal: 18
+                readFromMe:
+                  bytesTotal: 150
+                  docsTotal: 10
+                txnCount: 2
+                writtenByMe:
+                  bytesTotal: 75
+                  docsTotal: 7
+                writtenToMe:
+                  bytesTotal: 140
+                  docsTotal: 13
+              taskStats:
+                derive:
+                  out:
+                    bytesTotal: 75
+                    docsTotal: 7
+                  transforms:
+                    transform1:
+                      input:
+                        bytesTotal: 20
+                        docsTotal: 5
+                      source: tenant/test/source-collection1
+                      update:
+                        out:
+                          bytesTotal: 1
+                          docsTotal: 1
+                        secondsTotal: 1
+                    transform2:
+                      input:
+                        bytesTotal: 30
+                        docsTotal: 6
+                      publish:
+                        out:
+                          bytesTotal: 2
+                          docsTotal: 2
+                        secondsTotal: 2
+                      source: tenant/test/source-collection2
+                    transform3:
+                      input:
+                        bytesTotal: 40
+                        docsTotal: 7
+                      publish:
+                        out:
+                          bytesTotal: 2
+                          docsTotal: 2
+                        secondsTotal: 2
+                      source: tenant/test/source-collection1
+              ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/mat
+              grain: daily
+              statsSummary:
+                readByMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                txnCount: 2
+              taskStats:
+                materialize:
+                  tenant/test/collection:
+                    right:
+                      bytesTotal: 150
+                      docsTotal: 10
+                  tenant/test/otherMaterializationCollection:
+                    right:
+                      bytesTotal: 75
+                      docsTotal: 5
+              ts: "2022-04-04T00:00:00.000Z"
+            - catalogName: tenant/test/mat
+              grain: hourly
+              statsSummary:
+                readByMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                txnCount: 2
+              taskStats:
+                materialize:
+                  tenant/test/collection:
+                    right:
+                      bytesTotal: 150
+                      docsTotal: 10
+                  tenant/test/otherMaterializationCollection:
+                    right:
+                      bytesTotal: 75
+                      docsTotal: 5
+              ts: "2022-04-04T03:00:00.000Z"
+            - catalogName: tenant/test/mat
+              grain: monthly
+              statsSummary:
+                readByMe:
+                  bytesTotal: 225
+                  docsTotal: 15
+                txnCount: 2
+              taskStats:
+                materialize:
+                  tenant/test/collection:
+                    right:
+                      bytesTotal: 150
+                      docsTotal: 10
+                  tenant/test/otherMaterializationCollection:
+                    right:
+                      bytesTotal: 75
+                      docsTotal: 5
+              ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/otherCaptureCollection
+              grain: daily
+              statsSummary:
+                writtenToMe:
+                  bytesTotal: 65
+                  docsTotal: 6
+              ts: "2022-04-03T00:00:00.000Z"
+            - catalogName: tenant/test/otherCaptureCollection
+              grain: hourly
+              statsSummary:
+                writtenToMe:
+                  bytesTotal: 65
+                  docsTotal: 6
+              ts: "2022-04-03T02:00:00.000Z"
+            - catalogName: tenant/test/otherCaptureCollection
+              grain: monthly
+              statsSummary:
+                writtenToMe:
+                  bytesTotal: 65
+                  docsTotal: 6
+              ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/otherMaterializationCollection
+              grain: daily
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 75
+                  docsTotal: 5
+              ts: "2022-04-04T00:00:00.000Z"
+            - catalogName: tenant/test/otherMaterializationCollection
+              grain: hourly
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 75
+                  docsTotal: 5
+              ts: "2022-04-04T03:00:00.000Z"
+            - catalogName: tenant/test/otherMaterializationCollection
+              grain: monthly
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 75
+                  docsTotal: 5
+              ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/source-collection1
+              grain: daily
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 60
+                  docsTotal: 12
+              ts: "2022-04-05T00:00:00.000Z"
+            - catalogName: tenant/test/source-collection1
+              grain: hourly
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 60
+                  docsTotal: 12
+              ts: "2022-04-05T05:00:00.000Z"
+            - catalogName: tenant/test/source-collection1
+              grain: monthly
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 60
+                  docsTotal: 12
+              ts: "2022-04-01T00:00:00.000Z"
+            - catalogName: tenant/test/source-collection2
+              grain: daily
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 30
+                  docsTotal: 6
+              ts: "2022-04-05T00:00:00.000Z"
+            - catalogName: tenant/test/source-collection2
+              grain: hourly
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 30
+                  docsTotal: 6
+              ts: "2022-04-05T05:00:00.000Z"
+            - catalogName: tenant/test/source-collection2
+              grain: monthly
+              statsSummary:
+                readFromMe:
+                  bytesTotal: 30
+                  docsTotal: 6
+              ts: "2022-04-01T00:00:00.000Z"
 
       - verify:
           # L2 derivation passed through docs as-is.
@@ -318,6 +812,26 @@ tests:
           collection:
             name: ops/rollups/L1/BASE_NAME/catalog-stats
           documents: &docs
+            - catalogName: tenant/
+              grain: daily
+              ts: "2022-04-03T00:00:00.000Z"
+              statsSummary:
+                usageSeconds: 750
+            - catalogName: tenant/
+              grain: hourly
+              ts: "2022-04-03T02:00:00.000Z"
+              statsSummary:
+                usageSeconds: 450
+            - catalogName: tenant/
+              grain: hourly
+              ts: "2022-04-03T03:00:00.000Z"
+              statsSummary:
+                usageSeconds: 300
+            - catalogName: tenant/
+              grain: monthly
+              ts: "2022-04-01T00:00:00.000Z"
+              statsSummary:
+                usageSeconds: 750
             - catalogName: tenant/task
               grain: daily
               ts: "2022-04-03T00:00:00.000Z"

@@ -39,6 +39,7 @@
               "flow_document": {},
               "grain": {},
               "ts": {},
+              "txn_count": {},
               "usage_seconds": {},
               "warnings": {}
             },
