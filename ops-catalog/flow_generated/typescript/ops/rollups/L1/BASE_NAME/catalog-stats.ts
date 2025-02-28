@@ -14,6 +14,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
         };
+        txnCount?: /* Total number of transactions that have been successfully processed */ number;
         usageSeconds?: /* Cumulative number of metered seconds of task usage */ number;
         warnings?: /* Total number of logged warnings */ number;
         writtenByMe?: {
