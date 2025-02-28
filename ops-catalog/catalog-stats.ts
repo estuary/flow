@@ -133,6 +133,8 @@ function mapStatsToDocsByGrain(grains: TimeGrain[], stats: StatsData): Document[
 const taskStats = (source: SourceStats): StatsData => {
     const stats: Document["statsSummary"] = {};
 
+    stats.txnCount = source.txnCount;
+
     // For captures, derivations, and materializations, we walk through all
     // bound collections and sum up the total data written or read by this task.
     if (source.capture) {
