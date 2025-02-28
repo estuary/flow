@@ -39,6 +39,7 @@ materializations:
             warnings: {}
             errors: {}
             failures: {}
+            txn_count: {}
             flow_document: {}
 
       - source:

@@ -26,7 +26,7 @@ collections:
 
   ops/rollups/L1/BASE_NAME/events:
     schema: events.schema.yaml
-    key: [/fields/eventTarget, /eventType]
+    key: [/fields/eventTarget, /fields/eventType]
     projections:
       event_type:
         location: /fields/eventType
