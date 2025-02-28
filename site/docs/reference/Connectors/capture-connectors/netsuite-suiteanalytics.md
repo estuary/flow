@@ -50,13 +50,13 @@ Flow discovers all of the tables to which you grant access during [setup](#setup
 
    3. Make sure the **State** option is enabled.
 
-   4. In the **Authentication** section, check the **Token-Based Authentication** checkbox.
+   4. In the **Authentication** section, check the **Token-Based Authentication** checkbox. You do not need to enable "TBA: authorization flow" or "authorization code grant".
 
    5. Save your changes.
 
    Your Consumer Key and Consumer Secret will be shown once. Copy them to a safe place.
 
-3. Set up a role for use with Flow.
+3. Set up a role for use with Flow. You can use the bundled "Data Warehouse Integrator" role, instead of creating a new role using the instructions below, if you don't want to manage custom permissions.
 
    1. Go to **Setup** > **Users/Roles** > **Manage Roles** > **New**.
 
@@ -217,3 +217,114 @@ captures:
          target: ${PREFIX}/${CAPTURE_NAME}/transaction
     {...}
 ```
+
+## Connector Details
+
+### Differences from the REST API
+
+If you are used to the NetSuite REST or SOAP API, you'll notice some differences from the API objects available through these APIs.
+This is because the underlying NetSuite data warehouse that we integrate with has a different schema than the NetSuite APIs.
+
+For instance, in the connector schema there's a `transaction` table with a `type` column instead of individual tables for sales orders, invoices, transfers, etc. Instead of pulling the `invoices` table you'll want to pull the `transaction` table and filter by `type = "invoice"`. This pattern applies to the `item` table.
+
+### Custom Records & Fields
+
+All custom records and custom fields on standard records are fully supported in the NetSuite SuiteAnalytics connector. Custom
+tables are *not* yet supported on the SuiteQL connector.
+
+### Start Data & Table Filtering
+
+The connector's start date is used to filter data across tables to ensure that the connector does not pull data
+created before the connector's start date.
+
+However, not all tables have a `createdDate` column. For these tables, this start date filter is not applied. Most tables
+without a `createdDate` column are mapping tables (i.e. `AccountSubsidiaryMap`).
+
+### Deleted Records Support
+
+Special functionality is in place to handle the `deletedRecords` table. Records in this table will be marked as deleted in Estuary.
+
+However, not all records which are deleted in NetSuite will be in the `deletedRecords` table. Specifically, line-level records
+do *not* appear in the `deletedRecords` table. For example:
+
+* A invoice is deleted in NetSuite
+* The related `transaction` record will be added to `deletedRecords`.
+* The related `transactionLine` entries will *not* be added to `deletedRecords`.
+* Therefore, the deleted transaction lines will *not* be deleted in Estuary.
+
+This also applies to updates to a record which deletes line-level records. For example:
+
+* An invoice is updated in NetSuite, deleting some transaction lines and adding some new ones
+* The newly created transaction lines will be added to the `transaction` table.
+* The deleted transaction lines will *not* be added to `deletedRecords`.
+* Therefore, the deleted transaction lines will *not* be deleted in Estuary.
+
+Because of this NetSuite limitation, line-level records are not be deleted in Estuary.
+
+Here are the most commonly used tables which have line-level records:
+
+* transactionLine
+* TransactionAccountingLine. Fields: transactionline
+
+Here are some additional tables we sometimes see used as well:
+
+* AppliedCreditTransactionLineLink. Fields: nextline, previousline
+* PreviousTransactionAccountingLineLink. Fields: nextaccountingline, nextline, previousaccountingline, previousline
+* NextTransactionAccountingLineLink. Fields: nextaccountingline, nextline, previousaccountingline, previousline
+* inventoryAssignment. Fields: transactionline
+* NextTransactionLineLink. Fields: nextline, previousline
+
+Here are some rarely-used tables which also references transaction lines:
+
+* blanketPurchaseOrderExpenseMachine. Fields: line
+* CheckExpenseMachine. Fields: line
+* purchaseOrderExpenseMachine. Fields: line, orderline
+* OcrImportJobReviewItem. Fields: purchaseorderline
+* ExpenseMachine. Fields: line
+* purchaseRequisitionExpenseMachine. Fields: line
+* salesOrdered. Fields: tranline
+* glLinesAuditLogLine. Fields: line
+* vendorBillExpenseMachine. Fields: line, orderline
+* CreditCardChargeExpenseMachine. Fields: line
+* vendorCreditExpenseMachine. Fields: line, orderline
+* MemDocTransactionTemplateAccountingLine. Fields: memdoctransactiontemplateline
+* RecSysConversion. Fields: tranline
+* salesInvoiced. Fields: tranline
+* salesInvoicedPromotionCombinationsMap. Fields: transactionline
+* CreditCardRefundExpenseMachine. Fields: line
+* vendorReturnAuthorizationExpenseMachine. Fields: line, orderline
+* PreviousTransactionLineLink. Fields: nextline, previousline
+* TransactionBilling. Fields: transactionline
+* OcrImportJobReviewExpense. Fields: purchaseorderline
+* salesOrderedPromotionCombinationsMap. Fields: transactionline
+
+### Line Level Record Updates
+
+NetSuite does not reliably update the `createdDate` field on line-level records. This can cause line-level transactions
+to become out of date in Estuary. Exactly when this occurs is dependent on your NetSuite configuration. Contact Estuary
+support for assistance with your specific situation.
+
+There are two things you can do to correct this issue:
+
+1. Setup table associations in order to update line level records when a header record is updated.
+2. Setup a scheduled full-table refresh on the line-level tables
+
+Here's an example table association. This association updates the `transactionline` table whenever a `transaction` record is updated.
+
+```yaml
+parent_join_column_name: location
+child_table_name: inventoryItemLocations
+child_join_column_name: location
+load_during_backfill: false
+load_during_incremental: true
+```
+
+### Boolean Data Type
+
+NetSuite represents booleans as a string. For example, `true` is represented as `"T"` and `false` is represented as `"F"`.
+
+The connector does not cast these values to booleans. Instead, it will leave them as strings.
+
+### Datetime Fields & Timezones
+
+The connector returns all datetimes in UTC, regardless of the user, subsidiary, or NetSuite account timezone configuration.
