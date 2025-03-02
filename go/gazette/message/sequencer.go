@@ -354,6 +354,7 @@ func (w *Sequencer) Step() error {
 	if w.Dequeued != nil {
 		// Tighten clock to the processed Envelope.
 		w.emit.minClock = w.dequeuedClock
+		w.Dequeued.Message = nil // Release memory.
 	}
 
 	for w.emit.ringStart != -1 {
