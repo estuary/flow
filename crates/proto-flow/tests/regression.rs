@@ -734,6 +734,10 @@ fn ex_stats() -> ops::Stats {
         capture: [(
             "captured/collection".to_string(),
             ops::stats::Binding {
+                last_source_published_at: Some(proto_flow::Timestamp {
+                    seconds: 6,
+                    nanos: 7,
+                }),
                 left: None,
                 right: Some(ops::stats::DocsAndBytes {
                     docs_total: 2,
@@ -751,6 +755,10 @@ fn ex_stats() -> ops::Stats {
                 (
                     "my-transform".to_string(),
                     ops::stats::derive::Transform {
+                        last_source_published_at: Some(proto_flow::Timestamp {
+                            seconds: 6,
+                            nanos: 7,
+                        }),
                         source: "the/source/collection".to_string(),
                         input: Some(ops::stats::DocsAndBytes {
                             docs_total: 12,
@@ -761,6 +769,10 @@ fn ex_stats() -> ops::Stats {
                 (
                     "otherTransform".to_string(),
                     ops::stats::derive::Transform {
+                        last_source_published_at: Some(proto_flow::Timestamp {
+                            seconds: 6,
+                            nanos: 7,
+                        }),
                         source: "other/collection".to_string(),
                         input: Some(ops::stats::DocsAndBytes {
                             docs_total: 52,
@@ -782,6 +794,10 @@ fn ex_stats() -> ops::Stats {
         materialize: [(
             "materialized/collection".to_string(),
             ops::stats::Binding {
+                last_source_published_at: Some(proto_flow::Timestamp {
+                    seconds: 6,
+                    nanos: 7,
+                }),
                 left: Some(ops::stats::DocsAndBytes {
                     docs_total: 1,
                     bytes_total: 100,

@@ -6,6 +6,8 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
     statsSummary: {
         errors?: /* Total number of logged errors */ number;
         failures?: /* Total number of shard failures */ number;
+        lastSourcePublishedAt?: /* The smallest lastSourcePublishedAt timestamp from among all of the task bindings for each transaction.
+ */ string;
         readByMe?: {
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
@@ -53,6 +55,8 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                     input: /* The input documents that were fed into this transform. */ {
                         bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                         docsTotal: /* Total number of documents */ number;
+                        lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                     };
                     source?: /* The name of the collection that this transform sources from */ string;
                 };
@@ -75,6 +79,8 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                 right?: {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
+                    lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                 };
             };
         };
@@ -134,6 +140,8 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
                 input: /* The input documents that were fed into this transform. */ {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
+                    lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                 };
                 source?: /* The name of the collection that this transform sources from */ string;
             };
@@ -156,6 +164,8 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
             right?: {
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
+                lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
             };
         };
     };
