@@ -151,7 +151,7 @@ func (d *deriveApp) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *me
 			Transform: uint32(isr.ShuffleIndex),
 			Uuid:      &uuid,
 			Shuffle:   &pd.Request_Read_Shuffle{Packed: keyPacked},
-			DocJson:   docJson,
+			DocJson:   docJson[:len(docJson)-1], // Trim trailing newline.
 		},
 	})
 }
