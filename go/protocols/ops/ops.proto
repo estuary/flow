@@ -118,7 +118,7 @@ message Stats {
   // DocsAndBytes represents a count of JSON documents and their
   // cumulative total size in bytes.
   message DocsAndBytes {
-    uint32 docs_total = 1;
+    uint64 docs_total = 1;
     uint64 bytes_total = 2;
   }
 
