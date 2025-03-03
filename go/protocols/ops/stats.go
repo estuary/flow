@@ -8,7 +8,7 @@ import (
 )
 
 type jsonStats struct {
-	DocsTotal  uint32 `json:"docsTotal,omitempty"`
+	DocsTotal  uint64 `json:"docsTotal,omitempty"`
 	BytesTotal uint64 `json:"bytesTotal,omitempty"`
 }
 

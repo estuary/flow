@@ -37,7 +37,7 @@ fn main() {
     //   to BTreeMap<&str, &RawValue>, and deserialize in reverse.
     // * Fields ending in "_json_vec" are mapped from Vec<String> to Vec<&RawValue>,
     //   and deserialize in reverse as well.
-    // * Our stats documents' "bytesTotal" field is typed as u64 to allow for
+    // * Our stats documents' bytesTotal and docsTotal fields are typed as u64 to allow for
     //   tallying relatively large values in a single document but we do not want
     //   this value serialized as a string, so we remove the string conversion.
 
@@ -49,8 +49,8 @@ fn main() {
     let ser_json_vec_re =
         regex::Regex::new(r#"struct_ser\.serialize_field\(".+", (&self\..*_json_vec)\)\?;"#)
             .unwrap();
-    let ser_bytes_re =
-        regex::Regex::new(r#"struct_ser\.serialize_field\("(bytesTotal|bytes)", ToString::to_string\(&self\.(bytes_total|bytes)\).as_str\(\)\)\?;"#)
+    let ser_int64_re =
+        regex::Regex::new(r#"struct_ser\.serialize_field\("(bytesTotal|docsTotal)", ToString::to_string\(&self\.(bytes_total|docs_total)\).as_str\(\)\)\?;"#)
             .unwrap();
 
     let de_json_re_1 = regex::Regex::new(r#"let mut .+_json__ (= None);"#).unwrap();
@@ -133,8 +133,8 @@ fn main() {
             );
         }
 
-        // Handle serializing "bytesTotal"/"bytes" as an integer rather than a quoted integer.
-        while let Some(capture) = ser_bytes_re.captures(&buf) {
+        // Handle serializing "bytesTotal"/"docsTotal" as an integer rather than a quoted integer.
+        while let Some(capture) = ser_int64_re.captures(&buf) {
             let range = capture.get(0).unwrap().range();
             buf.replace_range(
                 range,

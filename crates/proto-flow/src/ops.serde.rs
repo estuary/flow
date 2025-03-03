@@ -1388,6 +1388,8 @@ impl serde::Serialize for stats::DocsAndBytes {
         }
         let mut struct_ser = serializer.serialize_struct("ops.Stats.DocsAndBytes", len)?;
         if self.docs_total != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("docsTotal", &self.docs_total)?;
         }
         if self.bytes_total != 0 {

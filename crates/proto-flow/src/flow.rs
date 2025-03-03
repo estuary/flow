@@ -1054,17 +1054,6 @@ pub struct AdvanceTimeRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AdvanceTimeResponse {}
-/// DocsAndBytes represents a count of JSON documents, and their cumulative total
-/// size in bytes. This is used by the various Stats messages.
-/// Deprecated (johnny).
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct DocsAndBytes {
-    #[prost(uint32, tag = "1")]
-    pub docs: u32,
-    #[prost(uint64, tag = "2")]
-    pub bytes: u64,
-}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IngestRequest {
