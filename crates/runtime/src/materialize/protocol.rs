@@ -231,12 +231,29 @@ pub fn recv_client_load_or_flush(
             let key_hash: u128 = xxh3_128(&key_packed);
             key_packed.advance(4); // Advance past 4-byte binding index.
 
-            memtable.add(binding_index, doc, false)?;
-
             // Accumulate metrics over reads for our transforms.
             let stats = &mut txn.stats.entry(binding_index).or_default();
             stats.1.docs_total += 1;
             stats.1.bytes_total += doc_json.len() as u64;
+
+            let maybe_clock = binding
+                .uuid_ptr
+                .query(&doc)
+                .and_then(|node| match node {
+                    doc::HeapNode::String(uuid) => {
+                        proto_gazette::uuid::parse_str(uuid.as_str()).ok()
+                    }
+                    _ => None,
+                })
+                .map(|(_, clock, _)| clock);
+            if let Some(clock) = maybe_clock {
+                stats.3 = clock;
+            } else {
+                tracing::error!(%binding_index, doc_key_json = %doc_json, uuid_ptr = %binding.uuid_ptr, "failed to extract clock from document uuid");
+                anyhow::bail!("failed to extract clock from document uuid");
+            }
+
+            memtable.add(binding_index, doc, false)?;
 
             let (ref prev_max, next_max) = &mut max_keys[binding_index as usize];
 
@@ -447,6 +464,10 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
         ops::merge_docs_and_bytes(&binding_stats.0, &mut entry.left);
         ops::merge_docs_and_bytes(&binding_stats.1, &mut entry.right);
         ops::merge_docs_and_bytes(&binding_stats.2, &mut entry.out);
+
+        if entry.left.is_some() {
+            entry.last_source_published_at = Some(binding_stats.3.to_pb_json_timestamp());
+        }
     }
 
     let stats = ops::Stats {
