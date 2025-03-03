@@ -44,6 +44,10 @@ In the future, other open-source materialization connectors from third parties c
 * Azure SQL Server
   * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/materialize-sqlserver:dev
+* Bytewax
+  * [Configuration](./Dekaf/bytewax.md)
+* ClickHouse
+  * [Configuration](./Dekaf/clickhouse.md)
 * CSV Files in GCS
   * [Configuration](./google-gcs-csv.md)
   * Package — ghcr.io/estuary/materialize-gcs-csv:dev
@@ -82,6 +86,10 @@ In the future, other open-source materialization connectors from third parties c
 * HTTP Webhook
   * [Configuration](./http-webhook.md)
   * Package - ghcr.io/estuary/materialize-webhook:dev
+* Imply Polaris
+  * [Configuration](./Dekaf/imply-polaris.md)
+* Materialize
+  * [Configuration](./Dekaf/materialize.md)
 * MongoDB
   * [Configuration](./mongodb.md)
   * Package - ghcr.io/estuary/materialize-mongodb:dev
@@ -103,6 +111,8 @@ In the future, other open-source materialization connectors from third parties c
 * Rockset
   * [Configuration](./Rockset.md)
   * Package — ghcr.io/estuary/materialize-rockset:dev
+* SingleStore
+  * [Configuration](./Dekaf/singlestore.md)
 * Slack
   * [Configuration](./slack.md)
   * Package - ghcr.io/estuary/materialize-slack:dev
@@ -118,6 +128,8 @@ In the future, other open-source materialization connectors from third parties c
 * Starburst
   * [Configuration](./starburst.md)
   * Package - ghcr.io/estuary/materialize-starburst:dev
+* Startree
+  * [Configuration](./Dekaf/startree.md)
 * TimescaleDB
   * [Configuration](./timescaledb.md)
   * Package - ghcr.io/estuary/materialize-timescaledb:dev
