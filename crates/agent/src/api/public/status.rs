@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::api::error::ApiErrorExt;
 use crate::api::{ApiError, App, ControlClaims};
-use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 // axum_extra's `Query` is needed here because unlike the one from `axum`, it
@@ -22,7 +21,7 @@ pub struct StatusQuery {
 
 #[axum::debug_handler]
 pub async fn handle_get_status(
-    state: State<Arc<App>>,
+    state: axum::extract::State<Arc<App>>,
     Extension(claims): Extension<ControlClaims>,
     Query(params): Query<StatusQuery>,
 ) -> Result<Json<Vec<StatusResponse>>, ApiError> {

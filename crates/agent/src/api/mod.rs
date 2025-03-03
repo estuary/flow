@@ -47,7 +47,7 @@ pub enum Rejection {
 }
 
 struct App {
-    id_generator: Mutex<models::IdGenerator>,
+    _id_generator: Mutex<models::IdGenerator>,
     control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
     control_plane_jwt_signer: jsonwebtoken::EncodingKey,
     jwt_validation: jsonwebtoken::Validation,
@@ -110,7 +110,7 @@ pub fn build_router(
     let (snapshot, seed_rx) = snapshot::seed();
 
     let app = Arc::new(App {
-        id_generator: Mutex::new(id_generator),
+        _id_generator: Mutex::new(id_generator),
         control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
         control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
         jwt_validation,
@@ -155,24 +155,32 @@ pub fn build_router(
         .route(
             "/authorize/user/task",
             post(authorize_user_task::authorize_user_task)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+                .route_layer(axum::middleware::from_fn_with_state(
+                    app.clone(),
+                    layer_control_claims,
+                ))
                 .options(preflight_handler),
         )
         .route(
             "/authorize/user/collection",
             post(authorize_user_collection::authorize_user_collection)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+                .route_layer(axum::middleware::from_fn_with_state(
+                    app.clone(),
+                    layer_control_claims,
+                ))
                 .options(preflight_handler),
         )
         .route(
             "/admin/create-data-plane",
-            post(create_data_plane::create_data_plane)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
+            post(create_data_plane::create_data_plane).route_layer(
+                axum::middleware::from_fn_with_state(app.clone(), layer_control_claims),
+            ),
         )
         .route(
             "/admin/update-l2-reporting",
-            post(update_l2_reporting::update_l2_reporting)
-                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize)),
+            post(update_l2_reporting::update_l2_reporting).route_layer(
+                axum::middleware::from_fn_with_state(app.clone(), layer_control_claims),
+            ),
         )
         .merge(public_api_router)
         .layer(
@@ -234,8 +242,9 @@ where
     }
 }
 
-// Middleware which validates JWT tokens before proceeding, and attaches verified Claims.
-async fn authorize(
+// Middleware which validates a control-plane access token before proceeding,
+// and attaches verified ControlClaims encoded within its JWT.
+async fn layer_control_claims(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum_extra::TypedHeader(bearer): axum_extra::TypedHeader<
         axum_extra::headers::Authorization<axum_extra::headers::authorization::Bearer>,
@@ -243,23 +252,80 @@ async fn authorize(
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let token = match jsonwebtoken::decode::<ControlClaims>(
-        bearer.token(),
-        &app.control_plane_jwt_verifier,
-        &app.jwt_validation,
-    ) {
+    let claims = match verify_control_claims(app, bearer.token()) {
         Ok(claims) => claims,
         Err(err) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                format!("failed to parse authorization token: {err}"),
-            )
-                .into_response();
+            return (StatusCode::UNAUTHORIZED, format!("{err:?}")).into_response();
         }
     };
 
-    req.extensions_mut().insert(token.claims);
+    req.extensions_mut().insert(claims);
     next.run(req).await
+}
+
+// Middleware which exchanges a refresh bearer token for an access token,
+// validates the generated access token before proceeding,
+// and attaches verified ControlClaims encoded within its JWT.
+async fn layer_refresh_claims(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum_extra::TypedHeader(bearer): axum_extra::TypedHeader<
+        axum_extra::headers::Authorization<axum_extra::headers::authorization::Bearer>,
+    >,
+    mut req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let claims = match verify_refresh_token(app, bearer.token()).await {
+        Ok(claims) => claims,
+        Err(err) => {
+            return (StatusCode::UNAUTHORIZED, format!("{err:?}")).into_response();
+        }
+    };
+
+    req.extensions_mut().insert(claims);
+    next.run(req).await
+}
+
+fn verify_control_claims(app: Arc<App>, access_token: &str) -> anyhow::Result<ControlClaims> {
+    Ok(jsonwebtoken::decode::<ControlClaims>(
+        access_token,
+        &app.control_plane_jwt_verifier,
+        &app.jwt_validation,
+    )
+    .context("failed to parse access token")?
+    .claims)
+}
+
+async fn verify_refresh_token(app: Arc<App>, refresh_token: &str) -> anyhow::Result<ControlClaims> {
+    #[derive(Debug, serde::Deserialize)]
+    struct RefreshToken {
+        id: models::Id,
+        secret: String,
+    }
+    #[derive(Debug, serde::Deserialize)]
+    struct GenerateTokenResponse {
+        access_token: String,
+    }
+
+    let bearer = base64::decode(refresh_token).context("failed to base64-decode bearer token")?;
+    let bearer: RefreshToken =
+        serde_json::from_slice(&bearer).context("failed to decode refresh token")?;
+
+    let response = sqlx::query!(
+        "select generate_access_token($1, $2) as token",
+        bearer.id as models::Id,
+        bearer.secret,
+    )
+    .fetch_one(&app.pg_pool)
+    .await
+    .context("failed to generate access token")?;
+
+    let GenerateTokenResponse { access_token } = response
+        .token
+        .map(|token| serde_json::from_value(token))
+        .context("token response was null")?
+        .context("failed to decode generated access token")?;
+
+    verify_control_claims(app, &access_token)
 }
 
 fn exp_seconds() -> u64 {

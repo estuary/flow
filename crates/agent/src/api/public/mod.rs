@@ -1,9 +1,10 @@
+mod open_metrics;
 mod status;
 
 use axum::{http::StatusCode, response::IntoResponse};
 use std::sync::Arc;
 
-use crate::api::{authorize, error::ApiErrorExt, ApiError, App};
+use crate::api::{error::ApiErrorExt, layer_control_claims, layer_refresh_claims, ApiError, App};
 
 /// Creates a router for the public API that can be merged into an existing router.
 /// All endpoints registered here are documented in an OpenAPI spec. For adding new
@@ -54,11 +55,19 @@ pub fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
     let router = aide::axum::ApiRouter::new()
         .api_route(
             "/api/v1/catalog/status",
-            aide::axum::routing::get(status::handle_get_status),
+            aide::axum::routing::get(status::handle_get_status)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    app.clone(),
+                    layer_control_claims,
+                ))
+                .route_layer(axum::middleware::from_fn(ensure_accepts_json)),
         )
-        .layer(axum::middleware::from_fn(ensure_accepts_json))
-        // All routes below this are publicly accessible to anyone, without an authentication token
-        .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+        .api_route(
+            "/api/v1/metrics",
+            aide::axum::routing::get(open_metrics::handle_get_metrics).route_layer(
+                axum::middleware::from_fn_with_state(app.clone(), layer_refresh_claims),
+            ),
+        )
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))
         // The docs UI is not documented as an API route

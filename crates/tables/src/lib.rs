@@ -380,9 +380,9 @@ impl Error {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct GrantRef<'a> {
-    subject_role: &'a str,
-    object_role: &'a str,
-    capability: models::Capability,
+    pub subject_role: &'a str,
+    pub object_role: &'a str,
+    pub capability: models::Capability,
 }
 
 /// Attempts to parse a catalog type and name from a URL in the form of:
