@@ -530,7 +530,7 @@ impl Session {
 
                         auth.refresh_gazette_clients();
                     }
-                    Some(_) => {
+                    Some((pending, _)) if pending.offset == fetch_offset => {
                         metrics::counter!(
                             "dekaf_fetch_requests",
                             "topic_name" => key.0.to_string(),
