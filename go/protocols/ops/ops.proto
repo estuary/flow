@@ -131,6 +131,10 @@ message Stats {
       DocsAndBytes left = 1;
       DocsAndBytes right = 2;
       DocsAndBytes out = 3;
+      // For materializations, this is most recent publish timestamp from the
+      // source documents that were read for this binding. This field is
+      // currently unused for captures.
+      google.protobuf.Timestamp last_source_published_at = 4;
   }
 
   // Capture metrics.
@@ -143,6 +147,8 @@ message Stats {
       string source = 1;
       // Input documents that were read by this transform.
       DocsAndBytes input = 2;
+      // The most recent publish timestamp from the source documents that were read by this transform.
+      google.protobuf.Timestamp last_source_published_at = 3;
     }
     // A map from transform name (not collection name), to metrics for that transform.
     map<string, Transform> transforms = 1;

@@ -1,7 +1,7 @@
 use ::ops::stats::DocsAndBytes;
 use futures::Stream;
 use proto_flow::materialize::{Request, Response};
-use proto_gazette::consumer;
+use proto_gazette::{consumer, uuid::Clock};
 use std::collections::BTreeMap;
 
 mod connector;
@@ -34,12 +34,14 @@ struct Binding {
     state_key: String,           // State key for this binding.
     store_document: bool,        // Are we storing the root document (often `flow_document`)?
     value_extractors: Vec<doc::Extractor>, // Field extractors for this collection.
+    /// Pointer to extract the document UUID.
+    uuid_ptr: doc::Pointer,
 }
 
 #[derive(Debug)]
 pub struct Transaction {
     checkpoint: consumer::Checkpoint, // Recorded checkpoint.
-    stats: BTreeMap<u32, (DocsAndBytes, DocsAndBytes, DocsAndBytes)>, // Per-binding stats.
+    stats: BTreeMap<u32, (DocsAndBytes, DocsAndBytes, DocsAndBytes, Clock)>, // Per-binding stats.
     started: bool,                    // Has the transaction been started?
     started_at: std::time::SystemTime, // Time of first Read request.
 }
