@@ -693,14 +693,6 @@ message AdvanceTimeRequest { uint64 advance_seconds = 1; }
 // AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
 message AdvanceTimeResponse {}
 
-// DocsAndBytes represents a count of JSON documents, and their cumulative total
-// size in bytes. This is used by the various Stats messages.
-// Deprecated (johnny).
-message DocsAndBytes {
-  uint32 docs = 1;
-  uint64 bytes = 2;
-}
-
 message IngestRequest {
   // Name of the collection into which to ingest.
   string collection = 1 [ (gogoproto.casttype) = "Collection" ];
