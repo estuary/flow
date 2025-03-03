@@ -29,4 +29,10 @@ Estuary provides multiple options for integrating with a Kafka ecosystem. Which 
 
 Dekaf is compatible with many Kafka consumers. For instructions on integrating with specific systems, choose from the following materialization connectors.
 
+- [Bytewax](../materialization-connectors/Dekaf/bytewax.md)
+- [ClickHouse](../materialization-connectors/Dekaf/clickhouse.md)
+- [Imply Polaris](../materialization-connectors/Dekaf/imply-polaris.md)
+- [Materialize](../materialization-connectors/Dekaf/materialize.md)
+- [SingleStore](../materialization-connectors/Dekaf/singlestore.md)
+- [Startree](../materialization-connectors/Dekaf/startree.md)
 - [Tinybird](../materialization-connectors/Dekaf/tinybird.md)

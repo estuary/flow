@@ -1,30 +1,19 @@
 
-# Dekaf
+# Startree
 
-This connector materializes Flow collections as Kafka-compatible messages that Kafka consumers can read.
-
-If you want to send messages to your own Kafka broker, see the [Kafka](../apache-kafka.md) materialization connector instead.
+This connector materializes Flow collections as Kafka-compatible messages that a Startree Kafka consumer can read. [StarTree](https://startree.ai/) is a real-time analytics platform built on Apache Pinot, designed for performing fast,
+low-latency analytics on large-scale data.
 
 ## Prerequisites
 
 To use this connector, you'll need:
 
 * At least one Flow collection
-* At least one Kafka consumer
+* A Startree account
 
 ## Variants
 
-Dekaf can be used with a number of systems that act as Kafka consumers. Specific instructions are provided for the following systems:
-
-* [Bytewax](bytewax.md)
-* [ClickHouse](clickhouse.md)
-* [Imply Polaris](imply-polaris.md)
-* [Materialize](materialize.md)
-* [SingleStore](singlestore.md)
-* [Startree](startree.md)
-* [Tinybird](tinybird.md)
-
-For other use cases, continue with the setup details below for general instruction.
+This connector is a variant of the default Dekaf connector. For other integration options, see the main [Dekaf](dekaf.md) page.
 
 ## Setup
 
@@ -32,18 +21,27 @@ Provide an auth token when setting up the Dekaf connector. This can be a passwor
 
 Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
-You may then connect to a Kafka consumer of your choice using the following details:
+## Connecting Estuary Flow to StarTree
 
-* **Broker Address**: `dekaf.estuary-data.com:9092`
-* **Schema Registry Address**: `https://dekaf.estuary-data.com`
-* **Security Protocol**: `SASL_SSL`
-* **SASL Mechanism**: `PLAIN`
-* **SASL Username**: The full task name of your materialization
-* **SASL Password**: The auth token you specified
-* **Schema Registry Username**: The full task name of your materialization
-* **Schema Registry Password**: The auth token you specified
+1. In the StarTree UI, navigate to the **Data Sources** section and choose **Add New Data Source**.
 
-To subscribe to a particular topic, use a binding's topic name. By default, this will be the collection name.
+2. Select **Kafka** as your data source type.
+
+3. Enter the following connection details:
+
+    - **Bootstrap Servers**: `dekaf.estuary-data.com`
+    - **Security Protocol**: `SASL_SSL`
+    - **SASL Mechanism**: `PLAIN`
+    - **SASL Username**: Your materialization task name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`
+    - **SASL Password**: Your materialization's auth token
+
+4. **Configure Schema Registry**: To decode Avro messages, enable schema registry settings:
+
+    - **Schema Registry URL**: `https://dekaf.estuary-data.com`
+    - **Schema Registry Username**: Same as the SASL username
+    - **Schema Registry Password**: Same as the SASL password
+
+5. Click **Create Connection** to proceed.
 
 ## Configuration
 
@@ -77,7 +75,7 @@ materializations:
           token: <auth-token>
           strict_topic_names: false
           deletions: kafka
-        variant: generic
+        variant: startree
     bindings:
       - resource:
           topic_name: ${COLLECTION_NAME}
