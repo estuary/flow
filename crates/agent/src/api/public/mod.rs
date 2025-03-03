@@ -1,3 +1,4 @@
+mod open_metrics;
 mod status;
 
 use axum::{http::StatusCode, response::IntoResponse};
@@ -54,9 +55,13 @@ pub fn api_v1_router(app: Arc<App>) -> axum::Router<Arc<App>> {
     let router = aide::axum::ApiRouter::new()
         .api_route(
             "/api/v1/catalog/status",
-            aide::axum::routing::get(status::handle_get_status),
+            aide::axum::routing::get(status::handle_get_status)
+                .route_layer(axum::middleware::from_fn(ensure_accepts_json)),
         )
-        .layer(axum::middleware::from_fn(ensure_accepts_json))
+        .api_route(
+            "/api/v1/metrics/*prefix",
+            aide::axum::routing::get(open_metrics::handle_get_metrics),
+        )
         // All routes below this are publicly accessible to anyone, without an authentication token
         .layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
         // The openapi json is itself documented as an API route

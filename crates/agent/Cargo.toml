@@ -16,6 +16,7 @@ allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
 automations = { path = "../automations" }
 build = { path = "../build" }
+coroutines = { path = "../coroutines" }
 dekaf = { path = "../dekaf" }
 doc = { path = "../doc" }
 gazette = { path = "../gazette" }
