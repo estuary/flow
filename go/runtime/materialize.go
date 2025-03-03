@@ -121,7 +121,7 @@ func (m *materializeApp) ConsumeMessage(shard consumer.Shard, envelope message.E
 	var request = &pm.Request{
 		Load: &pm.Request_Load{
 			Binding:   uint32(isr.ShuffleIndex),
-			KeyJson:   docJson,
+			KeyJson:   docJson[:len(docJson)-1], // Trim trailing newline.
 			KeyPacked: keyPacked,
 		},
 	}
