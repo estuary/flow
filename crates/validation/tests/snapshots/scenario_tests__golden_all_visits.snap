@@ -92,7 +92,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/flow_truncated",
@@ -115,7 +114,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/bit",
@@ -138,7 +136,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -161,7 +158,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -191,7 +187,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/int",
@@ -221,7 +216,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/str",
@@ -251,7 +245,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -572,7 +565,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/flow_truncated",
@@ -595,7 +587,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/bit",
@@ -618,7 +609,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -641,7 +631,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -671,7 +660,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/int",
@@ -701,7 +689,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/str",
@@ -731,7 +718,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -836,7 +822,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/bit",
@@ -859,7 +844,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -882,7 +866,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -912,7 +895,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/int",
@@ -942,7 +924,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/str",
@@ -972,7 +953,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -1250,7 +1230,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/arr/1/aKey",
@@ -1280,7 +1259,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/arr",
@@ -1312,7 +1290,6 @@ Outcome {
                                 ),
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/arr/0/aKey",
@@ -1342,7 +1319,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -1365,7 +1341,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -1395,7 +1370,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -1556,7 +1530,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -1579,7 +1552,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -1609,7 +1581,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/someKey",
@@ -1639,7 +1610,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -1740,7 +1710,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr/1/aKey",
@@ -1770,7 +1739,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr",
@@ -1802,7 +1770,6 @@ Outcome {
                                                         ),
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr/0/aKey",
@@ -1832,7 +1799,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "",
@@ -1855,7 +1821,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/uuid",
@@ -1885,7 +1850,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                         ],
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -2017,7 +1981,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr/1/aKey",
@@ -2047,7 +2010,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr",
@@ -2079,7 +2041,6 @@ Outcome {
                                                         ),
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr/0/aKey",
@@ -2109,7 +2070,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "",
@@ -2132,7 +2092,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/uuid",
@@ -2162,7 +2121,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                         ],
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -2511,7 +2469,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/len",
@@ -2541,7 +2498,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -2564,7 +2520,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/partitionString",
@@ -2594,7 +2549,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/flow_truncated",
@@ -2617,7 +2571,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/arr",
@@ -2649,7 +2602,6 @@ Outcome {
                                 ),
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/bit",
@@ -2672,7 +2624,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -2702,7 +2653,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/int",
@@ -2732,7 +2682,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/len",
@@ -2762,7 +2711,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/partitionString",
@@ -2792,7 +2740,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/str",
@@ -2822,7 +2769,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -2932,7 +2878,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/len",
@@ -2962,7 +2907,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/str",
@@ -2992,7 +2936,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/flow_truncated",
@@ -3015,7 +2958,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr",
@@ -3047,7 +2989,6 @@ Outcome {
                                                         ),
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/bit",
@@ -3070,7 +3011,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "",
@@ -3093,7 +3033,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/uuid",
@@ -3123,7 +3062,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/int",
@@ -3153,7 +3091,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/len",
@@ -3183,7 +3120,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/partitionString",
@@ -3213,7 +3149,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/str",
@@ -3243,7 +3178,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                         ],
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -3395,7 +3329,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/len",
@@ -3425,7 +3358,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "",
@@ -3448,7 +3380,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/partitionString",
@@ -3478,7 +3409,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/flow_truncated",
@@ -3501,7 +3431,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/arr",
@@ -3533,7 +3462,6 @@ Outcome {
                                                         ),
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/bit",
@@ -3556,7 +3484,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/uuid",
@@ -3586,7 +3513,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/int",
@@ -3616,7 +3542,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/len",
@@ -3646,7 +3571,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/partitionString",
@@ -3676,7 +3600,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/str",
@@ -3706,7 +3629,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                         ],
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -4005,7 +3927,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/bit",
@@ -4028,7 +3949,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -4051,7 +3971,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -4081,7 +4000,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/int",
@@ -4111,7 +4029,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/str",
@@ -4141,7 +4058,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -4251,7 +4167,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/flow_truncated",
@@ -4274,7 +4189,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/bit",
@@ -4297,7 +4211,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "",
@@ -4320,7 +4233,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/_meta/uuid",
@@ -4350,7 +4262,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/int",
@@ -4380,7 +4291,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                             Projection {
                                                 ptr: "/str",
@@ -4410,7 +4320,6 @@ Outcome {
                                                         array: None,
                                                     },
                                                 ),
-                                                write_inference: None,
                                             },
                                         ],
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -4693,7 +4602,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/flow_truncated",
@@ -4716,7 +4624,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/bit",
@@ -4739,7 +4646,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -4762,7 +4668,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -4792,7 +4697,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/int",
@@ -4822,7 +4726,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/str",
@@ -4852,7 +4755,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -4966,7 +4868,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/addedProp",
@@ -4996,7 +4897,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/bit",
@@ -5019,7 +4919,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -5042,7 +4941,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -5072,7 +4970,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/int",
@@ -5102,7 +4999,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/str",
@@ -5132,7 +5028,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -5264,7 +5159,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/len",
@@ -5294,7 +5188,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/str",
@@ -5324,7 +5217,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/flow_truncated",
@@ -5347,7 +5239,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/arr",
@@ -5379,7 +5270,6 @@ Outcome {
                                 ),
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/bit",
@@ -5402,7 +5292,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -5425,7 +5314,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -5455,7 +5343,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/int",
@@ -5485,7 +5372,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/len",
@@ -5515,7 +5401,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/partitionString",
@@ -5545,7 +5430,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/str",
@@ -5575,7 +5459,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -5693,7 +5576,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/bit",
@@ -5716,7 +5598,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -5739,7 +5620,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -5769,7 +5649,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/int",
@@ -5799,7 +5678,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/str",
@@ -5829,7 +5707,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -5994,7 +5871,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/flow_truncated",
@@ -6017,7 +5893,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/bit",
@@ -6040,7 +5915,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -6063,7 +5937,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -6093,7 +5966,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/int",
@@ -6123,7 +5995,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/str",
@@ -6153,7 +6024,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -6541,7 +6411,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/flow_truncated",
@@ -6564,7 +6433,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/bit",
@@ -6587,7 +6455,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -6610,7 +6477,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -6640,7 +6506,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/int",
@@ -6670,7 +6535,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/str",
@@ -6700,7 +6564,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -6859,7 +6722,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/len",
@@ -6889,7 +6751,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -6912,7 +6773,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/partitionString",
@@ -6942,7 +6802,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/flow_truncated",
@@ -6965,7 +6824,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/arr",
@@ -6997,7 +6855,6 @@ Outcome {
                                                 ),
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/bit",
@@ -7020,7 +6877,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -7050,7 +6906,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/int",
@@ -7080,7 +6935,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/len",
@@ -7110,7 +6964,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/partitionString",
@@ -7140,7 +6993,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/str",
@@ -7170,7 +7022,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",

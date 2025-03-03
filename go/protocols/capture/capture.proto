@@ -48,7 +48,7 @@ option (gogoproto.goproto_getters_all) = false;
 //      documents of all such messages in a single transaction.
 // :Response.Checkpoint:
 //    - The connector tells the runtime of a checkpoint: a watermark in the
-//      captured documents stream which is eligble to be used as a
+//      captured documents stream which is eligible to be used as a
 //      transaction commit boundary.
 //    - Whether the checkpoint becomes a commit boundary is at the
 //      discretion of the Flow runtime. It may combine multiple checkpoints
@@ -186,6 +186,8 @@ message Request {
 
 message Response {
   // Spec responds to Request.Spec.
+  // Next tag: 9
+
   message Spec {
     // Protocol version must be 3032023.
     uint32 protocol = 1;
@@ -296,6 +298,37 @@ message Response {
     ];
   }
   Captured captured = 6;
+
+  // SourcedSchema notifies the runtime of a source-defined schema of the
+  // indicated binding. It's not required that the connector know that the
+  // schema has actually changed since a last SourcedSchema.
+  // It's encouraged for connectors to emit SourcedSchema liberally,
+  // such as on startup, or periodically, or upon encountering a previously
+  // unseen column.
+  //
+  // SourcedSchema may be a partial schema: it may schematize some
+  // specific field(s) and not others that are in active use.
+  //
+  // SourcedSchema should be maximally restrictive. It should disallow
+  // `types` and `additionalProperties` which are not explicitly being
+  // schematized. The platform will union a SourcedSchema with all other
+  // SourcedSchema messages of the binding, as well as additional inference
+  // updates required to fit Captured documents.
+  //
+  // SourcedSchema is transactional. It may be interleaved with zero or more
+  // Captured documents, and multiple SourcedSchema messages may be emitted
+  // for a single binding, but an emitted SourcedSchema has no effect until
+  // it's followed by a Checkpoint.
+  message SourcedSchema {
+    // Index of the Open binding for which the schema applies.
+    uint32 binding = 1;
+    // JSON schema of documents produced by this binding.
+    string schema_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "documentSchema"
+    ];
+  }
+  SourcedSchema sourced_schema = 8;
 
   // Checkpoint all preceding documents of this invocation since the last checkpoint.
   // The Flow runtime may begin to commit documents in a transaction.
