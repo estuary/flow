@@ -47,7 +47,7 @@ pub enum Rejection {
 }
 
 struct App {
-    id_generator: Mutex<models::IdGenerator>,
+    _id_generator: Mutex<models::IdGenerator>,
     control_plane_jwt_verifier: jsonwebtoken::DecodingKey,
     control_plane_jwt_signer: jsonwebtoken::EncodingKey,
     jwt_validation: jsonwebtoken::Validation,
@@ -110,7 +110,7 @@ pub fn build_router(
     let (snapshot, seed_rx) = snapshot::seed();
 
     let app = Arc::new(App {
-        id_generator: Mutex::new(id_generator),
+        _id_generator: Mutex::new(id_generator),
         control_plane_jwt_verifier: jsonwebtoken::DecodingKey::from_secret(&jwt_secret),
         control_plane_jwt_signer: jsonwebtoken::EncodingKey::from_secret(&jwt_secret),
         jwt_validation,
@@ -234,7 +234,8 @@ where
     }
 }
 
-// Middleware which validates JWT tokens before proceeding, and attaches verified Claims.
+// Middleware which accepts either a refresh token or a control-plane access token,
+// verifies it before proceeding, and then attaches verified Claims.
 async fn authorize(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum_extra::TypedHeader(bearer): axum_extra::TypedHeader<
@@ -243,8 +244,28 @@ async fn authorize(
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    let mut token = bearer.token();
+    let exchanged_token: Option<String>;
+
+    // Is this is a refresh token? If so, first exchange for an access token.
+    if !token.contains(".") {
+        match exchange_refresh_token(&app, token).await {
+            Ok(exchanged) => {
+                exchanged_token = Some(exchanged);
+                token = exchanged_token.as_ref().unwrap();
+            }
+            Err(err) => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    format!("failed to exchange refresh token: {err}"),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     let token = match jsonwebtoken::decode::<ControlClaims>(
-        bearer.token(),
+        token,
         &app.control_plane_jwt_verifier,
         &app.jwt_validation,
     ) {
@@ -260,6 +281,39 @@ async fn authorize(
 
     req.extensions_mut().insert(token.claims);
     next.run(req).await
+}
+
+async fn exchange_refresh_token(app: &App, refresh_token: &str) -> anyhow::Result<String> {
+    #[derive(Debug, serde::Deserialize)]
+    struct RefreshToken {
+        id: models::Id,
+        secret: String,
+    }
+    #[derive(Debug, serde::Deserialize)]
+    struct GenerateTokenResponse {
+        access_token: String,
+    }
+
+    let bearer = base64::decode(refresh_token).context("failed to base64-decode bearer token")?;
+    let bearer: RefreshToken =
+        serde_json::from_slice(&bearer).context("failed to decode refresh token")?;
+
+    let response = sqlx::query!(
+        "select generate_access_token($1, $2) as token",
+        bearer.id as models::Id,
+        bearer.secret,
+    )
+    .fetch_one(&app.pg_pool)
+    .await
+    .context("failed to generate access token")?;
+
+    let GenerateTokenResponse { access_token } = response
+        .token
+        .map(|token| serde_json::from_value(token))
+        .context("token response was null")?
+        .context("failed to decode generated access token")?;
+
+    Ok(access_token)
 }
 
 fn exp_seconds() -> u64 {
