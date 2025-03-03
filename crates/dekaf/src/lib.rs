@@ -227,17 +227,6 @@ impl App {
             // Decrypt this materialization's endpoint config
             let config = topology::extract_dekaf_config(&task_spec).await?;
 
-            // This marks this Session as being associated with the task name contained in `username`.
-            // We only set this after successfully validating that this task exists and is a Dekaf
-            // materialization. Otherwise we will either log auth errors attempting to append to
-            // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
-            logging::get_log_forwarder().set_task_name(username.clone());
-
-            // 3. Validate that the provided password matches the task's bearer token
-            if password != config.token {
-                anyhow::bail!("Invalid username or password")
-            }
-
             let labels = task_spec
                 .shard_template
                 .as_ref()
@@ -247,6 +236,17 @@ impl App {
                 .context("missing shard labels")?;
             let labels =
                 labels::shard::decode_labeling(labels).context("parsing shard labeling")?;
+
+            // This marks this Session as being associated with the task name contained in `username`.
+            // We only set this after successfully validating that this task exists and is a Dekaf
+            // materialization. Otherwise we will either log auth errors attempting to append to
+            // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
+            logging::get_log_forwarder().set_task_name(username.clone(), labels.build.clone());
+
+            // 3. Validate that the provided password matches the task's bearer token
+            if password != config.token {
+                anyhow::bail!("Invalid username or password")
+            }
 
             logging::set_log_level(labels.log_level());
 

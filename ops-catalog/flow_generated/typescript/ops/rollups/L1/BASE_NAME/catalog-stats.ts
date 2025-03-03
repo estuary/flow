@@ -6,6 +6,8 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
     statsSummary: {
         errors?: /* Total number of logged errors */ number;
         failures?: /* Total number of shard failures */ number;
+        lastSourcePublishedAt?: /* The smallest lastSourcePublishedAt timestamp from among all of the task bindings for each transaction.
+ */ string;
         readByMe?: {
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
@@ -14,6 +16,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
         };
+        txnCount?: /* Total number of transactions that have been successfully processed */ number;
         usageSeconds?: /* Cumulative number of metered seconds of task usage */ number;
         warnings?: /* Total number of logged warnings */ number;
         writtenByMe?: {
@@ -52,6 +55,8 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                     input: /* The input documents that were fed into this transform. */ {
                         bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                         docsTotal: /* Total number of documents */ number;
+                        lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                     };
                     source?: /* The name of the collection that this transform sources from */ string;
                 };
@@ -74,6 +79,8 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                 right?: {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
+                    lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                 };
             };
         };
@@ -84,10 +91,18 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
 
 // Generated for read documents of sourced collection ops/tasks/BASE_NAME/logs.
 export type SourceLogs = /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
-    fields?: /* Map of keys and values that are associated with this log entry. */ Record<string, unknown>;
+    fields?: /* Map of keys and values that are associated with this log entry. */ {
+        error?: /* If the log entry is an error, this field contains the error message.
+ */ string;
+        eventType?: /* Identifies this log message as an event of the given type. Events
+are special logs that are meant to be observed by the Flow control plane.
+ */ string;
+        [k: string]: unknown | undefined;
+    };
     level: "debug" | "error" | "info" | "trace" | "warn";
     message?: string;
     shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        build?: /* The id of the build that this shard was running at the time the log was written */ string;
         keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
         kind: /* The type of the catalog task */ "capture" | "derivation" | "materialization";
         name: /* The name of the catalog task (without the task type prefix) */ string;
@@ -125,6 +140,8 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
                 input: /* The input documents that were fed into this transform. */ {
                     bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                     docsTotal: /* Total number of documents */ number;
+                    lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
                 };
                 source?: /* The name of the collection that this transform sources from */ string;
             };
@@ -147,11 +164,14 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
             right?: {
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
+                lastSourcePublishedAt?: /* The publication timestamp of the most recently processed source document.
+ */ string;
             };
         };
     };
     openSecondsTotal?: /* Total time that the transaction was open before starting to commit */ number;
     shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
+        build?: /* The id of the build that this shard was running at the time the log was written */ string;
         keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
         kind: /* The type of the catalog task */ "capture" | "derivation" | "materialization";
         name: /* The name of the catalog task (without the task type prefix) */ string;

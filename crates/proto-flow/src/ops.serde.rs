@@ -647,6 +647,9 @@ impl serde::Serialize for ShardRef {
         if !self.r_clock_begin.is_empty() {
             len += 1;
         }
+        if !self.build.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.ShardRef", len)?;
         if self.kind != 0 {
             let v = TaskType::try_from(self.kind)
@@ -661,6 +664,9 @@ impl serde::Serialize for ShardRef {
         }
         if !self.r_clock_begin.is_empty() {
             struct_ser.serialize_field("rClockBegin", &self.r_clock_begin)?;
+        }
+        if !self.build.is_empty() {
+            struct_ser.serialize_field("build", &self.build)?;
         }
         struct_ser.end()
     }
@@ -678,6 +684,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
             "keyBegin",
             "r_clock_begin",
             "rClockBegin",
+            "build",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -686,6 +693,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
             Name,
             KeyBegin,
             RClockBegin,
+            Build,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -711,6 +719,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                             "name" => Ok(GeneratedField::Name),
                             "keyBegin" | "key_begin" => Ok(GeneratedField::KeyBegin),
                             "rClockBegin" | "r_clock_begin" => Ok(GeneratedField::RClockBegin),
+                            "build" => Ok(GeneratedField::Build),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -734,6 +743,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                 let mut name__ = None;
                 let mut key_begin__ = None;
                 let mut r_clock_begin__ = None;
+                let mut build__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Kind => {
@@ -760,6 +770,12 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                             }
                             r_clock_begin__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Build => {
+                            if build__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("build"));
+                            }
+                            build__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(ShardRef {
@@ -767,6 +783,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                     name: name__.unwrap_or_default(),
                     key_begin: key_begin__.unwrap_or_default(),
                     r_clock_begin: r_clock_begin__.unwrap_or_default(),
+                    build: build__.unwrap_or_default(),
                 })
             }
         }
@@ -1029,6 +1046,9 @@ impl serde::Serialize for stats::Binding {
         if self.out.is_some() {
             len += 1;
         }
+        if self.last_source_published_at.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.Stats.Binding", len)?;
         if let Some(v) = self.left.as_ref() {
             struct_ser.serialize_field("left", v)?;
@@ -1038,6 +1058,9 @@ impl serde::Serialize for stats::Binding {
         }
         if let Some(v) = self.out.as_ref() {
             struct_ser.serialize_field("out", v)?;
+        }
+        if let Some(v) = self.last_source_published_at.as_ref() {
+            struct_ser.serialize_field("lastSourcePublishedAt", v)?;
         }
         struct_ser.end()
     }
@@ -1052,6 +1075,8 @@ impl<'de> serde::Deserialize<'de> for stats::Binding {
             "left",
             "right",
             "out",
+            "last_source_published_at",
+            "lastSourcePublishedAt",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1059,6 +1084,7 @@ impl<'de> serde::Deserialize<'de> for stats::Binding {
             Left,
             Right,
             Out,
+            LastSourcePublishedAt,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1083,6 +1109,7 @@ impl<'de> serde::Deserialize<'de> for stats::Binding {
                             "left" => Ok(GeneratedField::Left),
                             "right" => Ok(GeneratedField::Right),
                             "out" => Ok(GeneratedField::Out),
+                            "lastSourcePublishedAt" | "last_source_published_at" => Ok(GeneratedField::LastSourcePublishedAt),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1105,6 +1132,7 @@ impl<'de> serde::Deserialize<'de> for stats::Binding {
                 let mut left__ = None;
                 let mut right__ = None;
                 let mut out__ = None;
+                let mut last_source_published_at__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Left => {
@@ -1125,12 +1153,19 @@ impl<'de> serde::Deserialize<'de> for stats::Binding {
                             }
                             out__ = map_.next_value()?;
                         }
+                        GeneratedField::LastSourcePublishedAt => {
+                            if last_source_published_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastSourcePublishedAt"));
+                            }
+                            last_source_published_at__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(stats::Binding {
                     left: left__,
                     right: right__,
                     out: out__,
+                    last_source_published_at: last_source_published_at__,
                 })
             }
         }
@@ -1278,12 +1313,18 @@ impl serde::Serialize for stats::derive::Transform {
         if self.input.is_some() {
             len += 1;
         }
+        if self.last_source_published_at.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.Stats.Derive.Transform", len)?;
         if !self.source.is_empty() {
             struct_ser.serialize_field("source", &self.source)?;
         }
         if let Some(v) = self.input.as_ref() {
             struct_ser.serialize_field("input", v)?;
+        }
+        if let Some(v) = self.last_source_published_at.as_ref() {
+            struct_ser.serialize_field("lastSourcePublishedAt", v)?;
         }
         struct_ser.end()
     }
@@ -1297,12 +1338,15 @@ impl<'de> serde::Deserialize<'de> for stats::derive::Transform {
         const FIELDS: &[&str] = &[
             "source",
             "input",
+            "last_source_published_at",
+            "lastSourcePublishedAt",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Source,
             Input,
+            LastSourcePublishedAt,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1326,6 +1370,7 @@ impl<'de> serde::Deserialize<'de> for stats::derive::Transform {
                         match value {
                             "source" => Ok(GeneratedField::Source),
                             "input" => Ok(GeneratedField::Input),
+                            "lastSourcePublishedAt" | "last_source_published_at" => Ok(GeneratedField::LastSourcePublishedAt),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1347,6 +1392,7 @@ impl<'de> serde::Deserialize<'de> for stats::derive::Transform {
             {
                 let mut source__ = None;
                 let mut input__ = None;
+                let mut last_source_published_at__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -1361,11 +1407,18 @@ impl<'de> serde::Deserialize<'de> for stats::derive::Transform {
                             }
                             input__ = map_.next_value()?;
                         }
+                        GeneratedField::LastSourcePublishedAt => {
+                            if last_source_published_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastSourcePublishedAt"));
+                            }
+                            last_source_published_at__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(stats::derive::Transform {
                     source: source__.unwrap_or_default(),
                     input: input__,
+                    last_source_published_at: last_source_published_at__,
                 })
             }
         }

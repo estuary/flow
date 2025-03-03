@@ -10,7 +10,7 @@ impl Task {
             capture: spec,
             range,
             state_json: _,
-            version: _,
+            version,
         } = open.clone().open.context("expected Open")?;
 
         let response::Opened {
@@ -50,6 +50,7 @@ impl Task {
             name: name.clone(),
             key_begin: format!("{:08x}", range.key_begin),
             r_clock_begin: format!("{:08x}", range.r_clock_begin),
+            build: version.clone(),
         };
 
         Ok(Self {

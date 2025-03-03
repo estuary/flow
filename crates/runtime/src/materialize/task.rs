@@ -9,7 +9,7 @@ impl Task {
             materialization: spec,
             range,
             state_json: _,
-            version: _,
+            version,
         } = open.clone().open.context("expected Open")?;
 
         let flow::MaterializationSpec {
@@ -62,6 +62,7 @@ impl Task {
             name: name.clone(),
             key_begin: format!("{:08x}", range.key_begin),
             r_clock_begin: format!("{:08x}", range.r_clock_begin),
+            build: version.clone(),
         };
 
         Ok(Self {
@@ -128,7 +129,7 @@ impl Binding {
             partition_template: _,
             projections,
             read_schema_json,
-            uuid_ptr: _,
+            uuid_ptr,
             write_schema_json,
         } = collection.as_ref().context("missing collection")?;
 
@@ -142,6 +143,8 @@ impl Binding {
         }
         .clone();
 
+        let uuid_ptr = doc::Pointer::from_str(uuid_ptr.as_str());
+
         Ok(Self {
             collection_name: collection_name.clone(),
             delta_updates: *delta_updates,
@@ -152,6 +155,7 @@ impl Binding {
             state_key: state_key.clone(),
             store_document: !selected_root.is_empty(),
             value_extractors,
+            uuid_ptr,
         })
     }
 

@@ -149,8 +149,11 @@ pub fn recv_client_read_or_flush(
 
     // Accumulate metrics over reads for our transforms.
     let read_stats = &mut txn.read_stats.entry(read.transform).or_default();
-    read_stats.docs_total += 1;
-    read_stats.bytes_total += read.doc_json.len() as u64;
+    read_stats.0.docs_total += 1;
+    read_stats.0.bytes_total += read.doc_json.len() as u64;
+    if let Some(flow::UuidParts { clock, .. }) = &read.uuid {
+        read_stats.1 = *clock;
+    }
 
     Ok(Some(Request {
         read: Some(read),
@@ -249,12 +252,15 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     let transforms: BTreeMap<_, _> = txn
         .read_stats
         .iter()
-        .map(|(index, read_stats)| {
+        .map(|(index, (docs_and_bytes, last_clock))| {
             (
                 task.transforms[*index as usize].name.clone(),
                 ops::stats::derive::Transform {
-                    input: Some(read_stats.clone()),
+                    input: Some(docs_and_bytes.clone()),
                     source: task.transforms[*index as usize].collection_name.clone(),
+                    last_source_published_at: Some(
+                        proto_gazette::uuid::Clock::from_u64(*last_clock).to_pb_json_timestamp(),
+                    ),
                 },
             )
         })

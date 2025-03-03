@@ -2,7 +2,7 @@ use crate::discovers::Changed;
 use crate::draft_error;
 use crate::evolutions::EvolvedCollection;
 use crate::publications;
-use crate::status::publications::{ActivationStatus, PublicationStatus};
+use crate::status::{activation::ActivationStatus, publications::PublicationStatus};
 use crate::ResourcePath;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;

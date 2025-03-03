@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::api::error::ApiErrorExt;
 use crate::api::{ApiError, App, ControlClaims};
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 // axum_extra's `Query` is needed here because unlike the one from `axum`, it
@@ -10,7 +10,7 @@ use axum::{Extension, Json};
 use axum_extra::extract::Query;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
-use models::status::{self, StatusResponse};
+use models::status::{self, connector::ConnectorStatus, StatusResponse};
 use models::Id;
 
 /// Query parameters for the status endpoint
@@ -51,6 +51,7 @@ async fn fetch_status(
         ls.last_build_id as "last_build_id: Id",
         t.wake_at as "controller_next_run: DateTime<Utc>",
         ls.updated_at as "live_spec_updated_at: DateTime<Utc>",
+        cs.flow_document as "connector_status?: ConnectorStatus",
         cj.updated_at as "controller_updated_at: DateTime<Utc>",
         cj.status as "controller_status: status::ControllerStatus",
         cj.error as "controller_error: String",
@@ -58,6 +59,7 @@ async fn fetch_status(
     from live_specs ls
     join controller_jobs cj on ls.id = cj.live_spec_id
     join internal.tasks t on ls.controller_task_id = t.task_id
+    left outer join connector_status cs on ls.catalog_name = cs.catalog_name
     where ls.catalog_name::text = any($1::text[])
         "#,
         catalog_names as &[String],

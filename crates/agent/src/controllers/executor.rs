@@ -51,7 +51,10 @@ pub enum Event {
         /// The ID of the user who sent the message.
         user_id: uuid::Uuid,
     },
+    ShardFailed,
 }
+
+pub type Inbox = VecDeque<(Id, Option<Event>)>;
 
 /// The state of the controller automation task stores infomation that's useful
 /// for debugging, but isn't meant to be directly exposed to users.
@@ -174,7 +177,9 @@ async fn run_controller<C: ControlPlane>(
     let mut next_status = controller_state.current_status.clone();
     tracing::debug!(?inbox, "inbox events");
     task_state.messages_processed += inbox.len() as u64;
-    let result = controller_update(&mut next_status, controller_state, control_plane).await;
+
+    let result =
+        controller_update(&mut next_status, controller_state, &*inbox, control_plane).await;
     let result_parts = match result {
         Ok(next) => {
             task_state.total_successes += 1;
