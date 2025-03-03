@@ -211,6 +211,11 @@ pub mod stats {
         pub right: ::core::option::Option<DocsAndBytes>,
         #[prost(message, optional, tag = "3")]
         pub out: ::core::option::Option<DocsAndBytes>,
+        /// For materializations, this is most recent publish timestamp from the
+        /// source documents that were read for this binding. This field is
+        /// currently unused for captures.
+        #[prost(message, optional, tag = "4")]
+        pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     /// Derivation metrics.
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -240,6 +245,11 @@ pub mod stats {
             /// Input documents that were read by this transform.
             #[prost(message, optional, tag = "2")]
             pub input: ::core::option::Option<super::DocsAndBytes>,
+            /// The most recent publish timestamp from the source documents that were read by this transform.
+            #[prost(message, optional, tag = "3")]
+            pub last_source_published_at: ::core::option::Option<
+                ::pbjson_types::Timestamp,
+            >,
         }
     }
     /// Interval metrics are emitted at regular intervals.
