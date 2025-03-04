@@ -3,7 +3,7 @@
     "ops.us-central1.v1/stats-view": {
       "endpoint": {
         "connector": {
-          "image": "ghcr.io/estuary/materialize-postgres:local",
+          "image": "ghcr.io/estuary/materialize-postgres:dev",
           "config": {"address":"supabase_db_flow.supabase_network_flow:5432","database":"postgres","password":"stats_loader_password","user":"stats_loader"}
         }
       },
@@ -13,6 +13,7 @@
           "source": "ops.us-central1.v1/inferred-schemas/L2",
           "fields": {
             "include": {
+              "collection_generation_id": {},
               "collection_name": {},
               "flow_document": {},
               "schema": {}

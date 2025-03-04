@@ -76,7 +76,7 @@
       }
     },
     "ops.us-central1.v1/inferred-schemas/L2": {
-      "schema": {"$id":"file:///Users/phil/projects/flow/ops-catalog/inferred-schemas.schema.yaml","properties":{"collection_name":{"description":"The name of the collection that this schema was inferred for","type":"string"},"schema":{"description":"The inferred schema","reduce":{"strategy":"jsonSchemaMerge"},"type":"object"}},"reduce":{"strategy":"merge"},"required":["collection_name","schema"],"type":"object"},
+      "schema": {"$id":"file:///Users/phil/projects/flow/ops-catalog/inferred-schemas.schema.yaml","properties":{"collection_generation_id":{"default":"0000000000000000","description":"The generation id of the collection to which the inferred schema applies.","type":"string"},"collection_name":{"description":"The name of the collection that this schema was inferred for","type":"string"},"schema":{"description":"The inferred schema","reduce":{"strategy":"jsonSchemaMerge"},"type":"object"}},"reduce":{"strategy":"merge"},"required":["collection_name","schema"],"type":"object"},
       "key": [
         "/collection_name"
       ],
