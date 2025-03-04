@@ -6167,6 +6167,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simd-doc",
+ "tables",
  "tempfile",
  "time 0.3.36",
  "tokio",

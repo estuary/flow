@@ -16,6 +16,7 @@ materializations:
           recommended: false
           include:
             collection_name: {}
+            collection_generation_id: {}
             schema: {}
             flow_document: {}
       - source: ops.us-central1.v1/catalog-stats-L2

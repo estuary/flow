@@ -8,6 +8,10 @@ properties:
   collection_name:
     type: string
     description: The name of the collection that this schema was inferred for
+  collection_generation_id:
+    type: string
+    description: The generation id of the collection to which the inferred schema applies.
+    default: "0000000000000000"
   schema:
     type: object
     description: The inferred schema

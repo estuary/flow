@@ -94,6 +94,12 @@ create trigger on_shard_failure_insert after insert on public.shard_failures
 for each row
 execute function internal.on_shard_failure();
 
+alter table public.inferred_schemas add column collection_generation_id text;
+comment on column public.inferred_schemas.collection_generation_id is
+'Identifies the specific generation of the collection to which this inferred
+schema applies. This can be used to match collections to the correct inferred
+schema in cases where the collection may have been deleted and re-created with
+the same name.';
 
 alter table public.data_planes add column ops_l1_events_name public.catalog_name;
 alter table public.data_planes add column ops_l2_events_transform text;
