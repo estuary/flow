@@ -35,6 +35,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "runtime_server",
 ] }
 simd-doc = { path = "../simd-doc" }
+tables = { path = "../tables" }
 tuple = { path = "../tuple" }
 unseal = { path = "../unseal" }
 
