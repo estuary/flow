@@ -74,6 +74,7 @@ collections:
           lambda: |
             select
               $fields->>'collection_name' as collection_name,
+              coalesce($fields->>'collection_generation_id', '0000000000000000') as collection_generation_id,
               $fields->'schema' as schema
             where $message = 'inferred schema updated';
 

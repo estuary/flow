@@ -94,7 +94,6 @@ create trigger on_shard_failure_insert after insert on public.shard_failures
 for each row
 execute function internal.on_shard_failure();
 
-
 alter table public.data_planes add column ops_l1_events_name public.catalog_name;
 alter table public.data_planes add column ops_l2_events_transform text;
 
