@@ -30,6 +30,8 @@ pub struct Task {
 struct Binding {
     // Target collection.
     collection_name: String,
+    // Generation id of the collection, which must be output as part of updating inferred schemas.
+    collection_generation_id: models::Id,
     // JSON pointer at which document UUIDs are added.
     document_uuid_ptr: doc::Pointer,
     // Key components which are extracted from written documents.

@@ -19,6 +19,8 @@ impl<T: Stream<Item = anyhow::Result<Response>> + Send + 'static> ResponseStream
 pub struct Task {
     // Target collection.
     collection_name: String,
+    /// The generation id of the derived collection, which gets output as part of inferred schema updates.
+    collection_generation_id: models::Id,
     // JSON pointer at which document UUIDs are added.
     document_uuid_ptr: doc::Pointer,
     // Key components which are extracted from written documents.
