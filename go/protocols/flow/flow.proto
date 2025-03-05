@@ -66,11 +66,6 @@ message Projection {
   bool is_primary_key = 5;
   // Inference of this projection.
   Inference inference = 6 [ (gogoproto.nullable) = false ];
-  // Inference of this projection from the collection's write schema.
-  // This is set only when:
-  //  1) The collection has separate read and write schemas, and
-  //  2) The write schema defines constrains over this projection.
-  Inference write_inference = 7;
 }
 
 // Inference details type information which is statically known
