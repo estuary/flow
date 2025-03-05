@@ -123,6 +123,8 @@ struct StatsSummary {
     failures: u64,
     #[serde(default)]
     usage_seconds: u64,
+    #[serde(default)]
+    txn_count: u64,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -150,6 +152,7 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
                 written_by_me,
                 written_to_me,
                 usage_seconds,
+                txn_count,
             },
         task_stats:
             TaskStats {
@@ -165,6 +168,7 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
     LOGGED_WARNINGS.counter(buf, &l_task, warnings);
     LOGGED_ERRORS.counter(buf, &l_task, errors);
     LOGGED_FAILURES.counter(buf, &l_task, failures);
+    TXN_COUNT.counter(buf, &l_task, txn_count);
 
     // Task-centric roll-ups.
     READ_BY_ME_BYTES.counter(buf, &l_task, read_by_me.bytes_total);
@@ -360,6 +364,11 @@ define_metrics! {
         name: "logged_failures_total",
         type_: COUNTER,
         help: "Total log lines indicating task failure, by task",
+    },
+    TXN_COUNT= Metric {
+        name: "txn_count_total",
+        type_: COUNTER,
+        help: "Total number of transactions processed by this task, by task",
     },
     READ_BY_ME_BYTES= Metric {
         name: "read_by_me_bytes_total",
