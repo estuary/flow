@@ -93,73 +93,13 @@ materializations:
 
 ## Configuring support for deletions
 
-Many Flow connectors capture a stream of change data which can include deletions, represented by the [`_meta/op` field](/reference/deletions). By default, the schema that Tinybird infers from your data won't include support for these deletions documents. The reason for this is that we frequently don't include the entire document that got deleted, and instead simply include its key. This will violate non-null constraints that get inferred at dataflow creation time. You can configure deletions in two ways:
+Many Flow connectors capture a stream of change data which can include deletions, represented by the [`_meta/op` field](/reference/deletions). By default, the schema that Tinybird infers from your data won't include support for these deletions documents. The reason for this is that we frequently don't include the entire document that got deleted, and instead simply include its key. This will violate non-null constraints that get inferred at dataflow creation time.
 
-### Soft deletes
-
-Soft deletes simply require relaxing the Tinybird schema to avoid quarantining deletion documents. To do this, you can either store the whole document in a JSON column and deal with extracting fields in the destination system, or you can manually mark all data fields as `Nullable(..)`.
-
-#### Store whole document as JSON
-
-If you want the raw data from your Flow collection to be ingested into Tinybird without dealing with schema issues, you can request that the full document be stored as JSON using the special `#.__value` pointer. Note that you still need to extract the key, as well as `_meta.op` which will contain one of `c`, `u`, or `d`:
-
-```
-SCHEMA >
-    `__value` String `json:#.__value`,
-    `_id` String `json:$._id`,
-    `__offset` Int64,
-    `_meta_op` String `json:$._meta.op`
-ENGINE "ReplacingMergeTree"
-ENGINE_SORTING_KEY "_id"
-ENGINE_VER "__offset"
-KAFKA_STORE_RAW_VALUE 'True'
-```
-
-:::note
-Using the `ReplacingMergeTree` engine along with selecting `__offset` as the revision will have the effect of deduplicating your CDC stream by the provided `ENGINE_SORTING_KEY`, where the last write wins.
-
-If you'd rather keep the entire changelog, you can instead use `MergeTree`. See [here](https://www.tinybird.co/docs/concepts/data-sources#supported-engines-and-settings) for more details on the various options available to you.
-:::
-
-:::note
-The field `_id` here represents your [collection's key](/concepts/collections/#keys), which is **not** always `_id`.
-:::
-
-:::note
-If your collection key contains multiple fields, you can instead take advantage of the fact that Dekaf extracts and serializes your key into the Kafka record's key field, which is accessible in Tinybird via the special `__key` field.
-
-To do so, set `ENGINE_SORTING_KEY "__key"`.
-:::
-
-#### Mark extracted fields as nullable
-
-If you want to extract certain fields from your documents, you must explicitly mark them all as nullable in order to avoid rejecting deletion documents which don't contain the same data as a create or update document.
-
-```
-SCHEMA >
-    `_id` String `json:$._id`,
-    `_meta_op` String `json:$._meta.op`,
-    `example_field` Nullable(String) `json:$.example`
-ENGINE "ReplacingMergeTree"
-ENGINE_SORTING_KEY "__key"
-ENGINE_VER "__offset"
-```
-
-:::warning
-Array fields do not support being marked as nullable, so you will not be able to extract array fields here.
-:::
-
-### Hard deletes
-
-Instead of exposing deletion events for you to handle on your own, hard deletes cause deleted documents (identified by their unique key) to be deleted from the Tinybird dataflow entirely.
-
-#### Enable Dekaf's `cdc` deletions mode.
-
-This will change its default behavior of emitting deletions as Kafka null-value'd records, to emitting the full deletion document plus a special `/_meta/is_deleted` field which we'll use in a moment.
+Enabling deletions will require using the connector's CDC deletion mode.
 
 To enable this setting in the UI, expand the **Deletion Mode** option in your materialization's Endpoint Config. Choose `cdc` from the dropdown menu.
 
-In the schema, this would be the `deletions` setting:
+This is expressed in the schema as the `deletions` setting:
 
 ```yaml
 endpoint:
@@ -168,24 +108,31 @@ endpoint:
       deletions: cdc
 ```
 
-#### Set up your schema for soft deletes
+This will change the default behavior of emitting deletions as Kafka null-value'd records to emitting the full deletion document. Documents will also contain a special `/_is_deleted` field which is helpful for configuring hard deletes.
 
-Pick one of the two options from above:
+### Soft deletes
 
-- [Store whole document as JSON](#store-whole-document-as-json)
-- [Mark extracted fields as nullable](#mark-extracted-fields-as-nullable)
+Soft deletes occur when a document is marked as deleted but is not physically removed from the destination. Instead, it is flagged for deletion with a specific metadata field.
 
-Then, you can extract the `/_meta/is_deleted` field, and configure the `ReplacingMergeTree` engine's `ENGINE_IS_DELETED` flag to use it:
+If a row is deleted, the value of its `_meta/op` field will be set to `d`, distinguishing it from created (`c`) or updated (`u`) rows.
+
+### Hard deletes
+
+Instead of exposing deletion events for you to handle on your own, hard deletes cause deleted documents (identified by their unique key) to be deleted from the Tinybird dataflow entirely.
+
+For this, you will want to make sure your Tinybird data source uses the `ReplacingMergeTree` engine option. You can find out more about Tinybird's table engines [here](https://www.tinybird.co/docs/sql-reference/engines).
+
+Ensure the `cdc` deletion mode is enabled for your materialization. Then, you can extract the `/_is_deleted` field, and configure the `ReplacingMergeTree` engine's `ENGINE_IS_DELETED` flag to use it:
 
 ```
 SCHEMA >
     `__value` String `json:#.__value`,
-    `_meta_is_deleted` UInt8 `json:$._meta.is_deleted`,
+    `_is_deleted` UInt8 `json:$._is_deleted`,
     `_meta_op` String `json:$._meta.op`
 ENGINE "ReplacingMergeTree"
 ENGINE_SORTING_KEY "__key"
 ENGINE_VER "__offset"
-ENGINE_IS_DELETED "_meta_is_deleted"
+ENGINE_IS_DELETED "_is_deleted"
 ```
 
 Now, the last piece to the puzzle is to add the `FINAL` keyword to any Tinybird query targeting this datasource. For example, if you create a pipe that looks like this:
