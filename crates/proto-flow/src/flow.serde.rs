@@ -4624,9 +4624,6 @@ impl serde::Serialize for Projection {
         if self.inference.is_some() {
             len += 1;
         }
-        if self.write_inference.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("flow.Projection", len)?;
         if !self.ptr.is_empty() {
             struct_ser.serialize_field("ptr", &self.ptr)?;
@@ -4646,9 +4643,6 @@ impl serde::Serialize for Projection {
         if let Some(v) = self.inference.as_ref() {
             struct_ser.serialize_field("inference", v)?;
         }
-        if let Some(v) = self.write_inference.as_ref() {
-            struct_ser.serialize_field("writeInference", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -4667,8 +4661,6 @@ impl<'de> serde::Deserialize<'de> for Projection {
             "is_primary_key",
             "isPrimaryKey",
             "inference",
-            "write_inference",
-            "writeInference",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4679,7 +4671,6 @@ impl<'de> serde::Deserialize<'de> for Projection {
             IsPartitionKey,
             IsPrimaryKey,
             Inference,
-            WriteInference,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -4707,7 +4698,6 @@ impl<'de> serde::Deserialize<'de> for Projection {
                             "isPartitionKey" | "is_partition_key" => Ok(GeneratedField::IsPartitionKey),
                             "isPrimaryKey" | "is_primary_key" => Ok(GeneratedField::IsPrimaryKey),
                             "inference" => Ok(GeneratedField::Inference),
-                            "writeInference" | "write_inference" => Ok(GeneratedField::WriteInference),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -4733,7 +4723,6 @@ impl<'de> serde::Deserialize<'de> for Projection {
                 let mut is_partition_key__ = None;
                 let mut is_primary_key__ = None;
                 let mut inference__ = None;
-                let mut write_inference__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Ptr => {
@@ -4772,12 +4761,6 @@ impl<'de> serde::Deserialize<'de> for Projection {
                             }
                             inference__ = map_.next_value()?;
                         }
-                        GeneratedField::WriteInference => {
-                            if write_inference__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("writeInference"));
-                            }
-                            write_inference__ = map_.next_value()?;
-                        }
                     }
                 }
                 Ok(Projection {
@@ -4787,7 +4770,6 @@ impl<'de> serde::Deserialize<'de> for Projection {
                     is_partition_key: is_partition_key__.unwrap_or_default(),
                     is_primary_key: is_primary_key__.unwrap_or_default(),
                     inference: inference__,
-                    write_inference: write_inference__,
                 })
             }
         }
