@@ -849,7 +849,7 @@ mod tests {
                 MOCK_LOG_FORWARDER.get().send_stats(
                     "test_collection".to_string(),
                     ops::stats::Binding {
-                        last_source_published_at: Some(pbjson_types::Timestamp {
+                        last_source_published_at: Some(proto_flow::Timestamp {
                             seconds: 6,
                             nanos: 7,
                         }),
