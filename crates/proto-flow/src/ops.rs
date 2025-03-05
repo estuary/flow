@@ -52,6 +52,9 @@ pub struct ShardRef {
     /// The hex-encoded inclusive beginning of the shard's assigned r_clock range.
     #[prost(string, tag = "4")]
     pub r_clock_begin: ::prost::alloc::string::String,
+    /// The id of the build that's currently active.
+    #[prost(string, tag = "5")]
+    pub build: ::prost::alloc::string::String,
 }
 /// Common Meta sub-document of Log and Stats documents.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -208,6 +211,11 @@ pub mod stats {
         pub right: ::core::option::Option<DocsAndBytes>,
         #[prost(message, optional, tag = "3")]
         pub out: ::core::option::Option<DocsAndBytes>,
+        /// For materializations, this is most recent publish timestamp from the
+        /// source documents that were read for this binding. This field is
+        /// currently unused for captures.
+        #[prost(message, optional, tag = "4")]
+        pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     /// Derivation metrics.
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -237,6 +245,11 @@ pub mod stats {
             /// Input documents that were read by this transform.
             #[prost(message, optional, tag = "2")]
             pub input: ::core::option::Option<super::DocsAndBytes>,
+            /// The most recent publish timestamp from the source documents that were read by this transform.
+            #[prost(message, optional, tag = "3")]
+            pub last_source_published_at: ::core::option::Option<
+                ::pbjson_types::Timestamp,
+            >,
         }
     }
     /// Interval metrics are emitted at regular intervals.

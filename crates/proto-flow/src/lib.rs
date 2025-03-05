@@ -60,7 +60,7 @@ fn as_raw_json_vec<'a, E: serde::ser::Error>(v: &'a Vec<String>) -> Result<Vec<&
         .collect::<Result<_, _>>()
 }
 
-pub fn as_timestamp(ts: std::time::SystemTime) -> ::pbjson_types::Timestamp {
+pub fn as_timestamp(ts: std::time::SystemTime) -> Timestamp {
     let dur = ts.duration_since(std::time::UNIX_EPOCH).unwrap();
     ::pbjson_types::Timestamp {
         seconds: dur.as_secs() as i64,
@@ -80,6 +80,7 @@ impl ops::log::Level {
 }
 
 // Re-export some commonly used types.
+pub use pbjson_types::Timestamp;
 pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 pub use proto_gazette::consumer::Checkpoint as RuntimeCheckpoint;
 

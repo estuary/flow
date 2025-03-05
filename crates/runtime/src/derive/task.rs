@@ -9,11 +9,15 @@ impl Task {
             collection,
             range,
             state_json: _,
-            version: _,
+            version,
         } = open.clone().open.context("expected Open")?;
 
         let response::Opened {} = opened.opened.as_ref().context("expected Opened")?;
 
+        let collection_spec = collection.context("missing collection")?;
+        let collection_generation_id =
+            tables::utils::get_collection_generation_id(&collection_spec)
+                .unwrap_or(models::Id::zero());
         let flow::CollectionSpec {
             ack_template_json: _,
             derivation,
@@ -25,7 +29,7 @@ impl Task {
             read_schema_json: _,
             uuid_ptr,
             write_schema_json,
-        } = collection.context("missing collection")?;
+        } = collection_spec;
 
         let flow::collection_spec::Derivation {
             config_json: _,
@@ -55,6 +59,7 @@ impl Task {
             name: collection_name.clone(),
             key_begin: format!("{:08x}", range.key_begin),
             r_clock_begin: format!("{:08x}", range.r_clock_begin),
+            build: version.clone(),
         };
 
         let transforms = transforms
@@ -65,6 +70,7 @@ impl Task {
 
         Ok(Self {
             collection_name,
+            collection_generation_id,
             document_uuid_ptr,
             key_extractors,
             partition_extractors,

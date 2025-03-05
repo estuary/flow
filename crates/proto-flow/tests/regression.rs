@@ -691,6 +691,7 @@ fn ex_log() -> ops::Log {
             kind: ops::TaskType::Derivation as i32,
             key_begin: "00112233".to_string(),
             r_clock_begin: "aabbccdd".to_string(),
+            build: "0011223344556677".to_string(),
         }),
         timestamp: Some(proto_flow::as_timestamp(std::time::SystemTime::UNIX_EPOCH)),
         level: ops::log::Level::Info as i32,
@@ -725,6 +726,7 @@ fn ex_stats() -> ops::Stats {
             kind: ops::TaskType::Derivation as i32,
             key_begin: "00112233".to_string(),
             r_clock_begin: "aabbccdd".to_string(),
+            build: "0011223344556677".to_string(),
         }),
         timestamp: Some(proto_flow::as_timestamp(std::time::SystemTime::UNIX_EPOCH)),
         open_seconds_total: 3.14159,
@@ -732,6 +734,10 @@ fn ex_stats() -> ops::Stats {
         capture: [(
             "captured/collection".to_string(),
             ops::stats::Binding {
+                last_source_published_at: Some(proto_flow::Timestamp {
+                    seconds: 6,
+                    nanos: 7,
+                }),
                 left: None,
                 right: Some(ops::stats::DocsAndBytes {
                     docs_total: 2,
@@ -749,6 +755,10 @@ fn ex_stats() -> ops::Stats {
                 (
                     "my-transform".to_string(),
                     ops::stats::derive::Transform {
+                        last_source_published_at: Some(proto_flow::Timestamp {
+                            seconds: 6,
+                            nanos: 7,
+                        }),
                         source: "the/source/collection".to_string(),
                         input: Some(ops::stats::DocsAndBytes {
                             docs_total: 12,
@@ -759,6 +769,10 @@ fn ex_stats() -> ops::Stats {
                 (
                     "otherTransform".to_string(),
                     ops::stats::derive::Transform {
+                        last_source_published_at: Some(proto_flow::Timestamp {
+                            seconds: 6,
+                            nanos: 7,
+                        }),
                         source: "other/collection".to_string(),
                         input: Some(ops::stats::DocsAndBytes {
                             docs_total: 52,
@@ -780,6 +794,10 @@ fn ex_stats() -> ops::Stats {
         materialize: [(
             "materialized/collection".to_string(),
             ops::stats::Binding {
+                last_source_published_at: Some(proto_flow::Timestamp {
+                    seconds: 6,
+                    nanos: 7,
+                }),
                 left: Some(ops::stats::DocsAndBytes {
                     docs_total: 1,
                     bytes_total: 100,

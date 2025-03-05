@@ -46,6 +46,11 @@ properties:
     additionalProperties:
       type: object
       properties:
+        lastSourcePublishedAt:
+          type: string
+          format: date-time
+          description: |
+            The publication timestamp of the most recently processed source document.
         left:
           $ref: "#/$defs/docsAndBytes"
         right:
@@ -151,6 +156,11 @@ $defs:
       input:
         description: The input documents that were fed into this transform.
         $ref: "#/$defs/docsAndBytes"
+      lastSourcePublishedAt:
+        type: string
+        format: date-time
+        description: |
+          The publication timestamp of the most recently processed source document.
     required:
       - input
     reduce:
