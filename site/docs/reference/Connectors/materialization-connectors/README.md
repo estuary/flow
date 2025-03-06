@@ -29,7 +29,10 @@ In the future, other open-source materialization connectors from third parties c
 * Amazon SQL Server
   * [Configuration](./SQLServer/amazon-rds-sqlserver.md)
   * Package - ghcr.io/estuary/materialize-amazon-rds-sqlserver:dev
-* Apache Iceberg Tables in S3
+* Apache Iceberg Tables
+  * [Configuration](./apache-iceberg.md)
+  * Package — ghcr.io/estuary/materialize-iceberg:dev
+* Apache Iceberg Tables in S3 (delta updates)
   * [Configuration](./amazon-s3-iceberg.md)
   * Package — ghcr.io/estuary/materialize-s3-iceberg:dev
 * Apache Kafka

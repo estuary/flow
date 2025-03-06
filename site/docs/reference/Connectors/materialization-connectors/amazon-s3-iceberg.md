@@ -4,7 +4,7 @@ description: This connector materializes delta updates of Flow collections into 
 
 import ReactPlayer from "react-player";
 
-# Apache Iceberg Tables in Amazon S3
+# Apache Iceberg Tables in Amazon S3  (delta updates)
 
 This connector materializes [delta updates](../../../concepts/materialization.md#delta-updates) of
 Flow collections into Apache Iceberg tables using Amazon S3 for object storage and [AWS
