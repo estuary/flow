@@ -48,7 +48,8 @@ catalog:
   Input the **AWS Access Key ID** and **AWS Secret Access Key** for an AWS IAM
   user that has been granted sufficient permissions to read and write metadata
   to the catalog. See below for an example policy that includes the minimum
-  required permissions:
+  required permissions to interact with the Glue catalog and bucket containing
+  table metadata.
 ```json
 {
   "Version": "2012-10-17",
@@ -67,7 +68,21 @@ catalog:
         "glue:GetTable"
       ],
       "Resource": [
-        "arn:aws:glue:<region>:<aws-account-id>:catalog/*
+        "arn:aws:glue:<region>:<aws-account-id>:*"
+      ]
+    },
+    {
+      "Sid": "TableBucketAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<table-bucket>",
+        "arn:aws:s3:::<table-bucket>/*"
       ]
     }
   ]
@@ -315,17 +330,14 @@ the table files:
       ]
     },
     {
-      "Sid": "GlueCatalogReadAccess",
+      "Sid": "GlueCatalogTableModification",
       "Effect": "Allow",
       "Action": [
-        "glue:GetCatalog",
-        "glue:GetDatabases",
-        "glue:GetDatabase",
-        "glue:GetTables",
-        "glue:GetTable"
+        "glue:GetTable",
+        "glue:UpdateTable"
       ],
       "Resource": [
-        "arn:aws:glue:<region>:<aws-account-id>:catalog/*"
+        "arn:aws:glue:<region>:<aws-account-id>:*"
       ]
     }
   ]
@@ -373,6 +385,7 @@ See below for an example policy with these permissions:
       "Sid": "EMRServerlessActions",
       "Effect": "Allow",
       "Action": [
+        "emr-serverless:ListApplications",
         "emr-serverless:GetApplication",
         "emr-serverless:StartApplication",
         "emr-serverless:StartJobRun",
@@ -380,7 +393,10 @@ See below for an example policy with these permissions:
         "emr-serverless:ListJobRuns",
         "emr-serverless:GetJobRun"
       ],
-      "Resource": "arn:aws:emr-serverless:<region>:<aws-account-id>:application/<emr-application-id>"
+      "Resource": [
+        "arn:aws:emr-serverless:<region>:<aws-account-id>:/applications/<emr-application-id>",
+        "arn:aws:emr-serverless:<region>:<aws-account-id>:/applications/<emr-application-id>/jobruns/*"
+      ]
     },
     {
       "Sid": "ParameterStoreAccess",
