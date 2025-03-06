@@ -53,6 +53,10 @@ The following data resources are supported through the Stripe API:
 
 By default, each resource is mapped to a Flow collection through a separate binding.
 
+### Connected Accounts
+
+This connector can capture data from Stripe Connected Accounts. To enable this feature, set the `capture_connected_accounts` property to `true` in your configuration. When enabled, each document will include an `account_id` field that identifies which account the data belongs to.
+
 ## Prerequisites
 
 * An [API Key](https://docs.stripe.com/keys) for your Stripe account. This usually starts with `sk_live_` or `sk_test_` depending on your environment. Manage your Stripe keys in their [developer dashboard](https://dashboard.stripe.com/test/apikeys).
@@ -72,6 +76,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/credentials/credentials_title` | Credentials Title | The type of authentication. Currently only accepts `Private App Credentials`. | string | `Private App Credentials` |
 | `/credentials/access_token` | Access Token | Stripe API key. Usually starts with `sk_live_`. | string | Required |
 | `/start_date` | Start Date | UTC date and time in the format `YYYY-MM-DDTHH:MM:SSZ`. Only data generated after this date will be replicated. | string | 30 days before the present date |
+| `/capture_connected_accounts` | Capture Connected Accounts | Whether to capture data from connected accounts. | boolean | `false` |`
 
 #### Bindings
 
@@ -93,6 +98,7 @@ captures:
                 credentials_title: Private App Credentials
                 access_token: <secret>
             start_date: 2025-01-01T00:00:00Z
+            capture_connected_accounts: true
     bindings:
       - resource:
           stream: charges
