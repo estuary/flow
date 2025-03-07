@@ -10,7 +10,7 @@ impl Task {
             capture: spec,
             range,
             state_json: _,
-            version: _,
+            version,
         } = open.clone().open.context("expected Open")?;
 
         let response::Opened {
@@ -50,6 +50,7 @@ impl Task {
             name: name.clone(),
             key_begin: format!("{:08x}", range.key_begin),
             r_clock_begin: format!("{:08x}", range.r_clock_begin),
+            build: version.clone(),
         };
 
         Ok(Self {
@@ -131,6 +132,12 @@ impl Binding {
             state_key: _,
         } = spec;
 
+        let collection_spec = collection.as_ref().context("missing collection")?;
+        // Determine the generation id of the collection, which we'll need when updating inferred schemas.
+        // For legacy collections that don't have a generation id, we'll use the zero id.
+        let collection_generation_id = tables::utils::get_collection_generation_id(collection_spec)
+            .unwrap_or(models::Id::zero());
+
         let flow::CollectionSpec {
             ack_template_json: _,
             derivation: _,
@@ -142,7 +149,7 @@ impl Binding {
             read_schema_json: _,
             uuid_ptr,
             write_schema_json,
-        } = collection.as_ref().context("missing collection")?;
+        } = collection_spec;
 
         let document_uuid_ptr = doc::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(&key, &projections, &ser_policy)?;
@@ -151,6 +158,7 @@ impl Binding {
 
         Ok(Self {
             collection_name: name.clone(),
+            collection_generation_id,
             document_uuid_ptr,
             key_extractors,
             partition_extractors,

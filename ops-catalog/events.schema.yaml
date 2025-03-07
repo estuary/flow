@@ -1,0 +1,25 @@
+$schema: https://json-schema.org/draft-07/schema
+$ref: logs.schema.yaml
+title: Flow events
+description: Events are special logs that are intended to be consumed by the control plane
+properties:
+  shard:
+    description: The source of the event, which may differ from the eventTarget
+  fields:
+    properties:
+      eventType:
+        type: string
+        description: |
+          Identifies this log message as an event of the given type. Events
+          are special logs that are meant to be observed by the Flow control plane.
+      eventTarget:
+        type: string
+        description: |
+          The target of the event is a catalog name that the event pertains to.
+      error:
+        type: string
+        description: |
+          If the event represents an error, this field contains the error message.
+    required: [eventType, eventTarget]
+    additionalProperties: true
+required: [fields]

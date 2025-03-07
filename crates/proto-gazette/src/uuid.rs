@@ -58,6 +58,11 @@ impl Clock {
     }
 
     #[inline]
+    pub fn from_u64(v: u64) -> Self {
+        Clock(v)
+    }
+
+    #[inline]
     pub fn from_time(t: std::time::SystemTime) -> Self {
         let unix = t.duration_since(std::time::UNIX_EPOCH).unwrap();
         Self::from_unix(unix.as_secs(), unix.subsec_nanos())
@@ -96,6 +101,16 @@ impl Clock {
     #[inline]
     pub fn to_g1582_ns100(&self) -> u64 {
         self.0
+    }
+
+    /// Converts the clock to a protobuf timestamp, returning None if the timestamp
+    /// would overflow.
+    pub fn to_pb_json_timestamp(&self) -> Option<pbjson_types::Timestamp> {
+        let (seconds, nanos) = self.to_unix();
+        let seconds = i64::try_from(seconds).ok()?;
+        let nanos = i32::try_from(nanos).ok()?;
+
+        Some(pbjson_types::Timestamp { seconds, nanos })
     }
 
     pub const UNIX_EPOCH: Self = Clock::from_unix(0, 0);

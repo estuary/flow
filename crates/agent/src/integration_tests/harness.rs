@@ -17,6 +17,7 @@ use crate::{
 };
 use agent_sql::{Capability, TextJson};
 use chrono::{DateTime, Utc};
+use models::status::activation::ShardFailure;
 use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use serde::Deserialize;
@@ -280,8 +281,10 @@ impl TestHarness {
                     ops_stats_name,
                     ops_l1_inferred_name,
                     ops_l1_stats_name,
+                    ops_l1_events_name,
                     ops_l2_inferred_transform,
                     ops_l2_stats_transform,
+                    ops_l2_events_transform,
                     broker_address,
                     reactor_address,
                     hmac_keys,
@@ -293,8 +296,10 @@ impl TestHarness {
                     'ops/stats',
                     'ops/L1/inferred',
                     'ops/L1/stats',
+                    'ops/L1/events',
                     'from-L1-inferred',
                     'from-L1-stats',
+                    'from-L1-events',
                     'broker:address',
                     'reactor:address',
                     '{secret-key}',
@@ -1297,6 +1302,21 @@ impl ControlPlane for TestControlPlane {
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
         self.inner.notify_dependents(live_spec_id).await
+    }
+
+    async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>> {
+        self.inner.get_shard_failures(catalog_name).await
+    }
+
+    async fn delete_shard_failures(
+        &self,
+        catalog_name: String,
+        min_build: Id,
+        min_ts: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        self.inner
+            .delete_shard_failures(catalog_name, min_build, min_ts)
+            .await
     }
 
     async fn get_connector_spec(&self, image: String) -> anyhow::Result<ConnectorSpec> {

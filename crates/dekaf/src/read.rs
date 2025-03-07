@@ -5,8 +5,8 @@ use bytes::{Buf, BufMut, BytesMut};
 use doc::AsNode;
 use futures::StreamExt;
 use gazette::journal::{ReadJsonLine, ReadJsonLines};
+use gazette::uuid::Clock;
 use gazette::{broker, journal, uuid};
-use itertools::Itertools;
 use kafka_protocol::records::{Compression, TimestampType};
 use lz4_flex::frame::BlockMode;
 
@@ -133,6 +133,7 @@ impl Read {
 
         let mut did_timeout = false;
 
+        let mut last_source_published_at: Option<Clock> = None;
         while match target {
             ReadTarget::Bytes(target_bytes) => output_bytes < target_bytes,
             ReadTarget::Docs(target_docs) => records.len() < target_docs,
@@ -217,6 +218,7 @@ impl Read {
             if clock < self.not_before {
                 continue;
             }
+            last_source_published_at = Some(clock);
 
             // Is this a non-content control document, such as a transaction ACK?
             let is_control = flags.is_ack();
@@ -362,6 +364,8 @@ impl Read {
                     bytes_total: stats_bytes,
                 }),
                 left: None,
+                last_source_published_at: last_source_published_at
+                    .and_then(|c| c.to_pb_json_timestamp()),
             },
         );
 

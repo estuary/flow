@@ -123,6 +123,8 @@ struct StatsSummary {
     failures: u64,
     #[serde(default)]
     usage_seconds: u64,
+    #[serde(default)]
+    txn_count: u64,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -150,6 +152,7 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
                 written_by_me,
                 written_to_me,
                 usage_seconds,
+                txn_count,
             },
         task_stats:
             TaskStats {
@@ -165,6 +168,7 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
     LOGGED_WARNINGS.counter(buf, &l_task, warnings);
     LOGGED_ERRORS.counter(buf, &l_task, errors);
     LOGGED_FAILURES.counter(buf, &l_task, failures);
+    TXN_COUNT.counter(buf, &l_task, txn_count);
 
     // Task-centric roll-ups.
     READ_BY_ME_BYTES.counter(buf, &l_task, read_by_me.bytes_total);
@@ -201,6 +205,7 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
         for (
             transform,
             ops::stats::derive::Transform {
+                last_source_published_at,
                 source: collection,
                 input,
             },
@@ -209,6 +214,10 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
             let l_task_collection_transform =
                 format!("task={catalog_name:?},collection={collection:?},transform={transform:?}");
 
+            if let Some(m) = last_source_published_at {
+                let ts = to_time_seconds(m);
+                DERIVED_LAST_SOURCE_PUBLISHED_AT.gauge(buf, &l_task_collection_transform, ts);
+            }
             if let Some(m) = input {
                 DERIVED_IN_BYTES.counter(buf, &l_task_collection_transform, m.bytes_total);
                 DERIVED_IN_DOCS.counter(buf, &l_task_collection_transform, m.docs_total);
@@ -224,9 +233,22 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
         }
     }
 
-    for (collection, ops::stats::Binding { left, right, out }) in materialize {
+    for (
+        collection,
+        ops::stats::Binding {
+            last_source_published_at,
+            left,
+            right,
+            out,
+        },
+    ) in materialize
+    {
         let l_task_collection = format!("task={catalog_name:?},collection={collection:?}");
 
+        if let Some(m) = last_source_published_at {
+            let ts = to_time_seconds(m);
+            MATERIALIZED_LAST_SOURCE_PUBLISHED_AT.gauge(buf, &l_task_collection, ts);
+        }
         if let Some(m) = right {
             MATERIALIZED_IN_BYTES.counter(buf, &l_task_collection, m.bytes_total);
             MATERIALIZED_IN_DOCS.counter(buf, &l_task_collection, m.docs_total);
@@ -240,6 +262,10 @@ fn encode_metrics(buf: &mut BufferParts, _scrape_at: f64, stats: CatalogStats) {
             MATERIALIZED_OUT_DOCS.counter(buf, &l_task_collection, m.docs_total);
         }
     }
+}
+
+fn to_time_seconds(pbts: proto_flow::Timestamp) -> f64 {
+    pbts.seconds as f64 + (pbts.nanos as f64 / 1_000_000_000.0)
 }
 
 struct Metric {
@@ -361,6 +387,11 @@ define_metrics! {
         type_: COUNTER,
         help: "Total log lines indicating task failure, by task",
     },
+    TXN_COUNT= Metric {
+        name: "txn_count_total",
+        type_: COUNTER,
+        help: "Total number of transactions processed by this task, by task",
+    },
     READ_BY_ME_BYTES= Metric {
         name: "read_by_me_bytes_total",
         type_: COUNTER,
@@ -427,6 +458,11 @@ define_metrics! {
         help: "Total number of post-combine documents captured by the connector, by task and target collection",
         type_: COUNTER,
     },
+    DERIVED_LAST_SOURCE_PUBLISHED_AT= Metric {
+        name: "derived_last_source_published_at_time_seconds",
+        help: "Publication timestamp of the most recent source collection document that was processed by the derivation, given as seconds since the unix epoch",
+        type_: GAUGE,
+    },
     DERIVED_IN_BYTES= Metric {
         name: "derived_in_bytes_total",
         help: "Total number of pre-reduce bytes read from the source collection, by task, source collection, and transform",
@@ -456,6 +492,11 @@ define_metrics! {
         name: "derived_yield_docs_total",
         help: "Total number of pre-combine documents published by derivation transforms, by task",
         type_: COUNTER,
+    },
+    MATERIALIZED_LAST_SOURCE_PUBLISHED_AT= Metric {
+        name: "materialized_last_source_published_at_time_seconds",
+        help: "Publication timestamp of the most recent source collection document that was materialized, given as seconds since the unix epoch",
+        type_: GAUGE,
     },
     MATERIALIZED_IN_BYTES= Metric {
         name: "materialized_in_bytes_total",
@@ -493,5 +534,4 @@ define_metrics! {
 }
 
 const COUNTER: &str = "counter";
-#[allow(dead_code)]
 const GAUGE: &str = "gauge";

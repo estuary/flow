@@ -1,7 +1,7 @@
 use ::ops::stats::DocsAndBytes;
 use futures::Stream;
 use proto_flow::derive::{Request, Response};
-use proto_gazette::consumer;
+use proto_gazette::{consumer, uuid::Clock};
 use std::collections::BTreeMap;
 
 mod connector;
@@ -19,6 +19,8 @@ impl<T: Stream<Item = anyhow::Result<Response>> + Send + 'static> ResponseStream
 pub struct Task {
     // Target collection.
     collection_name: String,
+    /// The generation id of the derived collection, which gets output as part of inferred schema updates.
+    collection_generation_id: models::Id,
     // JSON pointer at which document UUIDs are added.
     document_uuid_ptr: doc::Pointer,
     // Key components which are extracted from written documents.
@@ -44,14 +46,17 @@ struct Transform {
 
 #[derive(Debug)]
 pub struct Transaction {
-    checkpoint: consumer::Checkpoint,        // Recorded checkpoint.
-    combined_stats: DocsAndBytes,            // Combined output stats.
-    max_clock: u64,                          // Maximum clock of read documents.
-    publish_stats: DocsAndBytes,             // Published (right) stats.
-    read_stats: BTreeMap<u32, DocsAndBytes>, // Per-transform read document stats.
-    started: bool,                           // Has the transaction been started?
-    started_at: std::time::SystemTime,       // Time of first Read request.
-    updated_inference: bool,                 // Did we update our inferred Shape this transaction?
+    checkpoint: consumer::Checkpoint, // Recorded checkpoint.
+    combined_stats: DocsAndBytes,     // Combined output stats.
+    max_clock: u64,                   // Maximum clock of read documents.
+    publish_stats: DocsAndBytes,      // Published (right) stats.
+    /// Per-transform read document stats. The u64 is the Clock (parsed from the
+    /// document uuid), which tracks the publication timestamp of the most
+    /// recently read source document for each transform.
+    read_stats: BTreeMap<u32, (DocsAndBytes, u64)>,
+    started: bool,                     // Has the transaction been started?
+    started_at: std::time::SystemTime, // Time of first Read request.
+    updated_inference: bool,           // Did we update our inferred Shape this transaction?
 }
 
 impl Transaction {
