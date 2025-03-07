@@ -1,8 +1,5 @@
 use super::{
-    activation,
-    dependencies::Dependencies,
-    periodic,
-    publication_status::{self, PendingPublication},
+    activation, dependencies::Dependencies, periodic, publication_status::PendingPublication,
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun,
 };
 use crate::publications::{PublicationResult, RejectedField};

@@ -25,10 +25,6 @@ use lazy_static::lazy_static;
 pub use proxy_connectors::{DataPlaneConnectors, DiscoverConnectors, ProxyConnectors};
 use regex::Regex;
 
-// Used during tests.
-#[cfg(test)]
-const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
-
 lazy_static! {
     static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
 }
