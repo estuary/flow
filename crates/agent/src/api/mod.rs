@@ -346,18 +346,3 @@ fn maybe_rewrite_address(external: bool, address: &str) -> String {
         address.to_string()
     }
 }
-
-fn optional_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
-        "type": ["string", "null"],
-        "format": "date-time",
-    }))
-    .unwrap()
-}
-fn datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    serde_json::from_value(serde_json::json!({
-        "type": "string",
-        "format": "date-time",
-    }))
-    .unwrap()
-}
