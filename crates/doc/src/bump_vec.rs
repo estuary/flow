@@ -185,7 +185,10 @@ impl<'alloc, T> BumpVec<'alloc, T> {
     }
 
     // Allocate space for a RawVec with the correct size and alignment.
-    fn allocate(capacity: usize, alloc: &'alloc bumpalo::Bump) -> (NonNull<u8>, &mut RawVec<T>) {
+    fn allocate(
+        capacity: usize,
+        alloc: &'alloc bumpalo::Bump,
+    ) -> (NonNull<u8>, &'alloc mut RawVec<T>) {
         Self::allocate_inline(capacity, alloc)
     }
 
@@ -193,7 +196,7 @@ impl<'alloc, T> BumpVec<'alloc, T> {
     fn allocate_inline(
         capacity: usize,
         alloc: &'alloc bumpalo::Bump,
-    ) -> (NonNull<u8>, &mut RawVec<T>) {
+    ) -> (NonNull<u8>, &'alloc mut RawVec<T>) {
         let cap = u32::try_from(capacity).expect("capacity is too large");
         let (size_of_elem, size_of_header, align) = Self::sizes();
         let size = size_of_header + capacity * size_of_elem; // Cannot overflow (cap is u32).
