@@ -18,6 +18,7 @@ Outcome {
                 "/id"
               ]
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/collection-with-flow-document",

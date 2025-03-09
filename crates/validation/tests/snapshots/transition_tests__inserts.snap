@@ -25,6 +25,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -413,6 +414,7 @@ Outcome {
                 "/f_one"
               ]
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "the/collection",
@@ -673,6 +675,7 @@ Outcome {
                 ]
               }
             },
+            model_fixes: [],
             validated: Validated {
                 transforms: [
                     Transform {
@@ -1301,6 +1304,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -1744,6 +1748,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             spec: TestSpec {
                 name: "the/test",
                 steps: [
