@@ -196,6 +196,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             read_schema: None,
             schema: Some(schema.clone()),
             write_schema: None,
+            reset: false,
         };
         let partition_template = proto_gazette::broker::JournalSpec {
             name: format!("{collection}/pass-through/partition_name_prefix"),

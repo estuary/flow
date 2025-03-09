@@ -31,6 +31,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [],
             },
@@ -188,6 +189,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -525,6 +527,7 @@ Outcome {
                 "/id"
               ]
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/collection",
@@ -742,6 +745,7 @@ Outcome {
                 ]
               }
             },
+            model_fixes: [],
             validated: Validated {
                 transforms: [],
                 generated_files: {},
@@ -1085,6 +1089,7 @@ Outcome {
                 ]
               }
             },
+            model_fixes: [],
             validated: Validated {
                 transforms: [
                     Transform {
@@ -1632,6 +1637,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [],
             },
@@ -1794,6 +1800,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {

@@ -12,6 +12,7 @@ Outcome {
             expect_pub_id: "1010101010101010",
             expect_build_id: "1010101010101010",
             model: NULL,
+            model_fixes: [],
             validated: NULL,
             spec: NULL,
             previous_spec: CaptureSpec {
@@ -64,6 +65,7 @@ Outcome {
             expect_pub_id: "1010101010101010",
             expect_build_id: "1010101010101010",
             model: NULL,
+            model_fixes: [],
             validated: NULL,
             spec: NULL,
             previous_spec: CollectionSpec {
@@ -101,6 +103,7 @@ Outcome {
             expect_pub_id: "1010101010101010",
             expect_build_id: "1010101010101010",
             model: NULL,
+            model_fixes: [],
             validated: NULL,
             spec: NULL,
             previous_spec: CollectionSpec {
@@ -177,6 +180,7 @@ Outcome {
             expect_pub_id: "1010101010101010",
             expect_build_id: "1010101010101010",
             model: NULL,
+            model_fixes: [],
             validated: NULL,
             spec: NULL,
             previous_spec: MaterializationSpec {
@@ -227,6 +231,7 @@ Outcome {
             expect_pub_id: "1010101010101010",
             expect_build_id: "1010101010101010",
             model: NULL,
+            model_fixes: [],
             spec: NULL,
             previous_spec: TestSpec {
                 name: "the/test",

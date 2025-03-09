@@ -23,6 +23,7 @@ Outcome {
                 "FY": "/f_y"
               }
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "the/collection",
@@ -121,6 +122,7 @@ Outcome {
                 ]
               }
             },
+            model_fixes: [],
             validated: Validated {
                 transforms: [
                     Transform {

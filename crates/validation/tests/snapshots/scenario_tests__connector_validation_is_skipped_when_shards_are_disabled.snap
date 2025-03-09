@@ -28,6 +28,7 @@ Outcome {
                 "disable": true
               }
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -394,6 +395,7 @@ Outcome {
                 "/id"
               ]
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "acmeCo/foo",
@@ -634,6 +636,7 @@ Outcome {
                 "disable": true
               }
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {

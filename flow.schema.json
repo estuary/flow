@@ -399,6 +399,11 @@
           "title": "Schema against which collection documents are validated and reduced on read.",
           "$ref": "#/definitions/Schema"
         },
+        "reset": {
+          "title": "Reset this collection within the control plane.",
+          "description": "When true, a publication will reset this collection. Resetting a collection is equivalent to deleting and then re-creating the collection, but is applied as a single publication.",
+          "type": "boolean"
+        },
         "schema": {
           "title": "Schema against which collection documents are validated and reduced on write and read.",
           "examples": [

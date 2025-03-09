@@ -152,6 +152,7 @@ pub async fn do_discover(
                 journals: Default::default(),
                 expect_pub_id: None,
                 delete: false,
+                reset: false,
             }),
             false, // !is_touch
         );

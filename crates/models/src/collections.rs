@@ -49,6 +49,12 @@ pub struct CollectionDef {
     /// When true, a publication will delete this collection.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub delete: bool,
+    /// # Reset this collection within the control plane.
+    /// When true, a publication will reset this collection.
+    /// Resetting a collection is equivalent to deleting and then re-creating
+    /// the collection, but is applied as a single publication.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub reset: bool,
 }
 
 impl CollectionDef {
@@ -63,6 +69,7 @@ impl CollectionDef {
             derive: None,
             expect_pub_id: None,
             delete: false,
+            reset: false,
         }
     }
 }

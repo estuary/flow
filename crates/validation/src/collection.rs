@@ -71,6 +71,7 @@ fn walk_collection(
         derive: _,
         expect_pub_id: _,
         delete: _,
+        reset: _,
     } = model;
 
     indexed::walk_name(
@@ -218,6 +219,7 @@ fn walk_collection(
             projections: projection_models,
             ..model.clone()
         }),
+        model_fixes: Vec::new(),
         spec: Some(built_spec),
         validated: None,
         previous_spec: live_spec.cloned(),

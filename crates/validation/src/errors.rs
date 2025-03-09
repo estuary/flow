@@ -232,12 +232,12 @@ pub enum Error {
         this_entity: String,
         data_plane_id: models::Id,
     },
-    #[error("expected draft model to be equal to the live model because `is_touch: true`")]
-    TouchModelChanged,
-    #[error("cannot touch because live model does not exist")]
-    TouchSpecDoesNotExist,
-    #[error("missing draft model when `is_touch: true`")]
-    TouchMissingDraftModel,
+    #[error("draft model is a 'touch' operation but is not equal to the live model (and must be)")]
+    TouchModelIsNotEqual,
+    #[error("draft model is a 'touch' operation but a corresponding live model doesn't exist (and must)")]
+    TouchModelIsCreate,
+    #[error("draft model is a 'touch' operation but also a deletion , which is invalid")]
+    TouchModelIsDelete,
 }
 
 impl Error {
