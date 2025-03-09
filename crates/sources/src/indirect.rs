@@ -266,6 +266,7 @@ fn indirect_collection(
         derive,
         expect_pub_id: _,
         delete: _,
+        reset: _,
     } = model;
     let base = base_name(collection);
 

@@ -16,7 +16,7 @@ pub struct Scope<'a> {
 
 impl<'a> Scope<'a> {
     /// Create a new scope rooted at the given resource.
-    pub fn new(resource: &'a Url) -> Scope {
+    pub fn new(resource: &'a Url) -> Scope<'a> {
         Scope {
             parent: None,
             resource: Some(resource),
@@ -24,7 +24,7 @@ impl<'a> Scope<'a> {
         }
     }
     /// Push a resource onto the current Scope, returning a new Scope.
-    pub fn push_resource(&'a self, resource: &'a Url) -> Scope {
+    pub fn push_resource(&'a self, resource: &'a Url) -> Scope<'a> {
         if resource.fragment().is_some() {
             panic!("resource cannot have fragment");
         }
@@ -35,7 +35,7 @@ impl<'a> Scope<'a> {
         }
     }
     /// Push a property onto the current Scope, returning a new Scope.
-    pub fn push_prop(&'a self, name: &'a str) -> Scope {
+    pub fn push_prop(&'a self, name: &'a str) -> Scope<'a> {
         Scope {
             parent: Some(self),
             resource: None,
@@ -43,7 +43,7 @@ impl<'a> Scope<'a> {
         }
     }
     /// Push an item index onto the current Scope, returning a new Scope.
-    pub fn push_item(&'a self, index: usize) -> Scope {
+    pub fn push_item(&'a self, index: usize) -> Scope<'a> {
         Scope {
             parent: Some(self),
             resource: None,

@@ -119,9 +119,9 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of this capture, or None if the capture is being deleted.
         val model: Option<models::CaptureDef>,
-        // When true, this draft "touches" the capture, causing it to be built
-        // but not incrementing its publication ID. If `is_touch` is `true`,
-        // then `model` must be identical to the live model.
+        // This draft is a "touch" which intends to refresh
+        // the build of the live capture without changing it.
+        // An error will be raised if `model` isn't identical to the live model.
         val is_touch: bool,
     }
 
@@ -134,9 +134,9 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of this collection, or None if the collection is being deleted.
         val model: Option<models::CollectionDef>,
-        // When true, this draft "touches" the capture, causing it to be built
-        // but not incrementing its publication ID. If `is_touch` is `true`,
-        // then `model` must be identical to the live model.
+        // This draft is a "touch" which intends to refresh
+        // the build of the live collection without changing it.
+        // An error will be raised if `model` isn't identical to the live model.
         val is_touch: bool,
     }
 
@@ -149,9 +149,9 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of this materialization, or None if the materialization is being deleted.
         val model: Option<models::MaterializationDef>,
-        // When true, this draft "touches" the capture, causing it to be built
-        // but not incrementing its publication ID. If `is_touch` is `true`,
-        // then `model` must be identical to the live model.
+        // This draft is a "touch" which intends to refresh
+        // the build of the live materialization without changing it.
+        // An error will be raised if `model` isn't identical to the live model.
         val is_touch: bool,
     }
 
@@ -164,9 +164,9 @@ tables!(
         val expect_pub_id: Option<models::Id>,
         // Model of the test, or None if the test is being deleted.
         val model: Option<models::TestDef>,
-        // When true, this draft "touches" the capture, causing it to be built
-        // but not incrementing its publication ID. If `is_touch` is `true`,
-        // then `model` must be identical to the live model.
+        // This draft is a "touch" which intends to refresh
+        // the build of the live materialization without changing it.
+        // An error will be raised if `model` isn't identical to the live model.
         val is_touch: bool,
     }
 
@@ -259,6 +259,9 @@ tables!(
         val expect_build_id: models::Id,
         // Model of this capture, or None if the capture is being deleted.
         val model: Option<models::CaptureDef>,
+        // Descriptions of automated model changes made during validation.
+        // If non-empty then `is_touch` is false.
+        val model_fixes: Vec<String>,
         // Validated response which was used to build this spec.
         val validated: Option<proto_flow::capture::response::Validated>,
         // Built specification of this capture, or None if it's being deleted.
@@ -266,7 +269,8 @@ tables!(
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::CaptureSpec>,
-        // Whether this was the result of a "touch" operation.
+        // When true this was a "touch" which refreshed the build of the
+        // unchanged live model. Its publication ID shouldn't increase.
         val is_touch: bool,
         // Hash of the last_pub_ids of all the dependencies that were used to build the capture
         val dependency_hash: Option<String>,
@@ -287,6 +291,9 @@ tables!(
         val expect_build_id: models::Id,
         // Model of this collection, or None if the collection is being deleted.
         val model: Option<models::CollectionDef>,
+        // Descriptions of automated model changes made during validation.
+        // If non-empty then `is_touch` is false.
+        val model_fixes: Vec<String>,
         // Validated response which was used to build this spec.
         val validated: Option<proto_flow::derive::response::Validated>,
         // Built specification of this collection, or None if it's being deleted.
@@ -294,7 +301,8 @@ tables!(
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::CollectionSpec>,
-        // Whether this was the result of a "touch" operation.
+        // When true this was a "touch" which refreshed the build of the
+        // unchanged live model. Its publication ID shouldn't increase.
         val is_touch: bool,
         // Hash of the last_pub_ids of all the dependencies that were used to build the collection
         val dependency_hash: Option<String>,
@@ -315,6 +323,9 @@ tables!(
         val expect_build_id: models::Id,
         // Model of this materialization, or None if the materialization is being deleted.
         val model: Option<models::MaterializationDef>,
+        // Descriptions of automated model changes made during validation.
+        // If non-empty then `is_touch` is false.
+        val model_fixes: Vec<String>,
         // Validated response which was used to build this spec.
         val validated: Option<proto_flow::materialize::response::Validated>,
         // Built specification of this materialization, or None if it's being deleted.
@@ -322,7 +333,8 @@ tables!(
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::MaterializationSpec>,
-        // Whether this was the result of a "touch" operation.
+        // When true this was a "touch" which refreshed the build of the
+        // unchanged live model. Its publication ID shouldn't increase.
         val is_touch: bool,
         // Hash of the last_pub_ids of all the dependencies that were used to build the materialization
         val dependency_hash: Option<String>,
@@ -341,12 +353,16 @@ tables!(
         val expect_build_id: models::Id,
         // Model of the test, or None if the test is being deleted.
         val model: Option<models::TestDef>,
+        // Descriptions of automated model changes made during validation.
+        // If non-empty then `is_touch` is false.
+        val model_fixes: Vec<String>,
         // Built specification of this test, or None if being deleted.
         val spec: Option<proto_flow::flow::TestSpec>,
         // Previous specification which is being modified or deleted,
         // or None if unchanged OR this is an insertion.
         val previous_spec: Option<proto_flow::flow::TestSpec>,
-        // Whether this was the result of a "touch" operation.
+        // When true this was a "touch" which refreshed the build of the
+        // unchanged live model. Its publication ID shouldn't increase.
         val is_touch: bool,
         // Hash of the last_pub_ids of all the dependencies that were used to build the test
         val dependency_hash: Option<String>,

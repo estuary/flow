@@ -30,6 +30,7 @@ Outcome {
                 "hotStandbys": 1
               }
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -498,6 +499,7 @@ Outcome {
               ],
               "interval": "10m"
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -1198,6 +1200,7 @@ Outcome {
                 "aKeyOne": "/arr/1/aKey"
               }
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/array-key",
@@ -1486,6 +1489,7 @@ Outcome {
                 ]
               }
             },
+            model_fixes: [],
             validated: Validated {
                 transforms: [
                     Transform {
@@ -2424,6 +2428,7 @@ Outcome {
                 ]
               }
             },
+            model_fixes: [],
             validated: Validated {
                 transforms: [
                     Transform {
@@ -3888,6 +3893,7 @@ Outcome {
                 ]
               }
             },
+            model_fixes: [],
             validated: Validated {
                 transforms: [
                     Transform {
@@ -4561,6 +4567,7 @@ Outcome {
                 }
               }
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string",
@@ -4836,6 +4843,7 @@ Outcome {
                 "/int"
               ]
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-ref-write-schema",
@@ -5118,6 +5126,7 @@ Outcome {
                 }
               }
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string-rw",
@@ -5544,6 +5553,7 @@ Outcome {
                 }
               }
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/int-string.v2",
@@ -5804,6 +5814,7 @@ Outcome {
                 "logLevel": "warn"
               }
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -6301,6 +6312,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -7324,6 +7336,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             spec: TestSpec {
                 name: "testing/test",
                 steps: [

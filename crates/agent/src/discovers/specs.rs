@@ -278,6 +278,7 @@ pub fn merge_collections(
                     derive: None,
                     expect_pub_id: None,
                     delete: false,
+                    reset: false,
                 };
                 tables::DraftCollection {
                     collection: target.clone(),

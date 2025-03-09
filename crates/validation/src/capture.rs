@@ -302,6 +302,7 @@ async fn walk_capture(
         expect_pub_id,
         expect_build_id,
         model: Some(model.clone()),
+        model_fixes: Vec::new(),
         validated: Some(validated_response),
         spec: Some(built_spec),
         previous_spec: live_spec.cloned(),
