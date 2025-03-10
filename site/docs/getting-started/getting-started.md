@@ -4,6 +4,8 @@ description: Get to know Estuary Flow and learn how to get started.
 slug: /
 ---
 
+import ReactPlayer from "react-player";
+
 # What is Estuary Flow?
 
 Estuary Flow is a unified data movement and transformation platform for the whole data team.
@@ -11,6 +13,9 @@ Estuary Flow is a unified data movement and transformation platform for the whol
 Flow synchronizes your systems – SaaS, databases, streaming, and more – around the same datasets, which it stores in the
 cloud and updates in milliseconds. It combines the easy cross-system integration of an ELT tool and a flexible streaming
 backbone, all while remaining aware of your data's complete history.
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=hlCh81ZbBik" />
+<br />
 
 A few examples of what you can do with Flow:
 
@@ -46,10 +51,14 @@ Start using Flow with these recommended resources.
 - **[Change Data Capture for PostgreSQL](https://www.youtube.com/watch?v=9Bpj6k4H_0c)**
 - **[PostgreSQL to Apache Iceberg - Streaming Lakehouse Foundations](https://www.youtube.com/watch?v=vzCkb-bOpxs)**
 - **[Real-time CDC with MongoDB](https://www.youtube.com/watch?v=kpF-YCxtArk)**
+- And more on our [YouTube channel](https://www.youtube.com/@estuarydev)
 
 ## **Other resources**
 
 - Our [website](https://www.estuary.dev) offers general information about Flow, Estuary, and how we fit into the data
   infrastructure landscape.
 - Our source code lives on [GitHub](https://github.com/estuary).
+  - Find complete projects in our [examples repo](https://github.com/estuary/examples).
+- Subscribe to our [Data Flow Digest](https://go.estuary.dev/data-digest) newsletter on LinkedIn.
+- Ask us anything in our [Slack community](https://go.estuary.dev/slack).
 
