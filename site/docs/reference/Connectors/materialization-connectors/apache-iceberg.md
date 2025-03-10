@@ -95,6 +95,136 @@ Serverless Application, but it can be. Enter the same **AWS Access Key ID** and
 **AWS Secret Access Key** in both places if you are using the same user.
 :::
 
+#### AWS Glue with Lake Formation
+
+[AWS Lake
+Formation](https://docs.aws.amazon.com/lake-formation/latest/dg/what-is-lake-formation.html)
+provides an additional layer of permissions that apply after IAM policy
+permissions. If you are using AWS Lake Formation to manage access to your Glue
+catalog, additional setup is required to grant the necessary access.
+
+The following instructions assume Lake Formation is enabled, and that the bucket
+location you are using to store Iceberg table data is a registered location in
+Lake Formation. Reference the [AWS Lake Formation Developer
+Guide](https://docs.aws.amazon.com/lake-formation/latest/dg/lf-permissions-reference.html)
+for comprehensive instructions for adding Lake Formation permissions. Specific
+permissions and sample AWS CLI commands for this connector are shown below,
+where applicable.
+
+1) Ensure that the registered location is _not_ using the default service-linked
+   role (`AWSServiceRoleForLakeFormationDataAccess`). You must create a [custom
+   role](https://docs.aws.amazon.com/lake-formation/latest/dg/registration-role.html)
+   for registering the location. At a minimum, the role must have an inline
+   policy granting access to the registered bucket, as well as a trust
+   relationship with the `lakeformation.amazonaws.com` entity. An example inline
+   bucket access policy and trust policy are below:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LakeFormationRegisteredLocationBucketAccessPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<table-bucket>",
+        "arn:aws:s3:::<table-bucket>/*"
+      ]
+    }
+  ]
+}
+```
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "LakeFormationRegisteredLocationTrustPolicy",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "lakeformation.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}
+```
+
+2) Give the `lakeformation:GetDataAccess` permission to the configured catalog
+user, for example by attaching a policy to the user like this:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "lakeformation:GetDataAccess",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+3) In the Lake Formation console, under **Administration -> Application
+   integration settings**, ensure **Allow external engines to access data in
+   Amazon S3 locations with full table access** is **enabled** by checking the
+   box for it.
+![Configuring Lake Formation application integration settings](../connector-images/materialize-iceberg-lf-application-integration.png)
+
+4) Grant `DATA_LOCATION_ACCESS` to the registered location for the catalog user:
+```
+aws lakeformation grant-permissions \
+  --principal DataLakePrincipalIdentifier=<catalog-user-arn> \
+  --permissions "DATA_LOCATION_ACCESS" \
+  --resource '{"DataLocation":{"CatalogId":"<aws-account-id>","ResourceArn":"<registered-bucket-arn>"}}'
+```
+
+5) Grant `CREATE_DATABASE` on the catalog for the catalog user:
+```
+aws lakeformation grant-permissions \
+  --principal DataLakePrincipalIdentifier=<catalog-user-arn> \
+  --permissions "CREATE_DATABASE" \
+  --resource '{ "Catalog": {"Id": "<aws-account-id>"} }'
+```
+
+6) Grant `ALL` access to tables within any pre-existing databases that will
+   contain materialized tables to the catalog user. Databases the connector
+   creates will automatically have the necessary permissions for the catalog
+   user. Run this command for each pre-existing database that matches a
+   namespace of a binding configured in the materialization:
+```
+aws lakeformation grant-permissions \
+  --principal DataLakePrincipalIdentifier=<catalog-user-arn> \
+  --permissions "ALL" \
+  --resource '{ "Table": {"DatabaseName":"<database-name>", "TableWildcard":{}}}'
+```
+
+7) Grant `ALL` access to _all_ databases that will contain materialized tables
+   to the EMR Execution Role. You may need to do this step after the connector
+   has automatically created the databases for the role to have the required
+   access. Run this command for each database:
+```
+aws lakeformation grant-permissions \
+  --principal DataLakePrincipalIdentifier=<emr-execution-role-arn> \
+  --permissions "ALL" \
+  --resource '{ "Table": {"DatabaseName":"<database-name>", "TableWildcard":{}}}'
+```
+
+:::info
+If you have enabled
+[sourceCapture](../../../concepts/materialization.md#using-sourcecapture-to-synchronize-capture-and-materialization-bindings)
+for your materialization and a new binding is added with a new namespace, you
+will need the repeat step 7 to grant access to that database to the EMR
+execution role.
+:::
+
 ### Using Other REST Catalogs
 
 Configuration for REST catalogs other than AWS Glue will depend on the specific
