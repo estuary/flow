@@ -211,12 +211,17 @@ async fn main() -> anyhow::Result<()> {
         client_base: flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None),
     });
 
-    let mut stop = async {
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+
+    // Create a task to listen for Ctrl+C and cancel the global cancellation token
+    let ctrl_c_token = cancel_token.clone();
+    tokio::spawn(async move {
         tokio::signal::ctrl_c()
             .await
-            .expect("failed to listen for CTRL-C")
-    }
-    .shared();
+            .expect("failed to listen for CTRL-C");
+        tracing::info!("Received Ctrl+C, initiating shutdown");
+        ctrl_c_token.cancel();
+    });
 
     let schema_addr = format!("[::]:{}", cli.schema_registry_port).parse()?;
     let metrics_addr = format!("[::]:{}", cli.metrics_port).parse()?;
@@ -282,9 +287,15 @@ async fn main() -> anyhow::Result<()> {
                         continue
                     };
 
+                    // > Unlike a cloned CancellationToken, cancelling a child token does not cancel the parent token.
+                    // So every `task_cancellation` will get cancelled when `cancel_token` (ctrl-c) is cancelled, but only
+                    // a particular task's `task_cancellation` token will get cancelled if its `TaskForwarder` crashes.
+                    let task_cancellation = cancel_token.child_token();
+
                     tokio::spawn(
                         logging::forward_logs(
                             GazetteWriter::new(app.clone()),
+                            task_cancellation.clone(),
                             serve(
                                 Session::new(
                                     app.clone(),
@@ -298,12 +309,12 @@ async fn main() -> anyhow::Result<()> {
                                 socket,
                                 addr,
                                 cli.idle_session_timeout,
-                                stop.clone()
+                                task_cancellation
                             )
                         )
                     );
                 }
-                _ = &mut stop => break,
+                _ = cancel_token.cancelled() => break,
             }
         }
     } else {
@@ -322,9 +333,12 @@ async fn main() -> anyhow::Result<()> {
                     };
                     socket.set_nodelay(true)?;
 
+                    let task_cancellation = cancel_token.child_token();
+
                     tokio::spawn(
                         logging::forward_logs(
                             GazetteWriter::new(app.clone()),
+                            task_cancellation.clone(),
                             serve(
                                 Session::new(
                                     app.clone(),
@@ -338,12 +352,12 @@ async fn main() -> anyhow::Result<()> {
                                 socket,
                                 addr,
                                 cli.idle_session_timeout,
-                                stop.clone()
+                                task_cancellation
                             )
                         )
                     );
                 }
-                _ = &mut stop => break,
+                _ = cancel_token.cancelled() => break,
             }
         }
     };
@@ -351,13 +365,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, _stop), fields(?addr))]
+#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, stop), fields(?addr))]
 async fn serve<S>(
     mut session: Session,
     socket: S,
     addr: std::net::SocketAddr,
     idle_timeout: std::time::Duration,
-    _stop: impl futures::Future<Output = ()>, // TODO(johnny): stop.
+    stop: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -380,19 +394,25 @@ where
 
     let result = async {
         loop {
-            let Some(frame) = tokio::time::timeout(idle_timeout, r.try_next())
-                .await
-                .context("timeout waiting for next session request")?
-                .context("failed to read next session request")?
-            else {
-                return Ok(());
-            };
+            tokio::select! {
+                resp = r.try_next() => {
+                    let Some(frame) = resp.context("failed to read next session request")? else {
+                        return Ok(());
+                    };
 
-            dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
-                .await?;
+                    dekaf::dispatch_request_frame(&mut session, &mut raw_sasl_auth, frame, &mut out)
+                    .await?;
 
-            () = w.write_all(&mut out).await?;
-            out.clear();
+                    () = w.write_all(&mut out).await?;
+                    out.clear();
+                }
+                _ = tokio::time::sleep(idle_timeout) => {
+                    anyhow::bail!("timeout waiting for next session request")
+                }
+                _ = stop.cancelled() => {
+                    anyhow::bail!("signalled to stop")
+                }
+            }
         }
     }
     .await;
