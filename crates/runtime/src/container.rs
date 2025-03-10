@@ -181,9 +181,11 @@ pub async fn start(
 
     // Service process stderr by decoding ops::Logs and sending to our handler.
     let stderr = process.stderr.take().unwrap();
+    let sanitize_logs_task_name = format!("\"{task_name}\"");
     tokio::spawn(async move {
         let mut stderr = tokio::io::BufReader::new(stderr);
         let mut line = String::new();
+        let quoted_task_name = sanitize_logs_task_name;
 
         // Wait for a non-empty read of stderr to complete or EOF/error.
         // Note that `flow-connector-init` writes one whitespace byte on startup.
@@ -205,7 +207,10 @@ pub async fn start(
             }
 
             match serde_json::from_str(&line) {
-                Ok(log) => log_handler(&log),
+                Ok(log) => {
+                    let sanitized = sanitize_event_type(&quoted_task_name, log);
+                    log_handler(&sanitized)
+                }
                 Err(error) => {
                     tracing::error!(?error, %line, "failed to parse ops::Log from container");
                 }
@@ -269,6 +274,45 @@ pub async fn start(
             _process: process,
         },
     ))
+}
+
+/// Performs a basic validation of logs that represent events, to restrict
+/// connectors to emitting connectorStatus events for the currently running
+/// task.
+fn sanitize_event_type(quoted_task_name: &str, mut log: ops::Log) -> ops::Log {
+    match log
+        .fields_json_map
+        .get("eventType")
+        .map(|v| v == "\"connectorStatus\"")
+    {
+        Some(true) => {
+            match log
+                .fields_json_map
+                .get("eventTarget")
+                .map(|t| t == quoted_task_name)
+            {
+                Some(true) => { /* eventTarget is valid */ }
+                Some(false) => {
+                    let v = log.fields_json_map.remove("eventTarget").unwrap();
+                    log.fields_json_map
+                        .insert("_sanitized_eventTarget".to_string(), v);
+                    log.fields_json_map
+                        .insert("eventTarget".to_string(), quoted_task_name.to_string());
+                }
+                None => {
+                    log.fields_json_map
+                        .insert("eventTarget".to_string(), quoted_task_name.to_string());
+                }
+            }
+        }
+        Some(false) => {
+            let v = log.fields_json_map.remove("eventType").unwrap();
+            log.fields_json_map
+                .insert("_sanitized_eventType".to_string(), v);
+        }
+        None => { /* this is not an event */ }
+    }
+    log
 }
 
 /// Guard contains a running image container instance,
@@ -571,7 +615,7 @@ async fn inspect_image_and_copy(
 
 #[cfg(test)]
 mod test {
-    use super::{parse_image_inspection, start};
+    use super::{parse_image_inspection, sanitize_event_type, start};
     use futures::stream::StreamExt;
     use proto_flow::flow;
     use serde_json::json;
@@ -753,5 +797,79 @@ mod test {
             source: ParseBoolError,
         }
         "###);
+    }
+
+    #[test]
+    fn test_log_event_validation() {
+        let good = json!({
+            "shard": {
+                "name": "a/b/c",
+                "keyBegin": "00000000",
+                "rClockBegin": "00000000",
+                "build": "1122334455667788"
+            },
+            "level": "info",
+            "ts": "2025-01-02T03:04:05.06Z",
+            "message": "a test status",
+            "fields": {
+                "eventType": "connectorStatus",
+                "eventTarget": "a/b/c"
+            }
+        });
+        let log: ops::Log = serde_json::from_value(good).unwrap();
+        let out = sanitize_event_type("\"a/b/c\"", log.clone());
+        assert_eq!(log, out);
+
+        let naughty_type = json!({
+            "shard": {
+                "name": "a/b/c",
+                "keyBegin": "00000000",
+                "rClockBegin": "00000000",
+                "build": "1122334455667788"
+            },
+            "level": "info",
+            "ts": "2025-01-02T03:04:05.06Z",
+            "message": "a test status",
+            "fields": {
+                "eventType": "foo",
+                "eventTarget": "a/b/c"
+            }
+        });
+        let log: ops::Log = serde_json::from_value(naughty_type).unwrap();
+        let out = sanitize_event_type("\"a/b/c\"", log);
+
+        assert!(!out.fields_json_map.contains_key("eventType"));
+        assert_eq!(
+            Some("\"foo\""),
+            out.fields_json_map
+                .get("_sanitized_eventType")
+                .map(|v| v.as_str())
+        );
+
+        let naughty_target = json!({
+            "shard": {
+                "name": "a/b/c",
+                "keyBegin": "00000000",
+                "rClockBegin": "00000000",
+                "build": "1122334455667788"
+            },
+            "level": "info",
+            "ts": "2025-01-02T03:04:05.06Z",
+            "message": "a test status",
+            "fields": {
+                "eventType": "connectorStatus",
+                "eventTarget": "another/thing"
+            }
+        });
+        let log: ops::Log = serde_json::from_value(naughty_target).unwrap();
+        let out = sanitize_event_type("\"a/b/c\"", log);
+        assert_eq!(
+            Some("\"a/b/c\""),
+            out.fields_json_map.get("eventTarget").map(|v| v.as_str())
+        );
+        assert_eq!(
+            Some("\"connectorStatus\""),
+            out.fields_json_map.get("eventType").map(|v| v.as_str())
+        );
     }
 }

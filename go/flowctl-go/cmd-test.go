@@ -59,7 +59,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		return fmt.Errorf("starting local data plane: %w", err)
 	}
 
-	var buildID = "0000000000000000"
+	var buildID = "ffffffffffffffff"
 
 	if err := (apiBuild{
 		BuildID: buildID,

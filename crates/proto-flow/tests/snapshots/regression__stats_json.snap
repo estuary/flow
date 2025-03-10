@@ -10,7 +10,8 @@ expression: json_test(msg)
     "kind": "derivation",
     "name": "my/cool/task",
     "keyBegin": "00112233",
-    "rClockBegin": "aabbccdd"
+    "rClockBegin": "aabbccdd",
+    "build": "0011223344556677"
   },
   "ts": "1970-01-01T00:00:00+00:00",
   "openSecondsTotal": 3.14159,
@@ -24,7 +25,8 @@ expression: json_test(msg)
       "out": {
         "docsTotal": 1,
         "bytesTotal": 100
-      }
+      },
+      "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
     }
   },
   "derive": {
@@ -34,14 +36,16 @@ expression: json_test(msg)
         "input": {
           "docsTotal": 12,
           "bytesTotal": 369
-        }
+        },
+        "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
       },
       "otherTransform": {
         "source": "other/collection",
         "input": {
           "docsTotal": 52,
           "bytesTotal": 2389
-        }
+        },
+        "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
       }
     },
     "published": {
@@ -66,7 +70,8 @@ expression: json_test(msg)
       "out": {
         "docsTotal": 3,
         "bytesTotal": 300
-      }
+      },
+      "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00"
     }
   },
   "interval": {
