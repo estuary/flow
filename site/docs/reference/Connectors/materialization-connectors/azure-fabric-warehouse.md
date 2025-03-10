@@ -1,3 +1,6 @@
+
+import ReactPlayer from "react-player";
+
 # Microsoft Azure Fabric Warehouse
 
 This connector materializes Flow collections into tables in Microsoft Azure
@@ -6,6 +9,8 @@ Fabric Warehouse.
 [`ghcr.io/estuary/azure-fabric-warehouse:dev`](https://ghcr.io/estuary/azure-fabric-warehouse:dev)
 provides the latest connector image. You can also follow the link in your
 browser to see past image versions.
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=_aPyCWLciDs" />
 
 ## Prerequisites
 
@@ -51,7 +56,7 @@ Flow collections to your tables.
 |---------------------------|--------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
 | **`/clientID`**           | Client ID                      | Client ID for the service principal used to connect to the Azure Fabric Warehouse. services.                                                            | string | Required         |
 | **`/clientSecret`**       | Client Secret                  | Client Secret for the service principal used to connect to the Azure Fabric Warehouse. services.                                                        | string | Required         |
-| **`/warehouse`**          | Warehouse                      | Name of the Azure Fabric Warehouse to connect to. to.                                                                                                   | string | Required         |
+| **`/warehouse`**          | Warehouse                      | Name of the Azure Fabric Warehouse to connect to.                                                                                                   | string | Required         |
 | **`/schema`**             | Schema                         | Schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables. | string | Required         |
 | **`/connectionString`**   | Connection String              | SQL connection string for the Azure Fabric Warehouse.                                                                                                   | string | Required         |
 | **`/storageAccountName`** | Storage Account Name           | Name of the storage account that temporary files will be written to.                                                                                    | string | Required         |
@@ -66,6 +71,30 @@ Flow collections to your tables.
 | **`/table`**     | Table              | Table name                                                 | string  | Required         |
 | `/schema`        | Alternative Schema | Alternative schema for this table                          | string  |                  |
 | `/delta_updates` | Delta updates      | Whether to use standard or [delta updates](#delta-updates) | boolean |                  |
+
+### Sample
+
+```yaml
+materializations:
+  ${PREFIX}/${mat_name}:
+    endpoint:
+      connector:
+        image: "ghcr.io/estuary/materialize-azure-fabric-warehouse:dev"
+        config:
+          clientID: <client-id>
+          clientSecret: <client-secret>
+          connectionString: <connection-string>
+          containerName: storage-container
+          hardDelete: false
+          schema: main
+          storageAccountKey: <storage-key>
+          storageAccountName: storagename
+          warehouse: estuary-wh
+    bindings:
+      - resource:
+          table: ${COLLECTION_NAME}
+        source: ${PREFIX}/${COLLECTION_NAME}
+```
 
 ## Sync Schedule
 
