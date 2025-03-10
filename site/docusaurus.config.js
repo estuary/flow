@@ -150,7 +150,7 @@ const config = {
           {
             type: 'html',
             position: 'left',
-            value: '<a href="https://estuary.dev/blog/data-engineering/">Blog</a>',
+            value: '<a href="https://estuary.dev/blog">Blog</a>',
           },
           {
             type: 'html',
@@ -184,6 +184,10 @@ const config = {
             title: 'Community',
             items: [
               {
+                label: 'Slack',
+                href: 'https://go.estuary.dev/slack'
+              },
+              {
                 label: 'Twitter',
                 href: 'https://twitter.com/EstuaryDev',
               },
@@ -212,6 +216,10 @@ const config = {
                 label: 'GitHub',
                 href: 'https://github.com/estuary/flow',
               },
+              {
+                label: 'YouTube',
+                href: 'https://www.youtube.com/@estuarydev'
+              }
             ],
           },
         ],
