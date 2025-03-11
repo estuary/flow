@@ -6819,6 +6819,7 @@ dependencies = [
  "insta",
  "memchr",
  "quickcheck",
+ "regex",
  "rkyv",
  "serde",
  "serde_json",

@@ -17,6 +17,7 @@ cxx = "1.0"
 bytes = { workspace = true }
 memchr = { workspace = true }
 rkyv = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

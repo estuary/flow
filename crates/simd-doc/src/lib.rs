@@ -66,6 +66,9 @@ impl Parser {
         // Safety: we'll transmute back to lifetime 'a prior to return.
         let alloc: &'static doc::Allocator = unsafe { std::mem::transmute(alloc) };
 
+        let mut scratch = String::new();
+        let input = fixup_031125(input, &mut scratch);
+
         assert!(
             self.whole.is_empty(),
             "internal buffer is non-empty (incorrect mixed use of parse_one() with chunk())"
@@ -294,13 +297,38 @@ fn transcode_simd(
     parser.pin_mut().transcode(input, output)
 }
 
+// To be removed after we've cleared through bad data from an incident.
+fn fixup_031125<'a>(input: &'a [u8], scratch: &'a mut String) -> &'a [u8] {
+    let Ok(input_str) = std::str::from_utf8(input) else {
+        return input;
+    };
+    if !input_str.contains(r#""collection_generation_id":"#) {
+        return input;
+    }
+
+    static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r#""collection_generation_id":\s?\d+e\d+,"#).unwrap()
+    });
+    *scratch = RE
+        .replace_all(input_str, |caps: &regex::Captures| {
+            " ".repeat(caps[0].len())
+        })
+        .into_owned();
+
+    assert_eq!(input.len(), scratch.as_bytes().len());
+    scratch.as_bytes()
+}
+
 fn parse_fallback<'a>(
-    mut input: &[u8],
+    input: &[u8],
     offset: i64,
     alloc: &'a doc::Allocator,
     output: &mut Vec<(doc::HeapNode<'a>, i64)>,
 ) -> (usize, Option<(std::io::Error, std::ops::Range<i64>)>) {
     let mut consumed = 0;
+
+    let mut scratch = String::new();
+    let mut input = fixup_031125(input, &mut scratch);
 
     while !input.is_empty() {
         let pivot = memchr::memchr(b'\n', &input).expect("input always ends with newline") + 1;
@@ -329,7 +357,7 @@ fn parse_fallback<'a>(
 }
 
 fn transcode_fallback(
-    mut input: &[u8],
+    input: &[u8],
     offset: i64,
     mut v: rkyv::AlignedVec,
 ) -> (
@@ -337,6 +365,9 @@ fn transcode_fallback(
     rkyv::AlignedVec,
     Option<(std::io::Error, std::ops::Range<i64>)>,
 ) {
+    let mut scratch = String::new();
+    let mut input = fixup_031125(input, &mut scratch);
+
     let mut alloc = doc::HeapNode::allocator_with_capacity(input.len());
     let mut consumed = 0;
 

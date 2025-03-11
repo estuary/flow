@@ -342,7 +342,6 @@ pub async fn recv_client_start_commit(
         tracing::info!(
             schema = ?ops::DebugJson(serialized),
             collection_name = %task.bindings[*binding].collection_name,
-            collection_generation_id = %task.bindings[*binding].collection_generation_id,
             binding = binding,
             "inferred schema updated"
         );
