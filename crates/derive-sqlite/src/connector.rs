@@ -49,6 +49,35 @@ where
         match request_rx.next().await {
             None => return Ok(()),
             Some(Request {
+                spec: Some(_spec), ..
+            }) => {
+                let _ = response_tx
+                    .send(Ok(Response {
+                        spec: Some(response::Spec {
+                            protocol: 3032023,
+                            documentation_url:
+                                "https://docs.estuary.dev/concepts/derivations/#sqlite".to_string(),
+                            config_schema_json: serde_json::json!({
+                                "type": "object",
+                                "properties": {
+                                    "migrations": {
+                                        "type": "array",
+                                        "items": {"type": "string"}
+                                    }
+                                }
+                            })
+                            .to_string(),
+                            resource_config_schema_json: serde_json::json!({
+                                "type": "string",
+                            })
+                            .to_string(),
+                            oauth2: None,
+                        }),
+                        ..Default::default()
+                    }))
+                    .await;
+            }
+            Some(Request {
                 validate: Some(validate),
                 ..
             }) => {

@@ -2,22 +2,24 @@ use super::{
     collection, indexed, reference, storage_mapping, walk_transition, Connectors, Error,
     NoOpConnectors, Scope,
 };
+use futures::SinkExt;
 use itertools::Itertools;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
 use std::collections::{BTreeMap, HashMap};
 use tables::EitherOrBoth as EOB;
 
-pub async fn walk_all_materializations(
+pub async fn walk_all_materializations<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     draft_materializations: &tables::DraftMaterializations,
     live_materializations: &tables::LiveMaterializations,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
-    storage_mappings: &tables::StorageMappings,
     dependencies: &tables::Dependencies<'_>,
+    noop_materializations: bool,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
     // Outer join of live and draft materializations.
@@ -44,8 +46,9 @@ pub async fn walk_all_materializations(
                 connectors,
                 data_planes,
                 default_plane_id,
-                storage_mappings,
                 dependencies,
+                noop_materializations,
+                storage_mappings,
                 &mut local_errors,
             )
             .await;
@@ -66,16 +69,17 @@ pub async fn walk_all_materializations(
         .collect()
 }
 
-async fn walk_materialization(
+async fn walk_materialization<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveMaterialization, &tables::DraftMaterialization>,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
-    storage_mappings: &tables::StorageMappings,
     dependencies: &tables::Dependencies<'_>,
+    noop_materializations: bool,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltMaterialization> {
     let (
@@ -128,6 +132,58 @@ async fn walk_materialization(
             serde_json::to_string(config).unwrap(),
         ),
     };
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let data_plane =
+        reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
+
+    // Start an RPC with the task's connector.
+    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
+    let response_rx = if noop_materializations || shard_template.disable {
+        futures::future::Either::Left(NoOpConnectors.materialize(
+            data_plane,
+            materialization,
+            request_rx,
+        ))
+    } else {
+        futures::future::Either::Right(connectors.materialize(
+            data_plane,
+            materialization,
+            request_rx,
+        ))
+    };
+    futures::pin_mut!(response_rx);
+
+    // Send Request.Spec and receive Response.Spec.
+    _ = request_tx
+        .send(
+            materialize::Request {
+                spec: Some(materialize::request::Spec {
+                    connector_type,
+                    config_json: config_json.clone(),
+                }),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
+
+    let materialize::response::Spec {
+        documentation_url: _,
+        config_schema_json: _,
+        resource_config_schema_json: _,
+        resource_path_pointers: _,
+        ..
+    } = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| Ok(response.spec.take()),
+        errors,
+    )
+    .await?;
 
     // We only validate and build enabled bindings, in their declaration order.
     let enabled_bindings: Vec<(usize, &models::MaterializationBinding)> = all_bindings
@@ -161,10 +217,6 @@ async fn walk_materialization(
         errors,
     );
 
-    // Resolve the data-plane for this task. We cannot continue without it.
-    let data_plane =
-        reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
-
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
     if !errors.is_empty() {
@@ -183,32 +235,35 @@ async fn walk_materialization(
             expect_pub_id.to_string()
         },
     };
-    let wrapped_request = materialize::Request {
-        validate: Some(validate_request.clone()),
-        ..Default::default()
-    }
-    .with_internal(|internal| {
-        if let Some(s) = &shard_template.log_level {
-            internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-        }
-    });
 
-    // If shards are disabled, then don't ask the connector to validate.
-    let response = if shard_template.disable {
-        NoOpConnectors.validate_materialization(wrapped_request, data_plane)
-    } else {
-        connectors.validate_materialization(wrapped_request, data_plane)
-    }
-    .await;
+    // Send Request.Validate and receive Response.Validated.
+    _ = request_tx
+        .send(
+            materialize::Request {
+                validate: Some(validate_request.clone()),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
 
-    // Unwrap `response` and bail out if it failed.
-    let (validated_response, network_ports) = match extract_validated(response) {
-        Err(err) => {
-            err.push(scope, errors);
-            return None;
-        }
-        Ok(ok) => ok,
-    };
+    let (validated_response, network_ports) = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| {
+            let network_ports = match response.get_internal() {
+                Ok(internal) => internal.container.unwrap_or_default().network_ports,
+                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
+            };
+            Ok(response.validated.take().map(|v| (v, network_ports)))
+        },
+        errors,
+    )
+    .await?;
 
     let materialize::response::Validated {
         bindings: binding_responses,
@@ -722,36 +777,6 @@ fn walk_materialization_response(
         document,
         field_config_json_map,
     }
-}
-
-fn extract_validated(
-    response: anyhow::Result<materialize::Response>,
-) -> Result<(materialize::response::Validated, Vec<flow::NetworkPort>), Error> {
-    let response = match response {
-        Ok(response) => response,
-        Err(err) => return Err(Error::Connector { detail: err }),
-    };
-
-    let internal = match response.get_internal() {
-        Ok(internal) => internal,
-        Err(err) => {
-            return Err(Error::Connector {
-                detail: anyhow::anyhow!("parsing internal: {err}"),
-            });
-        }
-    };
-
-    let Some(validated) = response.validated else {
-        return Err(Error::Connector {
-            detail: anyhow::anyhow!(
-                "expected Validated but got {}",
-                serde_json::to_string(&response).unwrap()
-            ),
-        });
-    };
-    let network_ports = internal.container.unwrap_or_default().network_ports;
-
-    Ok((validated, network_ports))
 }
 
 // Build a Iterator + Clone over all models::Fields excluded by any

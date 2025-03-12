@@ -30,26 +30,7 @@ pub async fn build_catalog(
     let project_root = url::Url::parse("file:///").unwrap();
     let source = url::Url::parse("file:///flow.json").unwrap();
 
-    // This is a hack to allow us to test publications without actually needing
-    // dial connectors for validate RPCs. The somewhat less hacky way to do this
-    // would be to use `MockConnectors` from
-    // `integration_tests/harness/connectors.rs`, but I'm leaving that for
-    // another day.
-    let connectors = if cfg!(test) {
-        validation::NoOpWrapper {
-            noop_captures: true,
-            noop_derivations: true,
-            noop_materializations: true,
-            inner: crate::ProxyConnectors::new(log_handler),
-        }
-    } else {
-        validation::NoOpWrapper {
-            noop_captures: false,
-            noop_derivations: false,
-            noop_materializations: false,
-            inner: crate::ProxyConnectors::new(log_handler),
-        }
-    };
+    let connectors = crate::ProxyConnectors::new(log_handler);
 
     let built = validation::validate(
         pub_id,
@@ -59,6 +40,11 @@ pub async fn build_catalog(
         &draft,
         &live,
         true, // fail_fast
+        // These are a hack to allow us to test publications without actually
+        // needing to dial connectors for validate RPCs:
+        cfg!(test), // No-op captures.
+        cfg!(test), // No-op derivations.
+        cfg!(test), // No-op materializations.
     )
     .await;
     let output = build::Output { draft, live, built };
