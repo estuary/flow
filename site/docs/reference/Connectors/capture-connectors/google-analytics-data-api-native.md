@@ -52,6 +52,7 @@ The following properties reflect the manual authentication method. If you authen
 | **`/property_id`** | Property ID | A Google Analytics GA4 property identifier whose events are tracked. | string | Required |
 | `/custom_reports` | Custom Reports | A JSON array describing the custom reports you want to sync from Google Analytics. [Learn more about custom reports](#custom-reports).| string |  |
 | `/start_date` | Start Date | The date from which you&#x27;d like to replicate data, in the format YYYY-MM-DDT00:00:00Z. All data generated after this date will be replicated. | string | Defaults to 30 days before the present |
+| `/advanced/lookback_window_size` | Lookback window size | The number of days to lookback from the present for updates. | integer | 30 |
 | `/credentials` | Credentials | Credentials for the service | object |  |
 | `/credentials/credentials_title` | Authentication Method | Set to `OAuth Credentials`. | string | Required |
 | `/credentials/client_id` | OAuth Client ID | The OAuth app's client ID. | string | Required |
@@ -63,7 +64,7 @@ The following properties reflect the manual authentication method. If you authen
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
-| `/interval` | Interval | Interval between data syncs | string |          |
+| `/interval` | Interval | Interval between data syncs | string |    PT30M      |
 
 ### Custom reports
 
@@ -101,10 +102,12 @@ captures:
                 refresh_token: <secret>
             start_date: "2025-02-07T17:00:00Z"
             property_id: "123456789"
+            advanced:
+                lookback_window_size: 30
       bindings:
         - resource:
             name: daily_active_users
-            interval: PT5M
+            interval: PT30M
           target: ${PREFIX}/daily_active_users
 
 ```
