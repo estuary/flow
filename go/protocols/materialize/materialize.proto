@@ -221,6 +221,11 @@ message Response {
       json_name = "configSchema"
     ];
     // JSON schema of the connector's resource configuration.
+    // Schemas must use specific annotations to communicate the expected
+    // locations of injected platform variables:
+    // - `x-collection-name: true`, a string location for a resource name (required).
+    // - `x-schema-name: true`, a string location for a resource schema (optional).
+    // - `x-delta-updates: true`, a boolean location for enabling delta-updates mode (optional).
     string resource_config_schema_json = 3 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "resourceConfigSchema"
@@ -229,13 +234,9 @@ message Response {
     string documentation_url = 4;
     // Optional OAuth2 configuration.
     flow.OAuth2 oauth2 = 5;
-    // One or more JSON pointers, which are used to extract resource paths
-    // from resource configurations of this connector. For example,
-    // a database connector might have a resource config like:
-    //   {"schema": "foo", "table": "bar", "other": "config", "answer": 42}
-    // The connector would specify `resource_path_pointers: ["/schema", "/table"]`,
-    // which would result in a `resource_path` of `["foo", "bar"]`.
-    repeated string resource_path_pointers = 6;
+    // Materializations don't use resource_path_pointers.
+    // Instead, annotations are required of its resource_config_schema_json.
+    reserved 6;
   }
   Spec spec = 1;
 
