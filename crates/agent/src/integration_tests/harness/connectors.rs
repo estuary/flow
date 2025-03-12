@@ -3,7 +3,7 @@ use proto_flow::capture;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-pub type MockDiscover = Result<capture::response::Discovered, String>;
+pub type MockDiscover = Result<(capture::response::Spec, capture::response::Discovered), String>;
 
 #[derive(Clone)]
 pub struct MockDiscoverConnectors {
@@ -28,27 +28,21 @@ impl MockDiscoverConnectors {
 impl DiscoverConnectors for MockDiscoverConnectors {
     async fn discover<'a>(
         &'a self,
-        mut req: capture::Request,
-        _logs_token: uuid::Uuid,
-        task: ops::ShardRef,
         _data_plane: &'a tables::DataPlane,
-    ) -> anyhow::Result<capture::Response> {
-        let Some(discover) = req.discover.take() else {
-            anyhow::bail!("unexpected capture request type: {req:?}")
+        task: &'a models::Capture,
+        _logs_token: uuid::Uuid,
+        mut request: capture::Request,
+    ) -> anyhow::Result<(capture::response::Spec, capture::response::Discovered)> {
+        let Some(discover) = request.discover.take() else {
+            anyhow::bail!("unexpected capture request type: {request:?}")
         };
 
         let locked = self.mocks.lock().unwrap();
-        let capture = models::Capture::new(&task.name);
-        let Some(mock) = locked.get(&capture) else {
-            anyhow::bail!("no mock for capture: {capture}");
+        let Some(mock) = locked.get(task) else {
+            anyhow::bail!("no mock for capture: {task}");
         };
 
         tracing::debug!(req = ?discover, resp = ?mock, "responding with mock discovered response");
-        mock.clone()
-            .map_err(|err_str| anyhow::anyhow!("{err_str}"))
-            .map(|dr| capture::Response {
-                discovered: Some(dr),
-                ..Default::default()
-            })
+        mock.clone().map_err(|err_str| anyhow::anyhow!("{err_str}"))
     }
 }

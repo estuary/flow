@@ -1,21 +1,23 @@
 use super::{
     indexed, reference, storage_mapping, walk_transition, Connectors, Error, NoOpConnectors, Scope,
 };
+use futures::SinkExt;
 use itertools::Itertools;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 use tables::EitherOrBoth as EOB;
 
-pub async fn walk_all_captures(
+pub async fn walk_all_captures<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     draft_captures: &tables::DraftCaptures,
     live_captures: &tables::LiveCaptures,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
-    storage_mappings: &tables::StorageMappings,
     dependencies: &tables::Dependencies<'_>,
+    noop_captures: bool,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
     // Outer join of live and draft captures.
@@ -41,8 +43,9 @@ pub async fn walk_all_captures(
                 connectors,
                 data_planes,
                 default_plane_id,
-                storage_mappings,
                 dependencies,
+                noop_captures,
+                storage_mappings,
                 &mut local_errors,
             )
             .await;
@@ -63,16 +66,17 @@ pub async fn walk_all_captures(
         .collect()
 }
 
-async fn walk_capture(
+async fn walk_capture<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveCapture, &tables::DraftCapture>,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
-    storage_mappings: &tables::StorageMappings,
     dependencies: &tables::Dependencies<'_>,
+    noop_captures: bool,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltCapture> {
     let (
@@ -115,6 +119,50 @@ async fn walk_capture(
             serde_json::to_string(config).unwrap(),
         ),
     };
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let data_plane =
+        reference::walk_data_plane(scope, capture, data_plane_id, data_planes, errors)?;
+
+    // Start an RPC with the task's connector.
+    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
+    let response_rx = if noop_captures || shard_template.disable {
+        futures::future::Either::Left(NoOpConnectors.capture(data_plane, capture, request_rx))
+    } else {
+        futures::future::Either::Right(connectors.capture(data_plane, capture, request_rx))
+    };
+    futures::pin_mut!(response_rx);
+
+    // Send Request.Spec and receive Response.Spec.
+    _ = request_tx
+        .send(
+            capture::Request {
+                spec: Some(capture::request::Spec {
+                    connector_type,
+                    config_json: config_json.clone(),
+                }),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
+
+    let capture::response::Spec {
+        documentation_url: _,
+        config_schema_json: _,
+        resource_config_schema_json: _,
+        resource_path_pointers: _,
+        ..
+    } = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| Ok(response.spec.take()),
+        errors,
+    )
+    .await?;
 
     // We only validate and build enabled bindings, in their declaration order.
     let enabled_bindings: Vec<(usize, &models::CaptureBinding)> = all_bindings
@@ -145,10 +193,6 @@ async fn walk_capture(
         errors,
     );
 
-    // Resolve the data-plane for this task. We cannot continue without it.
-    let data_plane =
-        reference::walk_data_plane(scope, capture, data_plane_id, data_planes, errors)?;
-
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
     if !errors.is_empty() {
@@ -167,32 +211,35 @@ async fn walk_capture(
             expect_pub_id.to_string()
         },
     };
-    let wrapped_request = capture::Request {
-        validate: Some(validate_request.clone()),
-        ..Default::default()
-    }
-    .with_internal(|internal| {
-        if let Some(s) = &shard_template.log_level {
-            internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-        }
-    });
 
-    // If shards are disabled, then don't ask the connector to validate.
-    let response = if shard_template.disable {
-        NoOpConnectors.validate_capture(wrapped_request, data_plane)
-    } else {
-        connectors.validate_capture(wrapped_request, data_plane)
-    }
-    .await;
+    // Send Request.Validate and receive Response.Validated.
+    _ = request_tx
+        .send(
+            capture::Request {
+                validate: Some(validate_request.clone()),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
 
-    // Unwrap `response` and bail out if it failed.
-    let (validated_response, network_ports) = match extract_validated(response) {
-        Err(err) => {
-            err.push(scope, errors);
-            return None;
-        }
-        Ok(ok) => ok,
-    };
+    let (validated_response, network_ports) = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| {
+            let network_ports = match response.get_internal() {
+                Ok(internal) => internal.container.unwrap_or_default().network_ports,
+                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
+            };
+            Ok(response.validated.take().map(|v| (v, network_ports)))
+        },
+        errors,
+    )
+    .await?;
 
     let capture::response::Validated {
         bindings: binding_responses,
@@ -340,34 +387,4 @@ fn walk_capture_binding<'a>(
     };
 
     Some(request)
-}
-
-fn extract_validated(
-    response: anyhow::Result<capture::Response>,
-) -> Result<(capture::response::Validated, Vec<flow::NetworkPort>), Error> {
-    let response = match response {
-        Ok(response) => response,
-        Err(err) => return Err(Error::Connector { detail: err }),
-    };
-
-    let internal = match response.get_internal() {
-        Ok(internal) => internal,
-        Err(err) => {
-            return Err(Error::Connector {
-                detail: anyhow::anyhow!("parsing internal: {err}"),
-            });
-        }
-    };
-
-    let Some(validated) = response.validated else {
-        return Err(Error::Connector {
-            detail: anyhow::anyhow!(
-                "expected Validated but got {}",
-                serde_json::to_string(&response).unwrap()
-            ),
-        });
-    };
-    let network_ports = internal.container.unwrap_or_default().network_ports;
-
-    Ok((validated, network_ports))
 }

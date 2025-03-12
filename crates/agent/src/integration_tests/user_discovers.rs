@@ -1,3 +1,4 @@
+use super::spec_fixture;
 use crate::{
     integration_tests::harness::{draft_catalog, set_of, TestHarness, UserDiscoverResult},
     ControlPlane,
@@ -53,7 +54,7 @@ async fn test_user_discovers() {
             draft_id,
             endpoint_config,
             false,
-            Ok(initial_resp),
+            Ok((spec_fixture(), initial_resp)),
         )
         .await;
     assert!(
@@ -217,7 +218,7 @@ async fn test_user_discovers() {
             draft_id,
             endpoint_config,
             true,
-            Ok(next_discover.clone()),
+            Ok((spec_fixture(), next_discover.clone())),
         )
         .await;
     assert!(result.job_status.is_success());
@@ -292,7 +293,7 @@ async fn test_user_discovers() {
             draft_id,
             endpoint_config,
             true,
-            Ok(next_discover),
+            Ok((spec_fixture(), next_discover)),
         )
         .await;
     assert!(result.job_status.is_success());
