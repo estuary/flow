@@ -2628,9 +2628,6 @@ impl serde::Serialize for response::Spec {
         if self.oauth2.is_some() {
             len += 1;
         }
-        if !self.resource_path_pointers.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Spec", len)?;
         if self.protocol != 0 {
             struct_ser.serialize_field("protocol", &self.protocol)?;
@@ -2646,9 +2643,6 @@ impl serde::Serialize for response::Spec {
         }
         if let Some(v) = self.oauth2.as_ref() {
             struct_ser.serialize_field("oauth2", v)?;
-        }
-        if !self.resource_path_pointers.is_empty() {
-            struct_ser.serialize_field("resourcePathPointers", &self.resource_path_pointers)?;
         }
         struct_ser.end()
     }
@@ -2668,8 +2662,6 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
             "documentation_url",
             "documentationUrl",
             "oauth2",
-            "resource_path_pointers",
-            "resourcePathPointers",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2679,7 +2671,6 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
             ResourceConfigSchemaJson,
             DocumentationUrl,
             Oauth2,
-            ResourcePathPointers,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2706,7 +2697,6 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                             "resourceConfigSchema" | "resource_config_schema_json" => Ok(GeneratedField::ResourceConfigSchemaJson),
                             "documentationUrl" | "documentation_url" => Ok(GeneratedField::DocumentationUrl),
                             "oauth2" => Ok(GeneratedField::Oauth2),
-                            "resourcePathPointers" | "resource_path_pointers" => Ok(GeneratedField::ResourcePathPointers),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2731,7 +2721,6 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                 let mut resource_config_schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut documentation_url__ = None;
                 let mut oauth2__ = None;
-                let mut resource_path_pointers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Protocol => {
@@ -2766,12 +2755,6 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                             }
                             oauth2__ = map_.next_value()?;
                         }
-                        GeneratedField::ResourcePathPointers => {
-                            if resource_path_pointers__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("resourcePathPointers"));
-                            }
-                            resource_path_pointers__ = Some(map_.next_value()?);
-                        }
                     }
                 }
                 Ok(response::Spec {
@@ -2780,7 +2763,6 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                     resource_config_schema_json: resource_config_schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     documentation_url: documentation_url__.unwrap_or_default(),
                     oauth2: oauth2__,
-                    resource_path_pointers: resource_path_pointers__.unwrap_or_default(),
                 })
             }
         }

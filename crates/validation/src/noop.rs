@@ -122,7 +122,6 @@ impl Connectors for NoOpConnectors {
                     () = co
                         .yield_(materialize::Response {
                             spec: Some(materialize::response::Spec {
-                                resource_path_pointers: vec![String::new()],
                                 config_schema_json: "true".to_string(),
                                 resource_config_schema_json: "true".to_string(),
                                 ..Default::default()

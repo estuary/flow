@@ -174,8 +174,7 @@ async fn walk_materialization<C: Connectors>(
     let materialize::response::Spec {
         documentation_url: _,
         config_schema_json: _,
-        resource_config_schema_json: _,
-        resource_path_pointers: _,
+        resource_config_schema_json,
         ..
     } = super::expect_response(
         scope,
@@ -184,6 +183,20 @@ async fn walk_materialization<C: Connectors>(
         errors,
     )
     .await?;
+
+    let _resource_path_pointers =
+        match extract_resource_config_annotations(&resource_config_schema_json) {
+            Ok((resource_path_pointers, _delta_pointer)) => resource_path_pointers,
+            Err(_) if resource_config_schema_json == "true" => Vec::new(), // No-op schema.
+            Err(err) => {
+                Error::Connector {
+                    detail: err
+                        .context("connector Response.Spec resource_config_schema is invalid"),
+                }
+                .push(scope, errors);
+                Vec::new()
+            }
+        };
 
     // We only validate and build enabled bindings, in their declaration order.
     let enabled_bindings: Vec<(usize, &models::MaterializationBinding)> = all_bindings
@@ -801,4 +814,180 @@ fn source_exclusions<'m>(
                 .flatten()
         })
         .flatten()
+}
+
+/// Given a materialization's resource config JSON-schema,
+/// extract pointers to:
+/// - It's annotated resource path pointers.
+/// - It's annotated delta-updates boolean (if present).
+pub fn extract_resource_config_annotations(
+    resource_config_schema_json: &str,
+) -> anyhow::Result<(Vec<doc::Pointer>, Option<doc::Pointer>)> {
+    let schema = doc::validation::build_bundle(resource_config_schema_json)?;
+    let validator = doc::Validator::new(schema)?;
+    let shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
+    let mut collection = None;
+    let mut schema = None;
+    let mut delta = None;
+
+    for (pointer, pattern, shape, exists) in shape.locations() {
+        for (annotation, type_, var, required) in [
+            (
+                "x-collection-name",
+                json::schema::types::STRING,
+                &mut collection,
+                true,
+            ),
+            (
+                "x-schema-name",
+                json::schema::types::STRING,
+                &mut schema,
+                false,
+            ),
+            (
+                "x-delta-updates",
+                json::schema::types::BOOLEAN,
+                &mut delta,
+                false,
+            ),
+        ] {
+            if shape
+                .annotations
+                .get(annotation)
+                .is_some_and(|v| matches!(v, serde_json::Value::Bool(true)))
+            {
+                if pattern {
+                    anyhow::bail!("{annotation} location {pointer} cannot be a pattern");
+                } else if required && !exists.must() {
+                    anyhow::bail!("{annotation} location {pointer} must be required to exist");
+                } else if shape.type_ != type_ {
+                    anyhow::bail!(
+                        "{annotation} location {pointer} has unexpected type {} (expected {type_})",
+                        shape.type_
+                    );
+                } else {
+                    *var = Some(pointer);
+                    break;
+                }
+            }
+        }
+    }
+
+    let resource_path_ptrs = match (collection, schema) {
+        (None, _) => anyhow::bail!("missing required x-collection-name annotation"),
+        (Some(collection_ptr), Some(schema_ptr)) => {
+            vec![schema_ptr, collection_ptr]
+        }
+        (Some(collection_ptr), None) => vec![collection_ptr],
+    };
+
+    Ok((resource_path_ptrs, delta))
+}
+
+#[cfg(test)]
+mod test {
+    use super::extract_resource_config_annotations;
+
+    #[test]
+    fn test_extract_resource_path_pointers() {
+        // All annotations are present and valid.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "schema": {"type": "string", "x-schema-name": true},
+                    "target": {"type": "string", "x-collection-name": true},
+                    "delta": {"type": "boolean", "x-delta-updates": true}
+                },
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            outcome,
+            (
+                vec![
+                    doc::Pointer::from_str("/schema"),
+                    doc::Pointer::from_str("/target")
+                ],
+                Some(doc::Pointer::from_str("/delta")),
+            )
+        );
+
+        // Only collection name is present.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "x-collection-name": true},
+                },
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(outcome, (vec![doc::Pointer::from_str("/target")], None));
+
+        // Missing collection name.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "schema": {"type": "string", "x-schema-name": true},
+                },
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""missing required x-collection-name annotation""###);
+
+        // Schema is a pattern.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "x-collection-name": true},
+                },
+                "additionalProperties": {"type": "string", "x-schema-name": true},
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""x-schema-name location /* cannot be a pattern""###);
+
+        // Collection name not required to exist.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "properties": {
+                    "target": {"type": "string", "x-collection-name": true},
+                },
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""x-collection-name location /target must be required to exist""###);
+
+        // Collection name has wrong type.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": {"type": "number", "x-collection-name": true},
+                },
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""x-collection-name location /target has unexpected type \"number\" (expected \"string\")""###);
+    }
 }
