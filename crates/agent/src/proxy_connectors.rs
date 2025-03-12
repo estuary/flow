@@ -1,7 +1,7 @@
 use crate::logs;
 use anyhow::Context;
-use futures::{FutureExt, TryFutureExt, TryStreamExt};
-use proto_flow::{capture, derive, flow::materialization_spec, materialize};
+use futures::{TryFutureExt, TryStreamExt};
+use proto_flow::{capture, derive, materialize};
 use std::future::Future;
 use uuid::Uuid;
 
@@ -9,11 +9,13 @@ use uuid::Uuid;
 pub trait DiscoverConnectors: Clone + Send + Sync + 'static {
     fn discover<'a>(
         &'a self,
-        req: capture::Request,
-        logs_token: Uuid,
-        task: ops::ShardRef,
         data_plane: &'a tables::DataPlane,
-    ) -> impl Future<Output = anyhow::Result<capture::Response>> + 'a + Send;
+        task: &'a models::Capture,
+        logs_token: Uuid,
+        request: capture::Request,
+    ) -> impl Future<Output = anyhow::Result<(capture::response::Spec, capture::response::Discovered)>>
+           + 'a
+           + Send;
 }
 
 #[derive(Debug, Clone)]
@@ -29,24 +31,60 @@ impl DataPlaneConnectors {
 impl DiscoverConnectors for DataPlaneConnectors {
     async fn discover<'a>(
         &'a self,
-        req: capture::Request,
-        logs_token: Uuid,
-        task: ops::ShardRef,
         data_plane: &'a tables::DataPlane,
-    ) -> anyhow::Result<capture::Response> {
-        assert!(
-            req.discover.is_some(),
-            "expected a discover request, got: {req:?}"
-        );
-        let log_handler = logs::ops_handler(
+        task: &'a models::Capture,
+        logs_token: Uuid,
+        request: capture::Request,
+    ) -> anyhow::Result<(capture::response::Spec, capture::response::Discovered)> {
+        let discover = request
+            .discover
+            .as_ref()
+            .expect("expected a discover request");
+
+        // Start an RPC which requests a Spec followed by a Discover.
+        let request_rx = futures::stream::iter([
+            capture::Request {
+                spec: Some(capture::request::Spec {
+                    connector_type: discover.connector_type,
+                    config_json: discover.config_json.clone(),
+                }),
+                internal: request.internal.clone(), // Use same log level.
+                ..Default::default()
+            },
+            request,
+        ]);
+
+        let proxy = ProxyConnectors::new(logs::ops_handler(
             self.logs_tx.clone(),
-            "unary_capture".to_string(),
+            "discover".to_string(),
             logs_token,
+        ));
+        let response_rx = <ProxyConnectors<_> as validation::Connectors>::capture(
+            &proxy, data_plane, task, request_rx,
         );
-        let proxy = ProxyConnectors::new(log_handler);
-        let resp = proxy.unary_capture(data_plane, task, req).await;
-        tracing::debug!(error = ?resp.as_ref().err(), "finished discover proxy-connector RPC");
-        resp
+        futures::pin_mut!(response_rx);
+
+        let spec = match response_rx.try_next().await? {
+            Some(capture::Response {
+                spec: Some(spec), ..
+            }) => spec,
+            response => anyhow::bail!(
+                "expected connector to send a Response.Spec, but got {}",
+                serde_json::to_string(&response).unwrap()
+            ),
+        };
+        let discovered = match response_rx.try_next().await? {
+            Some(capture::Response {
+                discovered: Some(discovered),
+                ..
+            }) => discovered,
+            response => anyhow::bail!(
+                "expected connector to send a Response.Discovered, but got {}",
+                serde_json::to_string(&response).unwrap()
+            ),
+        };
+
+        Ok((spec, discovered))
     }
 }
 
@@ -55,53 +93,85 @@ pub struct ProxyConnectors<L: runtime::LogHandler> {
 }
 
 impl<L: runtime::LogHandler> validation::Connectors for ProxyConnectors<L> {
-    fn validate_capture<'a>(
+    fn capture<'a, R>(
         &'a self,
-        request: proto_flow::capture::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> futures::future::BoxFuture<'a, anyhow::Result<capture::Response>> {
-        let task = ops::ShardRef {
-            name: request.validate.as_ref().unwrap().name.clone(),
-            kind: ops::TaskType::Capture as i32,
-            ..Default::default()
-        };
-        self.unary_capture(data_plane, task, request).boxed()
+        task: &'a models::Capture,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<capture::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = capture::Request> + Send + Unpin + 'static,
+    {
+        coroutines::try_coroutine(|co| async move {
+            let (channel, metadata, logs) = crate::timeout(
+                DIAL_PROXY_TIMEOUT,
+                self.dial_proxy(data_plane, task.as_str()),
+                || dial_proxy_timeout_msg(data_plane),
+            )
+            .await?;
+
+            let mut client =
+                proto_grpc::capture::connector_client::ConnectorClient::with_interceptor(
+                    channel, metadata,
+                )
+                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+
+            Self::drive_proxy_rpc(co, logs, client.capture(request_rx).await).await
+        })
     }
 
-    fn validate_derivation<'a>(
+    fn derive<'a, R>(
         &'a self,
-        request: derive::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> futures::future::BoxFuture<'a, anyhow::Result<derive::Response>> {
-        let collection = &request.validate.as_ref().unwrap().collection;
-        let task = ops::ShardRef {
-            name: collection.as_ref().unwrap().name.clone(),
-            kind: ops::TaskType::Derivation as i32,
-            ..Default::default()
-        };
-        self.unary_derive(data_plane, task, request).boxed()
+        task: &'a models::Collection,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<derive::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
+    {
+        coroutines::try_coroutine(|co| async move {
+            let (channel, metadata, logs) = crate::timeout(
+                DIAL_PROXY_TIMEOUT,
+                self.dial_proxy(data_plane, task.as_str()),
+                || dial_proxy_timeout_msg(data_plane),
+            )
+            .await?;
+
+            let mut client =
+                proto_grpc::derive::connector_client::ConnectorClient::with_interceptor(
+                    channel, metadata,
+                )
+                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+
+            Self::drive_proxy_rpc(co, logs, client.derive(request_rx).await).await
+        })
     }
 
-    fn validate_materialization<'a>(
+    fn materialize<'a, R>(
         &'a self,
-        request: materialize::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> futures::future::BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        match materialization_spec::ConnectorType::try_from(
-            request.validate.as_ref().unwrap().connector_type,
-        ) {
-            Ok(materialization_spec::ConnectorType::Dekaf) => {
-                dekaf::connector::unary_materialize(request).boxed()
-            }
-            _ => {
-                let task = ops::ShardRef {
-                    name: request.validate.as_ref().unwrap().name.clone(),
-                    kind: ops::TaskType::Materialization as i32,
-                    ..Default::default()
-                };
-                self.unary_materialize(data_plane, task, request).boxed()
-            }
-        }
+        task: &'a models::Materialization,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<materialize::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = materialize::Request> + Send + Unpin + 'static,
+    {
+        coroutines::try_coroutine(|co| async move {
+            let (channel, metadata, logs) = crate::timeout(
+                DIAL_PROXY_TIMEOUT,
+                self.dial_proxy(data_plane, task.as_str()),
+                || dial_proxy_timeout_msg(data_plane),
+            )
+            .await?;
+
+            let mut client =
+                proto_grpc::materialize::connector_client::ConnectorClient::with_interceptor(
+                    channel, metadata,
+                )
+                .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
+
+            Self::drive_proxy_rpc(co, logs, client.materialize(request_rx).await).await
+        })
     }
 }
 
@@ -110,110 +180,10 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         Self { log_handler }
     }
 
-    #[tracing::instrument(
-        skip(self, data_plane, request),
-        fields(data_plane_fqdn = %data_plane.data_plane_fqdn)
-    )]
-    pub(crate) async fn unary_capture(
-        &self,
-        data_plane: &tables::DataPlane,
-        task: ops::ShardRef,
-        request: capture::Request,
-    ) -> anyhow::Result<capture::Response> {
-        let (channel, metadata, logs) = crate::timeout(
-            DIAL_PROXY_TIMEOUT,
-            self.dial_proxy(data_plane, task),
-            || dial_proxy_timeout_msg(data_plane),
-        )
-        .await?;
-
-        let mut client = proto_grpc::capture::connector_client::ConnectorClient::with_interceptor(
-            channel, metadata,
-        )
-        .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
-
-        crate::timeout(
-            *CONNECTOR_TIMEOUT,
-            Self::drive_unary_response(
-                client.capture(futures::stream::once(async move { request })),
-                logs,
-            ),
-            || CONNECTOR_TIMEOUT_MSG,
-        )
-        .await
-    }
-
-    #[tracing::instrument(
-        skip(self, data_plane, request),
-        fields(data_plane_fqdn = %data_plane.data_plane_fqdn)
-    )]
-    pub(crate) async fn unary_derive(
-        &self,
-        data_plane: &tables::DataPlane,
-        task: ops::ShardRef,
-        request: derive::Request,
-    ) -> anyhow::Result<derive::Response> {
-        let (channel, metadata, logs) = crate::timeout(
-            DIAL_PROXY_TIMEOUT,
-            self.dial_proxy(data_plane, task),
-            || dial_proxy_timeout_msg(data_plane),
-        )
-        .await?;
-
-        let mut client = proto_grpc::derive::connector_client::ConnectorClient::with_interceptor(
-            channel, metadata,
-        )
-        .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
-
-        crate::timeout(
-            *CONNECTOR_TIMEOUT,
-            Self::drive_unary_response(
-                client.derive(futures::stream::once(async move { request })),
-                logs,
-            ),
-            || CONNECTOR_TIMEOUT_MSG,
-        )
-        .await
-    }
-
-    #[tracing::instrument(
-        skip(self, data_plane, request),
-        fields(data_plane_fqdn = %data_plane.data_plane_fqdn)
-    )]
-    pub(crate) async fn unary_materialize(
-        &self,
-        data_plane: &tables::DataPlane,
-        task: ops::ShardRef,
-        request: materialize::Request,
-    ) -> anyhow::Result<materialize::Response> {
-        let (channel, metadata, logs) = crate::timeout(
-            DIAL_PROXY_TIMEOUT,
-            self.dial_proxy(data_plane, task),
-            || dial_proxy_timeout_msg(data_plane),
-        )
-        .await?;
-
-        let mut client =
-            proto_grpc::materialize::connector_client::ConnectorClient::with_interceptor(
-                channel, metadata,
-            )
-            .max_decoding_message_size(runtime::MAX_MESSAGE_SIZE);
-
-        crate::timeout(
-            *CONNECTOR_TIMEOUT,
-            Self::drive_unary_response(
-                client.materialize(futures::stream::once(async move { request })),
-                logs,
-            ),
-            || CONNECTOR_TIMEOUT_MSG,
-        )
-        .await
-    }
-
     async fn dial_proxy<'a>(
         &'a self,
         data_plane: &tables::DataPlane,
-        task: ops::ShardRef,
+        task: &str,
     ) -> anyhow::Result<(
         tonic::transport::Channel,
         gazette::Metadata,
@@ -238,7 +208,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
                 *CONNECTOR_TIMEOUT * 2,
                 hmac_keys,
                 Default::default(),
-                &task.name,
+                task,
             )
             .context("failed to sign claims for connector proxy")?;
 
@@ -291,29 +261,34 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
         ))
     }
 
-    async fn drive_unary_response<Response>(
-        response: impl Future<Output = tonic::Result<tonic::Response<tonic::Streaming<Response>>>>,
+    async fn drive_proxy_rpc<Response>(
+        mut co: coroutines::Suspend<Response, ()>,
         (cancel_tx, log_loop): (
             futures::channel::oneshot::Sender<()>,
             impl Future<Output = anyhow::Result<()>>,
         ),
-    ) -> anyhow::Result<Response> {
-        let response = async move {
-            // Drop on exit to gracefully stop the proxy runtime and finish reading logs.
-            let _cancel_tx = cancel_tx;
+        response: Result<tonic::Response<tonic::Streaming<Response>>, tonic::Status>,
+    ) -> anyhow::Result<()> {
+        let mut response_rx = response.map_err(runtime::status_to_anyhow)?.into_inner();
 
-            let mut responses: Vec<Response> = response.await?.into_inner().try_collect().await?;
-            if responses.len() != 1 {
-                return Err(tonic::Status::internal(format!(
-                    "Expected connector to return a single response, but got {}",
-                    responses.len()
-                )));
+        let response_loop = async move {
+            // Drop on EOF to gracefully stop the proxy runtime and finish reading logs.
+            let _guard = cancel_tx;
+
+            while let Some(response) = crate::timeout(
+                *CONNECTOR_TIMEOUT,
+                response_rx.try_next().map_err(runtime::status_to_anyhow),
+                || CONNECTOR_TIMEOUT_MSG,
+            )
+            .await?
+            {
+                () = co.yield_(response).await;
             }
-            Ok(responses.pop().unwrap())
-        }
-        .map_err(runtime::status_to_anyhow);
+            Ok(())
+        };
 
-        futures::try_join!(response, log_loop).map(|(response, ())| response)
+        ((), ()) = futures::try_join!(response_loop, log_loop)?;
+        Ok(())
     }
 }
 

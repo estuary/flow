@@ -4,7 +4,6 @@ use crate::proxy_connectors::DiscoverConnectors;
 
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
-use models::split_image_tag;
 use proto_flow::{capture, flow::capture_spec};
 use sqlx::{types::Uuid, PgPool};
 
@@ -190,14 +189,6 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .and_then(ops::LogLevel::from_str_name)
             .unwrap_or(ops::LogLevel::Info);
 
-        let (image_name, image_tag) = split_image_tag(&connector_cfg.image);
-        let resource_path_pointers =
-            agent_sql::connector_tags::fetch_resource_path_pointers(&image_name, &image_tag, db)
-                .await?;
-        if resource_path_pointers.is_empty() {
-            return Ok(DiscoverOutput::failed(capture_name, anyhow::anyhow!("there are no configured resource_path_pointers for connector '{}', cannot discover", connector_cfg.image)));
-        }
-
         let config_json = serde_json::to_string(connector_cfg).unwrap();
         let request = capture::Request {
             discover: Some(capture::request::Discover {
@@ -209,19 +200,12 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         .with_internal(|internal| {
             internal.set_log_level(log_level);
         });
-
-        let task = ops::ShardRef {
-            name: capture_name.as_str().to_owned(),
-            kind: ops::TaskType::Capture as i32,
-            ..Default::default()
-        };
-
         let result = self
             .connectors
-            .discover(request, logs_token, task, &data_plane)
+            .discover(&data_plane, &capture_name, logs_token, request)
             .await;
 
-        let response = match result {
+        let (spec, discovered) = match result {
             Ok(response) => response,
             Err(err) => {
                 return Ok(DiscoverOutput::failed(capture_name, err));
@@ -233,8 +217,8 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             user_id,
             update_only,
             draft,
-            response,
-            resource_path_pointers,
+            discovered,
+            spec.resource_path_pointers,
             db,
         )
         .await?;
@@ -259,11 +243,11 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         user_id: uuid::Uuid,
         update_only: bool,
         mut draft: tables::DraftCatalog,
-        response: capture::Response,
+        discovered: capture::response::Discovered,
         resource_path_pointers: Vec<String>,
         db: &PgPool,
     ) -> anyhow::Result<DiscoverOutput> {
-        let discovered_bindings = match specs::parse_response(response)
+        let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
         {
             Ok(b) => b,

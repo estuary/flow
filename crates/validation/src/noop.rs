@@ -1,5 +1,5 @@
 use super::Connectors;
-use futures::future::BoxFuture;
+use futures::StreamExt;
 use proto_flow::{capture, derive, materialize};
 use std::collections::BTreeMap;
 
@@ -8,160 +8,178 @@ use std::collections::BTreeMap;
 pub struct NoOpConnectors;
 
 impl Connectors for NoOpConnectors {
-    fn validate_capture<'a>(
+    fn capture<'a, R>(
         &'a self,
-        request: capture::Request,
-        _data_plane: &tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        let capture::Request {
-            validate: Some(mut request),
-            ..
-        } = request
-        else {
-            unreachable!()
-        };
-        use capture::response::{validated::Binding, Validated};
-
-        Box::pin(async move {
-            let bindings = std::mem::take(&mut request.bindings)
-                .into_iter()
-                .enumerate()
-                .map(|(i, _)| Binding {
-                    resource_path: vec![format!("binding-{}", i)],
-                })
-                .collect::<Vec<_>>();
-            Ok(capture::Response {
-                validated: Some(Validated { bindings }),
-                ..Default::default()
-            })
-        })
-    }
-
-    fn validate_derivation<'a>(
-        &'a self,
-        request: derive::Request,
-        _data_plane: &tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        let derive::Request {
-            validate: Some(mut request),
-            ..
-        } = request
-        else {
-            unreachable!()
-        };
-        use derive::response::{validated::Transform, Validated};
-
-        Box::pin(async move {
-            let transforms = std::mem::take(&mut request.transforms)
-                .into_iter()
-                .map(|_| Transform { read_only: false })
-                .collect::<Vec<_>>();
-            Ok(derive::Response {
-                validated: Some(Validated {
-                    transforms,
-                    generated_files: BTreeMap::new(),
-                }),
-                ..Default::default()
-            })
-        })
-    }
-
-    fn validate_materialization<'a>(
-        &'a self,
-        request: materialize::Request,
-        _data_plane: &tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        let materialize::Request {
-            validate: Some(mut request),
-            ..
-        } = request
-        else {
-            unreachable!()
-        };
-        use materialize::response::{
-            validated::{constraint::Type, Binding, Constraint},
-            Validated,
-        };
-
-        Box::pin(async move {
-            let response_bindings = std::mem::take(&mut request.bindings)
-                .into_iter()
-                .enumerate()
-                .map(|(i, b)| {
-                    let resource_path = vec![format!("binding-{}", i)];
-                    let constraints = b
-                        .collection
-                        .expect("collection must exist")
-                        .projections
-                        .into_iter()
-                        .map(|proj| {
-                            (
-                                proj.field,
-                                Constraint {
-                                    r#type: Type::FieldOptional as i32,
-                                    reason: "no-op validator allows everything".to_string(),
-                                },
-                            )
+        _data_plane: &'a tables::DataPlane,
+        _task: &'a models::Capture,
+        mut request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<capture::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = capture::Request> + Send + Unpin + 'static,
+    {
+        coroutines::try_coroutine(|mut co| async move {
+            while let Some(request) = request_rx.next().await {
+                if let Some(_spec) = request.spec {
+                    () = co
+                        .yield_(capture::Response {
+                            spec: Some(capture::response::Spec {
+                                resource_path_pointers: vec![String::new()],
+                                config_schema_json: "true".to_string(),
+                                resource_config_schema_json: "true".to_string(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
                         })
-                        .collect::<BTreeMap<_, _>>();
-                    Binding {
-                        constraints,
-                        resource_path,
-                        delta_updates: true,
-                    }
-                })
-                .collect::<Vec<_>>();
-            Ok(materialize::Response {
-                validated: Some(Validated {
-                    bindings: response_bindings,
-                }),
-                ..Default::default()
-            })
+                        .await;
+                    continue;
+                }
+
+                let Some(mut validate) = request.validate else {
+                    anyhow::bail!("expected Spec or Validate")
+                };
+                use capture::response::{validated::Binding, Validated};
+
+                let bindings = std::mem::take(&mut validate.bindings)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, _)| Binding {
+                        resource_path: vec![format!("binding-{}", i)],
+                    })
+                    .collect::<Vec<_>>();
+
+                () = co
+                    .yield_(capture::Response {
+                        validated: Some(Validated { bindings }),
+                        ..Default::default()
+                    })
+                    .await;
+            }
+            Ok(())
         })
     }
-}
 
-/// NoOpWrapper wraps another Connectors implementation to selectively
-/// enable validations for specific task types.
-pub struct NoOpWrapper<C> {
-    pub noop_captures: bool,
-    pub noop_derivations: bool,
-    pub noop_materializations: bool,
-    pub inner: C,
-}
+    fn derive<'a, R>(
+        &'a self,
+        _data_plane: &'a tables::DataPlane,
+        _task: &'a models::Collection,
+        mut request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<derive::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
+    {
+        coroutines::try_coroutine(|mut co| async move {
+            while let Some(request) = request_rx.next().await {
+                if let Some(_spec) = request.spec {
+                    () = co
+                        .yield_(derive::Response {
+                            spec: Some(derive::response::Spec {
+                                config_schema_json: "true".to_string(),
+                                resource_config_schema_json: "true".to_string(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        })
+                        .await;
+                    continue;
+                }
 
-impl<C: Connectors> Connectors for NoOpWrapper<C> {
-    fn validate_capture<'a>(
-        &'a self,
-        request: capture::Request,
-        data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        if self.noop_captures {
-            NoOpConnectors.validate_capture(request, data_plane)
-        } else {
-            self.inner.validate_capture(request, data_plane)
-        }
+                let Some(mut validate) = request.validate else {
+                    anyhow::bail!("expected Spec or Validate")
+                };
+                use derive::response::{validated::Transform, Validated};
+
+                let transforms = std::mem::take(&mut validate.transforms)
+                    .into_iter()
+                    .map(|_| Transform { read_only: false })
+                    .collect::<Vec<_>>();
+
+                () = co
+                    .yield_(derive::Response {
+                        validated: Some(Validated {
+                            transforms,
+                            generated_files: BTreeMap::new(),
+                        }),
+                        ..Default::default()
+                    })
+                    .await;
+            }
+            Ok(())
+        })
     }
-    fn validate_derivation<'a>(
+
+    fn materialize<'a, R>(
         &'a self,
-        request: derive::Request,
-        data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        if self.noop_derivations {
-            NoOpConnectors.validate_derivation(request, data_plane)
-        } else {
-            self.inner.validate_derivation(request, data_plane)
-        }
-    }
-    fn validate_materialization<'a>(
-        &'a self,
-        request: materialize::Request,
-        data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        if self.noop_materializations {
-            NoOpConnectors.validate_materialization(request, data_plane)
-        } else {
-            self.inner.validate_materialization(request, data_plane)
-        }
+        _data_plane: &'a tables::DataPlane,
+        _task: &'a models::Materialization,
+        mut request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<materialize::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = materialize::Request> + Send + Unpin + 'static,
+    {
+        coroutines::try_coroutine(|mut co| async move {
+            while let Some(request) = request_rx.next().await {
+                if let Some(_spec) = request.spec {
+                    () = co
+                        .yield_(materialize::Response {
+                            spec: Some(materialize::response::Spec {
+                                resource_path_pointers: vec![String::new()],
+                                config_schema_json: "true".to_string(),
+                                resource_config_schema_json: "true".to_string(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        })
+                        .await;
+                    continue;
+                }
+
+                let Some(mut validate) = request.validate else {
+                    anyhow::bail!("expected Spec or Validate")
+                };
+                use materialize::response::{
+                    validated::Binding,
+                    validated::{constraint::Type, Constraint},
+                    Validated,
+                };
+
+                let response_bindings = std::mem::take(&mut validate.bindings)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, b)| {
+                        let resource_path = vec![format!("binding-{}", i)];
+                        let constraints = b
+                            .collection
+                            .expect("collection must exist")
+                            .projections
+                            .into_iter()
+                            .map(|proj| {
+                                (
+                                    proj.field,
+                                    Constraint {
+                                        r#type: Type::FieldOptional as i32,
+                                        reason: "no-op validator allows everything".to_string(),
+                                    },
+                                )
+                            })
+                            .collect::<BTreeMap<_, _>>();
+                        Binding {
+                            constraints,
+                            resource_path,
+                            delta_updates: true,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                () = co
+                    .yield_(materialize::Response {
+                        validated: Some(Validated {
+                            bindings: response_bindings,
+                        }),
+                        ..Default::default()
+                    })
+                    .await;
+            }
+            Ok(())
+        })
     }
 }

@@ -2,6 +2,7 @@ use super::{
     collection, indexed, reference, schema, storage_mapping, Connectors, Error, NoOpConnectors,
     Scope,
 };
+use futures::SinkExt;
 use proto_flow::{
     derive, flow,
     flow::collection_spec::derivation::{ConnectorType, ShuffleType as ProtoShuffleType},
@@ -10,19 +11,20 @@ use proto_flow::{
 use superslice::Ext;
 use tables::EitherOrBoth as EOB;
 
-pub async fn walk_all_derivations(
+pub async fn walk_all_derivations<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     draft_collections: &tables::DraftCollections,
     live_collections: &tables::LiveCollections,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
+    dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
+    noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
-    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> Vec<(
     usize,
@@ -52,10 +54,11 @@ pub async fn walk_all_derivations(
                 connectors,
                 data_planes,
                 default_plane_id,
+                dependencies,
                 imports,
+                noop_derivations,
                 project_root,
                 storage_mappings,
-                dependencies,
                 &mut local_errors,
             )
             .await;
@@ -76,18 +79,19 @@ pub async fn walk_all_derivations(
         .collect()
 }
 
-async fn walk_derivation(
+async fn walk_derivation<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveCollection, &tables::DraftCollection>,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
+    dependencies: &tables::Dependencies<'_>,
     imports: &tables::Imports,
+    noop_derivations: bool,
     project_root: &url::Url,
     storage_mappings: &tables::StorageMappings,
-    dependencies: &tables::Dependencies<'_>,
     errors: &mut tables::Errors,
 ) -> Option<(
     usize,
@@ -208,6 +212,60 @@ async fn walk_derivation(
             serde_json::to_string(config).unwrap(),
         ),
     };
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)
+    else {
+        return None; // Build of underlying collection errored out.
+    };
+    let built_collection = &built_collections[built_index];
+
+    let data_plane = reference::walk_data_plane(
+        scope,
+        &built_collection.collection,
+        built_collection.data_plane_id,
+        data_planes,
+        errors,
+    )?;
+
+    // Start an RPC with the task's connector.
+    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
+    let response_rx = if noop_derivations || shard_template.disable {
+        futures::future::Either::Left(NoOpConnectors.derive(data_plane, collection, request_rx))
+    } else {
+        futures::future::Either::Right(connectors.derive(data_plane, collection, request_rx))
+    };
+    futures::pin_mut!(response_rx);
+
+    // Send Request.Spec and receive Response.Spec.
+    _ = request_tx
+        .send(
+            derive::Request {
+                spec: Some(derive::request::Spec {
+                    connector_type,
+                    config_json: config_json.clone(),
+                }),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
+
+    let derive::response::Spec {
+        documentation_url: _,
+        config_schema_json: _,
+        resource_config_schema_json: _,
+        ..
+    } = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| Ok(response.spec.take()),
+        errors,
+    )
+    .await?;
 
     let scope_transforms = scope.push_prop("transforms");
 
@@ -311,12 +369,6 @@ async fn walk_derivation(
     .map(|type_| type_ as i32)
     .collect();
 
-    let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)
-    else {
-        return None; // Build of underlying collection errored out.
-    };
-    let built_collection = &built_collections[built_index];
-
     // Determine storage mappings for task recovery logs.
     let recovery_stores = storage_mapping::mapped_stores(
         scope,
@@ -325,15 +377,6 @@ async fn walk_derivation(
         storage_mappings,
         errors,
     );
-
-    // Resolve the data-plane for this task. We cannot continue without it.
-    let data_plane = reference::walk_data_plane(
-        scope,
-        &built_collection.collection,
-        built_collection.data_plane_id,
-        data_planes,
-        errors,
-    )?;
 
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
@@ -352,32 +395,35 @@ async fn walk_derivation(
         last_collection: last_collection.cloned(),
         last_version: last_pub_id.map(models::Id::to_string).unwrap_or_default(),
     };
-    let wrapped_request = derive::Request {
-        validate: Some(validate_request),
-        ..Default::default()
-    }
-    .with_internal(|internal| {
-        if let Some(s) = &shard_template.log_level {
-            internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-        }
-    });
 
-    // If shards are disabled, then don't ask the connector to validate.
-    let response = if shard_template.disable {
-        NoOpConnectors.validate_derivation(wrapped_request, data_plane)
-    } else {
-        connectors.validate_derivation(wrapped_request, data_plane)
-    }
-    .await;
+    // Send Request.Validate and receive Response.Validated.
+    _ = request_tx
+        .send(
+            derive::Request {
+                validate: Some(validate_request.clone()),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
 
-    // Unwrap `response` and bail out if it failed.
-    let (validated_response, network_ports) = match extract_validated(response) {
-        Err(err) => {
-            err.push(scope, errors);
-            return None;
-        }
-        Ok(ok) => ok,
-    };
+    let (validated_response, network_ports) = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| {
+            let network_ports = match response.get_internal() {
+                Ok(internal) => internal.container.unwrap_or_default().network_ports,
+                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
+            };
+            Ok(response.validated.take().map(|v| (v, network_ports)))
+        },
+        errors,
+    )
+    .await?;
 
     let derive::response::Validated {
         transforms: transform_responses,
@@ -635,34 +681,4 @@ fn walk_derive_transform<'a>(
     };
 
     Some((request, shuffle_types, source))
-}
-
-fn extract_validated(
-    response: anyhow::Result<derive::Response>,
-) -> Result<(derive::response::Validated, Vec<flow::NetworkPort>), Error> {
-    let response = match response {
-        Ok(response) => response,
-        Err(err) => return Err(Error::Connector { detail: err }),
-    };
-
-    let internal = match response.get_internal() {
-        Ok(internal) => internal,
-        Err(err) => {
-            return Err(Error::Connector {
-                detail: anyhow::anyhow!("parsing internal: {err}"),
-            });
-        }
-    };
-
-    let Some(validated) = response.validated else {
-        return Err(Error::Connector {
-            detail: anyhow::anyhow!(
-                "expected Validated but got {}",
-                serde_json::to_string(&response).unwrap()
-            ),
-        });
-    };
-    let network_ports = internal.container.unwrap_or_default().network_ports;
-
-    Ok((validated, network_ports))
 }

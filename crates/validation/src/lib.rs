@@ -1,4 +1,3 @@
-use futures::future::BoxFuture;
 use sources::Scope;
 use tables::EitherOrBoth as EOB;
 
@@ -15,39 +14,51 @@ mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
-pub use noop::{NoOpConnectors, NoOpWrapper};
+pub use noop::NoOpConnectors;
 
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always
 /// be Validate / Validated variants, but may include `internal` fields.
 pub trait Connectors: Send + Sync {
-    fn validate_capture<'a>(
+    fn capture<'a, R>(
         &'a self,
-        request: proto_flow::capture::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<proto_flow::capture::Response>>;
+        task: &'a models::Capture,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::capture::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = proto_flow::capture::Request> + Send + Unpin + 'static;
 
-    fn validate_derivation<'a>(
+    fn derive<'a, R>(
         &'a self,
-        request: proto_flow::derive::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<proto_flow::derive::Response>>;
+        task: &'a models::Collection,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::derive::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = proto_flow::derive::Request> + Send + Unpin + 'static;
 
-    fn validate_materialization<'a>(
+    fn materialize<'a, R>(
         &'a self,
-        request: proto_flow::materialize::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<proto_flow::materialize::Response>>;
+        task: &'a models::Materialization,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::materialize::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = proto_flow::materialize::Request> + Send + Unpin + 'static;
 }
 
-pub async fn validate(
+pub async fn validate<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     project_root: &url::Url,
-    connectors: &dyn Connectors,
+    connectors: &C,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
     fail_fast: bool,
+    noop_captures: bool,
+    noop_derivations: bool,
+    noop_materializations: bool,
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
@@ -126,8 +137,9 @@ pub async fn validate(
         connectors,
         &live.data_planes,
         default_plane_id,
-        &live.storage_mappings,
         &dependencies,
+        noop_captures,
+        &live.storage_mappings,
         &mut capture_errors,
     );
 
@@ -141,10 +153,11 @@ pub async fn validate(
         connectors,
         &live.data_planes,
         default_plane_id,
+        &dependencies,
         &draft.imports,
+        noop_derivations,
         project_root,
         &live.storage_mappings,
-        &dependencies,
         &mut derive_errors,
     );
 
@@ -158,8 +171,9 @@ pub async fn validate(
         connectors,
         &live.data_planes,
         default_plane_id,
-        &live.storage_mappings,
         &dependencies,
+        noop_materializations,
+        &live.storage_mappings,
         &mut materialize_errors,
     );
 
@@ -560,5 +574,52 @@ fn temporary_cross_data_plane_read_check<'a>(
         ) ;
 
         Error::Connector { detail }.push(scope, errors);
+    }
+}
+
+async fn expect_response<'a, R, E, T>(
+    scope: Scope<'a>,
+    mut response_rx: impl futures::Stream<Item = anyhow::Result<R>> + Unpin,
+    extract: E,
+    errors: &mut tables::Errors,
+) -> Option<T>
+where
+    E: FnOnce(&mut R) -> anyhow::Result<Option<T>>,
+    R: std::fmt::Debug,
+{
+    use futures::StreamExt;
+
+    let response = match response_rx.next().await {
+        Some(response) => response,
+        None => Err(anyhow::anyhow!(
+            "Expected connector to send {}, but read an EOF",
+            std::any::type_name::<R>()
+        )),
+    };
+
+    let mut response = match response {
+        Ok(response) => response,
+        Err(err) => {
+            Error::Connector { detail: err }.push(scope, errors);
+            return None;
+        }
+    };
+
+    match extract(&mut response) {
+        Ok(Some(extracted)) => Some(extracted),
+        Ok(None) => {
+            Error::Connector {
+                detail: anyhow::anyhow!(
+                    "Expected connector to send {}, but read {response:?}",
+                    std::any::type_name::<T>()
+                ),
+            }
+            .push(scope, errors);
+            None
+        }
+        Err(err) => {
+            Error::Connector { detail: err }.push(scope, errors);
+            None
+        }
     }
 }

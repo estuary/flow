@@ -10,14 +10,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use tables::DraftCollection;
 
-pub fn parse_response(response: capture::Response) -> anyhow::Result<Vec<discovered::Binding>> {
-    let capture::Response {
-        discovered: Some(capture::response::Discovered { mut bindings }),
-        ..
-    } = response
-    else {
-        anyhow::bail!("response is not a discovered");
-    };
+pub fn parse_response(
+    discovered: capture::response::Discovered,
+) -> anyhow::Result<Vec<discovered::Binding>> {
+    let capture::response::Discovered { mut bindings } = discovered;
 
     // Sort bindings so they're consistently ordered on their recommended name.
     // This reduces potential churn if an established capture is refreshed.
@@ -415,47 +411,45 @@ mod tests {
 
     #[test]
     fn test_response_parsing() {
-        let response: capture::Response = serde_json::from_value(json!({
-            "discovered": {
-                "bindings": [
-                    {
-                        "recommendedName": "some greetings!",
-                        "resourceConfig": {
-                            "stream": "greetings",
-                            "syncMode": "incremental"
-                        },
-                        "documentSchema": {
-                            "type": "object",
-                            "properties": {
-                                "count": { "type": "integer" },
-                                "message": { "type": "string" }
-                            },
-                            "required": [ "count", "message" ]
-                        },
-                        "key": [ "/count" ]
+        let discovered: capture::response::Discovered = serde_json::from_value(json!({
+            "bindings": [
+                {
+                    "recommendedName": "some greetings!",
+                    "resourceConfig": {
+                        "stream": "greetings",
+                        "syncMode": "incremental"
                     },
-                    {
-                        "recommendedName": "frogs",
-                        "resourceConfig": {
-                            "stream": "greetings",
-                            "syncMode": "incremental"
+                    "documentSchema": {
+                        "type": "object",
+                        "properties": {
+                            "count": { "type": "integer" },
+                            "message": { "type": "string" }
                         },
-                        "documentSchema": {
-                            "type": "object",
-                            "properties": {
-                                "croak": { "type": "string" }
-                            },
-                            "required": [ "croak" ]
+                        "required": [ "count", "message" ]
+                    },
+                    "key": [ "/count" ]
+                },
+                {
+                    "recommendedName": "frogs",
+                    "resourceConfig": {
+                        "stream": "greetings",
+                        "syncMode": "incremental"
+                    },
+                    "documentSchema": {
+                        "type": "object",
+                        "properties": {
+                            "croak": { "type": "string" }
                         },
-                        "key": [ "/croak" ],
-                        "disable": true
-                    }
-                ],
-            }
+                        "required": [ "croak" ]
+                    },
+                    "key": [ "/croak" ],
+                    "disable": true
+                }
+            ]
         }))
         .unwrap();
 
-        let out = super::parse_response(response).unwrap();
+        let out = super::parse_response(discovered).unwrap();
 
         insta::assert_json_snapshot!(json!(out));
     }
