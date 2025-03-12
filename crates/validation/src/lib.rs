@@ -14,6 +14,7 @@ mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
+pub use materialization::extract_resource_config_annotations as extract_materialization_resource_config_annotations;
 pub use noop::NoOpConnectors;
 
 /// Connectors is a delegated trait -- provided to validate -- through which

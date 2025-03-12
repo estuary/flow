@@ -617,7 +617,6 @@ fn ex_materialize_response() -> materialize::Response {
             resource_config_schema_json: json!({"resource": "schema"}).to_string(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
-            resource_path_pointers: vec!["/schema".to_string(), "/table".to_string()],
         }),
         validated: Some(materialize::response::Validated {
             bindings: vec![materialize::response::validated::Binding {
