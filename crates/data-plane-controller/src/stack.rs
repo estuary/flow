@@ -232,6 +232,7 @@ pub struct AnsibleHost {
 pub struct ControlExports {
     pub aws_iam_user_arn: String,
     pub aws_link_endpoints: Vec<serde_json::Value>,
+    pub azure_link_endpoints: Vec<serde_json::Value>,
     pub cidr_blocks: Vec<ipnetwork::IpNetwork>,
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
