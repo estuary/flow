@@ -838,6 +838,7 @@ impl automations::Outcome for Outcome {
         if let Some(stack::ControlExports {
             aws_iam_user_arn,
             aws_link_endpoints,
+            azure_link_endpoints,
             cidr_blocks,
             gcp_service_account_email,
             hmac_keys,
@@ -855,7 +856,8 @@ impl automations::Outcome for Outcome {
                     gcp_service_account_email = $6,
                     hmac_keys = $7,
                     bastion_tunnel_private_key = $8,
-                    azure_application_name = $9
+                    azure_application_name = $9,
+                    azure_link_endpoints = $10
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -867,6 +869,7 @@ impl automations::Outcome for Outcome {
                 &hmac_keys,
                 bastion_tunnel_private_key,
                 azure_application_name,
+                &azure_link_endpoints,
             )
             .execute(&mut *txn)
             .await
