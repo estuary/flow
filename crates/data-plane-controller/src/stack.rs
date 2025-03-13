@@ -105,7 +105,7 @@ pub struct DataPlane {
     pub gcp_project: String,
     pub ssh_subnets: Vec<ipnetwork::IpNetwork>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub private_links: Vec<AWSPrivateLink>,
+    pub private_links: Vec<PrivateLink>,
     pub deployments: Vec<Deployment>,
 }
 
@@ -116,10 +116,23 @@ pub struct AWSAssumeRole {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum PrivateLink {
+    AWS(AWSPrivateLink),
+    Azure(AzurePrivateLink),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AWSPrivateLink {
     pub region: String,
     pub az_ids: Vec<String>,
     pub service_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AzurePrivateLink {
+    pub service_name: String,
+    pub location: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -458,6 +471,37 @@ fn is_false(b: &bool) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::value::Value;
+    use std::collections::HashMap;
+
+    #[test]
+    fn data_plane_parse() {
+        let fixtures =
+            serde_json::from_str::<HashMap<String, Value>>(include_str!("data_plane_fixture.json"))
+                .unwrap();
+
+        assert_eq!(
+            serde_json::from_value::<DataPlane>(fixtures.get("aws_private_link").unwrap().clone())
+                .unwrap()
+                .private_links[0],
+            PrivateLink::AWS(AWSPrivateLink {
+                az_ids: vec!["a".to_string(), "b".to_string()],
+                region: "us-west-2".to_string(),
+                service_name: "service".to_string(),
+            }),
+        );
+        assert_eq!(
+            serde_json::from_value::<DataPlane>(
+                fixtures.get("azure_private_link").unwrap().clone()
+            )
+            .unwrap()
+            .private_links[0],
+            PrivateLink::Azure(AzurePrivateLink {
+                location: "eastus".to_string(),
+                service_name: "service".to_string(),
+            }),
+        );
+    }
 
     #[test]
     fn transition_checks() {

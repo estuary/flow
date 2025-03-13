@@ -1,0 +1,37 @@
+{
+  "aws_private_link": {
+    "builds_root": "gs://estuary-control/builds/",
+    "deployments": [],
+    "gcp_project": "testing-ground-123456",
+    "ssh_subnets": [],
+    "data_buckets": ["gs://estuary-trial", "gs://estuary-flow-poc"],
+    "builds_kms_keys": [
+      "projects/testing-ground-123456/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
+    ],
+    "private_links": [
+      {
+        "az_ids": ["a", "b"],
+        "region": "us-west-2",
+        "service_name": "service"
+      }
+    ],
+    "control_plane_api": "https://agent-api.app/"
+  },
+  "azure_private_link": {
+    "builds_root": "gs://estuary-control/builds/",
+    "deployments": [],
+    "gcp_project": "testing-ground-123456",
+    "ssh_subnets": [],
+    "data_buckets": ["gs://estuary-trial", "gs://estuary-flow-poc"],
+    "builds_kms_keys": [
+      "projects/testing-ground-123456/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
+    ],
+    "private_links": [
+      {
+        "service_name": "service",
+        "location": "eastus"
+      }
+    ],
+    "control_plane_api": "https://agent-api.app/"
+  }
+}
