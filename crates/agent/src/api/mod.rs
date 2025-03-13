@@ -62,7 +62,7 @@ impl App {
         claims: &ControlClaims,
         catalog_names: &[impl AsRef<str>],
         capability: Capability,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, crate::api::ApiError> {
         let started_unix = jsonwebtoken::get_current_timestamp();
         loop {
             match Snapshot::evaluate(&self.snapshot, started_unix, |snapshot: &Snapshot| {
@@ -214,22 +214,6 @@ impl axum::response::IntoResponse for Rejection {
                 (StatusCode::BAD_REQUEST, message).into_response()
             }
             Rejection::JsonError(inner) => inner.into_response(),
-        }
-    }
-}
-
-// TODO(johnny): Helper for more ergonomic errors.
-// I'm near-certain there's a cleaner way to do this, but haven't found it yet.
-async fn wrap<F, T>(fut: F) -> axum::response::Response
-where
-    T: serde::Serialize,
-    F: std::future::Future<Output = anyhow::Result<T>>,
-{
-    match fut.await {
-        Ok(inner) => (StatusCode::OK, axum::Json::from(inner)).into_response(),
-        Err(err) => {
-            let err = format!("{err:#}");
-            (StatusCode::BAD_REQUEST, err).into_response()
         }
     }
 }

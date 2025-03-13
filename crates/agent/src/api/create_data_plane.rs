@@ -1,9 +1,10 @@
+use super::App;
+use crate::api::error::ApiErrorExt;
 use crate::publications::{
     DoNotRetry, DraftPublication, NoExpansion, NoopWithCommit, PruneUnboundCollections,
 };
-
-use super::App;
 use anyhow::Context;
+use axum::http::StatusCode;
 use std::sync::Arc;
 use validator::Validate;
 
@@ -48,30 +49,34 @@ pub struct Request {
 #[serde(rename_all = "camelCase")]
 pub struct Response {}
 
+#[axum::debug_handler]
 #[tracing::instrument(
-    skip(pg_pool, publisher),
+    skip(app),
     ret,
     err(level = tracing::Level::WARN),
 )]
-async fn do_create_data_plane(
-    App {
-        pg_pool, publisher, ..
-    }: &App,
-    super::ControlClaims { sub: user_id, .. }: super::ControlClaims,
-    Request {
+pub async fn create_data_plane(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::Extension(super::ControlClaims { sub: user_id, .. }): axum::Extension<
+        super::ControlClaims,
+    >,
+    super::Request(Request {
         name,
         private,
         category,
-    }: Request,
-) -> anyhow::Result<Response> {
+    }): super::Request<Request>,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
     if let None = sqlx::query!(
         "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
         user_id,
     )
-    .fetch_optional(pg_pool)
+    .fetch_optional(&app.pg_pool)
     .await?
     {
-        anyhow::bail!("authenticated user is not an admin of the 'ops/' tenant");
+        return Err(
+            anyhow::anyhow!("authenticated user is not an admin of the 'ops/' tenant")
+                .with_status(StatusCode::FORBIDDEN),
+        );
     }
 
     let (data_plane_fqdn, base_name, pulumi_stack) = match &private {
@@ -138,7 +143,7 @@ async fn do_create_data_plane(
             "#,
             &prefix as &str,
         )
-        .execute(pg_pool)
+        .execute(&app.pg_pool)
         .await?;
     }
 
@@ -188,7 +193,7 @@ async fn do_create_data_plane(
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
     )
-    .fetch_one(pg_pool)
+    .fetch_one(&app.pg_pool)
     .await?;
 
     // Install ops logs and stats collections, as well as L1 roll-ups.
@@ -214,7 +219,8 @@ async fn do_create_data_plane(
         retry: DoNotRetry,
         with_commit: NoopWithCommit,
     };
-    let result = publisher
+    let result = app
+        .publisher
         .publish(publication)
         .await
         .context("publishing ops catalog")?;
@@ -236,16 +242,7 @@ async fn do_create_data_plane(
         "data-plane created"
     );
 
-    Ok(Response {})
-}
-
-#[axum::debug_handler]
-pub async fn create_data_plane(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(claims): axum::Extension<super::ControlClaims>,
-    super::Request(request): super::Request<Request>,
-) -> axum::response::Response {
-    super::wrap(async move { do_create_data_plane(&app, claims, request).await }).await
+    Ok(axum::Json(Response {}))
 }
 
 impl Validate for Category {

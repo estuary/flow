@@ -71,12 +71,13 @@ impl super::RoleGrant {
     /// Given a role or name, determine if it's authorized to the object name for the given capability.
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
-        role_or_name: &'a str,
-        object_name: &'a str,
+        subject_role_or_name: &'a str,
+        object_role_or_name: &'a str,
         capability: models::Capability,
     ) -> bool {
-        Self::transitive_roles(role_grants, role_or_name).any(|role_grant| {
-            object_name.starts_with(role_grant.object_role) && role_grant.capability >= capability
+        Self::transitive_roles(role_grants, subject_role_or_name).any(|role_grant| {
+            object_role_or_name.starts_with(role_grant.object_role)
+                && role_grant.capability >= capability
         })
     }
 
@@ -111,12 +112,13 @@ impl super::UserGrant {
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
-        user_id: uuid::Uuid,
-        object_name: &'a str,
+        subject_user_id: uuid::Uuid,
+        object_role_or_name: &'a str,
         capability: models::Capability,
     ) -> bool {
-        Self::transitive_roles(role_grants, user_grants, user_id).any(|role_grant| {
-            object_name.starts_with(role_grant.object_role) && role_grant.capability >= capability
+        Self::transitive_roles(role_grants, user_grants, subject_user_id).any(|role_grant| {
+            object_role_or_name.starts_with(role_grant.object_role)
+                && role_grant.capability >= capability
         })
     }
 
@@ -315,14 +317,14 @@ mod test {
         ));
         assert!(RoleGrant::is_authorized(
             &role_grants,
-            "daveCo/hidden/thing",
-            "carolCo/even/more/hidden/thing",
+            "daveCo/hidden/",
+            "carolCo/even/more/hidden/",
             Read
         ));
         assert!(!RoleGrant::is_authorized(
             &role_grants,
             "daveCo/hidden/thing",
-            "carolCo/even/more/hidden/thing",
+            "carolCo/even/more/hidden/",
             Write
         ));
 

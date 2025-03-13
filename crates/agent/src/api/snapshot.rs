@@ -13,6 +13,8 @@ pub struct Snapshot {
     pub collections_idx_name: Vec<usize>,
     // Platform data-planes.
     pub data_planes: tables::DataPlanes,
+    // Indices of `data_planes`, indexed on `data_plane_fqdn`.
+    pub data_planes_idx_fqdn: Vec<usize>,
     // Platform role grants.
     pub role_grants: tables::RoleGrants,
     // Platform user grants.
@@ -54,9 +56,9 @@ impl Snapshot {
         mu: &std::sync::RwLock<Self>,
         iat: u64,
         policy: P,
-    ) -> Result<Ok, Result<u64, anyhow::Error>>
+    ) -> Result<Ok, Result<u64, crate::api::ApiError>>
     where
-        P: FnOnce(&Self) -> anyhow::Result<Ok>,
+        P: FnOnce(&Self) -> Result<Ok, crate::api::ApiError>,
     {
         let guard = mu.read().unwrap();
 
@@ -119,6 +121,37 @@ impl Snapshot {
             })
     }
 
+    pub fn verify_data_plane_token<'s>(
+        &'s self,
+        iss_fqdn: &str,
+        token: &str,
+    ) -> Result<Option<&'s tables::DataPlane>, jsonwebtoken::errors::Error> {
+        let data_plane = self
+            .data_planes_idx_fqdn
+            .binary_search_by(|i| self.data_planes[*i].data_plane_fqdn.as_str().cmp(iss_fqdn))
+            .ok()
+            .map(|index| {
+                let data_plane = &self.data_planes[self.data_planes_idx_fqdn[index]];
+                assert_eq!(data_plane.data_plane_fqdn, iss_fqdn);
+                data_plane
+            });
+
+        let Some(data_plane) = data_plane else {
+            return Ok(None);
+        };
+
+        let validation = jsonwebtoken::Validation::default();
+
+        for hmac_key in &data_plane.hmac_keys {
+            let key = jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)?;
+
+            if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
+                return Ok(Some(data_plane));
+            }
+        }
+        Ok(None)
+    }
+
     fn begin_refresh<'m>(
         guard: std::sync::RwLockReadGuard<'_, Self>,
         mu: &'m std::sync::RwLock<Self>,
@@ -144,6 +177,7 @@ pub fn seed() -> (Snapshot, futures::channel::oneshot::Receiver<()>) {
             collections: Vec::new(),
             collections_idx_name: Vec::new(),
             data_planes: tables::DataPlanes::default(),
+            data_planes_idx_fqdn: Vec::new(),
             role_grants: tables::RoleGrants::default(),
             user_grants: tables::UserGrants::default(),
             tasks: Vec::new(),
@@ -153,6 +187,7 @@ pub fn seed() -> (Snapshot, futures::channel::oneshot::Receiver<()>) {
         next_rx,
     )
 }
+
 pub async fn fetch_loop(app: Arc<App>, mut refresh_rx: futures::channel::oneshot::Receiver<()>) {
     while let Ok(()) = refresh_rx.await {
         let (next_tx, next_rx) = futures::channel::oneshot::channel();
@@ -273,12 +308,19 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
     collections.sort_by(|c1, c2| c1.journal_template_name.cmp(&c2.journal_template_name));
 
     let mut collections_idx_name = Vec::from_iter(0..collections.len());
+    let mut data_planes_idx_fqdn = Vec::from_iter(0..data_planes.len());
+    let mut tasks_idx_name = Vec::from_iter(0..tasks.len());
+
     collections_idx_name.sort_by(|i1, i2| {
         collections[*i1]
             .collection_name
             .cmp(&collections[*i2].collection_name)
     });
-    let mut tasks_idx_name = Vec::from_iter(0..tasks.len());
+    data_planes_idx_fqdn.sort_by(|i1, i2| {
+        data_planes[*i1]
+            .data_plane_fqdn
+            .cmp(&data_planes[*i2].data_plane_fqdn)
+    });
     tasks_idx_name.sort_by(|i1, i2| tasks[*i1].task_name.cmp(&tasks[*i2].task_name));
 
     tracing::info!(
@@ -295,6 +337,7 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
         collections,
         collections_idx_name,
         data_planes,
+        data_planes_idx_fqdn,
         role_grants,
         user_grants,
         tasks,
