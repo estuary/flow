@@ -1,0 +1,31 @@
+collections:
+  test/collection:
+    schema:
+      type: object
+      properties:
+        id:
+          type: integer
+        hyphenated-field:
+          type: string
+      required:
+        - id
+    key:
+      - /id
+
+materializations:
+  test/materialization:
+    endpoint:
+      dekaf:
+        variant: foo
+        config:
+          deletions: kafka
+          token: "1234"
+          strict_topic_names: false
+    bindings:
+      - source: test/collection
+        resource:
+          topic_name: foo
+        fields:
+          include:
+            hyphenated-field: {}
+          recommended: true

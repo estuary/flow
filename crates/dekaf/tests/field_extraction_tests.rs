@@ -17,7 +17,9 @@ async fn get_extraction_components(
     let build::Output { built, .. } = managed_build(source).await;
 
     if !built.errors.is_empty() {
-        anyhow::bail!("Build errors: {:?}", built.errors);
+        // Remove the error scope to avoid including file path components that break the snapshot
+        let errors = built.errors.into_iter().map(|err| err.error).join(", ");
+        anyhow::bail!(errors);
     }
 
     let materialization = built
@@ -280,6 +282,19 @@ async fn test_old_style_deletions() -> anyhow::Result<()> {
     for (idx, doc) in decoded.into_iter().enumerate() {
         insta::assert_debug_snapshot!(format!("old-deletions-{}", idx), doc?);
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fields_with_hyphens() -> anyhow::Result<()> {
+    let fixture_path = "tests/fixtures/fields_with_hyphens.yaml".to_string();
+    let docs = vec![json!({
+        "id": 1234,
+        "hyphenated-field": "test value",
+    })];
+
+    insta::assert_debug_snapshot!(roundtrip(fixture_path, docs).await);
 
     Ok(())
 }

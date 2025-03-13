@@ -253,7 +253,7 @@ fn location_to_name(loc: json::Location) -> avro::Name {
 
 lazy_static::lazy_static! {
     // The set of allowed characters in an AVRO field name.
-    static ref AVRO_FIELD_RE : regex::Regex = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
+    pub static ref AVRO_FIELD_RE : regex::Regex = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
 }
 
 #[cfg(test)]
