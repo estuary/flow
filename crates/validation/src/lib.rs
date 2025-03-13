@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use sources::Scope;
 use tables::EitherOrBoth as EOB;
 
@@ -85,6 +86,7 @@ pub async fn validate<C: Connectors>(
         build_id,
         default_plane_id,
         &draft.collections,
+        &live.inferred_schemas,
         &live.collections,
         &live.storage_mappings,
         &mut errors,
@@ -187,8 +189,9 @@ pub async fn validate<C: Connectors>(
     errors.extend(materialize_errors.into_iter());
 
     // Attach all built derivations to the corresponding collections.
-    for (built_index, validated, derivation, dependency_hash) in built_derivations {
+    for (built_index, model, validated, derivation, dependency_hash) in built_derivations {
         let row = &mut built_collections[built_index];
+        row.model.as_mut().unwrap().derive = Some(model);
         row.validated = Some(validated);
         row.spec.as_mut().unwrap().derivation = Some(derivation);
         row.dependency_hash = dependency_hash;
@@ -240,7 +243,7 @@ fn walk_transition<'a, D, L, B>(
     (
         &'a D::Key,               // Catalog name.
         &'a url::Url,             // Scope.
-        &'a D::ModelDef,          // Model to validate.
+        D::ModelDef,              // Model to validate.
         models::Id,               // Live control-plane ID.
         models::Id,               // Assigned data-plane.
         models::Id,               // Live publication ID.
@@ -312,7 +315,7 @@ where
                 Some(model) => Ok((
                     draft.catalog_name(),
                     draft.scope(),
-                    model,
+                    model.clone(),
                     models::Id::zero(), // Has no control-plane ID.
                     default_plane_id,   // Assign default data-plane.
                     models::Id::zero(), // Never published.
@@ -385,7 +388,7 @@ where
                     Ok((
                         draft.catalog_name(),
                         draft.scope(),
-                        model,
+                        model.clone(),
                         live.control_id(),
                         live.data_plane_id(),
                         live.last_pub_id(),
@@ -575,6 +578,62 @@ fn temporary_cross_data_plane_read_check<'a>(
         ) ;
 
         Error::Connector { detail }.push(scope, errors);
+    }
+}
+
+/// Extracts the value of each of the given `resource_path_pointers` and encodes
+/// them into a `ResourcePath`. Each pointed-to location must be either a string
+/// value, null, or undefined. Null and undefined values are not included in
+/// the resulting path, and are thus treated as equivalent.
+///
+/// Resource path values other than strings will result in an Err having
+/// the failing doc::Pointer.
+pub fn extract_resource_path<'p>(
+    resource_path_pointers: &'p [doc::Pointer],
+    resource: &models::RawValue,
+) -> Result<models::ResourcePath, &'p doc::Pointer> {
+    let resource_config = resource.to_value();
+    let mut path = Vec::new();
+
+    for pointer in resource_path_pointers {
+        match pointer.query(&resource_config) {
+            None | Some(serde_json::Value::Null) => {
+                continue;
+            }
+            Some(serde_json::Value::String(s)) => path.push(s.clone()),
+            Some(_) => return Err(pointer),
+        }
+    }
+    Ok(path)
+}
+
+fn validate_resource_paths<'a>(
+    scope: Scope<'a>,
+    entity: &'static str,
+    catalog_name: &'a str,
+    mut bindings_index: Vec<(usize, usize)>,
+    resource_path: impl Fn(usize) -> &'a [String],
+    errors: &mut tables::Errors,
+) {
+    bindings_index.sort_by_key(|(i, _)| resource_path(*i));
+
+    for ((l_i, l_model), (r_i, r_model)) in bindings_index.into_iter().tuple_windows() {
+        if resource_path(l_i) != resource_path(r_i) {
+            continue;
+        }
+        let scope = scope.push_prop("bindings");
+        let lhs_scope = scope.push_item(l_model);
+        let rhs_scope = scope.push_item(r_model).flatten();
+
+        Error::BindingDuplicatesResource {
+            entity,
+            name: catalog_name.to_string(),
+            resource: resource_path(l_i).iter().join("."),
+            rhs_scope,
+        }
+        .push(lhs_scope, errors);
+
+        // TODO extract implied resource path from model and verify it matches!
     }
 }
 

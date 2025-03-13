@@ -28,6 +28,7 @@ pub async fn walk_all_derivations<C: Connectors>(
     errors: &mut tables::Errors,
 ) -> Vec<(
     usize,
+    models::Derivation,
     derive::response::Validated,
     flow::collection_spec::Derivation,
     Option<String>,
@@ -95,6 +96,7 @@ async fn walk_derivation<C: Connectors>(
     errors: &mut tables::Errors,
 ) -> Option<(
     usize,
+    models::Derivation,
     derive::response::Validated,
     flow::collection_spec::Derivation,
     Option<String>,
@@ -116,7 +118,7 @@ async fn walk_derivation<C: Connectors>(
             }) => (
                 collection,
                 scope,
-                model,
+                model.clone(),
                 default_plane_id.unwrap_or(models::Id::zero()),
                 None,
                 None,
@@ -145,7 +147,7 @@ async fn walk_derivation<C: Connectors>(
             ) => (
                 collection,
                 scope,
-                model,
+                model.clone(),
                 *data_plane_id,
                 spec.derivation.is_some().then_some(last_pub_id),
                 spec.derivation.is_some().then_some(spec),
@@ -188,13 +190,13 @@ async fn walk_derivation<C: Connectors>(
 
     let models::Derivation {
         using,
-        transforms: all_transforms,
-        shuffle_key_types: given_shuffle_types,
-        shards: shard_template,
+        transforms: transforms_model,
+        shuffle_key_types: shuffle_key_types_model,
+        shards,
     } = model;
 
     // Unwrap `using` into a connector type and configuration.
-    let (connector_type, config_json) = match using {
+    let (connector_type, config_json) = match &using {
         models::DeriveUsing::Connector(config) => (
             ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
@@ -229,7 +231,7 @@ async fn walk_derivation<C: Connectors>(
 
     // Start an RPC with the task's connector.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
-    let response_rx = if noop_derivations || shard_template.disable {
+    let response_rx = if noop_derivations || shards.disable {
         futures::future::Either::Left(NoOpConnectors.derive(data_plane, collection, request_rx))
     } else {
         futures::future::Either::Right(connectors.derive(data_plane, collection, request_rx))
@@ -247,7 +249,7 @@ async fn walk_derivation<C: Connectors>(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &shard_template.log_level {
+                if let Some(s) = &shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             }),
@@ -267,63 +269,54 @@ async fn walk_derivation<C: Connectors>(
     )
     .await?;
 
+    // Map enumerated transform models into paired validation requests.
     let scope_transforms = scope.push_prop("transforms");
+    let transforms_model_len = transforms_model.len();
 
-    // We only validate and build enabled transforms, in their declaration order.
-    let enabled_transforms: Vec<(usize, &models::TransformDef)> = all_transforms
-        .iter()
+    let transforms: Vec<(usize, models::TransformDef, Option<ValidateContext>)> = transforms_model
+        .into_iter()
         .enumerate()
-        .filter_map(|(index, transform)| (!transform.disable).then_some((index, transform)))
-        .collect();
-
-    // Map transforms into validation requests.
-    let mut disable_wait_for_ack = false;
-    let mut inferred_shuffle_types = Vec::new();
-
-    let transform_requests: Vec<_> = enabled_transforms
-        .iter()
-        .filter_map(|(transform_index, transform)| {
-            let Some((request, types, source)) = walk_derive_transform(
-                scope_transforms.push_item(*transform_index),
+        .filter_map(|(index, transform)| {
+            let (model, validate) = walk_derive_transform(
+                scope_transforms.push_item(index),
                 transform,
+                collection,
                 built_collections,
                 data_plane_id,
                 errors,
-            ) else {
-                return None;
-            };
-            // If this derivation reads from itself, we must disable the "wait for ack"
-            // optimization so that we don't hold open transactions waiting for our
-            // own ack that cannot come.
-            if &source.collection == collection {
-                disable_wait_for_ack = true;
-            }
-            if !types.is_empty() {
-                inferred_shuffle_types.push((*transform_index, types));
-            }
-            Some(request)
+            )?;
+            Some((index, model, validate))
         })
         .collect();
 
     // Error if transform names are duplicated.
     indexed::walk_duplicates(
-        all_transforms
-            .iter()
-            .enumerate()
-            .map(|(transform_index, transform)| {
-                (
-                    "transform",
-                    transform.name.as_str(),
-                    scope_transforms.push_item(transform_index),
-                )
-            }),
+        transforms.iter().map(|(index, model, _validate)| {
+            (
+                "transform",
+                model.name.as_str(),
+                scope_transforms.push_item(*index),
+            )
+        }),
         errors,
     );
 
+    // Select out non-empty inferred shuffle types of each transformation.
+    let mut inferred_shuffle_types: Vec<(usize, &models::Transform, &Vec<_>)> = transforms
+        .iter()
+        .filter_map(|(index, model, validate)| {
+            let validate = validate.as_ref()?;
+            if !validate.inferred_shuffle_types.is_empty() {
+                return Some((*index, &model.name, &validate.inferred_shuffle_types));
+            }
+            None
+        })
+        .collect();
+
     // Verify that shuffle key types & lengths align.
-    let shuffle_key_types: Vec<i32> = if !given_shuffle_types.is_empty() {
+    let shuffle_key_types_spec: Vec<i32> = if !shuffle_key_types_model.is_empty() {
         // Map user-provided shuffle types from the `models` domain to `proto_flow`.
-        let given_shuffle_types = given_shuffle_types
+        let expect_types = shuffle_key_types_model
             .iter()
             .map(|t| match t {
                 models::ShuffleType::Boolean => ProtoShuffleType::Boolean,
@@ -332,34 +325,35 @@ async fn walk_derivation<C: Connectors>(
             })
             .collect::<Vec<_>>();
 
-        for (transform_index, types) in inferred_shuffle_types {
-            if types != given_shuffle_types {
+        // Require that `expect_types` matches every transform with inferred shuffle types.
+        for (index, name, types) in inferred_shuffle_types {
+            if types != &expect_types {
                 Error::ShuffleKeyExplicitMismatch {
-                    name: all_transforms[transform_index].name.to_string(),
+                    name: name.to_string(),
                     types: types.clone(),
-                    given_types: given_shuffle_types.clone(),
+                    given_types: expect_types.clone(),
                 }
-                .push(scope_transforms.push_item(transform_index), errors);
+                .push(scope_transforms.push_item(index), errors);
             }
         }
-        given_shuffle_types
-    } else if let Some((transform_index, types)) = inferred_shuffle_types.pop() {
-        for (r_ind, r_types) in inferred_shuffle_types {
-            if types != r_types {
+        expect_types
+    } else if let Some((lhs_ind, lhs_name, lhs_types)) = inferred_shuffle_types.pop() {
+        for (_rhs_ind, rhs_name, rhs_types) in inferred_shuffle_types {
+            if lhs_types != rhs_types {
                 Error::ShuffleKeyImplicitMismatch {
-                    lhs_name: all_transforms[transform_index].name.to_string(),
-                    lhs_types: types.clone(),
-                    rhs_name: all_transforms[r_ind].name.to_string(),
-                    rhs_types: r_types.clone(),
+                    lhs_name: lhs_name.to_string(),
+                    lhs_types: lhs_types.clone(),
+                    rhs_name: rhs_name.to_string(),
+                    rhs_types: rhs_types.clone(),
                 }
-                .push(scope_transforms.push_item(transform_index), errors);
+                .push(scope_transforms.push_item(lhs_ind), errors);
             }
         }
-        types.clone()
+        lhs_types.clone()
     } else {
-        if all_transforms
+        if transforms
             .iter()
-            .any(|transform| matches!(transform.shuffle, models::Shuffle::Lambda(_)))
+            .any(|(_index, model, _validate)| matches!(model.shuffle, models::Shuffle::Lambda(_)))
         {
             Error::ShuffleKeyCannotInfer {}.push(scope, errors);
         }
@@ -368,6 +362,12 @@ async fn walk_derivation<C: Connectors>(
     .into_iter()
     .map(|type_| type_ as i32)
     .collect();
+
+    let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)
+    else {
+        return None; // Build of underlying collection errored out.
+    };
+    let built_collection = &built_collections[built_index];
 
     // Determine storage mappings for task recovery logs.
     let recovery_stores = storage_mapping::mapped_stores(
@@ -384,12 +384,24 @@ async fn walk_derivation<C: Connectors>(
         return None;
     }
 
+    let transforms_validate: Vec<_> = transforms
+        .iter()
+        .filter_map(|(_index, _model, validate)| {
+            if let Some(validate) = validate {
+                Some(validate.validate.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let transforms_validate_len = transforms_validate.len();
+
     let validate_request = derive::request::Validate {
         connector_type,
         config_json: config_json.clone(),
         collection: built_collection.spec.clone(),
-        transforms: transform_requests.clone(),
-        shuffle_key_types: shuffle_key_types.iter().map(|t| *t as i32).collect(),
+        transforms: transforms_validate,
+        shuffle_key_types: shuffle_key_types_spec.iter().map(|t| *t as i32).collect(),
         project_root: project_root.to_string(),
         import_map,
         last_collection: last_collection.cloned(),
@@ -404,7 +416,7 @@ async fn walk_derivation<C: Connectors>(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &shard_template.log_level {
+                if let Some(s) = &shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             }),
@@ -426,14 +438,14 @@ async fn walk_derivation<C: Connectors>(
     .await?;
 
     let derive::response::Validated {
-        transforms: transform_responses,
+        transforms: transforms_validated,
         generated_files,
     } = &validated_response;
 
-    if enabled_transforms.len() != transform_responses.len() {
+    if transforms_validate_len != transforms_validated.len() {
         Error::WrongConnectorBindings {
-            expect: enabled_transforms.len(),
-            got: transform_responses.len(),
+            expect: transforms_validate_len,
+            got: transforms_validated.len(),
         }
         .push(scope, errors);
     }
@@ -449,23 +461,45 @@ async fn walk_derivation<C: Connectors>(
         }
     }
 
-    // Jointly walk transform models, validate requests, and validated responses to produce built transforms.
-    let mut built_transforms = Vec::new();
+    // Join transform models and their Validate requests with their Validated responses.
+    let transforms = transforms.into_iter().scan(
+        transforms_validated.into_iter(),
+        |validated, (index, model, validate)| {
+            if let Some(validate) = validate {
+                validated
+                    .next()
+                    .map(|validated| (index, model, Some((validate, validated))))
+            } else {
+                Some((index, model, None))
+            }
+        },
+    );
 
-    for ((_index, model), (request, response)) in enabled_transforms.iter().zip(
-        transform_requests
-            .into_iter()
-            .zip(transform_responses.into_iter()),
-    ) {
-        let derive::request::validate::Transform {
-            name: transform_name,
-            collection: source_collection,
-            shuffle_lambda_config_json,
-            lambda_config_json,
-            backfill,
-        } = request;
+    let mut disable_wait_for_ack = false;
+    let mut transforms_model = Vec::with_capacity(transforms_model_len);
+    let mut transforms_spec = Vec::with_capacity(transforms_validate_len);
 
-        let derive::response::validated::Transform { read_only } = response;
+    // Map Validate / Validated pairs into DerivationSpec::Transforms.
+    for (_index, model, validate_validated) in transforms {
+        let Some((validate, validated)) = validate_validated else {
+            transforms_model.push(model);
+            continue;
+        };
+
+        let ValidateContext {
+            validate:
+                derive::request::validate::Transform {
+                    name: transform_name,
+                    collection: source_collection,
+                    shuffle_lambda_config_json,
+                    lambda_config_json,
+                    backfill,
+                },
+            inferred_shuffle_types: _,
+            reads_from_self,
+        } = validate;
+
+        let derive::response::validated::Transform { read_only } = validated;
 
         let models::TransformDef {
             name: _,
@@ -476,8 +510,12 @@ async fn walk_derivation<C: Connectors>(
             lambda: _,
             disable: _,
             backfill: _,
-        } = model;
+        } = &model;
 
+        // If any transform reads from ourself, we must disable the "wait for ACK" read optimization.
+        if reads_from_self {
+            disable_wait_for_ack = true;
+        }
         let shuffle_key = match shuffle {
             models::Shuffle::Key(key) => key.iter().map(|ptr| ptr.to_string()).collect(),
             _ => Vec::new(),
@@ -506,7 +544,7 @@ async fn walk_derivation<C: Connectors>(
         let state_key = assemble::encode_state_key(&[&transform_name], backfill);
         let journal_read_suffix = format!("derive/{collection}/{state_key}");
 
-        built_transforms.push(flow::collection_spec::derivation::Transform {
+        let spec = flow::collection_spec::derivation::Transform {
             name: transform_name,
             collection: source_collection,
             partition_selector,
@@ -520,7 +558,10 @@ async fn walk_derivation<C: Connectors>(
             not_before: not_before.map(assemble::pb_datetime),
             not_after: not_after.map(assemble::pb_datetime),
             backfill,
-        });
+        };
+
+        transforms_model.push(model);
+        transforms_spec.push(spec);
     }
 
     // Pluck out the current shard ID prefix, or create a unique one if it doesn't exist.
@@ -549,46 +590,67 @@ async fn walk_derivation<C: Connectors>(
         build_id,
         collection,
         labels::TASK_TYPE_DERIVATION,
-        shard_template,
+        &shards,
         &shard_id_prefix,
         disable_wait_for_ack,
         &network_ports,
     );
-    let built_spec = flow::collection_spec::Derivation {
+    let spec = flow::collection_spec::Derivation {
         connector_type,
         config_json,
-        transforms: built_transforms,
-        shuffle_key_types: shuffle_key_types.iter().map(|t| *t as i32).collect(),
+        transforms: transforms_spec,
+        shuffle_key_types: shuffle_key_types_spec.iter().map(|t| *t as i32).collect(),
         recovery_log_template: Some(recovery_log_template),
         shard_template: Some(shard_template),
         network_ports,
         inactive_transforms: Vec::new(),
     };
+    let model = models::Derivation {
+        shards,
+        shuffle_key_types: shuffle_key_types_model,
+        transforms: transforms_model,
+        using,
+    };
 
-    Some((built_index, validated_response, built_spec, dependency_hash))
+    Some((
+        built_index,
+        model,
+        validated_response,
+        spec,
+        dependency_hash,
+    ))
+}
+
+// ValidateContext composes a Transform's portion of a Validate request with
+// additional transform metadata utilized in building the DerivationSpec.
+struct ValidateContext {
+    validate: derive::request::validate::Transform,
+    reads_from_self: bool,
+    inferred_shuffle_types: Vec<flow::collection_spec::derivation::ShuffleType>,
 }
 
 fn walk_derive_transform<'a>(
     scope: Scope<'a>,
-    transform: &models::TransformDef,
+    model: models::TransformDef,
+    catalog_name: &models::Collection,
     built_collections: &'a tables::BuiltCollections,
     data_plane_id: models::Id,
     errors: &mut tables::Errors,
-) -> Option<(
-    derive::request::validate::Transform,
-    Vec<ProtoShuffleType>,
-    &'a tables::BuiltCollection,
-)> {
+) -> Option<(models::TransformDef, Option<ValidateContext>)> {
+    if model.disable {
+        return Some((model, None)); // Retain but perform no further validation.
+    }
+
     let models::TransformDef {
-        name,
-        source,
-        shuffle,
-        priority: _,
-        read_delay: _,
-        lambda,
-        disable: _,
         backfill,
-    } = transform;
+        disable: _,
+        lambda,
+        name,
+        priority,
+        read_delay,
+        shuffle,
+        source: source_model,
+    } = model;
 
     indexed::walk_name(
         scope,
@@ -598,7 +660,7 @@ fn walk_derive_transform<'a>(
         errors,
     );
 
-    let (source_name, source_partitions) = match source {
+    let (source_name, source_partitions) = match &source_model {
         models::Source::Collection(name) => (name, None),
         models::Source::Source(models::FullSource {
             name,
@@ -623,6 +685,7 @@ fn walk_derive_transform<'a>(
         built_collections,
         errors,
     )?;
+
     let source_schema = schema::Schema::new(if spec.read_schema_json.is_empty() {
         &spec.write_schema_json
     } else {
@@ -634,7 +697,7 @@ fn walk_derive_transform<'a>(
         collection::walk_selector(scope, &spec, &selector, errors);
     }
 
-    let (shuffle_types, shuffle_lambda_config_json) = match shuffle {
+    let (shuffle_types, shuffle_lambda_config_json) = match &shuffle {
         models::Shuffle::Key(shuffle_key) => {
             let scope = scope.push_prop("shuffle");
             let scope = scope.push_prop("key");
@@ -646,7 +709,7 @@ fn walk_derive_transform<'a>(
                 .push(scope, errors);
             }
             for (key_index, ptr) in shuffle_key.iter().enumerate() {
-                if let Err(err) = source_schema.walk_ptr(ptr, true) {
+                if let Err(err) = schema::Schema::walk_ptr(&source_schema, None, ptr, true) {
                     Error::from(err).push(scope.push_item(key_index), errors);
                 }
             }
@@ -672,13 +735,31 @@ fn walk_derive_transform<'a>(
 
     super::temporary_cross_data_plane_read_check(scope, source, data_plane_id, errors);
 
-    let request = derive::request::validate::Transform {
+    let validate = derive::request::validate::Transform {
         name: name.to_string(),
         collection: Some(spec),
         lambda_config_json: lambda.to_string(),
         shuffle_lambda_config_json,
-        backfill: *backfill,
+        backfill,
     };
 
-    Some((request, shuffle_types, source))
+    let model = models::TransformDef {
+        backfill,
+        disable: false,
+        lambda,
+        name,
+        priority,
+        read_delay,
+        shuffle,
+        source: source_model,
+    };
+
+    Some((
+        model,
+        Some(ValidateContext {
+            validate,
+            inferred_shuffle_types: shuffle_types,
+            reads_from_self: &source.collection == catalog_name,
+        }),
+    ))
 }

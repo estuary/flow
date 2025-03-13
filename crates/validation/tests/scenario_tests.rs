@@ -621,6 +621,38 @@ test://example/int-string.schema:
 }
 
 #[test]
+fn test_keyed_location_read_write_types_differ() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+
+test://example/int-string:
+  collections:
+    testing/int-string:
+      schema: null
+
+      readSchema:
+        type: object
+        properties:
+          int: { type: integer }
+          bit: { type: boolean }
+          str: { type: string }
+        required: [int, bit]
+
+      writeSchema:
+        type: object
+        properties:
+          int: { type: string }
+          bit: { type: string }
+        required: [int, bit]
+
+test://example/int-string-tests: null # Extra errors we don't care about.
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_unknown_locations() {
     let errors = common::run_errors(
         &MODEL_YAML,
@@ -1291,4 +1323,54 @@ driver:
 "#,
     );
     insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_projection_write_inference() {
+    let outcome = common::run(include_str!("write_inference.yaml"), "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_is_inlined() {
+    let outcome = common::run(include_str!("schema_inference.yaml"), "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_placeholder() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+driver:
+  liveInferredSchemas: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_not_overwritten() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      readSchema:
+        $defs:
+          flow://inferred-schema:
+            $id: flow://inferred-schema
+            type: object
+            properties:
+              key:
+                type: integer
+                description: not modified
+            required: [key]
+            additionalProperties: false
+driver:
+  liveInferredSchemas: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
 }

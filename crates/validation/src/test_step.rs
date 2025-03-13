@@ -57,7 +57,13 @@ fn walk_test(
     };
     let scope = Scope::new(scope);
 
-    let models::TestDef { steps, .. } = model;
+    let dependency_hash = dependencies.compute_hash(&model);
+    let models::TestDef {
+        steps,
+        description,
+        expect_pub_id: _,
+        delete: _,
+    } = model;
 
     indexed::walk_name(scope, "test", test, models::Test::regex(), errors);
 
@@ -81,14 +87,18 @@ fn walk_test(
         steps: built_steps,
     };
 
-    let dependency_hash = dependencies.compute_hash(model);
     Some(tables::BuiltTest {
         test: test.clone(),
         scope: scope.flatten(),
         control_id,
         expect_pub_id,
         expect_build_id,
-        model: Some(model.clone()),
+        model: Some(models::TestDef {
+            steps,
+            description,
+            expect_pub_id: None,
+            delete: false,
+        }),
         model_fixes: Vec::new(),
         spec: Some(built_spec),
         previous_spec: live_spec.cloned(),
