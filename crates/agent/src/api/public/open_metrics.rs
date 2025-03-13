@@ -24,11 +24,7 @@ pub async fn handle_get_metrics(
                 .with_status(axum::http::StatusCode::UNAUTHORIZED)
                 .into_response()
         }
-        Err(err) => {
-            return err
-                .with_status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
-                .into_response()
-        }
+        Err(err) => return err.into_response(),
         Ok(true) => (),
     }
 
