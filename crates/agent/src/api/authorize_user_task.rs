@@ -1,26 +1,29 @@
 use super::{App, Snapshot};
+use crate::api::error::ApiErrorExt;
 use anyhow::Context;
+use axum::http::StatusCode;
 use std::sync::Arc;
 
 type Request = models::authorizations::UserTaskAuthorizationRequest;
 type Response = models::authorizations::UserTaskAuthorization;
 
+#[axum::debug_handler]
 #[tracing::instrument(
-    skip(snapshot),
+    skip(app),
     err(level = tracing::Level::WARN),
 )]
-async fn do_authorize_user_task(
-    App { snapshot, .. }: &App,
-    super::ControlClaims {
+pub async fn authorize_user_task(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::Extension(super::ControlClaims {
         sub: user_id,
         email,
         ..
-    }: super::ControlClaims,
-    Request {
+    }): axum::Extension<super::ControlClaims>,
+    super::Request(Request {
         task: task_name,
         started_unix,
-    }: Request,
-) -> anyhow::Result<Response> {
+    }): super::Request<Request>,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let (has_started, started_unix) = if started_unix == 0 {
         (false, jsonwebtoken::get_current_timestamp())
     } else {
@@ -28,15 +31,15 @@ async fn do_authorize_user_task(
     };
 
     loop {
-        match Snapshot::evaluate(snapshot, started_unix, |snapshot: &Snapshot| {
+        match Snapshot::evaluate(&app.snapshot, started_unix, |snapshot: &Snapshot| {
             evaluate_authorization(snapshot, user_id, email.as_ref(), &task_name)
         }) {
-            Ok(response) => return Ok(response),
+            Ok(response) => return Ok(axum::Json(response)),
             Err(Ok(retry_millis)) if has_started => {
-                return Ok(Response {
+                return Ok(axum::Json(Response {
                     retry_millis,
                     ..Default::default()
-                })
+                }))
             }
             Err(Ok(retry_millis)) => {
                 () = tokio::time::sleep(std::time::Duration::from_millis(retry_millis)).await;
@@ -51,7 +54,7 @@ fn evaluate_authorization(
     user_id: uuid::Uuid,
     user_email: Option<&String>,
     task_name: &models::Name,
-) -> anyhow::Result<Response> {
+) -> Result<Response, crate::api::ApiError> {
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
@@ -59,34 +62,43 @@ fn evaluate_authorization(
         task_name,
         models::Capability::Read,
     ) {
-        anyhow::bail!(
+        return Err(anyhow::anyhow!(
             "{} is not authorized to {task_name}",
             user_email.map(String::as_str).unwrap_or("user")
-        );
+        )
+        .with_status(StatusCode::FORBIDDEN));
     }
 
     let Some(task) = snapshot.task_by_catalog_name(task_name) else {
-        anyhow::bail!("task {task_name} is not known")
-    };
-    let Some(data_plane) = snapshot.data_planes.get_by_key(&task.data_plane_id) else {
-        anyhow::bail!("couldn't resolve task {task_name} data-plane")
-    };
-    let Some(encoding_key) = data_plane.hmac_keys.first() else {
-        anyhow::bail!(
-            "task data-plane {} has no configured HMAC keys",
-            data_plane.data_plane_name
+        return Err(
+            anyhow::anyhow!("task {task_name} is not known").with_status(StatusCode::NOT_FOUND)
         );
     };
-    let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)?;
+    let Some(data_plane) = snapshot.data_planes.get_by_key(&task.data_plane_id) else {
+        return Err(
+            anyhow::anyhow!("task data-plane {} not found", task.data_plane_id)
+                .with_status(StatusCode::INTERNAL_SERVER_ERROR),
+        );
+    };
+    let Some(encoding_key) = data_plane.hmac_keys.first() else {
+        return Err(anyhow::anyhow!(
+            "task data-plane {} has no configured HMAC keys",
+            data_plane.data_plane_name
+        )
+        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)
+        .context("invalid data-plane hmac key")?;
 
     let (Some(ops_logs), Some(ops_stats)) = (
         snapshot.collection_by_catalog_name(&data_plane.ops_logs_name),
         snapshot.collection_by_catalog_name(&data_plane.ops_stats_name),
     ) else {
-        anyhow::bail!(
+        return Err(anyhow::anyhow!(
             "couldn't resolve data-plane {} ops collections",
             task.data_plane_id
         )
+        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
     };
 
     let ops_suffix = super::ops_suffix(task);
@@ -150,13 +162,4 @@ fn evaluate_authorization(
         retry_millis: 0,
         shard_id_prefix: task.shard_template_id.clone(),
     })
-}
-
-#[axum::debug_handler]
-pub async fn authorize_user_task(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(claims): axum::Extension<super::ControlClaims>,
-    super::Request(request): super::Request<Request>,
-) -> axum::response::Response {
-    super::wrap(async move { do_authorize_user_task(&app, claims, request).await }).await
 }

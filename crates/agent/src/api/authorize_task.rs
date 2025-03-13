@@ -1,17 +1,11 @@
 use super::{App, Snapshot};
+use crate::api::error::ApiErrorExt;
 use anyhow::Context;
+use axum::http::StatusCode;
 use std::sync::Arc;
 
 type Request = models::authorizations::TaskAuthorizationRequest;
 type Response = models::authorizations::TaskAuthorization;
-
-#[axum::debug_handler]
-pub async fn authorize_task(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Json(request): axum::Json<Request>,
-) -> axum::response::Response {
-    super::wrap(async move { do_authorize_task(&app, &request).await }).await
-}
 
 /// Authorizes some set of actions to be performed on a particular collection by way of a task.
 /// This checks that:
@@ -25,8 +19,12 @@ pub async fn authorize_task(
 ///     * The request's subject is granted those capabilities on that collection by
 ///       the control-plane
 ///     * The requested collection may be in a different data plane than the issuer.
+#[axum::debug_handler]
 #[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
-async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
+pub async fn authorize_task(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::Json(Request { token }): axum::Json<Request>,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let jsonwebtoken::TokenData { header, mut claims }: jsonwebtoken::TokenData<
         proto_gazette::Claims,
     > = {
@@ -35,26 +33,36 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
         let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
         let mut validation = jsonwebtoken::Validation::default();
         validation.insecure_disable_signature_validation();
-        jsonwebtoken::decode(token, &empty_key, &validation)
-    }?;
+        jsonwebtoken::decode(&token, &empty_key, &validation)
+            .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
+    };
     tracing::debug!(?claims, ?header, "decoded authorization request");
 
     let shard_id = claims.sub.as_str();
     if shard_id.is_empty() {
-        anyhow::bail!("missing required shard ID (`sub` claim)");
+        return Err(anyhow::anyhow!("missing required shard ID (`sub` claim)")
+            .with_status(StatusCode::BAD_REQUEST));
     }
 
     let shard_data_plane_fqdn = claims.iss.as_str();
     if shard_data_plane_fqdn.is_empty() {
-        anyhow::bail!("missing required shard data-plane FQDN (`iss` claim)");
+        return Err(
+            anyhow::anyhow!("missing required shard data-plane FQDN (`iss` claim)")
+                .with_status(StatusCode::BAD_REQUEST),
+        );
     }
 
-    let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")?.to_owned();
+    let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")
+        .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
+        .to_owned();
 
     // Require the request was signed with the AUTHORIZE capability,
     // and then strip this capability before issuing a response token.
     if claims.cap & proto_flow::capability::AUTHORIZE == 0 {
-        anyhow::bail!("missing required AUTHORIZE capability: {}", claims.cap);
+        return Err(
+            anyhow::anyhow!("missing required AUTHORIZE capability: {}", claims.cap)
+                .with_status(StatusCode::FORBIDDEN),
+        );
     }
     claims.cap &= !proto_flow::capability::AUTHORIZE;
 
@@ -80,7 +88,12 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
         {
             models::Capability::Write
         }
-        cap => anyhow::bail!("capability {cap} cannot be authorized by this service"),
+        cap => {
+            return Err(
+                anyhow::anyhow!("capability {cap} cannot be authorized by this service")
+                    .with_status(StatusCode::FORBIDDEN),
+            )
+        }
     };
 
     match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
@@ -88,7 +101,7 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
             snapshot,
             shard_id,
             shard_data_plane_fqdn,
-            token,
+            &token,
             &journal_name_or_prefix,
             required_role,
         )
@@ -100,17 +113,72 @@ async fn do_authorize_task(app: &App, Request { token }: &Request) -> anyhow::Re
             let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
                 .context("failed to encode authorized JWT")?;
 
-            Ok(Response {
+            Ok(axum::Json(Response {
                 broker_address,
                 token,
                 ..Default::default()
-            })
+            }))
         }
-        Err(Ok(retry_millis)) => Ok(Response {
+        Err(Err(err)) if err.error.downcast_ref::<BlackHole>().is_some() => {
+            let BlackHole {
+                encoding_key,
+                broker_address,
+            } = err.error.downcast::<BlackHole>().unwrap();
+
+            // claims.iss is left unchanged.
+            claims.sel.include = Some(labels::add_value(
+                claims.sel.include.unwrap_or_default(),
+                "estuary.dev/match-nothing",
+                "1",
+            ));
+            claims.exp = claims.iat + super::exp_seconds();
+
+            let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
+                .context("failed to encode authorized JWT")?;
+
+            Ok(axum::Json(Response {
+                broker_address,
+                token,
+                ..Default::default()
+            }))
+        }
+        Err(Ok(retry_millis)) => Ok(axum::Json(Response {
             retry_millis,
             ..Default::default()
-        }),
+        })),
         Err(Err(err)) => Err(err),
+    }
+}
+
+// A BlackHole error is raised when a task request is authorized,
+// but its `journal_name_or_prefix` doesn't map to a collection
+// (either because the collection is deleted, or exists under a
+// different generation ID).
+//
+// A "black hole" response extends the request claims with a
+// label selector that never matches anything, which:
+// - Causes List RPCs to succeed, but return nothing:
+//   This avoids failing a sourcing task, on the presumption
+//   that it's just awaiting an update from the control plane
+//   and should be allowed to gracefully finish its other work.
+// - Causes Append RPCs to error with status JOURNAL_NOT_FOUND.
+//   This allows for correct handling of recovered ACK intents
+//   destined for a journal which has since been deleted.
+// - Causes an Apply RPC, used to create partitions, to fail.
+//
+// Note that we're directing this token to the task's data-plane,
+// since we have no idea what data-plane the collection might have
+// lived in, as we couldn't find it.
+#[derive(thiserror::Error)]
+#[error("black hole")]
+struct BlackHole {
+    encoding_key: jsonwebtoken::EncodingKey,
+    broker_address: String,
+}
+
+impl std::fmt::Debug for BlackHole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self, f)
     }
 }
 
@@ -121,7 +189,7 @@ fn evaluate_authorization(
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
-) -> anyhow::Result<(jsonwebtoken::EncodingKey, String, String)> {
+) -> Result<(jsonwebtoken::EncodingKey, String, String), crate::api::ApiError> {
     let Snapshot {
         collections,
         data_planes,
@@ -130,8 +198,19 @@ fn evaluate_authorization(
         ..
     } = snapshot;
 
-    // Map `claims.sub`, a Shard ID, into its task.
-    let task = tasks
+    // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
+    let Some(task_data_plane) = snapshot
+        .verify_data_plane_token(shard_data_plane_fqdn, token)
+        .context("invalid data-plane hmac key")?
+    else {
+        return Err(
+            anyhow::anyhow!("no data-plane keys validated against the token signature")
+                .with_status(StatusCode::FORBIDDEN),
+        );
+    };
+
+    // Map `claims.sub`, a Shard ID, into a task running in `task_data_plane`.
+    let Some(task) = tasks
         .binary_search_by(|task| {
             if shard_id.starts_with(&task.shard_template_id) {
                 std::cmp::Ordering::Equal
@@ -140,40 +219,17 @@ fn evaluate_authorization(
             }
         })
         .ok()
-        .map(|index| &tasks[index]);
-
-    // Map `claims.iss`, a data-plane FQDN, into its task-matched data-plane.
-    let task_data_plane = task.and_then(|task| {
-        data_planes
-            .get_by_key(&task.data_plane_id)
-            .filter(|data_plane| data_plane.data_plane_fqdn == shard_data_plane_fqdn)
-    });
-
-    let (Some(task), Some(task_data_plane)) = (task, task_data_plane) else {
-        anyhow::bail!(
+        .map(|index| &tasks[index])
+        .filter(|task| task.data_plane_id == task_data_plane.control_id)
+    else {
+        return Err(anyhow::anyhow!(
             "task shard {shard_id} within data-plane {shard_data_plane_fqdn} is not known"
         )
+        .with_status(StatusCode::PRECONDITION_FAILED));
     };
 
-    // Attempt to find an HMAC key of this data-plane which validates against the request token.
-    let validation = jsonwebtoken::Validation::default();
-    let mut verified = false;
-
-    for hmac_key in &task_data_plane.hmac_keys {
-        let key = jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)
-            .context("invalid data-plane hmac key")?;
-
-        if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
-            verified = true;
-            break;
-        }
-    }
-    if !verified {
-        anyhow::bail!("no data-plane keys validated against the token signature");
-    }
-
     // Map a required `name` journal label selector into its collection.
-    let Some(collection) = collections
+    let collection = collections
         .binary_search_by(|collection| {
             if journal_name_or_prefix.starts_with(&collection.journal_template_name) {
                 std::cmp::Ordering::Equal
@@ -185,34 +241,38 @@ fn evaluate_authorization(
             }
         })
         .ok()
-        .map(|index| &collections[index])
-    else {
-        anyhow::bail!("journal name or prefix {journal_name_or_prefix} is not known");
-    };
+        .map(|index| &collections[index]);
 
-    let Some(collection_data_plane) = data_planes.get_by_key(&collection.data_plane_id) else {
-        anyhow::bail!(
-            "collection data-plane {} not found",
-            collection.data_plane_id
-        );
-    };
+    let (found, collection_data_plane, is_ops) = if let Some(collection) = collection {
+        let Some(collection_data_plane) = data_planes.get_by_key(&collection.data_plane_id) else {
+            return Err(anyhow::anyhow!(
+                "collection data-plane {} not found",
+                collection.data_plane_id
+            )
+            .with_status(StatusCode::INTERNAL_SERVER_ERROR));
+        };
 
-    // As a special case outside of the RBAC system, allow a task to write
-    // to its designated partition within its ops collections.
-    if required_role == models::Capability::Write
-        && (collection.collection_name == task_data_plane.ops_logs_name
-            || collection.collection_name == task_data_plane.ops_stats_name)
-        && journal_name_or_prefix.ends_with(&super::ops_suffix(task))
-    {
-        // Authorized write into designated ops partition.
-    } else if tables::RoleGrant::is_authorized(
-        role_grants,
-        &task.task_name,
-        &collection.collection_name,
-        required_role,
-    ) {
-        // Authorized access through RBAC.
+        // As a special case outside of the RBAC system, allow a task to write
+        // to its designated partition within its ops collections.
+        let is_ops = required_role == models::Capability::Write
+            && (collection.collection_name == task_data_plane.ops_logs_name
+                || collection.collection_name == task_data_plane.ops_stats_name)
+            && journal_name_or_prefix.ends_with(&super::ops_suffix(task));
+
+        (true, collection_data_plane, is_ops)
     } else {
+        // This collection doesn't exist, or exists under a different generation ID.
+        (false, task_data_plane, false)
+    };
+
+    if !is_ops
+        && !tables::RoleGrant::is_authorized(
+            role_grants,
+            &task.task_name,
+            &journal_name_or_prefix,
+            required_role,
+        )
+    {
         tracing::warn!(
             %task.spec_type,
             %shard_id,
@@ -223,25 +283,37 @@ fn evaluate_authorization(
             ops_suffix=%super::ops_suffix(task),
             "task authorization rejection context"
         );
-        anyhow::bail!(
+        return Err(anyhow::anyhow!(
             "task shard {shard_id} is not authorized to {journal_name_or_prefix} for {required_role:?}"
-        );
+        ).with_status(StatusCode::FORBIDDEN));
     }
 
     let Some(encoding_key) = collection_data_plane.hmac_keys.first() else {
-        anyhow::bail!(
+        return Err(anyhow::anyhow!(
             "collection data-plane {} has no configured HMAC keys",
             collection_data_plane.data_plane_name
-        );
+        )
+        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
     };
-    let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)?;
+    let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)
+        .context("invalid data-plane hmac key")?;
 
-    Ok((
-        encoding_key,
-        collection_data_plane.data_plane_fqdn.clone(),
-        super::maybe_rewrite_address(
-            task.data_plane_id != collection.data_plane_id,
-            &collection_data_plane.broker_address,
-        ),
-    ))
+    if found {
+        Ok((
+            encoding_key,
+            collection_data_plane.data_plane_fqdn.clone(),
+            super::maybe_rewrite_address(
+                task.data_plane_id != collection_data_plane.control_id,
+                &collection_data_plane.broker_address,
+            ),
+        ))
+    } else {
+        Err(super::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: anyhow::anyhow!(BlackHole {
+                broker_address: collection_data_plane.broker_address.to_string(),
+                encoding_key,
+            }),
+        })
+    }
 }
