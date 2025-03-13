@@ -5,6 +5,80 @@ import:
   - reporting-L2-template.flow.yaml
 
 tests:
+  doNotPublish/tests/events:
+    steps:
+      - ingest:
+          collection: ops/tasks/BASE_NAME/logs
+          documents:
+            - shard: &shard
+                name: a/b/c
+                kind: capture
+                keyBegin: "00000000"
+                rClockBegin: "00000000"
+                build: "0000000000000000"
+              ts: "2025-01-02T03:04:05.01Z"
+              level: info
+              message: "not an event: missing eventTarget"
+              fields:
+                eventType: "missingEventTarget"
+            - shard: *shard
+              ts: "2025-01-02T03:04:05.02Z"
+              level: info
+              message: "not an event: no fields"
+            - shard: *shard
+              ts: "2025-01-02T03:04:05.03Z"
+              level: info
+              message: "not an event: wrong eventType"
+              fields:
+                eventType: { "wrong": "type" }
+                eventTarget: "a/b/c"
+            - shard: *shard
+              ts: "2025-01-02T03:04:05.04Z"
+              level: info
+              message: "not an event: wrong error type"
+              fields:
+                eventType: "eventA"
+                eventTarget: "a/b/c"
+                error: { "wrong": "type" }
+            - shard: *shard
+              ts: "2025-01-02T03:04:05.05Z"
+              level: info
+              message: "an eventA happened"
+              fields:
+                eventType: "eventA"
+                eventTarget: "a/b/c"
+            - shard: *shard
+              ts: "2025-01-02T03:04:05.06Z"
+              level: info
+              message: "an eventB happened"
+              fields:
+                eventType: "eventB"
+                eventTarget: "a/b/bb"
+                error: "oh no"
+      - verify:
+          collection: ops/rollups/L1/BASE_NAME/events
+          documents:
+            - shard: &shard
+                name: a/b/c
+                kind: capture
+                keyBegin: "00000000"
+                rClockBegin: "00000000"
+                build: "0000000000000000"
+              ts: "2025-01-02T03:04:05.06Z"
+              level: info
+              message: "an eventB happened"
+              fields:
+                eventType: "eventB"
+                eventTarget: "a/b/bb"
+                error: "oh no"
+            - shard: *shard
+              ts: "2025-01-02T03:04:05.05Z"
+              level: info
+              message: "an eventA happened"
+              fields:
+                eventType: "eventA"
+                eventTarget: "a/b/c"
+
   doNotPublish/tests/catalog-stats:
     steps:
       - ingest:
