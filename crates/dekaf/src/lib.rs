@@ -10,12 +10,14 @@ pub mod log_appender;
 pub mod logging;
 
 mod topology;
+pub use topology::extract_dekaf_config;
 use topology::{Collection, Partition};
 
 mod read;
+pub use read::extract_and_encode;
 use read::Read;
 
-mod utils;
+pub mod utils;
 
 mod session;
 pub use session::Session;
