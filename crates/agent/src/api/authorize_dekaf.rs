@@ -1,6 +1,8 @@
 use super::App;
+use crate::api::error::ApiErrorExt;
 use crate::api::snapshot::Snapshot;
 use anyhow::Context;
+use axum::http::StatusCode;
 use models::CatalogType;
 use std::sync::Arc;
 
@@ -13,16 +15,6 @@ struct AccessTokenClaims {
     iat: u64,
     role: String,
 }
-
-#[axum::debug_handler]
-pub async fn authorize_dekaf(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Json(request): axum::Json<Request>,
-) -> axum::response::Response {
-    super::wrap(async move { do_authorize_dekaf(&app, &request).await }).await
-}
-
-const DEKAF_ROLE: &str = "dekaf";
 
 /// Dekaf straddles the control-plane and data-plane:
 ///    * It needs full control over the `registered_avro_schemas` table in the control-plane
@@ -47,35 +39,48 @@ const DEKAF_ROLE: &str = "dekaf";
 ///      as identified by the `sub` JWT claim
 ///    * The ops logs and stats journal names for the materialization. This will allow Dekaf to
 ///      write ops logs and stats.
+#[axum::debug_handler]
 #[tracing::instrument(skip(app), err(level = tracing::Level::WARN))]
-async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::Result<Response> {
-    let jsonwebtoken::TokenData { header, claims }: jsonwebtoken::TokenData<proto_gazette::Claims> =
-        {
-            // In this pass we do not validate the signature,
-            // because we don't yet know which data-plane the JWT is signed by.
-            let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
-            let mut validation = jsonwebtoken::Validation::default();
-            validation.insecure_disable_signature_validation();
-            jsonwebtoken::decode(token, &empty_key, &validation)
-        }?;
+pub async fn authorize_dekaf(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::Json(Request { token }): axum::Json<Request>,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
+    let jsonwebtoken::TokenData { header, claims }: jsonwebtoken::TokenData<proto_gazette::Claims> = {
+        // In this pass we do not validate the signature,
+        // because we don't yet know which data-plane the JWT is signed by.
+        let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
+        let mut validation = jsonwebtoken::Validation::default();
+        validation.insecure_disable_signature_validation();
+        jsonwebtoken::decode(&token, &empty_key, &validation)
+            .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
+    };
     tracing::debug!(?claims, ?header, "decoded authorization request");
 
     let task_name = claims.sub.as_str();
     if task_name.is_empty() {
-        anyhow::bail!("missing required materialization name (`sub` claim)");
+        return Err(
+            anyhow::anyhow!("missing required materialization name (`sub` claim)")
+                .with_status(StatusCode::BAD_REQUEST),
+        );
     }
 
     let shard_data_plane_fqdn = claims.iss.as_str();
     if shard_data_plane_fqdn.is_empty() {
-        anyhow::bail!("missing required task data-plane FQDN (`iss` claim)");
+        return Err(
+            anyhow::anyhow!("missing required task data-plane FQDN (`iss` claim)")
+                .with_status(StatusCode::BAD_REQUEST),
+        );
     }
 
     if claims.cap != proto_flow::capability::AUTHORIZE {
-        anyhow::bail!("invalid capability, must be AUTHORIZE only: {}", claims.cap);
+        return Err(
+            anyhow::anyhow!("invalid capability, must be AUTHORIZE only: {}", claims.cap)
+                .with_status(StatusCode::FORBIDDEN),
+        );
     }
 
     match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
-        evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, token)
+        evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, &token)
     }) {
         Ok((ops_logs_journal, ops_stats_journal)) => {
             let materialization_spec = sqlx::query!(
@@ -95,11 +100,15 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
             let (Some(materialization_spec), Some(spec_type)) =
                 (materialization_spec.spec, materialization_spec.spec_type)
             else {
-                anyhow::bail!("`live_specs` row for {task_name} is missing spec or spec_type");
+                return Err(anyhow::anyhow!(
+                    "`live_specs` row for {task_name} is missing spec or spec_type"
+                )
+                .with_status(StatusCode::INTERNAL_SERVER_ERROR));
             };
 
             if !matches!(spec_type, models::CatalogType::Materialization) {
-                anyhow::bail!("Unexpected spec type {:?}", spec_type);
+                return Err(anyhow::anyhow!("Unexpected spec type {:?}", spec_type)
+                    .with_status(StatusCode::INTERNAL_SERVER_ERROR));
             }
 
             let unix_ts = jsonwebtoken::get_current_timestamp();
@@ -113,20 +122,21 @@ async fn do_authorize_dekaf(app: &App, Request { token }: &Request) -> anyhow::R
                 &jsonwebtoken::Header::default(),
                 &claims,
                 &app.control_plane_jwt_signer,
-            )?;
+            )
+            .context("failed to encode authorized JWT")?;
 
-            Ok(Response {
+            Ok(axum::Json(Response {
                 token: signed,
                 ops_logs_journal,
                 ops_stats_journal,
                 task_spec: Some(materialization_spec.0),
                 retry_millis: 0,
-            })
+            }))
         }
-        Err(Ok(retry_millis)) => Ok(Response {
+        Err(Ok(retry_millis)) => Ok(axum::Json(Response {
             retry_millis,
             ..Default::default()
-        }),
+        })),
         Err(Err(err)) => Err(err),
     }
 }
@@ -136,55 +146,46 @@ fn evaluate_authorization(
     task_name: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
-) -> anyhow::Result<(String, String)> {
-    tracing::debug!(?task_name, "Task name");
-    // Map `claims.sub`, a task name, into its task.
-    let task = snapshot.task_by_catalog_name(&models::Name::new(task_name.to_string()));
+) -> Result<(String, String), crate::api::ApiError> {
+    // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
+    let Some(task_data_plane) = snapshot
+        .verify_data_plane_token(shard_data_plane_fqdn, token)
+        .context("invalid data-plane hmac key")?
+    else {
+        return Err(
+            anyhow::anyhow!("no data-plane keys validated against the token signature")
+                .with_status(StatusCode::FORBIDDEN),
+        );
+    };
 
-    // Map `claims.iss`, a data-plane FQDN, into its task-matched data-plane.
-    let task_data_plane = task.and_then(|task| {
-        snapshot
-            .data_planes
-            .get_by_key(&task.data_plane_id)
-            .filter(|data_plane| data_plane.data_plane_fqdn == shard_data_plane_fqdn)
-    });
-
-    let (Some(task), Some(task_data_plane)) = (task, task_data_plane) else {
-        anyhow::bail!("task {task_name} within data-plane {shard_data_plane_fqdn} is not known")
+    // Map `claims.sub`, a task name, into a task running in `task_data_plane`.
+    let Some(task) = snapshot
+        .task_by_catalog_name(&models::Name::new(task_name.to_string()))
+        .filter(|task| task.data_plane_id == task_data_plane.control_id)
+    else {
+        return Err(anyhow::anyhow!(
+            "task {task_name} within data-plane {shard_data_plane_fqdn} is not known"
+        )
+        .with_status(StatusCode::PRECONDITION_FAILED));
     };
 
     if task.spec_type != CatalogType::Materialization {
-        anyhow::bail!(
+        return Err(anyhow::anyhow!(
             "task {task_name} must be a materialization, but is {:?} instead",
             task.spec_type
         )
-    }
-
-    // Attempt to find an HMAC key of this data-plane which validates against the request token.
-    let validation = jsonwebtoken::Validation::default();
-    let mut verified = false;
-
-    for hmac_key in &task_data_plane.hmac_keys {
-        let key = jsonwebtoken::DecodingKey::from_base64_secret(hmac_key)
-            .context("invalid data-plane hmac key")?;
-
-        if jsonwebtoken::decode::<proto_gazette::Claims>(token, &key, &validation).is_ok() {
-            verified = true;
-            break;
-        }
-    }
-    if !verified {
-        anyhow::bail!("no data-plane keys validated against the token signature");
+        .with_status(StatusCode::PRECONDITION_FAILED));
     }
 
     let (Some(ops_logs), Some(ops_stats)) = (
         snapshot.collection_by_catalog_name(&task_data_plane.ops_logs_name),
         snapshot.collection_by_catalog_name(&task_data_plane.ops_stats_name),
     ) else {
-        anyhow::bail!(
+        return Err(anyhow::anyhow!(
             "couldn't resolve data-plane {} ops collections",
             task.data_plane_id
         )
+        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
     };
 
     let ops_suffix = super::ops_suffix(task);
@@ -193,3 +194,5 @@ fn evaluate_authorization(
 
     Ok((ops_logs_journal, ops_stats_journal))
 }
+
+const DEKAF_ROLE: &str = "dekaf";
