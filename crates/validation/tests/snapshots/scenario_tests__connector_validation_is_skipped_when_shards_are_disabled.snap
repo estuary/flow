@@ -28,6 +28,7 @@ Outcome {
                 "disable": true
               }
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -79,7 +80,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -102,7 +102,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -132,7 +131,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/id",
@@ -162,7 +160,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/val",
@@ -192,7 +189,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -399,6 +395,7 @@ Outcome {
                 "/id"
               ]
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "acmeCo/foo",
@@ -431,7 +428,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -454,7 +450,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -484,7 +479,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/id",
@@ -514,7 +508,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/val",
@@ -544,7 +537,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -644,6 +636,7 @@ Outcome {
                 "disable": true
               }
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -718,7 +711,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -741,7 +733,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -771,7 +762,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/id",
@@ -801,7 +791,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/val",
@@ -831,7 +820,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",

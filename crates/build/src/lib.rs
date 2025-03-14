@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{future::BoxFuture, FutureExt};
+use futures::{future::BoxFuture, FutureExt, StreamExt};
 use proto_flow::{capture, derive, flow, materialize};
 use std::{
     collections::BTreeMap,
@@ -115,12 +115,7 @@ pub async fn validate(
         None,
         format!("build/{build_id:#}"),
     );
-    let connectors = validation::NoOpWrapper {
-        noop_captures,
-        noop_derivations,
-        noop_materializations,
-        inner: RuntimeConnectors { runtime },
-    };
+    let connectors = RuntimeConnectors { runtime };
 
     let built = validation::validate(
         pub_id,
@@ -130,6 +125,9 @@ pub async fn validate(
         &draft,
         &live,
         true, // Fail-fast.
+        noop_captures,
+        noop_derivations,
+        noop_materializations,
     )
     .await;
 
@@ -193,7 +191,7 @@ impl Output {
 
 /// Persist a managed build Result into the SQLite tables commonly known as a "build DB".
 pub fn persist(
-    build_config: proto_flow::flow::build_api::Config,
+    build_config: flow::build_api::Config,
     db_path: &Path,
     output: &Output,
 ) -> anyhow::Result<()> {
@@ -355,28 +353,46 @@ pub struct RuntimeConnectors<L: runtime::LogHandler> {
 }
 
 impl<L: runtime::LogHandler> validation::Connectors for RuntimeConnectors<L> {
-    fn validate_capture<'a>(
+    fn capture<'a, R>(
         &'a self,
-        request: capture::Request,
         _data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        self.runtime.clone().unary_capture(request).boxed()
+        _task: &'a models::Capture,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<capture::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = capture::Request> + Send + Unpin + 'static,
+    {
+        self.runtime
+            .clone()
+            .serve_capture(request_rx.map(|request| Ok(request)))
     }
 
-    fn validate_derivation<'a>(
+    fn derive<'a, R>(
         &'a self,
-        request: derive::Request,
         _data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        self.runtime.clone().unary_derive(request).boxed()
+        _task: &'a models::Collection,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<derive::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = derive::Request> + Send + Unpin + 'static,
+    {
+        self.runtime
+            .clone()
+            .serve_derive(request_rx.map(|request| Ok(request)))
     }
 
-    fn validate_materialization<'a>(
+    fn materialize<'a, R>(
         &'a self,
-        request: materialize::Request,
         _data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        self.runtime.clone().unary_materialize(request).boxed()
+        _task: &'a models::Materialization,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<materialize::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = materialize::Request> + Send + Unpin + 'static,
+    {
+        self.runtime
+            .clone()
+            .serve_materialize(request_rx.map(|request| Ok(request)))
     }
 }
 

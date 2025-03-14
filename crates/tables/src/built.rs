@@ -15,6 +15,7 @@ pub trait BuiltRow: crate::Row {
         expect_pub_id: models::Id,
         expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
+        model_fixes: Vec<String>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
@@ -36,6 +37,9 @@ pub trait BuiltRow: crate::Row {
     fn expect_build_id(&self) -> models::Id;
     // Model of the built specification.
     fn model(&self) -> Option<&Self::ModelDef>;
+    // Descriptions of automated model changes made during validation.
+    // If non-empty then `is_touch` is false.
+    fn model_fixes(&self) -> &[String];
     // Validated response which was used to build this spec.
     fn validated(&self) -> Option<&Self::Validated>;
     // Built specification, or None if it's being deleted.
@@ -43,14 +47,13 @@ pub trait BuiltRow: crate::Row {
     // Previous specification which is being modified or deleted,
     // or None if unchanged OR this is an insertion.
     fn previous_spec(&self) -> Option<&Self::BuiltSpec>;
-
-    /// Whether this is the result of a "touch" operation, which updates the built spec without
-    /// updating the model.
+    // When true this was a "touch" which refreshed the build of the
+    // unchanged live model. Its publication ID shouldn't increase.
     fn is_touch(&self) -> bool;
 
     /// Is this specification untouched (passed through) from its live specification?
     fn is_passthrough(&self) -> bool {
-        !self.expect_pub_id().is_zero() && self.previous_spec().is_none() && !self.is_touch()
+        !self.expect_pub_id().is_zero() && self.previous_spec().is_none()
     }
     fn is_insert(&self) -> bool {
         self.expect_pub_id().is_zero()
@@ -59,10 +62,7 @@ pub trait BuiltRow: crate::Row {
         !self.expect_pub_id().is_zero() && self.previous_spec().is_some() && self.spec().is_some()
     }
     fn is_delete(&self) -> bool {
-        !self.expect_pub_id().is_zero()
-            && self.previous_spec().is_some()
-            && self.spec().is_none()
-            && !self.is_touch()
+        !self.expect_pub_id().is_zero() && self.previous_spec().is_some() && self.spec().is_none()
     }
 }
 
@@ -79,6 +79,7 @@ impl BuiltRow for crate::BuiltCapture {
         expect_pub_id: models::Id,
         expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
+        model_fixes: Vec<String>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
@@ -93,6 +94,7 @@ impl BuiltRow for crate::BuiltCapture {
             expect_pub_id,
             expect_build_id,
             model,
+            model_fixes,
             validated,
             spec,
             previous_spec,
@@ -121,6 +123,9 @@ impl BuiltRow for crate::BuiltCapture {
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
+    fn model_fixes(&self) -> &[String] {
+        &self.model_fixes
+    }
     fn validated(&self) -> Option<&Self::Validated> {
         self.validated.as_ref()
     }
@@ -148,6 +153,7 @@ impl BuiltRow for crate::BuiltCollection {
         expect_pub_id: models::Id,
         expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
+        model_fixes: Vec<String>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
@@ -162,6 +168,7 @@ impl BuiltRow for crate::BuiltCollection {
             expect_pub_id,
             expect_build_id,
             model,
+            model_fixes,
             validated,
             spec,
             previous_spec,
@@ -190,6 +197,9 @@ impl BuiltRow for crate::BuiltCollection {
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
+    fn model_fixes(&self) -> &[String] {
+        &self.model_fixes
+    }
     fn validated(&self) -> Option<&Self::Validated> {
         self.validated.as_ref()
     }
@@ -217,6 +227,7 @@ impl BuiltRow for crate::BuiltMaterialization {
         expect_pub_id: models::Id,
         expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
+        model_fixes: Vec<String>,
         validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
@@ -231,6 +242,7 @@ impl BuiltRow for crate::BuiltMaterialization {
             expect_pub_id,
             expect_build_id,
             model,
+            model_fixes,
             validated,
             spec,
             previous_spec,
@@ -259,6 +271,9 @@ impl BuiltRow for crate::BuiltMaterialization {
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
     }
+    fn model_fixes(&self) -> &[String] {
+        &self.model_fixes
+    }
     fn validated(&self) -> Option<&Self::Validated> {
         self.validated.as_ref()
     }
@@ -286,6 +301,7 @@ impl BuiltRow for crate::BuiltTest {
         expect_pub_id: models::Id,
         expect_build_id: models::Id,
         model: Option<Self::ModelDef>,
+        model_fixes: Vec<String>,
         _validated: Option<Self::Validated>,
         spec: Option<Self::BuiltSpec>,
         previous_spec: Option<Self::BuiltSpec>,
@@ -299,6 +315,7 @@ impl BuiltRow for crate::BuiltTest {
             expect_pub_id,
             expect_build_id,
             model,
+            model_fixes,
             spec,
             previous_spec,
             is_touch,
@@ -325,6 +342,9 @@ impl BuiltRow for crate::BuiltTest {
     }
     fn model(&self) -> Option<&Self::ModelDef> {
         self.model.as_ref()
+    }
+    fn model_fixes(&self) -> &[String] {
+        &self.model_fixes
     }
     fn validated(&self) -> Option<&Self::Validated> {
         None

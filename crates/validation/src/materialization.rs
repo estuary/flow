@@ -2,22 +2,24 @@ use super::{
     collection, indexed, reference, storage_mapping, walk_transition, Connectors, Error,
     NoOpConnectors, Scope,
 };
+use futures::SinkExt;
 use itertools::Itertools;
 use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
 use std::collections::{BTreeMap, HashMap};
 use tables::EitherOrBoth as EOB;
 
-pub async fn walk_all_materializations(
+pub async fn walk_all_materializations<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     draft_materializations: &tables::DraftMaterializations,
     live_materializations: &tables::LiveMaterializations,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
-    storage_mappings: &tables::StorageMappings,
     dependencies: &tables::Dependencies<'_>,
+    noop_materializations: bool,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> tables::BuiltMaterializations {
     // Outer join of live and draft materializations.
@@ -44,8 +46,9 @@ pub async fn walk_all_materializations(
                 connectors,
                 data_planes,
                 default_plane_id,
-                storage_mappings,
                 dependencies,
+                noop_materializations,
+                storage_mappings,
                 &mut local_errors,
             )
             .await;
@@ -66,16 +69,17 @@ pub async fn walk_all_materializations(
         .collect()
 }
 
-async fn walk_materialization(
+async fn walk_materialization<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     eob: EOB<&tables::LiveMaterialization, &tables::DraftMaterialization>,
     built_collections: &tables::BuiltCollections,
-    connectors: &dyn Connectors,
+    connectors: &C,
     data_planes: &tables::DataPlanes,
     default_plane_id: Option<models::Id>,
-    storage_mappings: &tables::StorageMappings,
     dependencies: &tables::Dependencies<'_>,
+    noop_materializations: bool,
+    storage_mappings: &tables::StorageMappings,
     errors: &mut tables::Errors,
 ) -> Option<tables::BuiltMaterialization> {
     let (
@@ -128,6 +132,71 @@ async fn walk_materialization(
             serde_json::to_string(config).unwrap(),
         ),
     };
+    // Resolve the data-plane for this task. We cannot continue without it.
+    let data_plane =
+        reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
+
+    // Start an RPC with the task's connector.
+    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
+    let response_rx = if noop_materializations || shard_template.disable {
+        futures::future::Either::Left(NoOpConnectors.materialize(
+            data_plane,
+            materialization,
+            request_rx,
+        ))
+    } else {
+        futures::future::Either::Right(connectors.materialize(
+            data_plane,
+            materialization,
+            request_rx,
+        ))
+    };
+    futures::pin_mut!(response_rx);
+
+    // Send Request.Spec and receive Response.Spec.
+    _ = request_tx
+        .send(
+            materialize::Request {
+                spec: Some(materialize::request::Spec {
+                    connector_type,
+                    config_json: config_json.clone(),
+                }),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
+
+    let materialize::response::Spec {
+        documentation_url: _,
+        config_schema_json: _,
+        resource_config_schema_json,
+        ..
+    } = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| Ok(response.spec.take()),
+        errors,
+    )
+    .await?;
+
+    let _resource_path_pointers =
+        match extract_resource_config_annotations(&resource_config_schema_json) {
+            Ok((resource_path_pointers, _delta_pointer)) => resource_path_pointers,
+            Err(_) if resource_config_schema_json == "true" => Vec::new(), // No-op schema.
+            Err(err) => {
+                Error::Connector {
+                    detail: err
+                        .context("connector Response.Spec resource_config_schema is invalid"),
+                }
+                .push(scope, errors);
+                Vec::new()
+            }
+        };
 
     // We only validate and build enabled bindings, in their declaration order.
     let enabled_bindings: Vec<(usize, &models::MaterializationBinding)> = all_bindings
@@ -161,10 +230,6 @@ async fn walk_materialization(
         errors,
     );
 
-    // Resolve the data-plane for this task. We cannot continue without it.
-    let data_plane =
-        reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
-
     // We've completed all cheap validation checks.
     // If we've already encountered errors then stop now.
     if !errors.is_empty() {
@@ -183,32 +248,35 @@ async fn walk_materialization(
             expect_pub_id.to_string()
         },
     };
-    let wrapped_request = materialize::Request {
-        validate: Some(validate_request.clone()),
-        ..Default::default()
-    }
-    .with_internal(|internal| {
-        if let Some(s) = &shard_template.log_level {
-            internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
-        }
-    });
 
-    // If shards are disabled, then don't ask the connector to validate.
-    let response = if shard_template.disable {
-        NoOpConnectors.validate_materialization(wrapped_request, data_plane)
-    } else {
-        connectors.validate_materialization(wrapped_request, data_plane)
-    }
-    .await;
+    // Send Request.Validate and receive Response.Validated.
+    _ = request_tx
+        .send(
+            materialize::Request {
+                validate: Some(validate_request.clone()),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                if let Some(s) = &shard_template.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            }),
+        )
+        .await;
 
-    // Unwrap `response` and bail out if it failed.
-    let (validated_response, network_ports) = match extract_validated(response) {
-        Err(err) => {
-            err.push(scope, errors);
-            return None;
-        }
-        Ok(ok) => ok,
-    };
+    let (validated_response, network_ports) = super::expect_response(
+        scope,
+        &mut response_rx,
+        |response| {
+            let network_ports = match response.get_internal() {
+                Ok(internal) => internal.container.unwrap_or_default().network_ports,
+                Err(err) => return Err(anyhow::anyhow!("parsing internal: {err}")),
+            };
+            Ok(response.validated.take().map(|v| (v, network_ports)))
+        },
+        errors,
+    )
+    .await?;
 
     let materialize::response::Validated {
         bindings: binding_responses,
@@ -381,6 +449,7 @@ async fn walk_materialization(
         expect_pub_id,
         expect_build_id,
         model: Some(model.clone()),
+        model_fixes: Vec::new(),
         validated: Some(validated_response),
         spec: Some(built_spec),
         previous_spec: live_spec.cloned(),
@@ -723,36 +792,6 @@ fn walk_materialization_response(
     }
 }
 
-fn extract_validated(
-    response: anyhow::Result<materialize::Response>,
-) -> Result<(materialize::response::Validated, Vec<flow::NetworkPort>), Error> {
-    let response = match response {
-        Ok(response) => response,
-        Err(err) => return Err(Error::Connector { detail: err }),
-    };
-
-    let internal = match response.get_internal() {
-        Ok(internal) => internal,
-        Err(err) => {
-            return Err(Error::Connector {
-                detail: anyhow::anyhow!("parsing internal: {err}"),
-            });
-        }
-    };
-
-    let Some(validated) = response.validated else {
-        return Err(Error::Connector {
-            detail: anyhow::anyhow!(
-                "expected Validated but got {}",
-                serde_json::to_string(&response).unwrap()
-            ),
-        });
-    };
-    let network_ports = internal.container.unwrap_or_default().network_ports;
-
-    Ok((validated, network_ports))
-}
-
 // Build a Iterator + Clone over all models::Fields excluded by any
 // binding of `source` in `model`. The sequence may include duplicates.
 fn source_exclusions<'m>(
@@ -775,4 +814,180 @@ fn source_exclusions<'m>(
                 .flatten()
         })
         .flatten()
+}
+
+/// Given a materialization's resource config JSON-schema,
+/// extract pointers to:
+/// - It's annotated resource path pointers.
+/// - It's annotated delta-updates boolean (if present).
+pub fn extract_resource_config_annotations(
+    resource_config_schema_json: &str,
+) -> anyhow::Result<(Vec<doc::Pointer>, Option<doc::Pointer>)> {
+    let schema = doc::validation::build_bundle(resource_config_schema_json)?;
+    let validator = doc::Validator::new(schema)?;
+    let shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
+
+    let mut collection = None;
+    let mut schema = None;
+    let mut delta = None;
+
+    for (pointer, pattern, shape, exists) in shape.locations() {
+        for (annotation, type_, var, required) in [
+            (
+                "x-collection-name",
+                json::schema::types::STRING,
+                &mut collection,
+                true,
+            ),
+            (
+                "x-schema-name",
+                json::schema::types::STRING,
+                &mut schema,
+                false,
+            ),
+            (
+                "x-delta-updates",
+                json::schema::types::BOOLEAN,
+                &mut delta,
+                false,
+            ),
+        ] {
+            if shape
+                .annotations
+                .get(annotation)
+                .is_some_and(|v| matches!(v, serde_json::Value::Bool(true)))
+            {
+                if pattern {
+                    anyhow::bail!("{annotation} location {pointer} cannot be a pattern");
+                } else if required && !exists.must() {
+                    anyhow::bail!("{annotation} location {pointer} must be required to exist");
+                } else if shape.type_ != type_ {
+                    anyhow::bail!(
+                        "{annotation} location {pointer} has unexpected type {} (expected {type_})",
+                        shape.type_
+                    );
+                } else {
+                    *var = Some(pointer);
+                    break;
+                }
+            }
+        }
+    }
+
+    let resource_path_ptrs = match (collection, schema) {
+        (None, _) => anyhow::bail!("missing required x-collection-name annotation"),
+        (Some(collection_ptr), Some(schema_ptr)) => {
+            vec![schema_ptr, collection_ptr]
+        }
+        (Some(collection_ptr), None) => vec![collection_ptr],
+    };
+
+    Ok((resource_path_ptrs, delta))
+}
+
+#[cfg(test)]
+mod test {
+    use super::extract_resource_config_annotations;
+
+    #[test]
+    fn test_extract_resource_path_pointers() {
+        // All annotations are present and valid.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "schema": {"type": "string", "x-schema-name": true},
+                    "target": {"type": "string", "x-collection-name": true},
+                    "delta": {"type": "boolean", "x-delta-updates": true}
+                },
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            outcome,
+            (
+                vec![
+                    doc::Pointer::from_str("/schema"),
+                    doc::Pointer::from_str("/target")
+                ],
+                Some(doc::Pointer::from_str("/delta")),
+            )
+        );
+
+        // Only collection name is present.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "x-collection-name": true},
+                },
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(outcome, (vec![doc::Pointer::from_str("/target")], None));
+
+        // Missing collection name.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "schema": {"type": "string", "x-schema-name": true},
+                },
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""missing required x-collection-name annotation""###);
+
+        // Schema is a pattern.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "x-collection-name": true},
+                },
+                "additionalProperties": {"type": "string", "x-schema-name": true},
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""x-schema-name location /* cannot be a pattern""###);
+
+        // Collection name not required to exist.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "properties": {
+                    "target": {"type": "string", "x-collection-name": true},
+                },
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""x-collection-name location /target must be required to exist""###);
+
+        // Collection name has wrong type.
+        let outcome = extract_resource_config_annotations(
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "target": {"type": "number", "x-collection-name": true},
+                },
+                "required": ["target"]
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+
+        insta::assert_debug_snapshot!(outcome, @r###""x-collection-name location /target has unexpected type \"number\" (expected \"string\")""###);
+    }
 }

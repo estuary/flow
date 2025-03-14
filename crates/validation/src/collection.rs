@@ -71,6 +71,7 @@ fn walk_collection(
         derive: _,
         expect_pub_id: _,
         delete: _,
+        reset: _,
     } = model;
 
     indexed::walk_name(
@@ -218,6 +219,7 @@ fn walk_collection(
             projections: projection_models,
             ..model.clone()
         }),
+        model_fixes: Vec::new(),
         spec: Some(built_spec),
         validated: None,
         previous_spec: live_spec.cloned(),
@@ -370,7 +372,6 @@ fn walk_collection_projections(
             is_primary_key: key.iter().any(|k| k == ptr),
             is_partition_key: partition,
             inference: Some(assemble::inference(r_shape, r_exists)),
-            write_inference: None,
         });
         models.insert(field.clone(), projection.clone());
     }
@@ -422,7 +423,6 @@ fn walk_collection_projections(
             is_primary_key: true,
             is_partition_key: false,
             inference: Some(assemble::inference(r_shape, r_exists)),
-            write_inference: None,
         });
     }
 
@@ -450,7 +450,6 @@ fn walk_collection_projections(
             is_primary_key: false,
             is_partition_key: false,
             inference: Some(assemble::inference(r_shape, r_exists)),
-            write_inference: None,
         });
     }
 

@@ -91,7 +91,6 @@ pub async fn unary_materialize(
                     "https://docs.estuary.dev/guides/dekaf_reading_collections_from_kafka"
                         .to_string(),
                 oauth2: None,
-                resource_path_pointers: vec!["/topic_name".to_string()],
             }),
             ..Default::default()
         });

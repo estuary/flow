@@ -8051,6 +8051,7 @@ dependencies = [
  "anyhow",
  "assemble",
  "bytes",
+ "coroutines",
  "doc",
  "extractors",
  "futures",

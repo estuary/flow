@@ -12,14 +12,6 @@ expression: errors
         error: schema $ref 'test://example/int-string.schema#/whoops', referenced by 'test://example/canonical/int-string-len.schema', was not found,
     },
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0,
-        error: collection testing/int-string-rw, referenced by transform halveIntString, is not defined; did you mean testing/int-string defined at test://example/int-string#/collections/testing~1int-string ?,
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/1,
-        error: collection testing/int-halve, referenced by transform halveSelf, is not defined,
-    },
-    Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
         error: collection testing/int-halve, referenced by this materialization binding, is not defined,
     },

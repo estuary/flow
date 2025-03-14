@@ -1,7 +1,6 @@
-use std::collections::BTreeSet;
-
 use crate::integration_tests::harness::{draft_catalog, TestHarness};
 use models::status::ControllerStatus;
+use std::collections::BTreeSet;
 
 #[tokio::test]
 #[serial_test::serial]

@@ -279,6 +279,11 @@ pub mod response {
         #[prost(string, tag = "2")]
         pub config_schema_json: ::prost::alloc::string::String,
         /// JSON schema of the connector's resource configuration.
+        /// Schemas must use specific annotations to communicate the expected
+        /// locations of injected platform variables:
+        /// - `x-collection-name: true`, a string location for a resource name (required).
+        /// - `x-schema-name: true`, a string location for a resource schema (optional).
+        /// - `x-delta-updates: true`, a boolean location for enabling delta-updates mode (optional).
         #[prost(string, tag = "3")]
         pub resource_config_schema_json: ::prost::alloc::string::String,
         /// URL for connector's documentation.
@@ -287,16 +292,6 @@ pub mod response {
         /// Optional OAuth2 configuration.
         #[prost(message, optional, tag = "5")]
         pub oauth2: ::core::option::Option<super::super::flow::OAuth2>,
-        /// One or more JSON pointers, which are used to extract resource paths
-        /// from resource configurations of this connector. For example,
-        /// a database connector might have a resource config like:
-        ///    {"schema": "foo", "table": "bar", "other": "config", "answer": 42}
-        /// The connector would specify `resource_path_pointers: \["/schema", "/table"\]`,
-        /// which would result in a `resource_path` of `\["foo", "bar"\]`.
-        #[prost(string, repeated, tag = "6")]
-        pub resource_path_pointers: ::prost::alloc::vec::Vec<
-            ::prost::alloc::string::String,
-        >,
     }
     /// Validated responds to Request.Validate.
     #[allow(clippy::derive_partial_eq_without_eq)]

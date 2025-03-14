@@ -1,4 +1,3 @@
-use futures::future::BoxFuture;
 use sources::Scope;
 use tables::EitherOrBoth as EOB;
 
@@ -15,39 +14,52 @@ mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
-pub use noop::{NoOpConnectors, NoOpWrapper};
+pub use materialization::extract_resource_config_annotations as extract_materialization_resource_config_annotations;
+pub use noop::NoOpConnectors;
 
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always
 /// be Validate / Validated variants, but may include `internal` fields.
 pub trait Connectors: Send + Sync {
-    fn validate_capture<'a>(
+    fn capture<'a, R>(
         &'a self,
-        request: proto_flow::capture::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<proto_flow::capture::Response>>;
+        task: &'a models::Capture,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::capture::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = proto_flow::capture::Request> + Send + Unpin + 'static;
 
-    fn validate_derivation<'a>(
+    fn derive<'a, R>(
         &'a self,
-        request: proto_flow::derive::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<proto_flow::derive::Response>>;
+        task: &'a models::Collection,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::derive::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = proto_flow::derive::Request> + Send + Unpin + 'static;
 
-    fn validate_materialization<'a>(
+    fn materialize<'a, R>(
         &'a self,
-        request: proto_flow::materialize::Request,
         data_plane: &'a tables::DataPlane,
-    ) -> BoxFuture<'a, anyhow::Result<proto_flow::materialize::Response>>;
+        task: &'a models::Materialization,
+        request_rx: R,
+    ) -> impl futures::Stream<Item = anyhow::Result<proto_flow::materialize::Response>> + Send + 'a
+    where
+        R: futures::Stream<Item = proto_flow::materialize::Request> + Send + Unpin + 'static;
 }
 
-pub async fn validate(
+pub async fn validate<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
     project_root: &url::Url,
-    connectors: &dyn Connectors,
+    connectors: &C,
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
     fail_fast: bool,
+    noop_captures: bool,
+    noop_derivations: bool,
+    noop_materializations: bool,
 ) -> tables::Validations {
     let mut errors = tables::Errors::new();
 
@@ -126,8 +138,9 @@ pub async fn validate(
         connectors,
         &live.data_planes,
         default_plane_id,
-        &live.storage_mappings,
         &dependencies,
+        noop_captures,
+        &live.storage_mappings,
         &mut capture_errors,
     );
 
@@ -141,10 +154,11 @@ pub async fn validate(
         connectors,
         &live.data_planes,
         default_plane_id,
+        &dependencies,
         &draft.imports,
+        noop_derivations,
         project_root,
         &live.storage_mappings,
-        &dependencies,
         &mut derive_errors,
     );
 
@@ -158,8 +172,9 @@ pub async fn validate(
         connectors,
         &live.data_planes,
         default_plane_id,
-        &live.storage_mappings,
         &dependencies,
+        noop_materializations,
+        &live.storage_mappings,
         &mut materialize_errors,
     );
 
@@ -261,6 +276,7 @@ where
                 live.last_pub_id(),
                 live.last_build_id(),
                 Some(live.model().clone()),
+                Vec::new(),
                 None,
                 Some(live.spec().clone()),
                 None,
@@ -279,7 +295,7 @@ where
                 }
             }
             if draft.is_touch() {
-                Error::TouchSpecDoesNotExist.push(Scope::new(draft.scope()), errors);
+                Error::TouchModelIsCreate.push(Scope::new(draft.scope()), errors);
             }
 
             let default_plane_id = default_plane_id.unwrap_or_else(|| {
@@ -292,6 +308,7 @@ where
             });
 
             match draft.model() {
+                // Catalog specification is being created.
                 Some(model) => Ok((
                     draft.catalog_name(),
                     draft.scope(),
@@ -316,6 +333,7 @@ where
                         models::Id::zero(),
                         models::Id::zero(),
                         None,
+                        Vec::new(),
                         None,
                         None,
                         None,
@@ -344,10 +362,6 @@ where
                 .push(Scope::new(draft.scope()), errors);
             } else if !draft.is_touch() && pub_id == live.last_pub_id() {
                 // Only touch publications are allowed to publish at the same id.
-                // Even this might not be something we actually need to support, since
-                // a touch publication can always use a new pub_id (because it won't update)
-                // last_pub_id anyway. But it'll be supported for now, since currently agents
-                // are publishing at the same id.
                 Error::PubIdNotIncreased {
                     pub_id,
                     last_pub_id: live.last_pub_id(),
@@ -362,41 +376,29 @@ where
             }
 
             match draft.model() {
-                Some(model) if draft.is_touch() && model != live.model() => {
-                    Error::TouchModelChanged.push(Scope::new(draft.scope()), errors);
-                    // Return a placeholder deletion of this specification.
-                    Err(B::new(
-                        draft.catalog_name().clone(),
-                        draft.scope().clone(),
-                        models::Id::zero(), // No control-plane ID.
-                        models::Id::zero(), // Placeholder data-plane ID.
-                        models::Id::zero(),
-                        models::Id::zero(),
-                        None,
-                        None,
-                        None,
-                        None,
-                        true, // is_touch
-                        None,
+                // Catalog specification is being updated.
+                Some(model) => {
+                    if draft.is_touch() && model != live.model() {
+                        Error::TouchModelIsNotEqual.push(Scope::new(draft.scope()), errors);
+                    }
+
+                    Ok((
+                        draft.catalog_name(),
+                        draft.scope(),
+                        model,
+                        live.control_id(),
+                        live.data_plane_id(),
+                        live.last_pub_id(),
+                        live.last_build_id(),
+                        Some(live.model()),
+                        Some(live.spec()),
+                        draft.is_touch(),
                     ))
                 }
-                Some(model) => Ok((
-                    draft.catalog_name(),
-                    draft.scope(),
-                    model,
-                    live.control_id(),
-                    live.data_plane_id(),
-                    live.last_pub_id(),
-                    live.last_build_id(),
-                    Some(live.model()),
-                    Some(live.spec()),
-                    draft.is_touch(),
-                )),
-                // Return a deletion of this specification.
+                // Catalog specification is being deleted.
                 None => {
                     if draft.is_touch() {
-                        // Draft must contain a model if is_touch is true
-                        Error::TouchMissingDraftModel.push(Scope::new(draft.scope()), errors);
+                        Error::TouchModelIsDelete.push(Scope::new(draft.scope()), errors);
                     }
                     Err(B::new(
                         draft.catalog_name().clone(),
@@ -406,6 +408,7 @@ where
                         live.last_pub_id(),
                         live.last_build_id(),
                         None, // Deletion has no draft model.
+                        Vec::new(),
                         None, // Deletion is not validated.
                         None, // Deletion is not built into a spec.
                         Some(live.spec().clone()),
@@ -446,11 +449,10 @@ mod test {
             EOB::Right(&draft),
             &mut errors,
         );
-        assert_eq!(1, errors.len(), "expected one error in {errors:?}");
-        assert!(errors[0]
-            .error
-            .to_string()
-            .contains("cannot touch because live model does not exist"));
+        assert!(matches!(
+            errors.get(0).and_then(|e| e.error.downcast_ref::<Error>()),
+            Some(Error::TouchModelIsCreate)
+        ));
     }
 
     #[test]
@@ -494,7 +496,18 @@ mod test {
         let pub_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
         let build_id = models::Id::new([0, 0, 0, 0, 0, 0, 0, 10]);
 
-        let result = walk_transition::<_, _, BuiltCollection>(
+        let (
+            _name,
+            _scope,
+            _model,
+            _control_id,
+            _data_plane_id,
+            expect_pub_id,
+            expect_build_id,
+            _live_model,
+            _live_spec,
+            is_touch,
+        ) = walk_transition::<_, _, BuiltCollection>(
             pub_id,
             build_id,
             None,
@@ -503,9 +516,9 @@ mod test {
         )
         .unwrap();
         assert!(errors.is_empty());
-        assert!(result.9); // is_touch
-        assert_eq!(last_pub_id, result.5);
-        assert_eq!(last_build_id, result.6);
+        assert!(is_touch);
+        assert_eq!(last_pub_id, expect_pub_id);
+        assert_eq!(last_build_id, expect_build_id);
 
         draft.model.as_mut().unwrap().projections.insert(
             models::Field::new("foo"),
@@ -518,15 +531,10 @@ mod test {
             EOB::Both(&live, &draft),
             &mut errors,
         );
-        assert_eq!(1, errors.len());
-
-        let error = errors.pop().unwrap();
-        assert!(
-            error.error.to_string().contains(
-                "expected draft model to be equal to the live model because `is_touch: true`"
-            ),
-            "unexpected error: {error:?}"
-        );
+        assert!(matches!(
+            errors.pop().and_then(|e| e.error.downcast::<Error>().ok()),
+            Some(Error::TouchModelIsNotEqual)
+        ));
 
         draft.model = None;
         let _ = walk_transition::<_, _, tables::BuiltCollection>(
@@ -536,16 +544,10 @@ mod test {
             EOB::Both(&live, &draft),
             &mut errors,
         );
-        assert_eq!(1, errors.len());
-
-        let error = errors.pop().unwrap();
-        assert!(
-            error
-                .error
-                .to_string()
-                .contains("missing draft model when `is_touch: true`"),
-            "unexpected error: {error:?}"
-        );
+        assert!(matches!(
+            errors.pop().and_then(|e| e.error.downcast::<Error>().ok()),
+            Some(Error::TouchModelIsDelete)
+        ));
     }
 }
 
@@ -573,5 +575,52 @@ fn temporary_cross_data_plane_read_check<'a>(
         ) ;
 
         Error::Connector { detail }.push(scope, errors);
+    }
+}
+
+async fn expect_response<'a, R, E, T>(
+    scope: Scope<'a>,
+    mut response_rx: impl futures::Stream<Item = anyhow::Result<R>> + Unpin,
+    extract: E,
+    errors: &mut tables::Errors,
+) -> Option<T>
+where
+    E: FnOnce(&mut R) -> anyhow::Result<Option<T>>,
+    R: std::fmt::Debug,
+{
+    use futures::StreamExt;
+
+    let response = match response_rx.next().await {
+        Some(response) => response,
+        None => Err(anyhow::anyhow!(
+            "Expected connector to send {}, but read an EOF",
+            std::any::type_name::<R>()
+        )),
+    };
+
+    let mut response = match response {
+        Ok(response) => response,
+        Err(err) => {
+            Error::Connector { detail: err }.push(scope, errors);
+            return None;
+        }
+    };
+
+    match extract(&mut response) {
+        Ok(Some(extracted)) => Some(extracted),
+        Ok(None) => {
+            Error::Connector {
+                detail: anyhow::anyhow!(
+                    "Expected connector to send {}, but read {response:?}",
+                    std::any::type_name::<T>()
+                ),
+            }
+            .push(scope, errors);
+            None
+        }
+        Err(err) => {
+            Error::Connector { detail: err }.push(scope, errors);
+            None
+        }
     }
 }

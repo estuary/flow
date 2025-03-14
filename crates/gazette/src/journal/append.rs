@@ -14,7 +14,7 @@ impl Client {
         &'a self,
         mut req: broker::AppendRequest,
         source: impl Fn() -> S + Send + Sync + 'a,
-    ) -> impl Stream<Item = crate::RetryResult<broker::AppendResponse>> + '_
+    ) -> impl Stream<Item = crate::RetryResult<broker::AppendResponse>> + 'a
     where
         S: Stream<Item = std::io::Result<bytes::Bytes>> + Send + 'static,
     {

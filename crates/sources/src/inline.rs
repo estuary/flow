@@ -97,6 +97,7 @@ fn inline_collection(
         derive,
         expect_pub_id: _,
         delete: _,
+        reset: _,
     } = model;
 
     if let Some(schema) = schema {

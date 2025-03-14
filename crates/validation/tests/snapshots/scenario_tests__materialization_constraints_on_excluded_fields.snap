@@ -18,6 +18,7 @@ Outcome {
                 "/id"
               ]
             },
+            model_fixes: [],
             validated: NULL,
             spec: CollectionSpec {
                 name: "testing/constraints",
@@ -50,7 +51,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "",
@@ -73,7 +73,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/_meta/uuid",
@@ -103,7 +102,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/id",
@@ -133,7 +131,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/naughty_f",
@@ -163,7 +160,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                     Projection {
                         ptr: "/naughty_u",
@@ -193,7 +189,6 @@ Outcome {
                                 array: None,
                             },
                         ),
-                        write_inference: None,
                     },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
@@ -291,6 +286,7 @@ Outcome {
                 }
               ]
             },
+            model_fixes: [],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -361,7 +357,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "",
@@ -384,7 +379,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/_meta/uuid",
@@ -414,7 +408,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/id",
@@ -444,7 +437,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/naughty_f",
@@ -474,7 +466,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                     Projection {
                                         ptr: "/naughty_u",
@@ -504,7 +495,6 @@ Outcome {
                                                 array: None,
                                             },
                                         ),
-                                        write_inference: None,
                                     },
                                 ],
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",

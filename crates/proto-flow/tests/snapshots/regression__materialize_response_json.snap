@@ -31,11 +31,7 @@ expression: json_test(msg)
       "refreshTokenResponseMap": {
         "access": "here"
       }
-    },
-    "resourcePathPointers": [
-      "/schema",
-      "/table"
-    ]
+    }
   },
   "validated": {
     "bindings": [
