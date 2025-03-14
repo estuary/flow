@@ -43,7 +43,7 @@ collections:
             select json($flow_document)
               where json_type($fields, '$.eventType') = 'text'
               and json_type($fields, '$.eventTarget') = 'text'
-              and json_type($fields, '$.error') in ('null', 'text');
+              and coalesce(json_type($fields, '$.error'), 'null') in ('null', 'text');
       shards:
         minTxnDuration: 5s
 
