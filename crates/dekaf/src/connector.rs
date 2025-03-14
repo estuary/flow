@@ -178,7 +178,18 @@ fn constraint_for_projection(
     endpoint_config: &DekafConfig,
     last_spec: Option<&flow::MaterializationSpec>,
 ) -> materialize::response::validated::Constraint {
-    let mut constraint = if projection.is_primary_key {
+    let mut constraint = if !avro::AVRO_FIELD_RE.is_match(&projection.field) {
+        // We shouldn't continue to recommend this field if it contains illegal characters,
+        // even if it was previously selected.
+        return materialize::response::validated::Constraint {
+            r#type: constraint::Type::FieldForbidden.into(),
+            reason: format!(
+                "Field name {} contains characters forbidden in AVRO schemas. It must match the regex '{}'. If you still want to include this field, you can create a projection for this field on the source collection with a name that matches the regex. See https://go.estuary.dev/projections for more information.",
+                projection.field,
+                avro::AVRO_FIELD_RE.as_str()
+            ),
+        };
+    } else if projection.is_primary_key {
         materialize::response::validated::Constraint {
             r#type: constraint::Type::LocationRecommended.into(),
             reason: "Primary key locations should usually be materialized".to_string(),

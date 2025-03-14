@@ -274,7 +274,7 @@ impl Read {
                     tmp.push(0);
                     tmp.extend(self.value_schema_id.to_be_bytes());
 
-                    self.extract_and_encode(root.get(), &mut tmp)?;
+                    extract_and_encode(&self.extractors, root.get(), &mut tmp)?;
 
                     record_bytes += tmp.len();
                     buf.extend_from_slice(&tmp);
@@ -383,37 +383,6 @@ impl Read {
             },
         ))
     }
-
-    /// Handles extracting and avro-encoding a particular field.
-    /// Note that since avro encoding can happen piecewise, there's never a need to
-    /// put together the whole extracted document, and instead we can build up the
-    /// encoded output iteratively
-    fn extract_and_encode<'a>(
-        &'a self,
-        original: &'a doc::ArchivedNode,
-        buf: &mut Vec<u8>,
-    ) -> anyhow::Result<()> {
-        self.extractors
-            .iter()
-            .try_fold(buf, |buf, (schema, extractor)| {
-                // This is the value extracted from the original doc
-                if let Err(e) = match extractor.extract(original) {
-                    Ok(value) => avro::encode(buf, schema, value),
-                    Err(default) => avro::encode(buf, schema, &default.into_owned()),
-                }
-                .context(format!(
-                    "Extracting field {extractor:#?}, schema: {schema:?}"
-                )) {
-                    let debug_serialized = serde_json::to_string(&original.to_debug_json_value())?;
-                    tracing::debug!(extractor=?extractor, ?schema, debug_serialized, ?e, "Failed to encode");
-                    return Err(e);
-                }
-
-                Ok::<_, anyhow::Error>(buf)
-            })?;
-
-        Ok(())
-    }
 }
 
 fn compressor<Output: BufMut>(
@@ -438,5 +407,36 @@ fn compressor<Output: BufMut>(
         }
         unsupported @ _ => bail!("Unsupported compression type {unsupported:?}"),
     };
+    Ok(())
+}
+
+/// Handles extracting and avro-encoding a particular field.
+/// Note that since avro encoding can happen piecewise, there's never a need to
+/// put together the whole extracted document, and instead we can build up the
+/// encoded output iteratively
+pub fn extract_and_encode<N: doc::AsNode>(
+    extractors: &[(avro::Schema, utils::CustomizableExtractor)],
+    original: &N,
+    buf: &mut Vec<u8>,
+) -> anyhow::Result<()> {
+    extractors
+        .iter()
+        .try_fold(buf, |buf, (schema, extractor)| {
+            // This is the value extracted from the original doc
+            if let Err(e) = match extractor.extract(original) {
+                Ok(value) => avro::encode(buf, schema, value),
+                Err(default) => avro::encode(buf, schema, &default.into_owned()),
+            }
+            .context(format!(
+                "Extracting field {extractor:#?}, schema: {schema:?}"
+            )) {
+                let debug_serialized = serde_json::to_string(&original.to_debug_json_value())?;
+                tracing::debug!(extractor=?extractor, ?schema, debug_serialized, ?e, "Failed to encode");
+                return Err(e);
+            }
+
+            Ok::<_, anyhow::Error>(buf)
+        })?;
+
     Ok(())
 }

@@ -1,7 +1,7 @@
 mod encode;
 mod schema;
 
-pub use schema::{key_to_avro, shape_to_avro as located_shape_to_avro};
+pub use schema::{key_to_avro, shape_to_avro as located_shape_to_avro, AVRO_FIELD_RE};
 
 // Re-export fundamental schema types so crates don't have to depend on apache_avro.
 pub use apache_avro::{

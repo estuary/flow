@@ -1,0 +1,48 @@
+---
+source: crates/dekaf/tests/dekaf_schema_test.rs
+expression: doc?
+---
+Record(
+    [
+        (
+            "_meta",
+            Record(
+                [
+                    (
+                        "is_deleted",
+                        Long(
+                            1,
+                        ),
+                    ),
+                    (
+                        "op",
+                        Union(
+                            0,
+                            String(
+                                "d",
+                            ),
+                        ),
+                    ),
+                    (
+                        "_flow_extra",
+                        Map(
+                            {},
+                        ),
+                    ),
+                ],
+            ),
+        ),
+        (
+            "key",
+            String(
+                "second",
+            ),
+        ),
+        (
+            "_flow_extra",
+            Map(
+                {},
+            ),
+        ),
+    ],
+)

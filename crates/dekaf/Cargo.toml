@@ -84,6 +84,8 @@ apache-avro = { workspace = true }
 
 [dev-dependencies]
 async-process = { path = "../async-process" }
+build = { path = "../build" }
+tables = { path = "../tables" }
 flowctl = { path = "../flowctl" }
 locate-bin = { path = "../locate-bin" }
 

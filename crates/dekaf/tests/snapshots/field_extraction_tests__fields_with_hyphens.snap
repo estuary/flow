@@ -1,0 +1,8 @@
+---
+source: crates/dekaf/tests/field_extraction_tests.rs
+assertion_line: 297
+expression: "roundtrip(fixture_path, docs).await"
+---
+Err(
+    "materialization test/materialization field hyphenated-field is not satisfiable (selector includes field, but connector forbids it with reason: Field name hyphenated-field contains characters forbidden in AVRO schemas. It must match the regex '^[A-Za-z_][A-Za-z0-9_]*$'. If you still want to include this field, you can create a projection for this field on the source collection with a name that matches the regex. See https://go.estuary.dev/projections for more information.)",
+)

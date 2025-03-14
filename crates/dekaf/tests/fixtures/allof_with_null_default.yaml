@@ -1,0 +1,44 @@
+collections:
+  test/collection:
+    key:
+      - /id
+    schema:
+      allOf:
+      - properties:
+          id:
+            title: Id
+            type: integer
+          conflicts:
+            type:
+              - integer
+              - "null"
+            default: null
+            title: Updatedbyuserid
+        required:
+          - id
+        type: object
+      - properties:
+          id:
+            title: Id
+            type: integer
+          conflicts:
+            type: integer
+        required:
+          - id
+        type: object
+
+materializations:
+  test/materialization:
+    endpoint:
+      dekaf:
+        variant: foo
+        config:
+          deletions: kafka
+          token: "1234"
+          strict_topic_names: false
+    bindings:
+      - source: test/collection
+        resource:
+          topic_name: foo
+        fields:
+          recommended: true
