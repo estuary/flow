@@ -225,14 +225,15 @@ func servePrimary(s *shard) (err error) {
 		if err != nil && s.ctx.Err() == nil {
 			log.WithFields(log.Fields{"err": err, "shard": s.FQN()}).Error("servePrimary failed")
 
-			var statusErr = err.Error()
-			if len(statusErr) > MAX_ETCD_ERR_LEN {
-				statusErr = statusErr[:MAX_ETCD_ERR_LEN] + " ...[truncated]"
+			// Note []rune conversion is infallible and doesn't panic.
+			// Instead, invalid UTF-8 is replaced with �.
+			var err = []rune(err.Error())
+			if len(err) > MAX_ETCD_ERR_LEN {
+				err = append(err[:MAX_ETCD_ERR_LEN], []rune(" ...[truncated]")...)
 			}
-
 			updateStatusWithRetry(s, pc.ReplicaStatus{
 				Code:   pc.ReplicaStatus_FAILED,
-				Errors: []string{statusErr},
+				Errors: []string{string(err)},
 			})
 		}
 		s.wg.Done()
