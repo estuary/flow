@@ -328,3 +328,12 @@ The connector does not cast these values to booleans. Instead, it will leave the
 ### Datetime Fields & Timezones
 
 The connector returns all datetimes in UTC, regardless of the user, subsidiary, or NetSuite account timezone configuration.
+
+## Multiple Subsidiaries
+
+Depending on how you configure your authentication credentials, you may accidentally limit the data available to the connector to a single subsidiary.
+
+Here's how you can ensure the role you've selected has access to multiple subsidiaries:
+
+1. Make the role explicitly available to all subsidiaries by selecting all subsidiaries on the header-level subsidiary field on the role.
+2. Add the 'Lists > Subsidiaries: View' permissions to role (i.e. the role that we use to connect to your NetSuite account).
