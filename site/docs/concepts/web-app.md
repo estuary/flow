@@ -365,6 +365,12 @@ If you're a trial user, your data is stored temporarily in Estuary's cloud stora
 
 [Learn more about storage mappings.](./storage-mappings.md)
 
+#### Data Planes
+
+The **Data Planes** section provides a table of all available data plane options, broken out by **Private** and **Public** data planes.
+
+You can find information here related to connecting and allowing access to your data plane of choice. See [Allowlisting IP Addresses](../reference/allow-ip-addresses.md) for more.
+
 ### Billing
 
 The **Billing** tab allows you to view and manage information related to past usage, the current billing cycle, and payment methods.
