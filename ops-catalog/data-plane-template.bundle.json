@@ -63,7 +63,7 @@
             "name": "logs",
             "source": "ops/tasks/BASE_NAME/logs",
             "shuffle": "any",
-            "lambda": "select json($flow_document)\n  where json_type($fields, '$.eventType') = 'text'\n  and json_type($fields, '$.eventTarget') = 'text'\n  and json_type($fields, '$.error') in ('null', 'text');\n"
+            "lambda": "select json($flow_document)\n  where json_type($fields, '$.eventType') = 'text'\n  and json_type($fields, '$.eventTarget') = 'text'\n  and coalesce(json_type($fields, '$.error'), 'null') in ('null', 'text');\n"
           }
         ],
         "shards": {
