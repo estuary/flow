@@ -28,10 +28,11 @@ If you haven't yet captured your data from its external source, start at the beg
 
 ### Setup
 
-To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor, replacing the variable names in the first six lines.
+To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor, replacing the variable names in the first five lines.
 
 If you'd like to use an existing database, warehouse, and/or schema, be sure to set
-`database_name`, `warehouse_name`, and `estuary_schema` accordingly. If you specify a new name, the script will create the item for you. You can set `estuary_role`, `estuary_user`, and `estuary_password` to whatever you'd like.
+`database_name`, `warehouse_name`, and `estuary_schema` accordingly. If you specify a new name, the script will create the item for you. You can set `estuary_role` 
+and `estuary_user` to whatever you'd like.
 
 Check the **All Queries** check box, and click **Run**.
 
@@ -40,7 +41,6 @@ set database_name = 'ESTUARY_DB';
 set warehouse_name = 'ESTUARY_WH';
 set estuary_role = 'ESTUARY_ROLE';
 set estuary_user = 'ESTUARY_USER';
-set estuary_password = 'secret';
 set estuary_schema = 'ESTUARY_SCHEMA';
 -- create role and schema for Estuary
 create role if not exists identifier($estuary_role);
@@ -51,7 +51,6 @@ use database identifier($database_name);
 create schema if not exists identifier($estuary_schema);
 -- create a user for Estuary
 create user if not exists identifier($estuary_user)
-password = $estuary_password
 default_role = $estuary_role
 default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
@@ -78,7 +77,7 @@ COMMIT;
 
 ### Key-pair Authentication & Snowpipe
 
-In order to enable use of Snowpipe for [delta updates](#delta-updates) bindings, you need to authenticate
+As username and password authentication was deprecated in April 2025, you need to authenticate
 using [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth), also known as JWT authentication.
 
 To set up your user for key-pair authentication, first generate a key-pair in your shell:
@@ -132,9 +131,9 @@ Use the below properties to configure a Snowflake materialization, which will di
 | `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
 | `/account`                   | Account             | The Snowflake account identifier                                                                                                                                | string |                  |
 | **`/credentials`**           | Credentials         | Credentials for authentication                                                                                                                                  | object | Required         |
-| **`/credentials/auth_type`** | Authentication type | One of `user_password` or `jwt`                                                                                                                                 | string | Required         |
+| **`/credentials/auth_type`** | Authentication type | `jwt` is the only supported authentication method currently                                                                                                     | string | Required         |
 | **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
-| `/credentials/password`      | Password            | Required if using user_password authentication                                                                                                                  | string | Required         |
+| `/credentials/password`      | Password            | Deprecated                                                                                                                                                      | string | Deprecated       |
 | `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
 
 #### Bindings
@@ -146,31 +145,6 @@ Use the below properties to configure a Snowflake materialization, which will di
 | `/delta_updates` | Delta updates | Whether to use standard or [delta updates](#delta-updates) | boolean |  |
 
 ### Sample
-
-User and password authentication:
-
-```yaml
-materializations:
-  ${PREFIX}/${mat_name}:
-    endpoint:
-  	    connector:
-    	    config:
-              database: acmeCo_db
-              host: orgname-accountname.snowflakecomputing.com
-              schema: acmeCo_flow_schema
-              warehouse: acmeCo_warehouse
-              credentials:
-                auth_type: user_pasword
-                user: snowflake_user
-                password: secret
-    	    image: ghcr.io/estuary/materialize-snowflake:dev
-  # If you have multiple collections you need to materialize, add a binding for each one
-    # to ensure complete data flow-through
-    bindings:
-  	- resource:
-      	table: ${table_name}
-    source: ${PREFIX}/${source_collection}
-```
 
 Key-pair authentication:
 
@@ -196,6 +170,31 @@ materializations:
                   ...
                   ...
                   -----END PRIVATE KEY-----
+    	    image: ghcr.io/estuary/materialize-snowflake:dev
+  # If you have multiple collections you need to materialize, add a binding for each one
+    # to ensure complete data flow-through
+    bindings:
+  	- resource:
+      	table: ${table_name}
+    source: ${PREFIX}/${source_collection}
+```
+
+(DEPRECATED) User and password authentication:
+
+```yaml
+materializations:
+  ${PREFIX}/${mat_name}:
+    endpoint:
+  	    connector:
+    	    config:
+              database: acmeCo_db
+              host: orgname-accountname.snowflakecomputing.com
+              schema: acmeCo_flow_schema
+              warehouse: acmeCo_warehouse
+              credentials:
+                auth_type: user_pasword
+                user: snowflake_user
+                password: secret
     	    image: ghcr.io/estuary/materialize-snowflake:dev
   # If you have multiple collections you need to materialize, add a binding for each one
     # to ensure complete data flow-through
