@@ -690,9 +690,15 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows = agent_sql::live_specs::fetch_live_specs(user_id, &all_spec_names, db)
-        .await
-        .context("fetching live specs")?;
+    let rows = agent_sql::live_specs::fetch_live_specs(
+        user_id,
+        &all_spec_names,
+        verify_user_authz,
+        true, // always fetch spec capabilities
+        db,
+    )
+    .await
+    .context("fetching live specs")?;
 
     // Check the user and spec authorizations.
     // Start by making an easy way to lookup whether each row was drafted or not.
@@ -761,10 +767,11 @@ pub async fn resolve_live_specs(
             // in their draft. Note that the _user_ does not need `Capability::Write` as long as
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
-            if !spec_row
-                .user_capability
-                .map(|c| c >= Capability::Read)
-                .unwrap_or(false)
+            if verify_user_authz
+                && !spec_row
+                    .user_capability
+                    .map(|c| c >= Capability::Read)
+                    .unwrap_or(false)
             {
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {

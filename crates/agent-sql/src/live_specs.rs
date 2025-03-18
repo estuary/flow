@@ -43,6 +43,8 @@ pub struct LiveSpec {
 pub async fn fetch_live_specs(
     user_id: Uuid,
     names: &[String],
+    fetch_user_capabilities: bool,
+    fetch_spec_capabilities: bool,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> sqlx::Result<Vec<LiveSpec>> {
     sqlx::query_as!(
@@ -58,22 +60,28 @@ pub async fn fetch_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            (
+            case when $3 then (
                 select max(capability) from internal.user_roles($1) r
                 where starts_with(names, r.role_prefix)
-            ) as "user_capability: Capability",
-            coalesce(
+            ) else
+                null
+            end as "user_capability: Capability",
+            case when $4 then coalesce(
                 (select json_agg(row_to_json(role_grants))
                 from role_grants
                 where starts_with(names, subject_role)),
                 '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
+            ) else
+               '[]'
+            end as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from unnest($2::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
         "#,
         user_id,
         names,
+        fetch_user_capabilities,
+        fetch_spec_capabilities,
     )
     .fetch_all(db)
     .await
