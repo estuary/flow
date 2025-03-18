@@ -77,7 +77,7 @@ COMMIT;
 
 ### Key-pair Authentication & Snowpipe
 
-In order to enable use of Snowpipe for [delta updates](#delta-updates) bindings, you need to authenticate
+As username and password authentication was deprecated in April 2025, you need to authenticate
 using [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth), also known as JWT authentication.
 
 To set up your user for key-pair authentication, first generate a key-pair in your shell:
