@@ -488,9 +488,15 @@ impl TestHarness {
             .all_spec_names()
             .map(|n| (*n).to_owned())
             .collect();
-        let specs = agent_sql::live_specs::fetch_live_specs(user_id, &owned_names, &self.pool)
-            .await
-            .expect("failed to query live specs");
+        let specs = agent_sql::live_specs::fetch_live_specs(
+            user_id,
+            &owned_names,
+            false, /* don't fetch user capabilities */
+            false, /* don't fetch spec capabilities */
+            &self.pool,
+        )
+        .await
+        .expect("failed to query live specs");
         assert_eq!(
             prev_specs.spec_count(),
             specs.len(),

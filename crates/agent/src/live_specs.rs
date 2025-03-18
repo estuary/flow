@@ -14,12 +14,19 @@ pub async fn get_live_specs(
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
-    // The query that's used by `fetch_live_specs` is pretty slow because of how
+    // The query that's used by `fetch_live_specs` can be pretty slow because of how
     // it queries authZ capabilities for each name, even if it doesn't exist.
     // Limit each individual query to 512 names to avoid statement timeouts when
-    // fetching a large number of specs.
+    // fetching a large number of specs when `filter_capability` is `Some`.
     for names_chunk in names.chunks(512) {
-        let rows = agent_sql::live_specs::fetch_live_specs(user_id, names_chunk, db).await?;
+        let rows = agent_sql::live_specs::fetch_live_specs(
+            user_id,
+            names_chunk,
+            filter_capability.is_some(), // fetch user capabilities only if needed
+            false,                       // we never need spec_capabilities here
+            db,
+        )
+        .await?;
         for row in rows {
             // Spec type might be null because we used to set it to null when deleting specs.
             // For recently deleted specs, it will still be present.
