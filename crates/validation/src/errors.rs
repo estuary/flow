@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use json::schema::types;
 use proto_flow::flow::collection_spec::derivation::ShuffleType;
 use url::Url;
@@ -86,6 +87,14 @@ pub enum Error {
         ptr: String,
         type_: types::Set,
         schema: Url,
+    },
+    #[error("location {ptr} is {read_type:?} in readSchema {read_schema}, but {write_type:?} in writeSchema {write_schema}. Types of keyed locations must be the same in read and write schemas.")]
+    KeyReadWriteTypesDiffer {
+        ptr: String,
+        read_type: types::Set,
+        read_schema: Url,
+        write_type: types::Set,
+        write_schema: Url,
     },
     #[error("location {ptr} is unknown in schema {schema}")]
     PtrIsImplicit { ptr: String, schema: Url },
@@ -185,6 +194,16 @@ pub enum Error {
         name: String,
         resource: String,
         rhs_scope: Url,
+    },
+    #[error("resource path component of this binding, identified by JSON pointer {pointer}, is not a string but must be")]
+    BindingInvalidResourcePointer { pointer: String },
+    #[error("resource path of this binding, identified by JSON pointers [{}], is empty", pointers.iter().map(|p| p.to_string()).join(", "))]
+    BindingEmptyResourcePath { pointers: Vec<doc::Pointer> },
+    #[error("{entity} binding resource path, {computed:?}, doesn't match the connector's validated resource path {validated:?}")]
+    BindingWrongResource {
+        entity: &'static str,
+        computed: models::ResourcePath,
+        validated: models::ResourcePath,
     },
     #[error(transparent)]
     SchemaBuild(#[from] json::schema::build::Error),

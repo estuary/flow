@@ -56,13 +56,20 @@ fn walk_test(
         Err(built) => return Some(built),
     };
     let scope = Scope::new(scope);
+    let model_fixes = Vec::new();
 
-    let models::TestDef { steps, .. } = model;
+    let dependency_hash = dependencies.compute_hash(&model);
+    let models::TestDef {
+        steps,
+        description,
+        expect_pub_id: _,
+        delete: _,
+    } = model;
 
     indexed::walk_name(scope, "test", test, models::Test::regex(), errors);
 
     // Map steps into built steps.
-    let built_steps: Vec<_> = steps
+    let built_steps: Vec<flow::test_spec::Step> = steps
         .iter()
         .enumerate()
         .filter_map(|(step_index, test_step)| {
@@ -76,24 +83,29 @@ fn walk_test(
         })
         .collect();
 
-    let built_spec = flow::TestSpec {
+    let spec = flow::TestSpec {
         name: test.to_string(),
         steps: built_steps,
     };
+    let model = models::TestDef {
+        steps,
+        description,
+        expect_pub_id: None,
+        delete: false,
+    };
 
-    let dependency_hash = dependencies.compute_hash(model);
     Some(tables::BuiltTest {
         test: test.clone(),
         scope: scope.flatten(),
         control_id,
-        expect_pub_id,
-        expect_build_id,
-        model: Some(model.clone()),
-        model_fixes: Vec::new(),
-        spec: Some(built_spec),
-        previous_spec: live_spec.cloned(),
-        is_touch,
         dependency_hash,
+        expect_build_id,
+        expect_pub_id,
+        is_touch: is_touch && model_fixes.is_empty(),
+        model: Some(model),
+        model_fixes,
+        previous_spec: live_spec.cloned(),
+        spec: Some(spec),
     })
 }
 
@@ -155,7 +167,7 @@ pub fn walk_test_step<'a>(
         "this test step",
         collection,
         built_collections,
-        errors,
+        Some(errors),
     )?;
     let documents = serde_json::from_str::<Vec<serde_json::Value>>(documents.get())
         .expect("a documents fixture is verified to be an array of objects during load");

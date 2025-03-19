@@ -187,6 +187,8 @@ pub fn mapped_stores<'a>(
     storage_mappings: &'a [tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> &'a [models::Store] {
+    // TODO find shortest mapping which is a covering prefix of `name`.
+
     match lookup_mapping(storage_mappings, name) {
         Some(m) => &m.stores,
         None if storage_mappings.is_empty() => {
