@@ -239,6 +239,7 @@ pub struct ControlExports {
     pub ssh_key: String,
     pub bastion_tunnel_private_key: Option<String>,
     pub azure_application_name: String,
+    pub azure_application_client_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]

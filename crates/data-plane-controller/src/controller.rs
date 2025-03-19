@@ -845,6 +845,7 @@ impl automations::Outcome for Outcome {
             ssh_key: _,
             bastion_tunnel_private_key,
             azure_application_name,
+            azure_application_client_id,
         }) = self.publish_exports
         {
             _ = sqlx::query!(
@@ -857,7 +858,8 @@ impl automations::Outcome for Outcome {
                     hmac_keys = $7,
                     bastion_tunnel_private_key = $8,
                     azure_application_name = $9,
-                    azure_link_endpoints = $10
+                    azure_link_endpoints = $10,
+                    azure_application_client_id = $11
                 WHERE id = $1 AND controller_task_id = $2
                 "#,
                 self.data_plane_id as models::Id,
@@ -870,6 +872,7 @@ impl automations::Outcome for Outcome {
                 bastion_tunnel_private_key,
                 azure_application_name,
                 &azure_link_endpoints,
+                azure_application_client_id,
             )
             .execute(&mut *txn)
             .await
