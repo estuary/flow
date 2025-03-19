@@ -2325,6 +2325,7 @@ dependencies = [
  "bumpalo",
  "bytes",
  "clap 4.5.21",
+ "coroutines",
  "crypto-common",
  "deadpool",
  "doc",

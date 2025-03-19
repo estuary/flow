@@ -25,6 +25,7 @@ proto-gazette = { path = "../proto-gazette" }
 simd-doc = { path = "../simd-doc" }
 tuple = { path = "../tuple" }
 unseal = { path = "../unseal" }
+coroutines = { path = "../coroutines" }
 
 aes-siv = { workspace = true }
 anyhow = { workspace = true }
