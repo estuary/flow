@@ -89,7 +89,9 @@ pub async fn start<L: LogHandler>(
             .boxed()
         }
         models::MaterializationEndpoint::Dekaf(_) => {
-            bail!("Dekaf endpoint types are purely descriptive and cannot be started.")
+            connector_tx.try_send(initial).unwrap();
+
+            dekaf::connector::connector(connector_rx).boxed()
         }
     };
 
