@@ -38,13 +38,13 @@ pub struct ApiError {
     /// The HTTP status code
     #[serde(with = "status_serde")]
     #[schemars(schema_with = "status_serde::schema")]
-    status: axum::http::StatusCode,
+    pub status: axum::http::StatusCode,
 
     /// The error message
     #[serde(with = "error_serde")]
     #[schemars(schema_with = "error_serde::schema")]
     #[source]
-    error: anyhow::Error,
+    pub error: anyhow::Error,
 }
 
 mod status_serde {
