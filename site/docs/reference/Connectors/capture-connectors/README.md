@@ -161,7 +161,10 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - PostgreSQL
   - [Configuration](./PostgreSQL/)
   - Package — ghcr.io/estuary/source-postgres:dev
-- Salesforce (for real-time data)
+- Salesforce
+  - [Configuration](./Salesforce/salesforce-native.md)
+  - Package - ghcr.io/estuary/source-salesforce-native:dev
+- Salesforce - Real-time data (deprecated)
   - [Configuration](./Salesforce/)
   - Package - ghcr.io/estuary/source-salesforce-next:dev
 - SFTP
@@ -284,7 +287,7 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Recharge
   - [Configuration](./recharge.md)
   - Package - ghcr.io/estuary/source-recharge:dev
-- Salesforce (For historical data)
+- Salesforce - Historical data (deprecated)
   - [Configuration](./Salesforce/)
   - Package - ghcr.io/estuary/source-salesforce:dev
 - SendGrid
