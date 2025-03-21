@@ -1,5 +1,7 @@
 # Salesforce
 
+The instructions and details below are for legacy Salesforce connectors that have been deprecated. A newer, first-party Salesforce connector captures both historical and real-time data, and it is the recommended connector for capturing Salesforce data. Documentation for the recommended Salesforce connector can be found [here](./salesforce-native.md).
+
 ## Overview
 The Estuary Salesforce Connector facilitates seamless integration between Salesforce and Estuary's data processing framework. With this connector, users can effortlessly sync data from Salesforce objects into Estuary Flow collections. There are two primary types of connectors available: the Realtime Connector and the Historical Connector.
 

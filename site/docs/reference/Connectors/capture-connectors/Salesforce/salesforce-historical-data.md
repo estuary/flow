@@ -1,4 +1,4 @@
-# Salesforce — Historical data
+# Salesforce — Historical data (deprecated)
 
 This connector captures data from Salesforce objects into Flow collections.
 It uses batch processing and is ideal for syncing your historical Salesforce data.
