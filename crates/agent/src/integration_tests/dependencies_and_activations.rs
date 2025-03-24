@@ -7,8 +7,228 @@ use crate::{
     },
     ControlPlane,
 };
-use models::{status::ShardRef, CatalogType};
+use models::{
+    status::{publications::PublicationStatus, ShardRef},
+    CatalogType,
+};
 use uuid::Uuid;
+
+#[tokio::test]
+#[serial_test::serial]
+async fn test_activations_performed_after_publication_failure() {
+    let mut harness = TestHarness::init("test_activations_take_precedence_over_publications").await;
+    let _user_id = harness.setup_tenant("muskrats").await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "muskrats/water": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"]
+            },
+            "muskrats/sedges": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"],
+                "derive": {
+                    "using": { "sqlite": { "migrations": [] } },
+                    "transforms": [
+                        {
+                            "name": "fromWater",
+                            "source": "muskrats/water",
+                            "lambda": "select $id;",
+                            "shuffle": "any"
+                        }
+                    ]
+                }
+            },
+        },
+        "captures": {
+            "muskrats/capture": {
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "table": "water" }, "target": "muskrats/water" }
+                ]
+            }
+        },
+        "materializations": {
+            "muskrats/materialize": {
+                "endpoint": {
+                    "connector": { "image": "materialize/test:test", "config": {} }
+                },
+                "bindings": [
+                    { "resource": { "table": "sedges" }, "source": "muskrats/sedges" },
+                    { "resource": { "table": "water" }, "source": "muskrats/water" },
+                ]
+            }
+        },
+    }));
+
+    let result = harness
+        .control_plane()
+        .publish(
+            Some(format!("initial publication")),
+            Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .expect("initial publish failed");
+    assert!(
+        result.status.is_success(),
+        "publication failed with: {:?}",
+        result.draft_errors()
+    );
+
+    harness.run_pending_controllers(None).await;
+    harness.control_plane().assert_activations(
+        "initial activations",
+        vec![
+            ("muskrats/capture", Some(CatalogType::Capture)),
+            ("muskrats/materialize", Some(CatalogType::Materialization)),
+            ("muskrats/sedges", Some(CatalogType::Collection)),
+            ("muskrats/water", Some(CatalogType::Collection)),
+        ],
+    );
+
+    // publish water, so that all other specs will need to publish in response
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "muskrats/water": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"]
+            },
+        },
+    }));
+    let result = harness
+        .control_plane()
+        .publish(None, Uuid::new_v4(), draft, None)
+        .await
+        .expect("publish failed");
+    assert!(result.status.is_success());
+
+    // We'll follow the same pattern for the capture, derivation, and
+    // materialization. Setup a publication failure, and fail the task shard,
+    // setting up a scenario where controllers will need to both publish and
+    // activate. Expect that the activation still completes successfully, and
+    // that the publication failure is recorded as expected.
+    // Capture
+    harness.control_plane().fail_next_build(
+        "muskrats/capture",
+        InjectBuildError::new(
+            tables::synthetic_scope("capture", "muskrats/capture"),
+            anyhow::anyhow!("simulated build failure"),
+        ),
+    );
+    let capture_state = harness.get_controller_state("muskrats/capture").await;
+    fail_shard(
+        &mut harness,
+        &ShardRef {
+            name: "muskrats/capture".to_string(),
+            build: capture_state.last_build_id,
+            key_begin: "00000000".to_string(),
+            r_clock_begin: "00000000".to_string(),
+        },
+    )
+    .await;
+    let capture_state = harness.run_pending_controller("muskrats/capture").await;
+    assert!(capture_state.error.is_some());
+    assert_last_publication_failed(&capture_state.current_status.unwrap_capture().publications);
+    harness.control_plane().assert_activations(
+        "after capture shard failure",
+        vec![("muskrats/capture", Some(CatalogType::Capture))],
+    );
+
+    // Materialization
+    harness.control_plane().fail_next_build(
+        "muskrats/materialize",
+        InjectBuildError::new(
+            tables::synthetic_scope("materialize", "muskrats/materialize"),
+            anyhow::anyhow!("simulated build failure"),
+        ),
+    );
+    let materialize_state = harness.get_controller_state("muskrats/materialize").await;
+    fail_shard(
+        &mut harness,
+        &ShardRef {
+            name: "muskrats/materialize".to_string(),
+            build: materialize_state.last_build_id,
+            key_begin: "00000000".to_string(),
+            r_clock_begin: "00000000".to_string(),
+        },
+    )
+    .await;
+    let materialize_state = harness.run_pending_controller("muskrats/materialize").await;
+    assert!(materialize_state.error.is_some());
+    assert_last_publication_failed(
+        &materialize_state
+            .current_status
+            .unwrap_materialization()
+            .publications,
+    );
+    harness.control_plane().assert_activations(
+        "after materialize shard failure",
+        vec![("muskrats/materialize", Some(CatalogType::Materialization))],
+    );
+
+    // Derivation
+    harness.control_plane().fail_next_build(
+        "muskrats/sedges",
+        InjectBuildError::new(
+            tables::synthetic_scope("collection", "muskrats/sedges"),
+            anyhow::anyhow!("simulated build failure"),
+        ),
+    );
+    let sedges_state = harness.get_controller_state("muskrats/sedges").await;
+    fail_shard(
+        &mut harness,
+        &ShardRef {
+            name: "muskrats/sedges".to_string(),
+            build: sedges_state.last_build_id,
+            key_begin: "00000000".to_string(),
+            r_clock_begin: "00000000".to_string(),
+        },
+    )
+    .await;
+    let sedges_state = harness.run_pending_controller("muskrats/sedges").await;
+    assert!(sedges_state.error.is_some());
+    assert_last_publication_failed(&sedges_state.current_status.unwrap_collection().publications);
+    harness.control_plane().assert_activations(
+        "after derivation shard failure",
+        vec![("muskrats/sedges", Some(CatalogType::Collection))],
+    );
+}
+
+fn assert_last_publication_failed(ps: &PublicationStatus) {
+    let last = ps
+        .history
+        .front()
+        .expect("expected at least 1 publication in history, got 0");
+    assert!(
+        !last.errors.is_empty(),
+        "expected at least 1 publication error, got 0"
+    );
+    let status = last
+        .result
+        .as_ref()
+        .expect("missing publication result status");
+    assert!(!status.is_success());
+}
 
 #[tokio::test]
 #[serial_test::serial]
@@ -129,7 +349,6 @@ async fn test_shard_failures_and_retries() {
             ("pandas/luck", Some(CatalogType::Collection)),
         ],
     );
-    //harness.control_plane().reset_activations();
 
     let before_capture_state = harness.get_controller_state("pandas/capture").await;
     let before_activation = before_capture_state

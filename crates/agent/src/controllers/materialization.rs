@@ -1,6 +1,7 @@
 use super::{
-    activation, dependencies::Dependencies, periodic, publication_status::PendingPublication,
-    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun,
+    activation, backoff_data_plane_activate, dependencies::Dependencies, periodic,
+    publication_status::PendingPublication, ControlPlane, ControllerErrorExt, ControllerState,
+    Inbox, NextRun,
 };
 use crate::publications::{PublicationResult, RejectedField};
 use anyhow::Context;
@@ -24,6 +25,35 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<Option<NextRun>> {
+    let published = maybe_publish(status, state, control_plane, model).await;
+    // Return immediately if we've successfully published. If a publication was
+    // attempted, but failed, then we'll still attempt to update activation, so
+    // that we can activate new builds and restart failed shards.
+    if Some(&true) == published.as_ref().ok() {
+        return Ok(Some(NextRun::immediately()));
+    }
+
+    let activation_next =
+        activation::update_activation(&mut status.activation, state, events, control_plane)
+            .await
+            .with_retry(backoff_data_plane_activate(state.failures))?;
+
+    // Return the publication error now, if there is one.
+    let _ = published?;
+
+    // There isn't any call to notify dependents because nothing currently can depend on a materialization.
+    Ok(NextRun::earliest([
+        periodic::next_periodic_publish(state),
+        activation_next,
+    ]))
+}
+
+async fn maybe_publish<C: ControlPlane>(
+    status: &mut MaterializationStatus,
+    state: &ControllerState,
+    control_plane: &C,
+    model: &models::MaterializationDef,
+) -> anyhow::Result<bool> {
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
 
     // Materializations use a slightly different process for updating based on changes in dependencies,
@@ -42,7 +72,7 @@ pub async fn update<C: ControlPlane>(
             control_plane,
         )
         .await?;
-        return Ok(Some(NextRun::immediately()));
+        return Ok(true);
     }
 
     if let Some(model_source_capture) = &model.source_capture {
@@ -73,7 +103,7 @@ pub async fn update<C: ControlPlane>(
         .await?
         {
             // If the sourceCapture update published, then return and schedule another run immediately
-            return Ok(Some(NextRun::immediately()));
+            return Ok(true);
         }
     } else {
         status.source_capture.take();
@@ -82,17 +112,9 @@ pub async fn update<C: ControlPlane>(
     let periodic = periodic::start_periodic_publish_update(state, control_plane);
     if periodic.has_pending() {
         do_publication(&mut status.publications, state, periodic, control_plane).await?;
-        return Ok(Some(NextRun::immediately()));
+        return Ok(true);
     }
-
-    let activation_next =
-        activation::update_activation(&mut status.activation, state, events, control_plane).await?;
-
-    // There isn't any call to notify dependents because nothing currently can depend on a materialization.
-    Ok(NextRun::earliest([
-        periodic::next_periodic_publish(state),
-        activation_next,
-    ]))
+    Ok(false)
 }
 
 /// Publishes, and handles any incompatibleCollections by automatically
