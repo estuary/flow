@@ -20,49 +20,27 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::CollectionDef,
 ) -> anyhow::Result<Option<NextRun>> {
-    let uses_inferred_schema = uses_inferred_schema(model);
-    if uses_inferred_schema {
-        let inferred_schema_status = status.inferred_schema.get_or_insert_with(Default::default);
-        if update_inferred_schema(
-            inferred_schema_status,
-            state,
-            control_plane,
-            model,
-            &mut status.publications,
-        )
-        .await?
-        {
-            return Ok(Some(NextRun::immediately()));
-        }
-    } else {
-        status.inferred_schema = None;
-    };
-
-    let mut dependencies = Dependencies::resolve(state, control_plane).await?;
-    if dependencies
-        .update(state, control_plane, &mut status.publications, |deleted| {
-            handle_deleted_dependencies(model.clone(), deleted)
-        })
-        .await?
-    {
+    let published = maybe_publish(status, state, control_plane, model).await;
+    // Return now only if a publication was performed successfully. If the
+    // publication failed, then we still attempt to update the activation.
+    if Some(&true) == published.as_ref().ok() {
         return Ok(Some(NextRun::immediately()));
     }
 
-    if periodic::update_periodic_publish(state, &mut status.publications, control_plane).await? {
-        return Ok(Some(NextRun::immediately()));
-    }
-
-    let activation_next =
+    let activate_next_run =
         activation::update_activation(&mut status.activation, state, events, control_plane)
             .await
             .with_retry(backoff_data_plane_activate(state.failures))?;
+
+    // Return now if the publication failed.
+    let _ = published?;
 
     publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
         .await?;
 
     // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
     // bypassed for some reason.
-    let inferred_schema_next = if uses_inferred_schema {
+    let inferred_schema_next = if uses_inferred_schema(model) {
         Some(NextRun::after_minutes(240))
     } else {
         None
@@ -75,8 +53,56 @@ pub async fn update<C: ControlPlane>(
     Ok(NextRun::earliest([
         inferred_schema_next,
         periodic_next,
-        activation_next,
+        activate_next_run,
     ]))
+}
+
+/// Performs a publication of the spec, if necessary.
+/// Collections may be published in order to
+/// - Update the inferred schema
+/// - Update inlined spec dependencies
+/// - Periodically rebuild the spec
+///
+/// Returns a boolean indicating whether a publication was performed.
+async fn maybe_publish<C: ControlPlane>(
+    status: &mut CollectionStatus,
+    state: &ControllerState,
+    control_plane: &C,
+    model: &models::CollectionDef,
+) -> anyhow::Result<bool> {
+    let uses_inferred_schema = uses_inferred_schema(model);
+    if uses_inferred_schema {
+        let inferred_schema_status = status.inferred_schema.get_or_insert_with(Default::default);
+        if update_inferred_schema(
+            inferred_schema_status,
+            state,
+            control_plane,
+            model,
+            &mut status.publications,
+        )
+        .await?
+        {
+            return Ok(true);
+        }
+    } else {
+        status.inferred_schema = None;
+    };
+
+    let mut dependencies = Dependencies::resolve(state, control_plane).await?;
+    if dependencies
+        .update(state, control_plane, &mut status.publications, |deleted| {
+            handle_deleted_dependencies(model.clone(), deleted)
+        })
+        .await?
+    {
+        return Ok(true);
+    }
+
+    if periodic::update_periodic_publish(state, &mut status.publications, control_plane).await? {
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 /// Disables transforms that source from deleted collections.
