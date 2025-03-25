@@ -596,7 +596,6 @@ mod tests {
     use tracing::{info, info_span};
     use tracing::{instrument::WithSubscriber, Instrument};
 
-    use bytes::Bytes;
     use tracing_record_hierarchical::SpanExt;
     use tracing_subscriber::prelude::*;
 
