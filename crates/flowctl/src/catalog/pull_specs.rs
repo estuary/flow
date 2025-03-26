@@ -55,7 +55,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
         local_specs::pick_policy(args.overwrite, args.flat),
     );
 
-    let lower_bound = humantime::parse_rfc3339("2025-03-25T11:59:00Z").unwrap();
+    let lower_bound = humantime::parse_rfc3339("2025-03-25T23:59:00Z").unwrap();
 
     let update_source = |source: &mut models::Source| match source {
         models::Source::Source(full_source) => {
