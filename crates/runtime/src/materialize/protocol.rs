@@ -140,7 +140,12 @@ pub async fn recv_connector_opened(
         .context("failed to load runtime checkpoint from RocksDB")?;
 
     if let Some(runtime_checkpoint) = runtime_checkpoint {
-        checkpoint = runtime_checkpoint.clone();
+        // TODO(johnny) 032525
+        // Ignore a connector-provided checkpoint,
+        // and use only that of the recovery log.
+        *runtime_checkpoint = checkpoint.clone();
+
+        //checkpoint = runtime_checkpoint.clone();
         tracing::debug!(
             checkpoint=?ops::DebugJson(&checkpoint),
             "using connector-provided OpenedExt.runtime_checkpoint",
@@ -258,13 +263,24 @@ pub fn recv_client_load_or_flush(
 
             // Is `key_packed` larger than the largest key previously stored
             // to the connector? If so, then it cannot possibly exist.
+
+            // TODO(johnny) 032525
+            // Track max keys, but don't filter on them for now.
+            if key_packed > *next_max {
+                // This is a new high water mark for the largest-stored key.
+                *next_max = key_packed.clone();
+            }
+            /*
             if key_packed > *prev_max {
                 if key_packed > *next_max {
                     // This is a new high water mark for the largest-stored key.
                     *next_max = key_packed.clone();
                 }
                 Ok(None)
-            } else if binding.delta_updates {
+            } else
+            */
+
+            if binding.delta_updates {
                 Ok(None) // Delta-update bindings don't load.
             } else if load_keys.contains(&key_hash) {
                 Ok(None) // We already sent a Load request for this key.
