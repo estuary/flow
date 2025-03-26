@@ -36,6 +36,7 @@ func (c *AddressConfig) MustDial(ctx context.Context) *grpc.ClientConn {
 
 	cc, err := grpc.DialContext(ctx,
 		c.Address.GRPCAddr(),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*16)),
 		grpc.WithTransportCredentials(pb.NewDispatchedCredentials(tlsConfig, c.Address)),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoffConfig}),
 		// A single Gazette broker frequently serves LOTS of Journals.
