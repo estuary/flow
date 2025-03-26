@@ -71,6 +71,9 @@ func (cmd *cmdJournalResetHead) Execute([]string) error {
 
 	var wg sync.WaitGroup
 	for _, journal := range listResp.Journals {
+		if journal.Spec.Suspend != nil && journal.Spec.Suspend.Level == pb.JournalSpec_Suspend_FULL {
+			continue
+		}
 		wg.Add(1)
 		go resetHead(rjc, journal.Spec.Name, wg.Done)
 	}
