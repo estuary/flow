@@ -54,6 +54,46 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
         collect_specs(live_specs)?,
         local_specs::pick_policy(args.overwrite, args.flat),
     );
+
+    let lower_bound = humantime::parse_rfc3339("2025-03-25T11:59:00Z").unwrap();
+
+    let update_source = |source: &mut models::Source| match source {
+        models::Source::Source(full_source) => {
+            *source = models::Source::Source(models::FullSource {
+                not_before: Some(lower_bound.into()),
+                ..full_source.clone()
+            });
+        }
+        models::Source::Collection(collection) => {
+            *source = models::Source::Source(models::FullSource {
+                name: collection.clone(),
+                not_before: Some(lower_bound.into()),
+                not_after: None,
+                partitions: None,
+            });
+        }
+    };
+
+    for collection in sources.collections.iter_mut() {
+        let Some(model) = &mut collection.model else {
+            continue;
+        };
+        let Some(derive) = &mut model.derive else {
+            continue;
+        };
+        for transform in &mut derive.transforms {
+            update_source(&mut transform.source);
+        }
+    }
+    for materialization in sources.materializations.iter_mut() {
+        let Some(model) = &mut materialization.model else {
+            continue;
+        };
+        for binding in &mut model.bindings {
+            update_source(&mut binding.source);
+        }
+    }
+
     let sources = local_specs::indirect_and_write_resources(sources)?;
 
     println!("Wrote {count} specifications under {target}.");
