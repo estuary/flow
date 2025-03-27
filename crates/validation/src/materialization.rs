@@ -100,7 +100,7 @@ async fn walk_materialization<C: Connectors>(
     let scope = Scope::new(scope);
 
     let models::MaterializationDef {
-        source_capture: _,
+        source_capture,
         endpoint,
         bindings: all_bindings,
         shards: shard_template,
@@ -184,19 +184,23 @@ async fn walk_materialization<C: Connectors>(
     )
     .await?;
 
-    let _resource_path_pointers =
-        match extract_resource_config_annotations(&resource_config_schema_json) {
-            Ok((resource_path_pointers, _delta_pointer)) => resource_path_pointers,
-            Err(_) if resource_config_schema_json == "true" => Vec::new(), // No-op schema.
-            Err(err) => {
-                Error::Connector {
-                    detail: err
-                        .context("connector Response.Spec resource_config_schema is invalid"),
+    // If the materialization uses a sourceCapture, then require that the
+    // connector resource spec schema contains the necessary annotations.
+    if source_capture.is_some() {
+        let _resource_path_pointers =
+            match extract_resource_config_annotations(&resource_config_schema_json) {
+                Ok((resource_path_pointers, _delta_pointer)) => resource_path_pointers,
+                Err(_) if resource_config_schema_json == "true" => Vec::new(), // No-op schema.
+                Err(err) => {
+                    Error::Connector {
+                        detail: err
+                            .context("connector Response.Spec resource_config_schema is invalid"),
+                    }
+                    .push(scope, errors);
+                    Vec::new()
                 }
-                .push(scope, errors);
-                Vec::new()
-            }
-        };
+            };
+    }
 
     // We only validate and build enabled bindings, in their declaration order.
     let enabled_bindings: Vec<(usize, &models::MaterializationBinding)> = all_bindings
