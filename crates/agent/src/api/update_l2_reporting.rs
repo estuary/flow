@@ -1,9 +1,10 @@
+use super::App;
+use crate::api::error::ApiErrorExt;
 use crate::publications::{
     DoNotRetry, DraftPublication, NoExpansion, NoopFinalize, NoopWithCommit,
 };
-
-use super::App;
 use anyhow::Context;
+use axum::http::StatusCode;
 use std::sync::Arc;
 use validator::Validate;
 
@@ -21,28 +22,32 @@ pub struct Response {
     diff: serde_json::Value,
 }
 
+#[axum::debug_handler]
 #[tracing::instrument(
-    skip(pg_pool, publisher),
+    skip(app),
     err(level = tracing::Level::WARN),
 )]
-async fn do_update_l2_reporting(
-    App {
-        pg_pool, publisher, ..
-    }: &App,
-    super::ControlClaims { sub: user_id, .. }: super::ControlClaims,
-    Request {
+pub async fn update_l2_reporting(
+    axum::extract::State(app): axum::extract::State<Arc<App>>,
+    axum::Extension(super::ControlClaims { sub: user_id, .. }): axum::Extension<
+        super::ControlClaims,
+    >,
+    super::Request(Request {
         default_data_plane,
         dry_run,
-    }: Request,
-) -> anyhow::Result<Response> {
+    }): super::Request<Request>,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
     if let None = sqlx::query!(
         "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
         user_id,
     )
-    .fetch_optional(pg_pool)
+    .fetch_optional(&app.pg_pool)
     .await?
     {
-        anyhow::bail!("authenticated user is not an admin of the 'ops/' tenant");
+        return Err(
+            anyhow::anyhow!("authenticated user is not an admin of the 'ops/' tenant")
+                .with_status(StatusCode::FORBIDDEN),
+        );
     }
 
     let template = include_str!("../../../../ops-catalog/reporting-L2-template.bundle.json");
@@ -71,16 +76,20 @@ async fn do_update_l2_reporting(
                 l2_events = Some(row);
             }
             _ => {
-                anyhow::bail!("unrecognized template collection {}", row.collection)
+                return Err(
+                    anyhow::anyhow!("unrecognized template collection {}", row.collection)
+                        .with_status(StatusCode::INTERNAL_SERVER_ERROR),
+                );
             }
         }
     }
     let (Some(mut l2_stats), Some(mut l2_inferred), Some(mut l2_events)) =
         (l2_stats, l2_inferred, l2_events)
     else {
-        anyhow::bail!(
+        return Err(anyhow::anyhow!(
             "expected template to include L2 status, inferred schemas, and catalog stats"
-        );
+        )
+        .with_status(StatusCode::INTERNAL_SERVER_ERROR));
     };
 
     let models::Derivation {
@@ -103,7 +112,10 @@ async fn do_update_l2_reporting(
         module: l2_stats_module_raw,
     }) = l2_stats_using
     else {
-        anyhow::bail!("L2 stats derivation must be a TypeScript module")
+        return Err(
+            anyhow::anyhow!("L2 stats derivation must be a TypeScript module")
+                .with_status(StatusCode::INTERNAL_SERVER_ERROR),
+        );
     };
 
     let mut l2_stats_module =
@@ -132,7 +144,7 @@ export class Derivation extends Types.IDerivation {"#
         order by data_plane_name asc;
         "#,
     )
-    .fetch_all(pg_pool)
+    .fetch_all(&app.pg_pool)
     .await?;
 
     for data_plane in &data_planes {
@@ -221,7 +233,8 @@ export class Derivation extends Types.IDerivation {"#
         retry: DoNotRetry,
         with_commit: NoopWithCommit,
     };
-    let result = publisher
+    let result = app
+        .publisher
         .publish(publication)
         .await
         .context("publishing L2 reporting catalog")?;
@@ -245,18 +258,9 @@ export class Derivation extends Types.IDerivation {"#
         "l2_status": draft.get_by_key(&models::Collection::new(L2_EVENTS_NAME)).map(|r| &r.model),
     });
 
-    Ok(Response {
+    Ok(axum::Json(Response {
         diff: serde_json::json!(doc::diff(Some(&next), Some(&previous))),
-    })
-}
-
-#[axum::debug_handler]
-pub async fn update_l2_reporting(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    axum::Extension(claims): axum::Extension<super::ControlClaims>,
-    super::Request(request): super::Request<Request>,
-) -> axum::response::Response {
-    super::wrap(async move { do_update_l2_reporting(&app, claims, request).await }).await
+    }))
 }
 
 // Copied from crates/derive-typescript/src/codegen/mod.rs
