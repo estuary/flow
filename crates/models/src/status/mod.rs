@@ -98,6 +98,16 @@ impl ControllerStatus {
         }
     }
 
+    pub fn publication_status(&self) -> Option<&publications::PublicationStatus> {
+        match self {
+            ControllerStatus::Capture(c) => Some(&c.publications),
+            ControllerStatus::Collection(c) => Some(&c.publications),
+            ControllerStatus::Materialization(c) => Some(&c.publications),
+            ControllerStatus::Test(s) => Some(&s.publications),
+            ControllerStatus::Uninitialized => None,
+        }
+    }
+
     pub fn as_capture_mut(&mut self) -> anyhow::Result<&mut capture::CaptureStatus> {
         if self.is_uninitialized() {
             *self = ControllerStatus::Capture(Default::default());

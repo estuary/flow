@@ -109,7 +109,7 @@ async fn maybe_publish<C: ControlPlane>(
         status.source_capture.take();
     }
 
-    let periodic = periodic::start_periodic_publish_update(state, control_plane);
+    let periodic = periodic::start_periodic_publish_update(state, control_plane)?;
     if periodic.has_pending() {
         do_publication(&mut status.publications, state, periodic, control_plane).await?;
         return Ok(true);
