@@ -1,4 +1,4 @@
-use crate::integration_tests::harness::{draft_catalog, TestHarness};
+use crate::integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness};
 use models::status::ControllerStatus;
 use std::collections::BTreeSet;
 
@@ -130,15 +130,70 @@ async fn specs_are_published_periodically() {
         update live_specs
         set updated_at = now() - '21days'::interval
         where catalog_name = any($1::text[]);"#,
-        all_spec_names as Vec<String>
+        all_spec_names.clone() as Vec<String>
     )
     .execute(&harness.pool)
     .await
     .unwrap();
 
     for name in expect_touched_names {
-        tracing::info!(%name, "expecting to be touched");
         let before_state = harness.get_controller_state(&name).await;
+
+        // Simulate a failure of the periodic publication and expect
+        // it to backoff waiting to try again.
+        harness.control_plane().fail_next_build(
+            &name,
+            InjectBuildError::new(
+                tables::synthetic_scope("test-whatever", &name),
+                anyhow::anyhow!("simulated build failure"),
+            ),
+        );
+        // expect the history to show a single failed publication attempt, and
+        // that the controller will then backoff.
+        for i in 0..3 {
+            let after_error_state = harness.run_pending_controller(&name).await;
+            assert_eq!(
+                before_state.live_spec_updated_at, after_error_state.live_spec_updated_at,
+                "expect the live spec was not published"
+            );
+            let last_entry = after_error_state
+                .current_status
+                .publication_status()
+                .unwrap()
+                .history
+                .front()
+                .unwrap();
+            assert!(!last_entry.is_success());
+            assert_eq!(
+                1, last_entry.count,
+                "expect exactly one publication to have been attempted"
+            );
+            assert!(after_error_state.error.is_some());
+            if i > 0 {
+                assert!(after_error_state
+                    .error
+                    .as_deref()
+                    .unwrap()
+                    .contains("backing off periodic publication"));
+            }
+        }
+        // Change the timestamp of the last publication in the history to
+        // simulate the passage of time, so another publication will be
+        // attempted.
+        let last_attempt = chrono::Utc::now() - chrono::Duration::hours(4);
+        sqlx::query!(
+            r#"
+            update controller_jobs
+            set status = jsonb_set(status::jsonb, '{publications, history, 0, completed }', $2)::json
+            where live_spec_id = (select id from live_specs where catalog_name::text = $1);"#,
+            &name as &str,
+            serde_json::Value::String(last_attempt.to_rfc3339()),
+        )
+        .execute(&harness.pool)
+        .await
+        .unwrap();
+
+        tracing::info!(%name, "expecting to be touched");
         let after_state = harness.run_pending_controller(&name).await;
 
         let pub_status = match after_state.current_status {

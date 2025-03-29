@@ -170,6 +170,16 @@ impl ControllerState {
     }
 }
 
+/// Returns an `Err` result with a backoff message, and a next retry set to the given `next_attempt`.
+fn backoff_err<T>(next_attempt: NextRun, action: &str, fail_count: u32) -> anyhow::Result<T> {
+    let plural = if fail_count > 1 { "s" } else { "" };
+    anyhow::Result::<T>::Err(anyhow::anyhow!(
+        "backing off {action} after {fail_count} failure{plural}"
+    ))
+    .with_retry(next_attempt)
+    .map_err(Into::into)
+}
+
 /// A wrapper around an `anyhow::Error` that also contains retry information.
 /// Allows marking an error as non-retryable by setting `retry` to `None`.
 #[derive(Debug)]
