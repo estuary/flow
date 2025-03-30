@@ -201,8 +201,13 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 			heap.Push(&g.queued, r)
 		} else {
 			g.pending[r] = struct{}{}
-			g.setPollState(r, pollStatePending)
 			g.mustPoll = true
+
+			if r.resp.Tailing() {
+				g.setPollState(r, pollStateTailing)
+			} else {
+				g.setPollState(r, pollStateBlocking)
+			}
 		}
 		return env, nil
 	}
@@ -362,7 +367,12 @@ func (g *governor) onConverge(ctx context.Context) error {
 
 		// Mark that we must poll a response from this *read.
 		g.pending[r] = struct{}{}
-		g.setPollState(r, pollStatePending)
+
+		if r.resp.Tailing() {
+			g.setPollState(r, pollStateTailing)
+		} else {
+			g.setPollState(r, pollStateBlocking)
+		}
 	}
 
 	for _, r := range drain {
@@ -394,10 +404,11 @@ var pollState = promauto.NewGaugeVec(
 )
 
 const (
-	pollStateIdle    = 0
-	pollStatePending = 1
-	pollStateGated   = 2
-	pollStateReady   = 3
+	pollStateIdle     = 0
+	pollStateBlocking = 1
+	pollStateGated    = 2
+	pollStateReady    = 3
+	pollStateTailing  = 4
 )
 
 func (g *governor) setPollState(r *read, state float64) {
