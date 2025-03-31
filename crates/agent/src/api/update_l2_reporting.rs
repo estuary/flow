@@ -255,7 +255,7 @@ export class Derivation extends Types.IDerivation {"#
     let next = serde_json::json!({
         "l2_inferred": draft.get_by_key(&models::Collection::new(L2_INFERRED_NAME)).map(|r| &r.model),
         "l2_stats": draft.get_by_key(&models::Collection::new(L2_STATS_NAME)).map(|r| &r.model),
-        "l2_status": draft.get_by_key(&models::Collection::new(L2_EVENTS_NAME)).map(|r| &r.model),
+        "l2_events": draft.get_by_key(&models::Collection::new(L2_EVENTS_NAME)).map(|r| &r.model),
     });
 
     Ok(axum::Json(Response {
