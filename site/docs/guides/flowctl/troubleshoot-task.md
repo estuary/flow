@@ -3,10 +3,6 @@ sidebar_position: 3
 ---
 # Troubleshoot a task with flowctl
 
-:::caution
-The flowctl logs and stats subcommands have been temporarily disabled while we work on some important changes to our authorization system. We expect to have these working again soon. In the meantime, please reach out to us via Slack or email (support@estuary.dev) if you want any help.
-:::
-
 flowctl offers the most advanced views of [task logs](../../concepts/advanced/logs-stats.md).
 If a task has errors or is failing in the web app, you'll be able to troubleshoot more effectively with flowctl.
 

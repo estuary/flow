@@ -71,7 +71,7 @@ collectively form the cursor, and the obvious lexicographic tuple ordering will 
 Once you have specified a suitable cursor for a table, you will likely want to lower the
 polling interval for that binding. The default polling interval is `"24h"` to keep data
 volumes low, but once a cursor is specified there is usually no downside to frequent
-polling, so you may wish to lower the interval to `"5m`" or even `"5s"` for that table.
+polling, so you may wish to lower the interval to `"5m"` or even `"5s"` for that table.
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the BigQuery source connector.
@@ -92,9 +92,9 @@ You configure connectors either in the Flow web app, or by directly editing the 
 | Property        | Title          | Description                                                               | Type   | Required/Default |
 | --------------- | -------------- | ------------------------------------------------------------------------- | ------ | ---------------- |
 | **`/name`**     | Name           | A name which uniquely identifies this binding.                            | string | Required         |
-| **`/cursor`**   | Cursor         | The column name(s) which should be used as the incremental capture cursor | array  | []               |
+| **`/cursor`**   | Cursor         | The column name(s) which should be used as the incremental capture cursor | array  | `[]`               |
 | **`/template`** | Template       | The query (template) which will be executed every polling interval        | string | Required         |
-| **`/poll`**     | Poll Interval  | Override the global polling interval for this binding.                    | string | ""               |
+| **`/poll`**     | Poll Interval  | Override the global polling interval for this binding.                    | string | `""`               |
 
 ### Query Templates
 

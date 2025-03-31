@@ -6,7 +6,7 @@ import ReactPlayer from "react-player";
 This connector materializes Flow collections into tables in Microsoft Azure
 Fabric Warehouse.
 
-[`ghcr.io/estuary/azure-fabric-warehouse:dev`](https://ghcr.io/estuary/azure-fabric-warehouse:dev)
+[`ghcr.io/estuary/materialize-azure-fabric-warehouse:dev`](https://ghcr.io/estuary/materialize-azure-fabric-warehouse:dev)
 provides the latest connector image. You can also follow the link in your
 browser to see past image versions.
 

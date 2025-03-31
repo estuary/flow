@@ -43,6 +43,10 @@ materialization's associated collections.
 
 ### Accessing logs and statistics from the command line
 
+:::caution
+The flowctl stats subcommand has been temporarily moved under `flowctl raw` while we build a new and improved version. In the meantime, `flowctl raw stats` functionality may be experimental. If you need any help, please reach out to us via [Slack](https://go.estuary.dev/slack) or [email](mailto:support@estuary.dev).
+:::
+
 The `flowctl logs` and `flowctl stats` subcommands allow you to print logs and stats, respectively, from the command line.
 This method allows more flexibility and is ideal for debugging.
 

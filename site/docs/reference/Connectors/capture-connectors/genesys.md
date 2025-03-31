@@ -16,11 +16,11 @@ By default, each resource is mapped to a Flow collection through a separate bind
 ## Prerequisites
 
 * A Genesys account with API access.
-* A OAuth app created within your Genesys account with the Client Credentials grant type. See [Authentication](#authentication) for instructions on how to create this.
+* An OAuth app created within your Genesys account with the Client Credentials grant type. See [Authentication](#authentication) for instructions on how to create this.
 
 ### Authentication
 
-Genesys requires an OAuth client for authentication. To create an OAuth client in your Genesys account that will allow Flow to access data, follow the below steps or refer to [Genesys' documentation](https://help.mypurecloud.com/articles/create-an-oauth-client/).
+Genesys requires an OAuth client for authentication. To create an OAuth client in your Genesys account that will allow Flow to access data, follow the steps below or refer to [Genesys' documentation](https://help.mypurecloud.com/articles/create-an-oauth-client/).
 
 1. Log into your [Genesys account](https://login.mypurecloud.com/#/authenticate).
 2. Click **Admin**.

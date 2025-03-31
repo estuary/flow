@@ -44,6 +44,9 @@ In the future, other open-source materialization connectors from third parties c
 * Apache Parquet Files in S3
   * [Configuration](./amazon-s3-parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
+* Azure Fabric Warehouse
+  * [Configuration](./azure-fabric-warehouse.md)
+  * Package - ghcr.io/estuary/materialize-azure-fabric-warehouse:dev
 * Azure SQL Server
   * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/materialize-sqlserver:dev

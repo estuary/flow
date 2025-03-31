@@ -16,7 +16,7 @@ so distribution and upgrades are all simple.
 
 ## Installation and setup
 
-flowctl binaries for MacOS and Linux are available. Fow Windows, [install Windows Subsystem for Linux (WSL)](https://docs.estuary.dev/concepts/flowctl/) to run Linux on Windows, or use a remote development environment.
+flowctl binaries for MacOS and Linux are available. For Windows, [install Windows Subsystem for Linux (WSL)](https://docs.estuary.dev/concepts/flowctl/) to run Linux on Windows, or use a remote development environment.
 
 1. Copy and paste the appropriate script below into your terminal. This will download flowctl, make it executable, and add it to your `PATH`.
 
@@ -60,6 +60,10 @@ and delete entities from the catalog.
 * `collections` allows you to work with your Flow collections. You can read the data from the collection and output it to stdout, or list the [journals](../concepts/advanced/journals.md) or journal fragments that comprise the collection. [Learn more about reading collections with flowctl](../concepts/collections.md#using-the-flowctl-cli).
 
 * `draft` provides an alternative method for many of the actions you'd normally perform with `catalog`, but common workflows have more steps.
+
+* `generate` creates stub files and folder structures based on a provided `flow.yaml` file. This is helpful when [creating a derivation locally](../guides/flowctl/create-derivation.md#create-a-derivation-locally).
+
+* `logs` allows you to review or follow logs for a particular task. This can be useful to help debug captures, derivations, and materializations.
 
 You can access full documentation of all flowctl subcommands from the command line by passing the `--help` or `-h` flag, for example:
 
@@ -110,16 +114,9 @@ When you pull specifications to your working directory directly using `flowctl c
 there may be conflicts between the existing files in that directory and the specifications you pull.
 
 By default, `flowctl catalog pull-specs` will abort if it detects an existing file with the same name as a specification
-it is attempting to pull. You can change this behavior with the `--existing` flag:
+it is attempting to pull. You can change this behavior with the `--overwrite` flag.
 
-* `--existing=overwrite` pulls the new versions of conflicting files in place of the old versions.
-
-* `--existing=keep` keeps the old versions of conflicting files.
-
-* `--existing=merge-specs` performs a simple merge of new and old versions of conflicting files.
-For example, if an existing `flow.yaml` file references collections a and b,
-and the new version of `flow.yaml` references collections a and c,
-the merged version will reference collections a, b, and c.
+Adding the `--overwrite` flag will pull the new versions of conflicting files in place of the old versions.
 
 ## Development directories
 
@@ -157,7 +154,7 @@ and to define lambdas functions for [derivations](./derivations.md), which requi
 As part of the Data Flow build process, Flow translates your
 [schemas](schemas.md)
 into equivalent TypeScript types on your behalf.
-These definitions live within `flow_generated/` in your Data Flow's build directory ,
+These definitions live within `flow_generated/` in your Data Flow's build directory,
 and are frequently over-written by invocations of `flowctl`.
 Files in this subdirectory are human-readable and stable.
 You may want to commit them as part of a GitOps-managed project, but this isn't required.
