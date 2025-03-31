@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script>
 <script id="runllm-widget-script" type="module" src="https://widget.runllm.com" runllm-name="Estuary AI Assistant" runllm-assistant-id="253" runllm-position="BOTTOM_RIGHT" runllm-keyboard-shortcut="Mod+j" runllm-preset="docusaurus" async runllm-theme-color="#5072EB" runllm-brand-logo="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_a373037876/estuary_logo_a373037876.png" runllm-support-email="support@estuary.dev" runllm-community-url="https://go.estuary.dev/slack" runllm-community-type="slack"></script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.f33386bc.js" defer="defer"></script>
-<script src="/assets/js/main.61bb7b45.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.84b88bbd.js" defer="defer"></script>
+<script src="/assets/js/main.3f35a858.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -22,7 +22,7 @@ You can work with any catalog to which you have <a href="/reference/authenticati
 <p>flowctl is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="installation-and-setup">Installation and setup<a class="hash-link" aria-label="Direct link to Installation and setup" title="Direct link to Installation and setup" href="/concepts/flowctl/#installation-and-setup">​</a></h2>
-<p>flowctl binaries for MacOS and Linux are available. Fow Windows, <a href="https://docs.estuary.dev/concepts/flowctl/" target="_blank" rel="noopener noreferrer">install Windows Subsystem for Linux (WSL)</a> to run Linux on Windows, or use a remote development environment.</p>
+<p>flowctl binaries for MacOS and Linux are available. For Windows, <a href="https://docs.estuary.dev/concepts/flowctl/" target="_blank" rel="noopener noreferrer">install Windows Subsystem for Linux (WSL)</a> to run Linux on Windows, or use a remote development environment.</p>
 <ol>
 <li>
 <p>Copy and paste the appropriate script below into your terminal. This will download flowctl, make it executable, and add it to your <code>PATH</code>.</p>
@@ -62,6 +62,12 @@ and delete entities from the catalog.</p>
 </li>
 <li>
 <p><code>draft</code> provides an alternative method for many of the actions you&#x27;d normally perform with <code>catalog</code>, but common workflows have more steps.</p>
+</li>
+<li>
+<p><code>generate</code> creates stub files and folder structures based on a provided <code>flow.yaml</code> file. This is helpful when <a href="/guides/flowctl/create-derivation/#create-a-derivation-locally">creating a derivation locally</a>.</p>
+</li>
+<li>
+<p><code>logs</code> allows you to review or follow logs for a particular task. This can be useful to help debug captures, derivations, and materializations.</p>
 </li>
 </ul>
 <p>You can access full documentation of all flowctl subcommands from the command line by passing the <code>--help</code> or <code>-h</code> flag, for example:</p>
@@ -115,21 +121,8 @@ For example, <code>flowctl catalog list --prefix acmeCo/sales/ --collections</co
 <p>When you pull specifications to your working directory directly using <code>flowctl catalog pull-specs</code>,
 there may be conflicts between the existing files in that directory and the specifications you pull.</p>
 <p>By default, <code>flowctl catalog pull-specs</code> will abort if it detects an existing file with the same name as a specification
-it is attempting to pull. You can change this behavior with the <code>--existing</code> flag:</p>
-<ul>
-<li>
-<p><code>--existing=overwrite</code> pulls the new versions of conflicting files in place of the old versions.</p>
-</li>
-<li>
-<p><code>--existing=keep</code> keeps the old versions of conflicting files.</p>
-</li>
-<li>
-<p><code>--existing=merge-specs</code> performs a simple merge of new and old versions of conflicting files.
-For example, if an existing <code>flow.yaml</code> file references collections a and b,
-and the new version of <code>flow.yaml</code> references collections a and c,
-the merged version will reference collections a, b, and c.</p>
-</li>
-</ul>
+it is attempting to pull. You can change this behavior with the <code>--overwrite</code> flag.</p>
+<p>Adding the <code>--overwrite</code> flag will pull the new versions of conflicting files in place of the old versions.</p>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="development-directories">Development directories<a class="hash-link" aria-label="Direct link to Development directories" title="Direct link to Development directories" href="/concepts/flowctl/#development-directories">​</a></h2>
 <p>Flow specifications and other files are written to your working directory when you run <code>flowctl draft develop</code> or <code>flowctl catalog pull-specs</code>.</p>
 <p>They typically include:</p>
@@ -166,7 +159,7 @@ and to define lambdas functions for <a href="/concepts/derivations/">derivations
 <p>As part of the Data Flow build process, Flow translates your
 <a href="/concepts/schemas/">schemas</a>
 into equivalent TypeScript types on your behalf.
-These definitions live within <code>flow_generated/</code> in your Data Flow&#x27;s build directory ,
+These definitions live within <code>flow_generated/</code> in your Data Flow&#x27;s build directory,
 and are frequently over-written by invocations of <code>flowctl</code>.
 Files in this subdirectory are human-readable and stable.
 You may want to commit them as part of a GitOps-managed project, but this isn&#x27;t required.</p>
