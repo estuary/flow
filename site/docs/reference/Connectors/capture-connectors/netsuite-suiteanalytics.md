@@ -1,3 +1,5 @@
+import ReactPlayer from "react-player";
+
 # NetSuite SuiteAnalytics Connect
 
 This connector captures data from Oracle NetSuite into Flow collections. It relies on the SuiteAnalytics Connect feature in order to both load large amounts of data quickly, as well as introspect the available tables, their schemas, keys, and cursor fields.
@@ -6,6 +8,8 @@ This connector captures data from Oracle NetSuite into Flow collections. It reli
 latest connector image. You can also follow the link in your browser to see past image versions.
 
 If you don't have SuiteAnalytics Connect, check out our [SuiteTalk REST](../netsuite-suitetalk) connector.
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=CN3RXry0o9k" />
 
 ## Supported data resources
 

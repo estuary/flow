@@ -16,7 +16,7 @@ a materialized view that updates continuously based on a real-time data feed.
 
 * An Estuary Flow account. If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for free.
 
-* A GitLab, GitHub, or BitBucket account. You'll use this to log into [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
+* A GitHub or Google account. You'll use this to log into [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
 
    * Alternatively, you can complete this tutorial using a local development environment.
    In that case, you'll need to [install flowctl locally](../../guides/get-started-with-flowctl.md).

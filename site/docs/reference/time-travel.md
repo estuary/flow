@@ -38,7 +38,7 @@ materializations:
           # Name of the collection to be read.
           # Required.
           name: acmeCo/example/collection
-          # Lower bound date-time for documents which should be processed. 
+          # Lower bound date-time for documents which should be processed.
           # Source collection documents published before this date-time are filtered.
           # `notBefore` is *only* a filter. Updating its value will not cause Flow
           # to re-process documents that have already been read.
@@ -56,5 +56,5 @@ materializations:
 ## Properties
 | Property | Title | Description | Type |
 |---|---|---|---|
-| **`/notBefore`**| Not Before | Only include date before this time | date-time |
-| **`/notAfter`** | Not After  | Only include data after this time | date-time |
+| **`/notBefore`**| Not Before | Only include data after this time | date-time |
+| **`/notAfter`** | Not After  | Only include data before this time | date-time |

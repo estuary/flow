@@ -94,13 +94,13 @@ The properties in the table below reflect the manual authentication method. If y
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/branch` | Branch (Optional) | Space-delimited list of GitHub repository branches to pull commits for, e.g. &#x60;estuary&#x2F;flow&#x2F;your-branch&#x60;. If no branches are specified for a repository, the default branch will be pulled. | string |  |
+| `/branch` | Branch (Optional) | Space-delimited list of GitHub repository branches to pull commits for, e.g. `estuary/flow/your-branch`. If no branches are specified for a repository, the default branch will be pulled. | string |  |
 | **`/credentials`** | Authentication | Choose how to authenticate to GitHub | object | Required |
 | `/credentials/option_title` | Authentication method | Set to `PAT Credentials` for manual authentication | string |  |
 | `/credentials/personal_access_token` | Access token | Personal access token, used for manual authentication. You may include multiple access tokens as a comma separated list. |
 | `/page_size_for_large_streams` | Page size for large streams (Optional) | The Github connector captures from several resources with a large amount of data. The page size of such resources depends on the size of your repository. We recommended that you specify values between 10 and 30. | integer | `10` |
-| **`/repository`** | GitHub Repositories | Space-delimited list of GitHub organizations&#x2F;repositories, e.g. &#x60;estuary&#x2F;flow&#x60; for a single repository, &#x60;estuary&#x2F;&#x2A;&#x60; to get all repositories from an organization and &#x60;estuary&#x2F;flow estuary&#x2F;another-repo&#x60; for multiple repositories. | string | Required |
-| **`/start_date`** | Start date | The date from which you&#x27;d like to replicate data from GitHub in the format YYYY-MM-DDT00:00:00Z. For the resources that support this configuration, only data generated on or after the start date will be replicated. This field doesn't apply to all [resources](#supported-data-resources). | string | Required |
+| **`/repository`** | GitHub Repositories | Space-delimited list of GitHub organizations/repositories, e.g. `estuary/flow` for a single repository, `estuary/*` to get all repositories from an organization and `estuary/flow estuary/another-repo` for multiple repositories. | string | Required |
+| **`/start_date`** | Start date | The date from which you'd like to replicate data from GitHub in the format YYYY-MM-DDT00:00:00Z. For the resources that support this configuration, only data generated on or after the start date will be replicated. This field doesn't apply to all [resources](#supported-data-resources). | string | Required |
 
 #### Bindings
 

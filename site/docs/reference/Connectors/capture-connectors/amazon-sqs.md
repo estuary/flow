@@ -4,7 +4,7 @@
 
 This connector captures data from Amazon Simple Queue Service (SQS) into Flow collections.
 
-It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-amazon-sqs:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-amazon-sqs:dev`](https://ghcr.io/estuary/source-amazon-sqs:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 * AWS IAM Access Key
@@ -20,8 +20,8 @@ Follow these steps to set up the Amazon SQS connector:
 
 :::note
 
-**If Delete Messages After Read is false**, the IAM User only requires sqs:ReceiveMessage permission in the AWS IAM Policy.
-**If Delete Messages After Read is true**, both sqs:ReceiveMessage and sqs:DeleteMessage permissions are needed in the AWS IAM Policy.
+**If Delete Messages After Read is false**, the IAM User only requires the `sqs:ReceiveMessage` permission in the AWS IAM Policy.
+**If Delete Messages After Read is true**, both `sqs:ReceiveMessage` and `sqs:DeleteMessage` permissions are needed in the AWS IAM Policy.
 
 :::
 

@@ -1,7 +1,7 @@
 
-# Startree
+# StarTree
 
-This connector materializes Flow collections as Kafka-compatible messages that a Startree Kafka consumer can read. [StarTree](https://startree.ai/) is a real-time analytics platform built on Apache Pinot, designed for performing fast,
+This connector materializes Flow collections as Kafka-compatible messages that a StarTree Kafka consumer can read. [StarTree](https://startree.ai/) is a real-time analytics platform built on Apache Pinot, designed for performing fast,
 low-latency analytics on large-scale data.
 
 ## Prerequisites
@@ -9,7 +9,7 @@ low-latency analytics on large-scale data.
 To use this connector, you'll need:
 
 * At least one Flow collection
-* A Startree account
+* A StarTree account
 
 ## Variants
 

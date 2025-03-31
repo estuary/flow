@@ -89,7 +89,7 @@ every few minutes and include that in the capture.
 PostgreSQL logical replication can only acknowledge changes which modify at least one
 table in the publication. If all of the tables being captured are idle while there are
 significant changes to other tables on the same server, the replication slot cannot
-advance and PostgreSQL WAL retention will continue to grow, potentially without bound (see [WAL Retention and Tuning Parameters](#wal-retention-and-tuning-parameters))
+advance and PostgreSQL WAL retention will continue to grow, potentially without bound (see [WAL Retention and Tuning Parameters](PostgreSQL.md#wal-retention-and-tuning-parameters))
 for more information.
 
 To enable read-only operation:
