@@ -65,6 +65,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Brevo
   - [Configuration](./brevo.md)
   - Package - ghcr.io/estuary/source-brevo:dev
+- Chargebee
+  - [Configuration](./chargebee-native.md)
+  - Package - ghcr.io/estuary/source-chargebee-native:dev
 - Criteo
   - [Configuration](./criteo.md)
   - Package - ghcr.io/estuary/source-criteo:dev
@@ -224,7 +227,7 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Braze
   - [Configuration](./braze.md)
   - Package - ghcr.io/estuary/source-braze:dev
-- Chargebee
+- Chargebee (deprecated)
   - [Configuration](./chargebee.md)
   - Package - ghcr.io/estuary/source-chargebee:dev
 - Confluence

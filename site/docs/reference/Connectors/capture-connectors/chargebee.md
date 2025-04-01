@@ -1,5 +1,4 @@
-
-# Chargebee
+# Chargebee (deprecated)
 
 This connector captures data from Chargebee into Flow collections.
 
