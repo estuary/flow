@@ -272,6 +272,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Chargebee (deprecated)
   - [Configuration](./chargebee.md)
   - Package - ghcr.io/estuary/source-chargebee:dev
+- Chargebee Native
+  - [Configuration](./chargebee-native.md)
+  - Package - ghcr.io/estuary/source-chargebee-native:dev
 - Confluence
   - [Configuration](./confluence.md)
   - Package - ghcr.io/estuary/source-confluence:dev
