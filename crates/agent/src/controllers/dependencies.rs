@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use models::{status::publications::PublicationStatus, AnySpec, ModelDef};
 
 use crate::ControlPlane;
@@ -86,14 +87,21 @@ impl Dependencies {
         DF: FnOnce(&BTreeSet<String>) -> anyhow::Result<(String, M)>,
         M: Into<models::AnySpec>,
     {
-        let mut pending = self.start_update(state, handle_deleted).await?;
+        let mut pending = self
+            .start_update(state, control_plane.current_time(), handle_deleted)
+            .await?;
         if pending.has_pending() {
-            pending
+            let pub_result = pending
                 .finish(state, pub_status, control_plane)
                 .await
                 .context("failed to execute publish")?
-                .error_for_status()
-                .with_maybe_retry(backoff_publication_failure(state.failures))?;
+                .error_for_status();
+            // The most recent failure in the history is guaranteed to be the
+            // right one if this attempt has failed, so an empty prefix works.
+            let failures = last_pub_failed(pub_status, "")
+                .map(|(_, count)| count)
+                .unwrap_or(1);
+            pub_result.with_retry(backoff_publication_failure(failures))?;
             Ok(true)
         } else {
             Ok(false)
@@ -107,6 +115,7 @@ impl Dependencies {
     pub async fn start_update<DF, M>(
         &mut self,
         state: &ControllerState,
+        now: DateTime<Utc>,
         handle_deleted: DF,
     ) -> anyhow::Result<PendingPublication>
     where
@@ -118,13 +127,34 @@ impl Dependencies {
             return Ok(pending_pub);
         }
 
-        if self.deleted.is_empty() {
+        let detail = if self.deleted.is_empty() {
             // This is the common case
             let new_hash = self.hash.as_deref().unwrap_or("None");
             let old_hash = state.live_dependency_hash.as_deref().unwrap_or("None");
-            let detail = format!(
+            format!(
                 "in response to change in dependencies, prev hash: {old_hash}, new hash: {new_hash}"
-            );
+            )
+        } else {
+            "in response to deletion one or more depencencies".to_string()
+        };
+
+        // Do we need to backoff a previous failed attempt? First question is whether the last attempt failed.
+        if let Some((last, fail_count)) = state
+            .current_status
+            .publication_status()
+            .and_then(|s| last_pub_failed(s, &detail))
+        {
+            let backoff = backoff_publication_failure(fail_count);
+            // 0 the jitter when computing here so that we don't randomly use a greater jitter
+            // than was determined when the backoff error was first returned. This isn't critical,
+            // but avoids potentially "extra" controller runs.
+            let next_attempt = last + backoff.with_jitter_percent(0).compute_duration();
+            if next_attempt > now {
+                return super::backoff_err(backoff, "dependency update publication", fail_count);
+            }
+        }
+
+        if self.deleted.is_empty() {
             pending_pub.start_touch(state, detail);
         } else {
             let (detail, updated_model) = handle_deleted(&self.deleted)
@@ -143,12 +173,39 @@ impl Dependencies {
     }
 }
 
-fn backoff_publication_failure(prev_failures: i32) -> Option<NextRun> {
-    if prev_failures < 3 {
-        Some(NextRun::after_minutes(prev_failures.max(1) as u32))
-    } else if prev_failures < 10 {
-        Some(NextRun::after_minutes(prev_failures as u32 * 60))
+/// Looks for a failed publication in the history that has a detail message
+/// prefixed by the given string, and returns the time of the last attempt, and
+/// the total number of failures. We filter the entries to try to only look
+/// specifically at failed publications having the same to/flow dependency
+/// hashes. This allows the backoff to reset whenever a new version of a
+/// dependency is published. Otherwise, you might be waiting a long time after
+/// publishing a dependency version that allows this spec to publish
+/// successfully.
+fn last_pub_failed(
+    pub_status: &models::status::publications::PublicationStatus,
+    filter_detail_prefix: &str,
+) -> Option<(DateTime<Utc>, u32)> {
+    pub_status
+        .history
+        .iter()
+        .filter(|e| {
+            !e.is_success()
+                && e.detail
+                    .as_deref()
+                    .is_some_and(|d| d.starts_with(filter_detail_prefix))
+        })
+        // Technically, `completed` should always be Some, except for maybe certain
+        // very old/stale controllers. Can probably change this to an `unwrap` soon.
+        .flat_map(|e| e.completed.map(|last_attempt| (last_attempt, e.count)))
+        .next()
+}
+
+fn backoff_publication_failure(prev_failures: u32) -> NextRun {
+    let mins = if prev_failures < 3 {
+        prev_failures.max(1)
     } else {
-        None
-    }
+        // max of 5 hours between attempts
+        (prev_failures * 30).min(300)
+    };
+    NextRun::after_minutes(mins as u32)
 }

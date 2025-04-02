@@ -1123,6 +1123,30 @@ async fn test_dependencies_and_controllers() {
     assert_eq!("simulated build failure", &failed_pub.errors[0].detail);
     harness.assert_controller_pending("owls/materialize").await;
 
+    // Assert that the controller backs off
+    let materialization_state = harness.run_pending_controller("owls/materialize").await;
+    let error = materialization_state
+        .error
+        .as_deref()
+        .expect("expected controller error, got None");
+    assert!(
+        error.contains("backing off dependency update"),
+        "unexpected error, got: '{error}'"
+    );
+    let last_pub = &materialization_state
+        .current_status
+        .unwrap_materialization()
+        .publications
+        .history[0];
+    assert!(!last_pub.is_success());
+    assert_eq!(1, last_pub.count, "expect a single attempted publication");
+    harness
+        .push_back_last_pub_history_ts(
+            "owls/materialize",
+            last_pub.completed.unwrap() - chrono::Duration::minutes(2),
+        )
+        .await;
+
     // The materialization should now successfully retry and then activate
     harness.run_pending_controller("owls/materialize").await;
     let materialization_state = harness.get_controller_state("owls/materialize").await;
