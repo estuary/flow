@@ -1,3 +1,5 @@
+use crate::{integration_tests::harness::InjectBuildError, ControlPlane};
+
 use super::harness::{draft_catalog, TestHarness};
 use models::Id;
 use uuid::Uuid;
@@ -69,8 +71,46 @@ async fn test_source_captures() {
         .await;
     assert!(result.status.is_success());
 
+    let scope = tables::synthetic_scope("materialization", "ducks/materializeA");
+    harness.control_plane().fail_next_build(
+        "ducks/materializeA",
+        InjectBuildError::new(scope.clone(), anyhow::anyhow!("simulated build error")),
+    );
+
+    // Run the rest of the controllers and expect that sourceCaptures were updated as expected
     harness.run_pending_controllers(None).await;
-    let a_state = harness.get_controller_state("ducks/materializeA").await;
+
+    // Run A again and expect to see an error about backing off after the publication failed
+    let a_state = harness.run_pending_controller("ducks/materializeA").await;
+    let error = a_state
+        .error
+        .as_deref()
+        .expect("expected controller error, got None");
+    assert_eq!(
+        error,
+        "backing off adding binding(s) to match the sourceCapture: [ducks/pond/quacks] after 1 failure (will retry)"
+    );
+    // Ensure that the error was recorded
+    let a_pub = &a_state.current_status.publication_status().unwrap().history[0];
+    assert!(!a_pub.is_success());
+    assert!(a_pub
+        .detail
+        .as_deref()
+        .is_some_and(|d| d.starts_with("adding ")));
+
+    let new_last_pub = harness.control_plane().current_time() - chrono::Duration::minutes(4);
+    // Simulate the passage of time to allow the materialization to re-try adding the bindings
+    harness
+        .push_back_last_pub_history_ts("ducks/materializeA", new_last_pub)
+        .await;
+
+    // A should now retry and successfully add the bindings.
+    let a_state = harness.run_pending_controller("ducks/materializeA").await;
+    assert!(
+        a_state.error.is_none(),
+        "expected no error, got: {:?}",
+        a_state.error
+    );
     let a_model = a_state
         .live_spec
         .as_ref()

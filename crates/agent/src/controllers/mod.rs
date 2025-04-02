@@ -326,6 +326,33 @@ impl NextRun {
     }
 }
 
+/// Looks for a failed publication in the history that has a detail message
+/// prefixed by the given string, and returns the time of the last attempt, and
+/// the total number of failures. This allows the backoff to reset whenever a new version of a
+/// dependency is published. Otherwise, you might be waiting a long time after
+/// publishing a dependency version that allows this spec to publish
+/// successfully.
+fn last_pub_failed(
+    pub_status: &models::status::publications::PublicationStatus,
+    filter_detail_prefix: &str,
+) -> Option<(DateTime<Utc>, u32)> {
+    pub_status
+        .history
+        .iter()
+        // ignore any history entries that succeeded, OR that came before
+        // the last successful publication.
+        .take_while(|e| !e.is_success())
+        .filter(|e| {
+            e.detail
+                .as_deref()
+                .is_some_and(|d| d.starts_with(filter_detail_prefix))
+        })
+        // Technically, `completed` should always be Some, except for maybe certain
+        // very old/stale controllers. Can probably change this to an `unwrap` soon.
+        .flat_map(|e| e.completed.map(|last_attempt| (last_attempt, e.count)))
+        .next()
+}
+
 /// Returns a backoff after failing to activate or delete shards/journals in the
 /// data-plane. Failures to do so should be re-tried indefinitely.
 fn backoff_data_plane_activate(prev_failures: i32) -> NextRun {
