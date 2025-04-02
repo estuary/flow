@@ -98,7 +98,7 @@ impl Dependencies {
                 .error_for_status();
             // The most recent failure in the history is guaranteed to be the
             // right one if this attempt has failed, so an empty prefix works.
-            let failures = last_pub_failed(pub_status, "")
+            let failures = super::last_pub_failed(pub_status, "")
                 .map(|(_, count)| count)
                 .unwrap_or(1);
             pub_result.with_retry(backoff_publication_failure(failures))?;
@@ -138,11 +138,14 @@ impl Dependencies {
             "in response to deletion one or more depencencies".to_string()
         };
 
-        // Do we need to backoff a previous failed attempt? First question is whether the last attempt failed.
+        // Do we need to backoff a previous failed attempt? First question is
+        // whether the last attempt failed. Note that our use of the full detail
+        // when matching the prefix is intentional, so that the backoff gets
+        // reset whenever the dependency hashes change.
         if let Some((last, fail_count)) = state
             .current_status
             .publication_status()
-            .and_then(|s| last_pub_failed(s, &detail))
+            .and_then(|s| super::last_pub_failed(s, &detail))
         {
             let backoff = backoff_publication_failure(fail_count);
             // 0 the jitter when computing here so that we don't randomly use a greater jitter
@@ -171,33 +174,6 @@ impl Dependencies {
         }
         Ok(pending_pub)
     }
-}
-
-/// Looks for a failed publication in the history that has a detail message
-/// prefixed by the given string, and returns the time of the last attempt, and
-/// the total number of failures. We filter the entries to try to only look
-/// specifically at failed publications having the same to/flow dependency
-/// hashes. This allows the backoff to reset whenever a new version of a
-/// dependency is published. Otherwise, you might be waiting a long time after
-/// publishing a dependency version that allows this spec to publish
-/// successfully.
-fn last_pub_failed(
-    pub_status: &models::status::publications::PublicationStatus,
-    filter_detail_prefix: &str,
-) -> Option<(DateTime<Utc>, u32)> {
-    pub_status
-        .history
-        .iter()
-        .filter(|e| {
-            !e.is_success()
-                && e.detail
-                    .as_deref()
-                    .is_some_and(|d| d.starts_with(filter_detail_prefix))
-        })
-        // Technically, `completed` should always be Some, except for maybe certain
-        // very old/stale controllers. Can probably change this to an `unwrap` soon.
-        .flat_map(|e| e.completed.map(|last_attempt| (last_attempt, e.count)))
-        .next()
 }
 
 fn backoff_publication_failure(prev_failures: u32) -> NextRun {

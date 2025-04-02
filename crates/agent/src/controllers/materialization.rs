@@ -319,14 +319,46 @@ pub async fn update_source_capture<C: ControlPlane>(
 ) -> anyhow::Result<bool> {
     let capture_spec = live_capture.model();
 
+    // Did a prior attempt to add bindings fail?
+    let prev_failed = !status.up_to_date;
+
     // Record the bindings that we plan to add. This will remain if we
     // return an error while trying to add them, so that we can see the new
-    // binginds in the status if something goes wrong. If all goes well,
+    // bindings in the status if something goes wrong. If all goes well,
     // we'll clear this at the end.
     status.add_bindings = get_bindings_to_add(capture_spec, model);
     status.up_to_date = status.add_bindings.is_empty();
     if status.up_to_date {
         return Ok(false);
+    }
+
+    // Avoid generating a detail with hundreds of collection names
+    let detail = if status.add_bindings.len() > 10 {
+        format!(
+            "adding {} bindings to match the sourceCapture",
+            status.add_bindings.len()
+        )
+    } else {
+        format!(
+            "adding binding(s) to match the sourceCapture: [{}]",
+            status.add_bindings.iter().join(", ")
+        )
+    };
+
+    // Check whether the prior attempt failed, and whether we need to backoff
+    // before trying again. Note that if the detail message changes (i.e. the
+    // source capture bindings changed), then the backoff will effectively be
+    // reset, because we match on the detail message. This is intentional, so
+    // that changes which may allow the publication to succeed will get retried
+    // immediately.
+    if let Some((last_attempt, fail_count)) =
+        super::last_pub_failed(pub_status, &detail).filter(|_| prev_failed)
+    {
+        let backoff = backoff_failed_source_capture_pub(fail_count);
+        let next = last_attempt + backoff.with_jitter_percent(0).compute_duration();
+        if next > control_plane.current_time() {
+            return super::backoff_err(backoff, &detail, fail_count);
+        }
     }
 
     // We need to update the materialization model to add the bindings. This
@@ -342,19 +374,6 @@ pub async fn update_source_capture<C: ControlPlane>(
         .await
         .context("failed to fetch connector spec")?;
     let resource_spec_pointers = pointer_for_schema(connector_spec.resource_config_schema.get())?;
-
-    // Avoid generating a detail with hundreds of collection names
-    let detail = if status.add_bindings.len() > 10 {
-        format!(
-            "adding {} bindings to match the sourceCapture",
-            status.add_bindings.len()
-        )
-    } else {
-        format!(
-            "adding binding(s) to match the sourceCapture: [{}]",
-            status.add_bindings.iter().join(", ")
-        )
-    };
 
     let mut new_model = model.clone();
     update_linked_materialization(
@@ -372,6 +391,14 @@ pub async fn update_source_capture<C: ControlPlane>(
     status.up_to_date = true;
 
     Ok(true)
+}
+
+fn backoff_failed_source_capture_pub(failures: u32) -> NextRun {
+    let mins = match failures {
+        0..3 => failures * 3,
+        _ => (failures * 10).min(300),
+    };
+    NextRun::after_minutes(mins)
 }
 
 fn get_bindings_to_add(
