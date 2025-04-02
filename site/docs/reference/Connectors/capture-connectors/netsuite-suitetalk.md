@@ -2,7 +2,13 @@
 
 This connector captures data from Oracle NetSuite into Flow collections. It connects to the NetSuite Analytics Data Warehouse using the SuiteQL REST endpoint and a custom role.
 
+[`ghcr.io/estuary/source-netsuite:dev`](https://ghcr.io/estuary/source-netsuite:dev) provides the
+latest connector image. You can also follow the link in your browser to see past image versions.
+
 It is available for use in the Flow web application.
+
+If you have SuiteAnalytics Connect, check out our [SuiteTalk REST](../netsuite-suitetalk) connector which provides more
+functionality compared to this connector.
 
 ## SuiteAnalytics vs SuiteQL via REST API
 
@@ -32,7 +38,7 @@ These two different connection modes have some key differences:
 
 ## General Setup
 
-**Set up required features on your NetSuite account**
+### Set up required features on your NetSuite account
 
 1. Find your Account ID (also know as the "Realm"). You'll use this to connect with Flow.
 
@@ -192,12 +198,6 @@ The connector works around the 100,000 query row limit and enables you to pull u
 due to the count limit SuiteQL imposes, the connector will not be able to properly capture data if a table has more than
 1,000,000 records.
 
-### Boolean Data Type
-
-NetSuite represents booleans as a string. For example, `true` is represented as `"T"` and `false` is represented as `"F"`.
-
-The connector does not cast these values to booleans. Instead, it will leave them as strings.
-
 ### Custom Records & Fields
 
 Custom tables are *not* yet supported on the SuiteQL connector. Contact Estuary support if you need this feature.
@@ -205,35 +205,6 @@ Custom tables are *not* yet supported on the SuiteQL connector. Contact Estuary 
 Custom fields on standard records are supported, but regardless of the type in NetSuite, they are represented as strings.
 
 If you need the types of the fields to be correct, consider using the NetSuite SuiteAnalytics connector instead.
-
-### Start Data & Table Filtering
-
-The connector's start date is used to filter data across tables to ensure that the connector does not pull data
-created before the connector's start date.
-
-However, not all tables have a `createdDate` column. For these tables, this start date filter is not applied. Most tables
-without a `createdDate` column are mapping tables (i.e. `AccountSubsidiaryMap`).
-
-### Line Level Record Updates
-
-NetSuite does not reliably update the `createdDate` field on line-level records. This can cause line-level transactions
-to become out of date in Estuary. Exactly when this occurs is dependent on your NetSuite configuration. Contact Estuary
-support for assistance with your specific situation.
-
-There are two things you can do to correct this issue:
-
-1. Setup table associations in order to update line level records when a header record is updated.
-2. Setup a scheduled full-table refresh on the line-level tables
-
-Here's an example table association. This association updates the `transactionline` table whenever a `transaction` record is updated.
-
-```yaml
-parent_join_column_name: location
-child_table_name: inventoryItemLocations
-child_join_column_name: location
-load_during_backfill: false
-load_during_incremental: true
-```
 
 ### DateTime Fields & Timezones
 

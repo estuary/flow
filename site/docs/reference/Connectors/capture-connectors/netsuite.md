@@ -1,15 +1,32 @@
-import ReactPlayer from "react-player";
+# NetSuite
 
-# NetSuite SuiteAnalytics Connect
+This connector captures data from Oracle NetSuite into Flow collections. It uses NetSuite's data warehouse functionality
+to support high volume data capture (tens of millions of rows per table aren't an issue).
 
-This connector captures data from Oracle NetSuite into Flow collections. It relies on the SuiteAnalytics Connect feature in order to load large amounts of data quickly and introspect the available tables, their schemas, keys, and cursor fields.
+NetSuite provides two ways of access its data warehouse: SuiteAnalytics Connect and SuiteQL. This connector supports both
+connection methods. SuiteAnalytics is preferred (but is also a premium NetSuite feature that comes with an additional cost).
 
-[`ghcr.io/estuary/source-netsuite:dev`](https://ghcr.io/estuary/source-netsuite:dev) provides the
-latest connector image. You can also follow the link in your browser to see past image versions.
+## SuiteAnalytics vs SuiteQL
 
-If you don't have SuiteAnalytics Connect, check out our [SuiteTalk REST](../netsuite-suitetalk) connector.
+Here are the key differences between the SuiteAnalytics and SuiteQL connection methods:
 
-<ReactPlayer controls url="https://www.youtube.com/watch?v=CN3RXry0o9k" />
+| **Feature**            | **SuiteAnalytics Connect**                                                    | **SuiteQL**                                                          |
+|---------------------------------|----------------------------------------------------------------------|----------------------------------------------------------------------|
+| **Custom Records & Fields**     | Fully supports custom records and fields on standard records         | Supports custom fields on standard records (as strings); custom tables not supported |
+| **DateTime Fields & Timezones** | All datetimes returned in UTC                                        | Datetimes returned in the timezone configured in the NetSuite account |
+| **Row Limit**                   | No explicit row limit mentioned                                      | 1,000,000 rows per table limitation    |
+
+
+The most important difference between the two connection methods is the SuiteQL row limit. SuiteQL imposes strict limits (1M,000 rows per table), while SuiteAnalytics has no limit. Unfortunately, the 1M limit is a hard limit imposed by NetSuite.
+
+This comparison can help you choose the best method based on your NetSuite setup and data needs!
+
+## Differences Compared to the REST or SOAP APIs
+
+If you are used to the NetSuite REST or SOAP API, you'll notice some differences from the API objects available through these APIs.
+This is because the underlying NetSuite data warehouse that we integrate with has a different schema than the NetSuite APIs. All of the data available via the REST or SOAP APIs is available through this connector, but you may need to look in a different location.
+
+For instance, in the connector schema there's a `transaction` table with a `type` column instead of individual tables for sales orders, invoices, transfers, etc. Instead of pulling the `invoices` table you'll want to pull the `transaction` table and filter by `type = "invoice"`. This pattern applies to the `item` table.
 
 ## Supported data resources
 
@@ -18,31 +35,66 @@ Flow discovers all of the tables to which you grant access during [setup](#setup
 ## Prerequisites
 
 - Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp)
-- Allowed access to all Account permissions options
 - A new integration with token-based authentication
-- A custom role with access to objects you want to capture. See [setup](#setup).
+- A custom role (or the bundled "Data Warehouse Integrator" role) with access to objects you want to capture. See [setup](#setup).
 - A new user assigned to the custom role
 - Access token generated for the custom role
 
 ## Setup
 
-**Create a NetSuite account**
+### 1. Create a NetSuite account
+
+Most likely, you already have a NetSuite account in place, but if you don't:
 
 1. Create an account on the [Oracle NetSuite](https://www.netsuite.com/portal/home.shtml) portal.
 
 2. Confirm your email address.
 
-**Set up your NetSuite account**
+### 2. Enable the required features
 
-1. Find your _Realm_, or Account ID. You'll use this to connect with Flow.
+Depending on which connector type you are using, you'll need to enable different features.
 
-   1. In your NetSuite portal, go to **Setup** > **Company** > **Company Information**.
+#### SuiteAnalytics Connect
 
-   2. Copy your Account ID.
+1. Navigate to **Setup** > **Company** > **Enable Features**.
 
-      If you have a production account, it will look like `2345678`. If you're using a sandbox, it'll look like `2345678_SB2`.
+2. Click the **SuiteCloud** tab.
 
-2. Create a NetSuite _integration_ to obtain a Consumer Key and Consumer Secret.
+3. In the **Manage Authentication** section, check the checkbox labeled **TOKEN-BASED AUTHENTICATION**.
+
+4. Save your changes.
+
+5. Next, navigate to **Setup** > **Company** > **Analytics** > **Connectivity** and check the checkbox labeled **SuiteAnalytics Connect**.
+
+6. Save your changes.
+
+#### SuiteQL
+
+1. Navigate to **Setup** > **Company** > **Enable Features**.
+
+2. Click the **SuiteCloud** tab.
+
+3. In the **Manage Authentication** section, check the checkbox labeled **TOKEN-BASED AUTHENTICATION**.
+
+4. Save your changes.
+
+5. Next, in the **SuiteTalk (Web Services)** section, check the checkbox labeled **REST WEB SERVICES**.
+
+6. Save your changes.
+
+### 3. Find Your Account ID
+
+Find your _Realm_, or Account ID. You'll use this to connect with Flow.
+
+1. In your NetSuite portal, go to **Setup** > **Company** > **Company Information**.
+
+2. Copy your Account ID.
+
+   If you have a production account, it will look like `2345678`. If you're using a sandbox, it'll look like `2345678_SB2`.
+
+### 4. Generate Consumer Tokens
+
+Create a NetSuite _integration_ to obtain a Consumer Key and Consumer Secret. You'll need these two tokens, combined with the user tokens we'll generate in the next step, to authenticate with NetSuite.
 
    1. Navigate to **Setup** > **Integration** > **Manage Integrations** > **New**.
 
@@ -56,51 +108,59 @@ Flow discovers all of the tables to which you grant access during [setup](#setup
 
    Your Consumer Key and Consumer Secret will be shown once. Copy them to a safe place.
 
-3. Set up a role for use with Flow. You can use the bundled "Data Warehouse Integrator" role, instead of creating a new role using the instructions below, if you don't want to manage custom permissions.
+### 5. Setup a Custom Role
 
-   1. Go to **Setup** > **Users/Roles** > **Manage Roles** > **New**.
+Most of the time, you'll want to setup a custom role to use with Flow to limit the data available to Flow.
 
-   2. Give the role a name, for example, `estuary-integration-role`.
+If you are using SuiteAnalytics, you can use the bundled "Data Warehouse Integrator" role, instead of creating a new role using the instructions below, if you don't want to manage custom permissions. If you aren't using this read-all role, determining which permissions are required can be very challenging. [Check out this repository](https://github.com/iloveitaly/netsuite-permissions) for help with determining exactly which permissions are required in your case.
 
-   3. Scroll to the **Permissions** section.
+1. Go to **Setup** > **Users/Roles** > **Manage Roles** > **New**.
 
-   4. (IMPORTANT) Click **Transactions** and add all the dropdown entities with either **full** or **view** access level.
+2. Give the role a name, for example, `estuary-integration-role`.
 
-   5. (IMPORTANT) Click **Reports** and add all the dropdown entities with either **full** or **view** access level.
+3. Scroll to the **Permissions** section.
 
-   6. (IMPORTANT) Click **Lists** and add all the dropdown entities with either **full** or **view** access level.
+4. (IMPORTANT) Click **Transactions** and add all the dropdown entities with either **full** or **view** access level.
 
-   7. (IMPORTANT) Click **Setup** an add all the dropdown entities with either **full** or **view** access level.
+5. (IMPORTANT) Click **Reports** and add all the dropdown entities with either **full** or **view** access level.
 
-   To allow your custom role to reflect future changes, be sure to edit these parameters again when you rename or customize any NetSuite object.
+6. (IMPORTANT) Click **Lists** and add all the dropdown entities with either **full** or **view** access level.
 
-4. Set up user for use with Flow.
+7. (IMPORTANT) Click **Setup** an add all the dropdown entities with either **full** or **view** access level.
 
-   1. Go to **Setup** > **Users/Roles** > **Manage Users**.
+To allow your custom role to reflect future changes, be sure to edit these parameters again when you rename or customize any NetSuite object.
 
-   2. Find the user you want to give access to use with Flow. In the **Name** column, click the user's name. Then, click the **Edit** button.
+### 6. Assign the role to a user
 
-   3. Find the **Access** tab.
+Now that we've chosen the role to use, we have to assign the role to a user.
 
-   4. From the dropdown list, select role you created previously; for example, `estuary-integration-role`.
+1. Go to **Setup** > **Users/Roles** > **Manage Users**.
 
-   5. Save your changes.
+2. Find the user you want to give access to use with Flow. In the **Name** column, click the user's name. Then, click the **Edit** button.
 
-5. Generate an access token.
+3. Find the **Access** tab.
 
-   1. Go to **Setup** > **Users/Roles** > **Access Tokens** > **New**.
+4. From the dropdown list, select role you created previously; for example, `estuary-integration-role`.
 
-   2. Select an **Application Name**.
+5. Save your changes.
 
-   3. Under **User**, select the user you assigned the role previously.
+### 7. Generate User Access Tokens
 
-   4. Under **Role**, select the role you assigned to the user previously.
+The final step! We are ready to generate the next two tokens that we'll combine with the consumer tokens in order to connect to NetSuite.
 
-   5. Under **Token Name**, give a descriptive name to the token you are creating, for example `estuary-rest-integration-token`.
+1. Go to **Setup** > **Users/Roles** > **Access Tokens** > **New**.
 
-   6. Save your changes.
+2. Select an **Application Name**.
 
-   Your Token ID and Token Secret will be shown once. Copy them to a safe place.
+3. Under **User**, select the user you assigned the role previously.
+
+4. Under **Role**, select the role you assigned to the user previously.
+
+5. Under **Token Name**, give a descriptive name to the token you are creating, for example `estuary-rest-integration-token`.
+
+6. Save your changes.
+
+Your Token ID and Token Secret will be shown once. Copy them to a safe place. You cannot access them again.
 
 You now have a properly configured account with the correct permissions and all the information you need to connect with Flow:
 
@@ -111,7 +171,7 @@ You now have a properly configured account with the correct permissions and all 
 - Token Secret
 
 :::info
-You can also authenticate with a username and password, but a consumer/token is recommended for security.
+You can also authenticate with a username and password if you using the old `NetSuite.com` data warehouse with SuiteAnalytics, but a consumer/token is recommended for security.
 :::
 
 ## Configuration
@@ -126,8 +186,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | Property                      | Title                  | Description                                                                                      | Type   | Required/Default |
 | ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ | ------ | ---------------- |
 | `/account`                     | Netsuite Account ID    | Netsuite realm/Account ID e.g. 2344535, as for `production` or 2344535_SB1, as for `sandbox` | string | Required         |
-| `/role_id`                    | Role ID                | The ID of the role you created. Defaults to 3, which is the ID of the administrator role.        | int    | 3                |
-| `/suiteanalytics_data_source` | Data Source            | Which NetSuite data source to use. Options are `NetSuite.com`, or `NetSuite2.com`                | string | Required         |
+| `/suiteanalytics_data_source` | Data Source            | Which NetSuite data source to use. Options are `NetSuite.com`, or `NetSuite2.com`. Use `NetSuite2.com` if you aren't sure.                | string | Required         |
 | `/authentication`             | Authentication Details | Credentials to access your NetSuite account                                                      | object | Required         |
 
 #### Token/Consumer Authentication
@@ -145,6 +204,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | -------------------------- | -------- | -------------------------------------- | ------ | ---------------- |
 | `/authentication/username` | Username | Your NetSuite account's email/username | string | Required         |
 | `/authentication/password` | Password | Your NetSuite account's password.      | string | Required         |
+| `/authentication/role_id` | Role ID | The internal ID of the role used to access NetSuite.      | int | Required         |
 
 #### Advanced Config options
 
@@ -152,7 +212,9 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---------------- |
 | `/advanced/connection_limit` | Connection Limit | The maximum number of concurrent data streams to attempt at once.                                                                                                                                                   | int  | 10 Connections   |
 | `/advanced/task_limit`       | Task Limit       | The maximum number of concurrent tasks to run at once. A task is either a backfill or incremental load. Backfills can load multiple chunks in parallel, so this must be strictly &lt;= `/advanced/connection_limit` | int  | 5 Tasks          |
-| `/advanced/start_date`       | Start Date       | The date that we should attempt to start backfilling from. If not provided, backfill from the beginning.                                                                                                            | date | Not Required     |
+| `/advanced/start_date`       | Start Date       | The date that we should attempt to start backfilling from. If not provided, backfill from the beginning. This also prevents data from being imported from before this date.                                                                                                            | date | Not Required     |
+| `/advanced/cursor_fields`      | Cursor Fields     | Columns to use as cursor for incremental replication, in order of preference. Case insensitive.                                                                                               | array  | Not Required. `last_modified_date`, `lastmodifieddate`, and more are used as the default list.     |
+| `/advanced/enable_auto_cursor` | Enable Auto Cursor | Enable automatic cursor field selection. If enabled, will walk through the list of candidate cursors and select the first one with no null values, otherwise select the cursor with the least nulls. Depending on your NetSuite account performance, you may not be able to enable this. | boolean | Not Required. Defaults to `false`.     |
 
 #### Bindings
 
@@ -164,7 +226,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/page_cursor`                              | Page Cursor             | An indexed, non-NULL integer column to use for ordered table backfills. Does not need to be unique, but should have high cardinality. | String                                                                                                                           | Required (Automatically Discovered) |
 | `/concurrency`                              | Concurrency             | Maximum number of concurrent connections to use for backfilling.                                                                      | int                                                                                                                              | 1 Connection                        |
 | `/query_limit`                              | Query Limit             | Maximum number of rows to fetch in a query. Will be divided between all connections if `/concurrency` > 1                             | int                                                                                                                              | 100,000 Rows                        |
-| `/query_timeout`                            | Query Timeout           | Timeout for queries. Typically left as the default as some tables just take a very long time to respond.                              | [`ISO8601` Duration](https://www.digi.com/resources/documentation/digidocs/90001488-13/reference/r_iso_8601_duration_format.htm) | `PT10M` (10 Minutes)                |
+| `/snapshot_backfill`                              | Snapshot Backfill             | Attempt to backfill using a single-shot query to load all rows. Useful when no good page cursor exists, and the table is of reasonable size. Incremental updates are still possible if a log cursor is defined. | bool                                                                                                                              | `false` Rows                        |
 | `/associations`                             | Associations            | List of associated tables for which related data should be loaded.                                                                    | Array[TableAssociation]                                                                                                          | []                                  |
 | `/associations/[n]/child_table_name`        | Foreign Table Name      | The name of the "foreign" table that should be associated with the "parent" binding containing this association                       | String                                                                                                                           | Required                            |
 | `/associations/[n]/parent_join_column_name` | Parent Join Column      | The name of the column on the "parent" table to be used as the join key                                                               | String                                                                                                                           | Required                            |
@@ -190,7 +252,6 @@ captures:
                      token_id: xxx
                      token_secret_sops: xxx
                   connection_type: suiteanalytics
-                  role_id: 3
                   suiteanalytics_data_source: NetSuite2.com
                   advanced:
                      connection_limit: 20
@@ -212,25 +273,20 @@ captures:
             page_cursor: id
             query_limit: 100000
             concurrency: 1
-            query_timeout: PT10M
             log_cursor: lastmodifieddate
          target: ${PREFIX}/${CAPTURE_NAME}/transaction
     {...}
 ```
 
-## Connector Details
+## Technical Notes
 
-### Differences from the REST API
+Here are some additional technical notes about the connector's functionality.
 
-If you are used to the NetSuite REST or SOAP API, you'll notice some differences from the API objects available through these APIs.
-This is because the underlying NetSuite data warehouse that we integrate with has a different schema than the NetSuite APIs.
+### Boolean Data Type
 
-For instance, in the connector schema there's a `transaction` table with a `type` column instead of individual tables for sales orders, invoices, transfers, etc. Instead of pulling the `invoices` table you'll want to pull the `transaction` table and filter by `type = "invoice"`. This pattern applies to the `item` table.
+NetSuite represents booleans as a string. For example, `true` is represented as `"T"` and `false` is represented as `"F"`.
 
-### Custom Records & Fields
-
-All custom records and custom fields on standard records are fully supported in the NetSuite SuiteAnalytics connector. Custom
-tables are *not* yet supported on the SuiteQL connector.
+The connector does not cast these values to booleans. Instead, it will leave them as strings.
 
 ### Start Data & Table Filtering
 
@@ -239,6 +295,50 @@ created before the connector's start date.
 
 However, not all tables have a `createdDate` column. For these tables, this start date filter is not applied. Most tables
 without a `createdDate` column are mapping tables (i.e. `AccountSubsidiaryMap`).
+
+## Multiple Subsidiaries
+
+Depending on how you configure your authentication credentials, you may accidentally limit the data available to the connector to a single subsidiary.
+
+Here's how you can ensure the role you've selected has access to multiple subsidiaries:
+
+1. Make the role explicitly available to all subsidiaries by selecting all subsidiaries on the header-level subsidiary field on the role.
+2. Add the 'Lists > Subsidiaries: View' permissions to role (i.e. the role that we use to connect to your NetSuite account).
+
+## TransactionLine Primary Key
+
+The transaction line's primary keys are especially tricky. When a transaction's lines are updated, they are assigned a new `linesequencenumber` but are not given a new `id` or `uniquekey`.
+
+The `uniqueid` field is a unique identifier across the entire `transactionLine` table, while the `id` field is only a unique identfier within the scope of a given `transaction`.
+
+The `linesequencenumber` is unique with the scope of a `transaction` but is mutable on a given transaction line.
+
+In Estuary, only records with the same primary key are replaced. If a record is discovered which contains a different set of primary keys, it will be appended to the data set. This means if we chose a primary key set that did *not* contain the `linesequencenumber`, each time the transaction is updated the previous record with that `{transaction, linesequencenumber}` would not be removed from the Estuary data set for `transationLine` causing query inaccuracies if you group data based on the transaction ID.
+
+To avoid this case, we use `{transaction, linesequencenumber}` as the compound primary key
+
+[This article](https://netsuite.smash-ict.com/understand-line-id-vs-line-sequence-number-in-netsuite-transactions/) has a great explanation of the different `transactionLine` keys.
+
+### Line Level Record Updates
+
+NetSuite does not reliably update the `createdDate` field on line-level records. This can cause line-level transactions
+to become out of date in Estuary. Exactly when this occurs is dependent on your NetSuite configuration. Contact Estuary
+support for assistance with your specific situation.
+
+There are two things you can do to correct this issue:
+
+1. Setup table associations in order to update line level records when a header record is updated.
+2. Setup a scheduled full-table refresh on the line-level tables
+
+Here's an example table association. This association updates the `transactionline` table whenever a `transaction` record is updated.
+
+```yaml
+parent_join_column_name: location
+child_table_name: inventoryItemLocations
+child_join_column_name: location
+load_during_backfill: false
+load_during_incremental: true
+```
 
 ### Deleted Records Support
 
@@ -298,42 +398,36 @@ Here are some rarely-used tables which also references transaction lines:
 * OcrImportJobReviewExpense. Fields: purchaseorderline
 * salesOrderedPromotionCombinationsMap. Fields: transactionline
 
-### Line Level Record Updates
+## Notes on the SuiteAnalytics Connector
 
-NetSuite does not reliably update the `createdDate` field on line-level records. This can cause line-level transactions
-to become out of date in Estuary. Exactly when this occurs is dependent on your NetSuite configuration. Contact Estuary
-support for assistance with your specific situation.
+### Custom Records & Fields
 
-There are two things you can do to correct this issue:
-
-1. Setup table associations in order to update line level records when a header record is updated.
-2. Setup a scheduled full-table refresh on the line-level tables
-
-Here's an example table association. This association updates the `transactionline` table whenever a `transaction` record is updated.
-
-```yaml
-parent_join_column_name: location
-child_table_name: inventoryItemLocations
-child_join_column_name: location
-load_during_backfill: false
-load_during_incremental: true
-```
-
-### Boolean Data Type
-
-NetSuite represents booleans as a string. For example, `true` is represented as `"T"` and `false` is represented as `"F"`.
-
-The connector does not cast these values to booleans. Instead, it will leave them as strings.
+All custom records and custom fields on standard records are fully supported in the NetSuite SuiteAnalytics connector. Custom
+tables are *not* yet supported on the SuiteQL connector.
 
 ### Datetime Fields & Timezones
 
 The connector returns all datetimes in UTC, regardless of the user, subsidiary, or NetSuite account timezone configuration.
 
-## Multiple Subsidiaries
+## Notes on the SuiteQL Connector
 
-Depending on how you configure your authentication credentials, you may accidentally limit the data available to the connector to a single subsidiary.
+### 1M Row Limit
 
-Here's how you can ensure the role you've selected has access to multiple subsidiaries:
+By default, SuiteQL does not allow a single query to return more than 100,000 records. Additionally, SuiteQL will not
+return a proper count of a given query if the result is above 1,000,000 records.
 
-1. Make the role explicitly available to all subsidiaries by selecting all subsidiaries on the header-level subsidiary field on the role.
-2. Add the 'Lists > Subsidiaries: View' permissions to role (i.e. the role that we use to connect to your NetSuite account).
+The connector works around the 100,000 query row limit and enables you to pull up to 1,000,000 records per table. However,
+due to the count limit SuiteQL imposes, the connector will not be able to properly capture data if a table has more than
+1,000,000 records.
+
+### Custom Records and Fields
+
+Custom tables are *not* yet supported on the SuiteQL connector. Contact Estuary support if you need this feature.
+
+Custom fields on standard records are supported, but regardless of the type in NetSuite, they are represented as strings.
+
+If you need the types of the fields to be correct, consider using the NetSuite SuiteAnalytics connector instead.
+
+### DateTime Fields & Timezones
+
+The connector returns all datetimes in the timezone that is configured in your NetSuite account.
