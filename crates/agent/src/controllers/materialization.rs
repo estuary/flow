@@ -60,7 +60,7 @@ async fn maybe_publish<C: ControlPlane>(
     // because we need to handle the schema evolution whenever we publish. The collection schemas could have changed
     // since the last publish, and we might need to apply `onIncompatibleSchemaChange` actions.
     let dependency_pub = dependencies
-        .start_update(state, |deleted| {
+        .start_update(state, control_plane.current_time(), |deleted| {
             Ok(handle_deleted_dependencies(deleted, model.clone()))
         })
         .await?;

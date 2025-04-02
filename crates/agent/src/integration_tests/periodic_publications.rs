@@ -181,17 +181,9 @@ async fn specs_are_published_periodically() {
         // simulate the passage of time, so another publication will be
         // attempted.
         let last_attempt = chrono::Utc::now() - chrono::Duration::hours(4);
-        sqlx::query!(
-            r#"
-            update controller_jobs
-            set status = jsonb_set(status::jsonb, '{publications, history, 0, completed }', $2)::json
-            where live_spec_id = (select id from live_specs where catalog_name::text = $1);"#,
-            &name as &str,
-            serde_json::Value::String(last_attempt.to_rfc3339()),
-        )
-        .execute(&harness.pool)
-        .await
-        .unwrap();
+        harness
+            .push_back_last_pub_history_ts(&name, last_attempt)
+            .await;
 
         tracing::info!(%name, "expecting to be touched");
         let after_state = harness.run_pending_controller(&name).await;
