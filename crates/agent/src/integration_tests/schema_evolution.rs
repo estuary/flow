@@ -348,6 +348,11 @@ async fn test_schema_evolution() {
 
     // Now re-try materializeMixed, and this time there is no unsatisfiable constraint. IRL, this
     // might happen if someone was manually updating the destination table.
+    // We need to first skip past the backoff from the failed publication.
+    let new_last_attempt = harness.control_plane().current_time() - chrono::Duration::minutes(2);
+    harness
+        .push_back_last_pub_history_ts("goats/materializeMixed", new_last_attempt)
+        .await;
     harness
         .run_pending_controller("goats/materializeMixed")
         .await;

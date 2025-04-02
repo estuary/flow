@@ -686,6 +686,26 @@ impl TestHarness {
         .expect("failed to set auto-discover next_at");
     }
 
+    /// Change the timestamp of the last publication in the history to simulate
+    /// the passage of time, so another publication can be attempted.
+    pub async fn push_back_last_pub_history_ts(
+        &mut self,
+        catalog_name: &str,
+        new_ts: DateTime<Utc>,
+    ) {
+        sqlx::query!(
+            r#"
+            update controller_jobs
+            set status = jsonb_set(status::jsonb, '{publications, history, 0, completed }', $2)::json
+            where live_spec_id = (select id from live_specs where catalog_name::text = $1);"#,
+            catalog_name,
+            serde_json::Value::String(new_ts.to_rfc3339()),
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
+    }
+
     /// Returns a `ControllerState` representing the given live spec and
     /// controller status from the perspective of a controller.
     pub async fn get_controller_state(&mut self, name: &str) -> ControllerState {
