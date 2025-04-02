@@ -8,7 +8,7 @@ use models::status::{
 use crate::{
     controllers::{
         publication_status::{self, PendingPublication},
-        ControllerState, NextRun,
+        ControllerErrorExt, ControllerState, NextRun,
     },
     controlplane::ConnectorSpec,
     discovers::DiscoverOutput,
@@ -45,44 +45,57 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     pub_status: &mut PublicationStatus,
 ) -> anyhow::Result<bool> {
+    // Ensure that `next_at` has been initialized.
     update_next_run(status, state, model, control_plane).await?;
-    if status
-        .next_at
-        .map(|due| control_plane.current_time() <= due)
-        .unwrap_or(true)
-    {
-        return Ok(false);
+
+    // Do we need to auto-discover now?
+    let now = control_plane.current_time();
+    let AutoDiscoverStatus {
+        ref next_at,
+        ref failure,
+        ..
+    } = status;
+    match (next_at, failure) {
+        // Either the spec or autoDiscover is disabled
+        (None, _) => return Ok(false),
+        // Not due yet
+        (Some(n), None) if *n > now => return Ok(false),
+        // Previous attempt failed, and we're not yet ready for a retry.
+        // Return an error so that it's clear that auto-discovers are not working for this capture.
+        (Some(n), Some(f)) if *n > now => {
+            return crate::controllers::backoff_err(
+                NextRun::after(*n).with_jitter_percent(5),
+                "auto-discover",
+                f.count,
+            );
+        }
+        // next_at <= now, so proceed with the auto-discover
+        (Some(n), _) => {
+            tracing::debug!(due_at = %n, "starting auto-discover");
+        }
     }
 
-    tracing::debug!("starting auto-discover");
     // We'll return the original discover error if it fails
     let result = try_auto_discover(state, model, control_plane, pub_status).await;
-
-    // We'll return whether we've actually published anything. If all we did
-    // was run a discover that found no changes, then we may proceed with
-    // other controller actions.
-    let has_changes = match result {
-        Ok(outcome) => {
-            let has_changes = outcome.is_successful() && outcome.has_changes();
-            let result = outcome.get_result();
-            record_outcome(status, outcome);
-            result?; // return an error if the auto-discover failed
-
-            // Auto-discover was successful, so determine the time of the next attempt
-            update_next_run(status, state, model, control_plane).await?;
-            has_changes
-        }
+    let outcome = match result {
+        Ok(outcome) => outcome,
         Err(error) => {
-            tracing::debug!(?error, "auto-discover failed with error");
-            let outcome = AutoDiscoverOutcome::error(
-                control_plane.current_time(),
-                &state.catalog_name,
-                &error,
-            );
-            record_outcome(status, outcome);
-            return Err(error);
+            let failed_at = control_plane.current_time();
+            AutoDiscoverOutcome::error(failed_at, &state.catalog_name, &error)
         }
     };
+    let has_changes = outcome.has_changes();
+    let return_result = outcome.get_result();
+    record_outcome(status, outcome);
+    update_next_run(status, state, model, control_plane).await?;
+
+    // If either the discover or publication failed, return now with an error,
+    // with the retry set to the next attempt time.
+    return_result.with_maybe_retry(
+        status
+            .next_at
+            .map(|ts| NextRun::after(ts).with_jitter_percent(5)),
+    )?;
     Ok(has_changes)
 }
 
@@ -92,20 +105,21 @@ async fn update_next_run<C: ControlPlane>(
     model: &models::CaptureDef,
     control_plane: &C,
 ) -> anyhow::Result<()> {
-    if model.shards.disable {
+    // Do you even auto-discover, bro?
+    if model.shards.disable || model.auto_discover.is_none() {
         status.next_at = None;
         return Ok(());
     }
 
-    if status.next_at.is_none()
-        || status.next_at.is_some_and(|n| {
-            status
-                .last_success
-                .as_ref()
-                .map(|ls| ls.ts > n)
-                .unwrap_or(false)
-        })
-    {
+    // Was there a successful auto-discover since the `next_at` time?
+    let last_attempt_successful = status.next_at.is_some_and(|n| {
+        status
+            .last_success
+            .as_ref()
+            .map(|ls| ls.ts > n)
+            .unwrap_or(false)
+    });
+    if status.next_at.is_none() || last_attempt_successful {
         // `next_at` is `None` or else we've successfully completed a
         // discover since, so determine the next auto-discover time.
         // If there's no `connector_tags` row for this capture connector
@@ -129,7 +143,21 @@ async fn update_next_run<C: ControlPlane>(
         let next = prev + auto_discover_interval;
         tracing::debug!(%next, %auto_discover_interval, "determined new next_at time");
         status.next_at = Some(next);
+        return Ok(());
     }
+
+    // Sad path, the previous attempt failed so determine a time for the next attempt, with a backoff.
+    if let Some(fail) = status
+        .failure
+        .as_ref()
+        .filter(|f| status.next_at.is_some_and(|n| n < f.last_outcome.ts))
+    {
+        let backoff_minutes = (fail.count as i64 * 10).min(120);
+        let next_attempt = fail.last_outcome.ts + chrono::Duration::minutes(backoff_minutes);
+        status.next_at = Some(next_attempt);
+    }
+
+    // There's not been an attempted auto-discover since `next_at`, so keep the current value
     Ok(())
 }
 
