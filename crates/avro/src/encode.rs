@@ -97,6 +97,10 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             zig_zag(b, v as i64);
             Ok(true)
         }
+        (Schema::Long, Node::Float(v)) if v.fract() == 0.0 => {
+            zig_zag(b, v as i64);
+            Ok(true)
+        }
 
         (Schema::Double, Node::NegInt(v)) => {
             b.extend_from_slice(&(v as f64).to_le_bytes());

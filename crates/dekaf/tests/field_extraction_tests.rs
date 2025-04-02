@@ -121,7 +121,7 @@ async fn managed_build(source: url::Url) -> build::Output {
 
 async fn roundtrip(
     fixture_path: String,
-    docs: Vec<serde_json::Value>,
+    docs: &[u8],
 ) -> anyhow::Result<Vec<Result<apache_avro::types::Value, apache_avro::Error>>> {
     let (shape, endpoint_config, field_selection, projections) =
         get_extraction_components(fixture_path).await?;
@@ -137,12 +137,29 @@ async fn roundtrip(
 }
 
 fn extract_and_decode(
-    docs: Vec<serde_json::Value>,
+    docs: &[u8],
     extractors: Vec<(apache_avro::Schema, dekaf::utils::CustomizableExtractor)>,
     avro_schema: apache_avro::Schema,
 ) -> anyhow::Result<Vec<Result<apache_avro::types::Value, apache_avro::Error>>> {
-    docs.into_iter()
-        .map(|doc| {
+    let mut parser = simd_doc::Parser::new();
+    let alloc = doc::Allocator::new();
+
+    () = parser.chunk(docs, 0).unwrap();
+
+    let mut parsed = Vec::new();
+
+    loop {
+        let (_, parsed_docs) = parser.parse_many(&alloc).unwrap();
+        if parsed_docs.len() == 0 {
+            break;
+        } else {
+            parsed.extend(parsed_docs);
+        }
+    }
+
+    parsed
+        .into_iter()
+        .map(|(doc, _offset)| {
             let mut encoded = Vec::new();
             dekaf::extract_and_encode(extractors.as_slice(), &doc, &mut encoded)?;
 
@@ -155,6 +172,16 @@ fn extract_and_decode(
         .collect::<Result<Vec<_>, _>>()
 }
 
+fn serde_to_jsonl(docs: Vec<serde_json::Value>) -> anyhow::Result<Vec<u8>> {
+    let mut jsonl = Vec::new();
+    for doc in docs {
+        let line = serde_json::to_vec(&doc)?;
+        jsonl.extend(line);
+        jsonl.push(b'\n');
+    }
+    Ok(jsonl)
+}
+
 #[tokio::test]
 async fn test_allof_with_null_default() -> anyhow::Result<()> {
     let fixture_path = "tests/fixtures/allof_with_null_default.yaml".to_string();
@@ -162,7 +189,7 @@ async fn test_allof_with_null_default() -> anyhow::Result<()> {
         "id": 1234
     })];
 
-    for output in roundtrip(fixture_path, docs).await? {
+    for output in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await? {
         insta::assert_debug_snapshot!(output?);
     }
 
@@ -178,7 +205,7 @@ async fn test_field_selection_specific_fields() -> anyhow::Result<()> {
         "field_b": "bar"
     })];
 
-    for output in roundtrip(fixture_path, docs).await? {
+    for output in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await? {
         insta::assert_debug_snapshot!(output?);
     }
 
@@ -194,7 +221,7 @@ async fn test_field_selection_recommended_fields() -> anyhow::Result<()> {
         "field_b": "bar"
     })];
 
-    for output in roundtrip(fixture_path, docs).await? {
+    for output in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await? {
         insta::assert_debug_snapshot!(output?);
     }
 
@@ -215,7 +242,11 @@ async fn test_deletions() -> anyhow::Result<()> {
         }),
     ];
 
-    for (idx, output) in roundtrip(fixture_path, docs).await?.into_iter().enumerate() {
+    for (idx, output) in roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice())
+        .await?
+        .into_iter()
+        .enumerate()
+    {
         insta::assert_debug_snapshot!(format!("deletions-{}", idx), output?);
     }
 
@@ -254,7 +285,7 @@ async fn test_old_style_deletions() -> anyhow::Result<()> {
         dekaf::utils::build_LEGACY_field_extractors(shape, DeletionMode::CDC)?;
 
     let decoded = extract_and_decode(
-        vec![
+        serde_to_jsonl(vec![
             json!({
                 "key": "first",
                 "_meta": {
@@ -274,7 +305,8 @@ async fn test_old_style_deletions() -> anyhow::Result<()> {
                 },
                 "additional": "I should end up in _flow_extra"
             }),
-        ],
+        ])?
+        .as_slice(),
         extractors,
         avro_schema,
     )?;
@@ -294,7 +326,24 @@ async fn test_fields_with_hyphens() -> anyhow::Result<()> {
         "hyphenated-field": "test value",
     })];
 
-    insta::assert_debug_snapshot!(roundtrip(fixture_path, docs).await);
+    insta::assert_debug_snapshot!(roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_longs() -> anyhow::Result<()> {
+    let fixture_path = "tests/fixtures/longs_with_zero.yaml".to_string();
+    let raw_input = r#"{"key": 1234, "my_long": 0.0}
+{"key": 1234, "my_long": 10.0}
+"#;
+
+    insta::assert_debug_snapshot!(roundtrip(fixture_path.clone(), raw_input.as_bytes()).await);
+
+    let raw_input = r#"{"key": 1234, "my_long": 0.1}
+"#;
+
+    insta::assert_debug_snapshot!(roundtrip(fixture_path, raw_input.as_bytes()).await);
 
     Ok(())
 }
