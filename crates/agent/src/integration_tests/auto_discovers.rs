@@ -1,7 +1,7 @@
 use super::spec_fixture;
 use crate::{
     integration_tests::harness::{draft_catalog, InjectBuildError, TestHarness},
-    publications,
+    publications, ControlPlane,
 };
 use models::status::capture::DiscoverChange;
 use proto_flow::capture::response::{discovered::Binding, Discovered};
@@ -768,10 +768,37 @@ async fn test_auto_discovers_update_only() {
     assert!(
         auto_discover
             .next_at
-            .is_some_and(|n| n < chrono::Utc::now()),
-        "expected next_at to not be updated since the discover failed, got: {:?}",
+            .is_some_and(|n| n > chrono::Utc::now()),
+        "expected next_at to be in the future after discover failed, got: {:?}",
         auto_discover.next_at
     );
+
+    // A subsequent controller run should result in an error due to backing off the auto-discover
+    let capture_state = harness.run_pending_controller("pikas/capture").await;
+    let error = capture_state
+        .error
+        .as_deref()
+        .expect("expected controller error, got None");
+    assert!(
+        error.contains("backing off auto-discover after"),
+        "wrong error, got: '{error}'"
+    );
+    let auto_discover = capture_state
+        .current_status
+        .unwrap_capture()
+        .auto_discover
+        .as_ref()
+        .unwrap();
+    assert!(auto_discover.failure.is_some());
+    let failure = auto_discover.failure.as_ref().unwrap();
+    assert_eq!(
+        1, failure.count,
+        "expect auto-discover was not attempted again"
+    );
+
+    // Simulate the passage of time, and expect the controller to attempt another auto-discover
+    push_back_failure_time("pikas/capture", &mut harness).await;
+    harness.set_auto_discover_due("pikas/capture").await;
 
     // Now simulate a subsequent successful discover, but with a failure to
     // publish. We'll expect to see the error count go up.
@@ -809,10 +836,16 @@ async fn test_auto_discovers_update_only() {
             anyhow::anyhow!("a simulated build failure"),
         ),
     );
-    harness.set_auto_discover_due("pikas/capture").await;
-    harness.run_pending_controller("pikas/capture").await;
 
-    let capture_state = harness.get_controller_state("pikas/capture").await;
+    let capture_state = harness.run_pending_controller("pikas/capture").await;
+    let error = capture_state
+        .error
+        .as_deref()
+        .expect("expected controller error, got None");
+    assert!(
+        !error.contains("backing off auto-discover after"),
+        "expected _not_ a backoff error, got: '{error}'"
+    );
     let auto_discover = capture_state
         .current_status
         .unwrap_capture()
@@ -821,7 +854,7 @@ async fn test_auto_discovers_update_only() {
         .unwrap();
     assert!(auto_discover.failure.is_some());
     let failure = auto_discover.failure.as_ref().unwrap();
-    assert_eq!(2, failure.count);
+    assert_eq!(2, failure.count, "expect auto-discover was attempted again");
     assert_eq!(
         Some(publications::JobStatus::BuildFailed {
             incompatible_collections: Vec::new(),
@@ -871,6 +904,7 @@ async fn test_auto_discovers_update_only() {
         .discover_handler
         .connectors
         .mock_discover("pikas/capture", Ok((spec_fixture(), discovered)));
+    push_back_failure_time("pikas/capture", &mut harness).await;
     harness.set_auto_discover_due("pikas/capture").await;
     harness.run_pending_controller("pikas/capture").await;
 
@@ -978,4 +1012,20 @@ fn document_schema(version: usize) -> serde_json::Value {
         },
         "required": ["id", "squeaks"]
     })
+}
+
+async fn push_back_failure_time(capture: &str, harness: &mut TestHarness) {
+    let now = harness.control_plane().current_time();
+    let time = (now - chrono::Duration::hours(1)).to_rfc3339();
+    sqlx::query!(
+        r#"update controller_jobs
+        set status = jsonb_set(status::jsonb, '{auto_discover, failure, last_outcome, ts}', $2)::json
+        where live_spec_id = (select id from live_specs where catalog_name::text = $1)
+        "#,
+        capture,
+        serde_json::Value::String(time),
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to update last auto-discover failure time");
 }
