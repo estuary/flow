@@ -44,17 +44,9 @@ fn next_pub_time(state: &ControllerState) -> Option<(DateTime<Utc>, u32)> {
                 // Technically, this entry might not be from a periodic
                 // publication attemt (it could be due to dependency changes,
                 // etc), and that's OK. Our goal is to limit the overall rate of
-                // publication attempts.
-                pub_status
-                    .history
-                    .front()
-                    .filter(|e| !e.is_success())
-                    .and_then(|e| {
-                        e.completed
-                            // Ignore prior attempts that were before the periodic pulication came due.
-                            .filter(|last| *last > next)
-                            .map(|last_attempt| (last_attempt, e.count))
-                    })
+                // publication attempts. Also ignore prior attempts that were
+                // before the periodic pulication came due.
+                super::last_pub_failed(pub_status, "").filter(|(last, _)| *last > next)
             })
     {
         Some((last_attempt + chrono::TimeDelta::hours(1), fail_count))
