@@ -464,7 +464,7 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
         ops::merge_docs_and_bytes(&binding_stats.1, &mut entry.right);
         ops::merge_docs_and_bytes(&binding_stats.2, &mut entry.out);
 
-        if entry.left.is_some() {
+        if entry.right.is_some() {
             entry.last_source_published_at = binding_stats.3.to_pb_json_timestamp();
         }
     }
