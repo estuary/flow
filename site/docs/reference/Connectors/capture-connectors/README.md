@@ -89,6 +89,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Gladly
   - [Configuration](./gladly.md)
   - Package - ghcr.io/estuary/source-gladly:dev
+- Gainsight NXT
+  - [Configuration](./gainsight-nxt.md)
+  - Package - ghcr.io/estuary/source-gainsight-nxt:dev
 - Google Ads
   - [Configuration](./google-ads.md)
   - Package - ghcr.io/estuary/source-google-ads:dev
