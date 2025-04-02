@@ -1,3 +1,5 @@
+import ReactPlayer from "react-player";
+
 # NetSuite
 
 This connector captures data from Oracle NetSuite into Flow collections. It uses NetSuite's data warehouse functionality
@@ -5,6 +7,8 @@ to support high volume data capture (tens of millions of rows per table aren't a
 
 NetSuite provides two ways of access its data warehouse: SuiteAnalytics Connect and SuiteQL. This connector supports both
 connection methods. SuiteAnalytics is preferred (but is also a premium NetSuite feature that comes with an additional cost).
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=CN3RXry0o9k" />
 
 ## SuiteAnalytics vs SuiteQL
 
