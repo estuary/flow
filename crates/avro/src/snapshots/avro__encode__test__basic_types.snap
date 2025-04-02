@@ -185,6 +185,13 @@ expression: "json!({ \"key\": &key, \"value\": &value, })"
         ]
       },
       {
+        "name": "int_with_zero_frac",
+        "type": [
+          "long",
+          "null"
+        ]
+      },
+      {
         "name": "j",
         "type": {
           "fields": [
