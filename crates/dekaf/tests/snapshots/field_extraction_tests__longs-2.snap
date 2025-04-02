@@ -1,0 +1,25 @@
+---
+source: crates/dekaf/tests/field_extraction_tests.rs
+expression: "roundtrip(fixture_path, raw_input.as_bytes()).await"
+---
+Err(
+    Error {
+        context: "Extracting field Extractor(\n    Extractor {\n        ptr: Pointer(\n            [\n                Property(\n                    \"my_long\",\n                ),\n            ],\n        ),\n        policy: SerPolicy {\n            str_truncate_after: 18446744073709551615,\n            array_truncate_after: 18446744073709551615,\n            nested_obj_truncate_after: 18446744073709551615,\n        },\n        default: Null,\n        magic: None,\n    },\n), schema: Union(UnionSchema { schemas: [Long, Null], variant_index: {Null: 1, Long: 0} })",
+        source: NotMatched {
+            ptr: "",
+            expected: Union(
+                UnionSchema {
+                    schemas: [
+                        Long,
+                        Null,
+                    ],
+                    variant_index: {
+                        Null: 1,
+                        Long: 0,
+                    },
+                },
+            ),
+            actual: Number(0.1),
+        },
+    },
+)

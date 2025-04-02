@@ -169,6 +169,15 @@ Record(
             ),
         ),
         (
+            "int_with_zero_frac",
+            Union(
+                0,
+                Long(
+                    1,
+                ),
+            ),
+        ),
+        (
             "j",
             Record(
                 [

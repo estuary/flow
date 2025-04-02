@@ -1,0 +1,29 @@
+collections:
+  test/collection:
+    key:
+      - /key
+    schema:
+      properties:
+        key:
+          type: string
+        my_long:
+          type: [integer,"null"]
+      type: object
+      required:
+        - key
+        - my_long
+materializations:
+  test/materialization:
+    endpoint:
+      dekaf:
+        variant: foo
+        config:
+          deletions: kafka
+          token: "1234"
+          strict_topic_names: false
+    bindings:
+      - source: test/collection
+        resource:
+          topic_name: foo
+        fields:
+          recommended: true

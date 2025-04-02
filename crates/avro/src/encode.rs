@@ -97,6 +97,10 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             zig_zag(b, v as i64);
             Ok(true)
         }
+        (Schema::Long, Node::Float(v)) if v.fract() == 0.0 => {
+            zig_zag(b, v as i64);
+            Ok(true)
+        }
 
         (Schema::Double, Node::NegInt(v)) => {
             b.extend_from_slice(&(v as f64).to_le_bytes());
@@ -355,6 +359,7 @@ mod test {
             "m1_with_addl": {"type": "array", "items": {"type": "object", "properties": {"d": {"type": "boolean"}, "f": {"type": "boolean"}}}},
             "m2_no_addl": {"type": "object", "properties": {"d": {"type": "boolean"}}, "additionalProperties": false},
             "m2_disallowed_field": {"type": "object", "properties": {"not valid": {"type": "boolean"}}, "additionalProperties": false},
+            "int_with_zero_frac": {"type": "integer"}
           },
           "required": ["b", "c2_pos", "e1_str", "j", "m1_with_addl"],
         });
@@ -397,6 +402,7 @@ mod test {
             "m2_no_addl": {"d": true},
             "m2_disallowed_field": {"not valid": true},
             "zz - ex": ["extra", 3],
+            "int_with_zero_frac": serde_json::Value::Number(serde_json::Number::from_f64(1.0).unwrap()),
         });
 
         let mut b = Vec::new();
