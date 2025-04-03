@@ -186,7 +186,7 @@ async fn walk_materialization<C: Connectors>(
     )
     .await?;
 
-    let _resource_path_pointers =
+    let resource_path_pointers =
         match extract_resource_config_annotations(&resource_config_schema_json) {
             Ok((resource_path_pointers, _delta_pointer)) => resource_path_pointers,
             Err(_) if resource_config_schema_json == "true" => Vec::new(), // No-op schema.
@@ -285,10 +285,10 @@ async fn walk_materialization<C: Connectors>(
         config_json: config_json.clone(),
         bindings: bindings_validate,
         last_materialization: live_spec.cloned(),
-        last_version: if expect_pub_id.is_zero() {
+        last_version: if expect_build_id.is_zero() {
             String::new()
         } else {
-            expect_pub_id.to_string()
+            expect_build_id.to_string()
         },
     };
 
@@ -380,7 +380,7 @@ async fn walk_materialization<C: Connectors>(
         } = &model;
 
         if resource_path != *validated_resource_path {
-            Error::BindingWrongResource {
+            Error::BindingWrongResourcePath {
                 entity: "materialization",
                 computed: resource_path.clone(),
                 validated: validated_resource_path.clone(),
@@ -412,7 +412,7 @@ async fn walk_materialization<C: Connectors>(
             source_partitions,
         ));
 
-        // Build a state key and read suffix using the transform name as it's resource path.
+        // Build a state key and read suffix using the resource path.
         let state_key = assemble::encode_state_key(&resource_path, backfill);
         let journal_read_suffix = format!("materialize/{materialization}/{state_key}");
 
@@ -546,7 +546,7 @@ fn walk_materialization_binding<'a>(
         return (model, resource_path, None);
     }
     let live_model = live_bindings_model.get(&resource_path);
-    let is_changed = Some(&&model) != live_model;
+    let modified = Some(&&model) != live_model;
 
     // We must resolve the source collection to continue.
     let (source, source_partitions) = match &model.source {
@@ -570,13 +570,14 @@ fn walk_materialization_binding<'a>(
         "this materialization binding",
         source,
         built_collections,
-        is_changed.then_some(errors),
+        modified.then_some(errors),
     ) else {
         model_fixes.push(format!("disabled binding of deleted collection {source}"));
         model.disable = true;
         return (model, resource_path, None);
     };
 
+    // Removal from `live_bindings_spec` is how we know to not include it in `inactive_bindings`.
     if let Some(live_spec) = live_bindings_spec.remove(resource_path.as_slice()) {
         if model.backfill == live_spec.backfill
             && super::collection_was_reset(&source_spec, &live_spec.collection)
@@ -606,7 +607,7 @@ fn walk_materialization_binding<'a>(
         fields,
         catalog_name,
         &source_spec,
-        is_changed,
+        modified,
         model_fixes,
         errors,
     );
@@ -637,7 +638,7 @@ fn walk_materialization_fields<'a>(
     model: models::MaterializationFields,
     catalog_name: &models::Materialization,
     collection: &flow::CollectionSpec,
-    is_changed: bool,
+    modified: bool,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (models::MaterializationFields, BTreeMap<String, String>) {
@@ -690,7 +691,7 @@ fn walk_materialization_fields<'a>(
 
         if projections.iter().any(|p| p.field == field.as_str()) {
             true // Matches an existing collection projection.
-        } else if !is_changed {
+        } else if !modified {
             // This exclusion doesn't match a collection projection, but the
             // binding model also hasn't changed from its live model.
             // This implies the projection was removed from the source collection,

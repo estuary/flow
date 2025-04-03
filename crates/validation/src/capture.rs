@@ -253,10 +253,10 @@ async fn walk_capture<C: Connectors>(
         config_json: config_json.clone(),
         bindings: bindings_validate,
         last_capture: live_spec.cloned(),
-        last_version: if expect_pub_id.is_zero() {
+        last_version: if expect_build_id.is_zero() {
             String::new()
         } else {
-            expect_pub_id.to_string()
+            expect_build_id.to_string()
         },
     };
 
@@ -318,6 +318,7 @@ async fn walk_capture<C: Connectors>(
     let mut bindings_model = Vec::with_capacity(bindings_model_len);
     let mut bindings_spec = Vec::with_capacity(bindings_validate_len);
 
+    // Map Validate / Validated pairs into CaptureSpec::Bindings.
     for (index, (model, resource_path, validate_validated)) in bindings.into_iter().enumerate() {
         let Some((validate, validated)) = validate_validated else {
             bindings_model.push(model);
@@ -334,7 +335,7 @@ async fn walk_capture<C: Connectors>(
         } = validated;
 
         if resource_path != *validated_resource_path {
-            Error::BindingWrongResource {
+            Error::BindingWrongResourcePath {
                 entity: "capture",
                 computed: resource_path.clone(),
                 validated: validated_resource_path.clone(),
@@ -453,7 +454,7 @@ fn walk_capture_binding<'a>(
         return (model, resource_path, None);
     }
     let live_model = live_bindings_model.get(&resource_path);
-    let is_changed = Some(&&model) != live_model;
+    let modified = Some(&&model) != live_model;
 
     let target = &model.target;
 
@@ -463,13 +464,14 @@ fn walk_capture_binding<'a>(
         "this capture binding",
         target,
         built_collections,
-        is_changed.then_some(errors),
+        modified.then_some(errors),
     ) else {
-        model_fixes.push(format!("disabled binding of deleted collection {target}",));
+        model_fixes.push(format!("disabled binding of deleted collection {target}"));
         model.disable = true;
         return (model, resource_path, None);
     };
 
+    // Removal from `live_bindings_spec` is how we know to not include it in `inactive_bindings`.
     if let Some(live_spec) = live_bindings_spec.remove(resource_path.as_slice()) {
         if model.backfill == live_spec.backfill
             && super::collection_was_reset(&target_spec, &live_spec.collection)

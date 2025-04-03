@@ -8,6 +8,7 @@ use proto_flow::{
     flow::collection_spec::derivation::{ConnectorType, ShuffleType as ProtoShuffleType},
     ops::log::Level as LogLevel,
 };
+use std::collections::BTreeMap;
 use superslice::Ext;
 use tables::EitherOrBoth as EOB;
 
@@ -32,6 +33,7 @@ pub async fn walk_all_derivations<C: Connectors>(
     derive::response::Validated,
     flow::collection_spec::Derivation,
     Option<String>,
+    Vec<String>,
 )> {
     // Outer join of live and draft collections.
     let it = live_collections.outer_join(
@@ -100,11 +102,53 @@ async fn walk_derivation<C: Connectors>(
     derive::response::Validated,
     flow::collection_spec::Derivation,
     Option<String>,
+    Vec<String>,
 )> {
-    let (collection, scope, model, data_plane_id, last_pub_id, last_collection, dependency_hash) =
-        match eob {
-            // If this is a drafted derivation, pluck out its details.
-            EOB::Right(tables::DraftCollection {
+    let (
+        collection,
+        scope,
+        model,
+        data_plane_id,
+        expect_build_id,
+        live_model,
+        live_spec,
+        dependency_hash,
+    ) = match eob {
+        // If this is a drafted derivation, pluck out its details.
+        EOB::Right(tables::DraftCollection {
+            collection,
+            scope,
+            model:
+                Some(
+                    collection_model @ models::CollectionDef {
+                        derive: Some(model),
+                        ..
+                    },
+                ),
+            ..
+        }) => (
+            collection,
+            scope,
+            model.clone(),
+            default_plane_id.unwrap_or(models::Id::zero()),
+            models::Id::zero(),
+            None,
+            None,
+            dependencies.compute_hash(collection_model),
+        ),
+
+        EOB::Both(
+            tables::LiveCollection {
+                model:
+                    models::CollectionDef {
+                        derive: live_model, ..
+                    },
+                data_plane_id,
+                last_build_id,
+                spec,
+                ..
+            },
+            tables::DraftCollection {
                 collection,
                 scope,
                 model:
@@ -115,50 +159,28 @@ async fn walk_derivation<C: Connectors>(
                         },
                     ),
                 ..
-            }) => (
-                collection,
-                scope,
-                model.clone(),
-                default_plane_id.unwrap_or(models::Id::zero()),
-                None,
-                None,
-                dependencies.compute_hash(collection_model),
-            ),
+            },
+        ) => (
+            collection,
+            scope,
+            model.clone(),
+            *data_plane_id,
+            if spec.derivation.is_some() {
+                *last_build_id
+            } else {
+                models::Id::zero()
+            },
+            live_model.as_ref(),
+            spec.derivation.is_some().then_some(spec),
+            dependencies.compute_hash(collection_model),
+        ),
 
-            EOB::Both(
-                tables::LiveCollection {
-                    spec,
-                    last_pub_id,
-                    data_plane_id,
-                    ..
-                },
-                tables::DraftCollection {
-                    collection,
-                    scope,
-                    model:
-                        Some(
-                            collection_model @ models::CollectionDef {
-                                derive: Some(model),
-                                ..
-                            },
-                        ),
-                    ..
-                },
-            ) => (
-                collection,
-                scope,
-                model.clone(),
-                *data_plane_id,
-                spec.derivation.is_some().then_some(last_pub_id),
-                spec.derivation.is_some().then_some(spec),
-                dependencies.compute_hash(collection_model),
-            ),
-
-            // For all other cases, don't build this derivation.
-            _ => return None,
-        };
+        // For all other cases, don't build this derivation.
+        _ => return None,
+    };
     let scope = Scope::new(scope);
     let scope = scope.push_prop("derive");
+    let mut model_fixes = Vec::new();
 
     // Collect imports of this derivation, so that we can present the connector
     // with a relative mapping of its imports. This is used to generate more
@@ -269,45 +291,71 @@ async fn walk_derivation<C: Connectors>(
     )
     .await?;
 
-    // Map enumerated transform models into paired validation requests.
     let scope_transforms = scope.push_prop("transforms");
-    let transforms_model_len = transforms_model.len();
 
-    let transforms: Vec<(usize, models::TransformDef, Option<ValidateContext>)> = transforms_model
+    // Index live transform models on their name.
+    let live_transforms_model: BTreeMap<&models::Transform, &models::TransformDef> = live_model
+        .iter()
+        .flat_map(|model| model.transforms.iter())
+        .map(|model| (&model.name, model))
+        .collect();
+
+    // Index live transform specs, both active and inactive, on their name.
+    let mut live_transforms_spec: BTreeMap<&str, &flow::collection_spec::derivation::Transform> =
+        live_spec
+            .and_then(|collection| collection.derivation.as_ref())
+            .iter()
+            .flat_map(|spec| {
+                spec.inactive_transforms
+                    .iter()
+                    .chain(spec.transforms.iter())
+            })
+            .map(|transform| (transform.name.as_str(), transform))
+            .collect();
+
+    // Map enumerated transform models into paired validation requests.
+    let transforms_model_len = transforms_model.len();
+    let transforms: Vec<(models::TransformDef, Option<ValidateContext>)> = transforms_model
         .into_iter()
         .enumerate()
-        .filter_map(|(index, transform)| {
-            let (model, validate) = walk_derive_transform(
+        .map(|(index, transform)| {
+            walk_derive_transform(
                 scope_transforms.push_item(index),
                 transform,
                 collection,
                 built_collections,
                 data_plane_id,
+                shards.disable,
+                &live_transforms_model,
+                &mut live_transforms_spec,
+                &mut model_fixes,
                 errors,
-            )?;
-            Some((index, model, validate))
+            )
         })
         .collect();
 
-    // Error if transform names are duplicated.
     indexed::walk_duplicates(
-        transforms.iter().map(|(index, model, _validate)| {
-            (
-                "transform",
-                model.name.as_str(),
-                scope_transforms.push_item(*index),
-            )
-        }),
+        transforms
+            .iter()
+            .enumerate()
+            .map(|(index, (model, _validate))| {
+                (
+                    "transform",
+                    model.name.as_str(),
+                    scope_transforms.push_item(index),
+                )
+            }),
         errors,
     );
 
     // Select out non-empty inferred shuffle types of each transformation.
     let mut inferred_shuffle_types: Vec<(usize, &models::Transform, &Vec<_>)> = transforms
         .iter()
-        .filter_map(|(index, model, validate)| {
+        .enumerate()
+        .filter_map(|(index, (model, validate))| {
             let validate = validate.as_ref()?;
             if !validate.inferred_shuffle_types.is_empty() {
-                return Some((*index, &model.name, &validate.inferred_shuffle_types));
+                return Some((index, &model.name, &validate.inferred_shuffle_types));
             }
             None
         })
@@ -353,7 +401,7 @@ async fn walk_derivation<C: Connectors>(
     } else {
         if transforms
             .iter()
-            .any(|(_index, model, _validate)| matches!(model.shuffle, models::Shuffle::Lambda(_)))
+            .any(|(model, _validate)| matches!(model.shuffle, models::Shuffle::Lambda(_)))
         {
             Error::ShuffleKeyCannotInfer {}.push(scope, errors);
         }
@@ -362,12 +410,6 @@ async fn walk_derivation<C: Connectors>(
     .into_iter()
     .map(|type_| type_ as i32)
     .collect();
-
-    let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection)
-    else {
-        return None; // Build of underlying collection errored out.
-    };
-    let built_collection = &built_collections[built_index];
 
     // Determine storage mappings for task recovery logs.
     let recovery_stores = storage_mapping::mapped_stores(
@@ -384,9 +426,10 @@ async fn walk_derivation<C: Connectors>(
         return None;
     }
 
+    // Filter to validation requests of active transforms.
     let transforms_validate: Vec<_> = transforms
         .iter()
-        .filter_map(|(_index, _model, validate)| {
+        .filter_map(|(_model, validate)| {
             if let Some(validate) = validate {
                 Some(validate.validate.clone())
             } else {
@@ -404,8 +447,12 @@ async fn walk_derivation<C: Connectors>(
         shuffle_key_types: shuffle_key_types_spec.iter().map(|t| *t as i32).collect(),
         project_root: project_root.to_string(),
         import_map,
-        last_collection: last_collection.cloned(),
-        last_version: last_pub_id.map(models::Id::to_string).unwrap_or_default(),
+        last_collection: live_spec.cloned(),
+        last_version: if expect_build_id.is_zero() {
+            String::new()
+        } else {
+            expect_build_id.to_string()
+        },
     };
 
     // Send Request.Validate and receive Response.Validated.
@@ -464,13 +511,13 @@ async fn walk_derivation<C: Connectors>(
     // Join transform models and their Validate requests with their Validated responses.
     let transforms = transforms.into_iter().scan(
         transforms_validated.into_iter(),
-        |validated, (index, model, validate)| {
+        |validated, (model, validate)| {
             if let Some(validate) = validate {
                 validated
                     .next()
-                    .map(|validated| (index, model, Some((validate, validated))))
+                    .map(|validated| (model, Some((validate, validated))))
             } else {
-                Some((index, model, None))
+                Some((model, None))
             }
         },
     );
@@ -480,7 +527,7 @@ async fn walk_derivation<C: Connectors>(
     let mut transforms_spec = Vec::with_capacity(transforms_validate_len);
 
     // Map Validate / Validated pairs into DerivationSpec::Transforms.
-    for (_index, model, validate_validated) in transforms {
+    for (model, validate_validated) in transforms {
         let Some((validate, validated)) = validate_validated else {
             transforms_model.push(model);
             continue;
@@ -572,12 +619,18 @@ async fn walk_derivation<C: Connectors>(
                 ..
             }),
         ..
-    }) = last_collection
+    }) = live_spec
     {
         shard_template.id.clone()
     } else {
         assemble::shard_id_prefix(pub_id, collection, labels::TASK_TYPE_DERIVATION)
     };
+
+    // Any remaining live transform specs were not removed while walking transforms, and must be inactive.
+    let inactive_transforms = live_transforms_spec
+        .values()
+        .map(|v| (*v).clone())
+        .collect();
 
     let recovery_log_template = assemble::recovery_log_template(
         build_id,
@@ -603,7 +656,7 @@ async fn walk_derivation<C: Connectors>(
         recovery_log_template: Some(recovery_log_template),
         shard_template: Some(shard_template),
         network_ports,
-        inactive_transforms: Vec::new(),
+        inactive_transforms,
     };
     let model = models::Derivation {
         shards,
@@ -618,6 +671,7 @@ async fn walk_derivation<C: Connectors>(
         validated_response,
         spec,
         dependency_hash,
+        model_fixes,
     ))
 }
 
@@ -631,36 +685,33 @@ struct ValidateContext {
 
 fn walk_derive_transform<'a>(
     scope: Scope<'a>,
-    model: models::TransformDef,
+    mut model: models::TransformDef,
     catalog_name: &models::Collection,
     built_collections: &'a tables::BuiltCollections,
     data_plane_id: models::Id,
+    disable: bool,
+    live_transforms_model: &BTreeMap<&models::Transform, &models::TransformDef>,
+    live_transforms_spec: &mut BTreeMap<&str, &flow::collection_spec::derivation::Transform>,
+    model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
-) -> Option<(models::TransformDef, Option<ValidateContext>)> {
-    if model.disable {
-        return Some((model, None)); // Retain but perform no further validation.
-    }
+) -> (models::TransformDef, Option<ValidateContext>) {
+    // The conceptual "resource path" of a derivation transform is simply it's name.
 
-    let models::TransformDef {
-        backfill,
-        disable: _,
-        lambda,
-        name,
-        priority,
-        read_delay,
-        shuffle,
-        source: source_model,
-    } = model;
+    if disable || model.disable {
+        return (model, None);
+    }
+    let live_model = live_transforms_model.get(&model.name);
+    let modified = Some(&&model) != live_model;
 
     indexed::walk_name(
         scope,
         "transform",
-        name.as_ref(),
+        &model.name,
         models::Transform::regex(),
         errors,
     );
 
-    let (source_name, source_partitions) = match &source_model {
+    let (source_name, source_partitions) = match &model.source {
         models::Source::Collection(name) => (name, None),
         models::Source::Source(models::FullSource {
             name,
@@ -677,34 +728,53 @@ fn walk_derive_transform<'a>(
         }
     };
 
-    // Dereference the transform's source. We can't continue without it.
-    let (spec, source) = reference::walk_reference_old(
+    // We must resolve the source collection to continue.
+    let Some((source_spec, source_built)) = reference::walk_reference(
         scope,
-        &format!("transform {name}"),
+        &format!("transform {}", model.name),
         source_name,
         built_collections,
-        errors,
-    )?;
+        modified.then_some(errors),
+    ) else {
+        model_fixes.push(format!(
+            "disabled transform of deleted collection {source_name}"
+        ));
+        model.disable = true;
+        return (model, None);
+    };
 
-    let source_schema = schema::Schema::new(if spec.read_schema_json.is_empty() {
-        &spec.write_schema_json
+    // Removal from `live_transforms_spec` is how we know to not include it in `inactive_transforms`.
+    if let Some(live_spec) = live_transforms_spec.remove(model.name.as_str()) {
+        if model.backfill == live_spec.backfill
+            && super::collection_was_reset(&source_spec, &live_spec.collection)
+        {
+            model_fixes.push(format!(
+                "backfilled transform {} of reset collection {source_name}",
+                model.name
+            ));
+            model.backfill += 1;
+        }
+    }
+
+    let source_schema = schema::Schema::new(if source_spec.read_schema_json.is_empty() {
+        &source_spec.write_schema_json
     } else {
-        &spec.read_schema_json
+        &source_spec.read_schema_json
     })
     .unwrap();
 
     if let Some(selector) = source_partitions {
-        collection::walk_selector(scope, &spec, &selector, errors);
+        collection::walk_selector(scope, &source_spec, &selector, errors);
     }
 
-    let (shuffle_types, shuffle_lambda_config_json) = match &shuffle {
+    let (shuffle_types, shuffle_lambda_config_json) = match &model.shuffle {
         models::Shuffle::Key(shuffle_key) => {
             let scope = scope.push_prop("shuffle");
             let scope = scope.push_prop("key");
 
             if shuffle_key.is_empty() {
                 Error::ShuffleKeyEmpty {
-                    transform: name.to_string(),
+                    transform: model.name.to_string(),
                 }
                 .push(scope, errors);
             }
@@ -726,40 +796,27 @@ fn walk_derive_transform<'a>(
         // Shuffle is unset.
         models::Shuffle::Unset => {
             Error::ShuffleUnset {
-                transform: name.to_string(),
+                transform: model.name.to_string(),
             }
             .push(scope, errors);
             (Vec::new(), String::new())
         }
     };
 
-    super::temporary_cross_data_plane_read_check(scope, source, data_plane_id, errors);
+    super::temporary_cross_data_plane_read_check(scope, source_built, data_plane_id, errors);
+    let reads_from_self = source_name == catalog_name;
 
-    let validate = derive::request::validate::Transform {
-        name: name.to_string(),
-        collection: Some(spec),
-        lambda_config_json: lambda.to_string(),
-        shuffle_lambda_config_json,
-        backfill,
+    let validate = ValidateContext {
+        validate: derive::request::validate::Transform {
+            name: model.name.to_string(),
+            collection: Some(source_spec),
+            lambda_config_json: model.lambda.to_string(),
+            shuffle_lambda_config_json,
+            backfill: model.backfill,
+        },
+        inferred_shuffle_types: shuffle_types,
+        reads_from_self,
     };
 
-    let model = models::TransformDef {
-        backfill,
-        disable: false,
-        lambda,
-        name,
-        priority,
-        read_delay,
-        shuffle,
-        source: source_model,
-    };
-
-    Some((
-        model,
-        Some(ValidateContext {
-            validate,
-            inferred_shuffle_types: shuffle_types,
-            reads_from_self: &source.collection == catalog_name,
-        }),
-    ))
+    (model, Some(validate))
 }

@@ -196,11 +196,11 @@ pub enum Error {
         rhs_scope: Url,
     },
     #[error("resource path component of this binding, identified by JSON pointer {pointer}, is not a string but must be")]
-    BindingInvalidResourcePointer { pointer: String },
+    BindingInvalidResourcePath { pointer: String },
     #[error("resource path of this binding, identified by JSON pointers [{}], is empty", pointers.iter().map(|p| p.to_string()).join(", "))]
     BindingEmptyResourcePath { pointers: Vec<doc::Pointer> },
     #[error("{entity} binding resource path, {computed:?}, doesn't match the connector's validated resource path {validated:?}")]
-    BindingWrongResource {
+    BindingWrongResourcePath {
         entity: &'static str,
         computed: models::ResourcePath,
         validated: models::ResourcePath,

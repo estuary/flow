@@ -189,12 +189,15 @@ pub async fn validate<C: Connectors>(
     errors.extend(materialize_errors.into_iter());
 
     // Attach all built derivations to the corresponding collections.
-    for (built_index, model, validated, derivation, dependency_hash) in built_derivations {
+    for (built_index, model, validated, derivation, dependency_hash, model_fixes) in
+        built_derivations
+    {
         let row = &mut built_collections[built_index];
         row.model.as_mut().unwrap().derive = Some(model);
         row.validated = Some(validated);
         row.spec.as_mut().unwrap().derivation = Some(derivation);
         row.dependency_hash = dependency_hash;
+        row.model_fixes.extend(model_fixes.into_iter());
     }
 
     // Look for name collisions among all top-level catalog entities.
@@ -424,6 +427,101 @@ where
     }
 }
 
+/// Extracts the value of each of the given `resource_path_pointers` and encodes
+/// them into a `ResourcePath`. Each pointed-to location must be either a string
+/// value, null, or undefined. Null and undefined values are not included in
+/// the resulting path, and are thus treated as equivalent.
+///
+/// Resource path values other than strings will result in an Err having
+/// the failing doc::Pointer.
+pub fn extract_resource_path<'p>(
+    resource_path_pointers: &'p [doc::Pointer],
+    resource: &models::RawValue,
+) -> Result<models::ResourcePath, Error> {
+    let resource_config = resource.to_value();
+    let mut path = Vec::new();
+
+    for pointer in resource_path_pointers {
+        match pointer.query(&resource_config) {
+            None | Some(serde_json::Value::Null) => {
+                continue;
+            }
+            Some(serde_json::Value::String(s)) => path.push(s.clone()),
+            Some(_) => {
+                return Err(Error::BindingInvalidResourcePath {
+                    pointer: pointer.to_string(),
+                })
+            }
+        }
+    }
+
+    if !resource_path_pointers.is_empty() && path.is_empty() {
+        return Err(Error::BindingEmptyResourcePath {
+            pointers: resource_path_pointers.to_vec(),
+        });
+    }
+
+    Ok(path)
+}
+
+/// Generate errors for duplicated, non-empty resource paths.
+fn validate_resource_paths<'a>(
+    scope: Scope<'a>,
+    entity: &'static str,
+    catalog_name: &'a str,
+    bindings_len: usize,
+    resource_path: impl Fn(usize) -> &'a [String],
+    errors: &mut tables::Errors,
+) {
+    let mut bindings_index: Vec<usize> = (0..bindings_len)
+        .filter(|i| !resource_path(*i).is_empty())
+        .collect();
+    bindings_index.sort_by_key(|i| resource_path(*i));
+
+    for (l_i, r_i) in bindings_index.into_iter().tuple_windows() {
+        if resource_path(l_i) != resource_path(r_i) {
+            continue;
+        }
+        let scope = scope.push_prop("bindings");
+        let lhs_scope = scope.push_item(l_i);
+        let rhs_scope = scope.push_item(r_i).flatten();
+
+        Error::BindingDuplicatesResource {
+            entity,
+            name: catalog_name.to_string(),
+            resource: resource_path(l_i).iter().join("."),
+            rhs_scope,
+        }
+        .push(lhs_scope, errors);
+    }
+}
+
+/// Determine if a collection was reset by inspecting for an equal collection
+/// name, but a non-equal journal partition template name. We attach a
+/// generation ID to the end of the journal partition template name, so these
+/// will differ if and only if the collection was semantically deleted and
+/// re-created (either literally, or through a reset).
+fn collection_was_reset(
+    built_spec: &proto_flow::flow::CollectionSpec,
+    live_spec: &Option<proto_flow::flow::CollectionSpec>,
+) -> bool {
+    if let Some(live_collection) = live_spec {
+        if let Some(live_partition_template) = &live_collection.partition_template {
+            if live_collection.name == built_spec.name
+                && live_partition_template.name
+                    != built_spec
+                        .partition_template
+                        .as_ref()
+                        .expect("built collections populate partition_template")
+                        .name
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod test {
     use tables::{BuiltCollection, DraftCollection, LiveCollection};
@@ -552,6 +650,42 @@ mod test {
             Some(Error::TouchModelIsDelete)
         ));
     }
+
+    #[test]
+    fn test_resource_path_extraction() {
+        let ptrs = vec![
+            doc::Pointer::from_str("/schema"),
+            doc::Pointer::from_str("/table"),
+        ];
+        let extract = |fixture| {
+            super::extract_resource_path(&ptrs, &models::RawValue::from_str(fixture).unwrap())
+        };
+
+        assert!(matches!(
+            extract("{}").unwrap_err(),
+            Error::BindingEmptyResourcePath { .. }
+        ));
+        assert!(matches!(
+            extract(r#"{"table": null}"#).unwrap_err(),
+            Error::BindingEmptyResourcePath { .. }
+        ));
+        assert!(matches!(
+            extract(r#"{"table":{"a":42}}"#).unwrap_err(),
+            Error::BindingInvalidResourcePath { .. }
+        ));
+        assert_eq!(
+            extract(r#"{"table": "my_table", "other": 42}"#).unwrap(),
+            vec!["my_table".to_string()],
+        );
+        assert_eq!(
+            extract(r#"{"schema": null, "table": "my_table", "other": 42}"#).unwrap(),
+            vec!["my_table".to_string()],
+        );
+        assert_eq!(
+            extract(r#"{"schema": "my_schema", "table": "my_table", "other": 42}"#).unwrap(),
+            vec!["my_schema".to_string(), "my_table".to_string()],
+        );
+    }
 }
 
 fn temporary_cross_data_plane_read_check<'a>(
@@ -578,74 +712,6 @@ fn temporary_cross_data_plane_read_check<'a>(
         ) ;
 
         Error::Connector { detail }.push(scope, errors);
-    }
-}
-
-/// Extracts the value of each of the given `resource_path_pointers` and encodes
-/// them into a `ResourcePath`. Each pointed-to location must be either a string
-/// value, null, or undefined. Null and undefined values are not included in
-/// the resulting path, and are thus treated as equivalent.
-///
-/// Resource path values other than strings will result in an Err having
-/// the failing doc::Pointer.
-pub fn extract_resource_path<'p>(
-    resource_path_pointers: &'p [doc::Pointer],
-    resource: &models::RawValue,
-) -> Result<models::ResourcePath, Error> {
-    let resource_config = resource.to_value();
-    let mut path = Vec::new();
-
-    for pointer in resource_path_pointers {
-        match pointer.query(&resource_config) {
-            None | Some(serde_json::Value::Null) => {
-                continue;
-            }
-            Some(serde_json::Value::String(s)) => path.push(s.clone()),
-            Some(_) => {
-                return Err(Error::BindingInvalidResourcePointer {
-                    pointer: pointer.to_string(),
-                })
-            }
-        }
-    }
-
-    if !resource_path_pointers.is_empty() && path.is_empty() {
-        return Err(Error::BindingEmptyResourcePath {
-            pointers: resource_path_pointers.to_vec(),
-        });
-    }
-
-    Ok(path)
-}
-
-fn validate_resource_paths<'a>(
-    scope: Scope<'a>,
-    entity: &'static str,
-    catalog_name: &'a str,
-    bindings_len: usize,
-    resource_path: impl Fn(usize) -> &'a [String],
-    errors: &mut tables::Errors,
-) {
-    let mut bindings_index: Vec<usize> = (0..bindings_len)
-        .filter(|i| !resource_path(*i).is_empty())
-        .collect();
-    bindings_index.sort_by_key(|i| resource_path(*i));
-
-    for (l_i, r_i) in bindings_index.into_iter().tuple_windows() {
-        if resource_path(l_i) != resource_path(r_i) {
-            continue;
-        }
-        let scope = scope.push_prop("bindings");
-        let lhs_scope = scope.push_item(l_i);
-        let rhs_scope = scope.push_item(r_i).flatten();
-
-        Error::BindingDuplicatesResource {
-            entity,
-            name: catalog_name.to_string(),
-            resource: resource_path(l_i).iter().join("."),
-            rhs_scope,
-        }
-        .push(lhs_scope, errors);
     }
 }
 
@@ -694,25 +760,4 @@ where
             None
         }
     }
-}
-
-fn collection_was_reset(
-    built_spec: &proto_flow::flow::CollectionSpec,
-    live_spec: &Option<proto_flow::flow::CollectionSpec>,
-) -> bool {
-    if let Some(live_collection) = live_spec {
-        if let Some(live_partition_template) = &live_collection.partition_template {
-            if live_collection.name == built_spec.name
-                && live_partition_template.name
-                    != built_spec
-                        .partition_template
-                        .as_ref()
-                        .expect("validations populate partition_template")
-                        .name
-            {
-                return true;
-            }
-        }
-    }
-    false
 }

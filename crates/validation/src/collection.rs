@@ -78,27 +78,6 @@ fn walk_collection(
         reset,
     } = model;
 
-    // Determine the correct `journal_name_prefix` to use and its `generation_id`,
-    // which is regenerated if `reset` is true or if this is a new collection.
-    // Note we must account for historical journal templates which don't have
-    // an embedded generation_id suffix.
-    let (journal_name_prefix, _generation_id) = match live_spec {
-        Some(
-            live_spec @ flow::CollectionSpec {
-                partition_template: Some(template),
-                ..
-            },
-        ) if !reset => (
-            template.name.clone(),
-            tables::utils::get_collection_generation_id(live_spec).unwrap_or(models::Id::zero()),
-        ),
-        Some(_) => {
-            model_fixes.push(format!("reset collection to generation {pub_id}"));
-            (assemble::partition_prefix(pub_id, collection), pub_id)
-        }
-        None => (assemble::partition_prefix(pub_id, collection), pub_id),
-    };
-
     indexed::walk_name(
         scope,
         "collection",
@@ -114,12 +93,34 @@ fn walk_collection(
         .push(scope.push_prop("key"), errors);
     }
 
+    // Determine the correct `journal_name_prefix` to use and its `generation_id`,
+    // which is regenerated if `reset` is true or if this is a new collection.
+    // Note we must account for historical journal templates which don't have
+    // an embedded generation_id suffix.
+    let (journal_name_prefix, _generation_id) = match live_spec {
+        Some(
+            live_spec @ flow::CollectionSpec {
+                partition_template: Some(template),
+                ..
+            },
+        ) if !reset => (
+            template.name.clone(),
+            tables::utils::get_collection_generation_id(live_spec).unwrap_or(models::Id::zero()),
+        ),
+        Some(_) => {
+            model_fixes.push(format!("reset collection to new generation {pub_id}"));
+            (assemble::partition_prefix(pub_id, collection), pub_id)
+        }
+        None => (assemble::partition_prefix(pub_id, collection), pub_id),
+    };
+
     // If the collection has a read schema and it references its inferred schema,
     // then update its read schema model to inline its inferred schema.
     if let Some(read_model) = &mut read_model {
         if read_model.references_inferred_schema() {
             let inferred = inferred_schema
                 .map(|inferred| &inferred.schema)
+                // TODO(johnny): filter if `_generation_id` is not matched.
                 .unwrap_or(models::Schema::inferred_schema_placeholder());
 
             let inlined = read_model
@@ -137,10 +138,6 @@ fn walk_collection(
                 });
 
             if inlined != *read_model {
-                // TODO(johnny): This section of code needs to be aware of the
-                // generation_id attached to the inferred schema, filtering
-                // schemas if there's a mismatch, and should communicate the
-                // change in generation_id in this message.
                 model_fixes.push(format!("updated inferred schema"));
             }
             *read_model = inlined;
@@ -160,8 +157,8 @@ fn walk_collection(
         }
         // Separate schemas for writes and reads.
         (None, Some(write_model), Some(read_model)) => {
-            // We inline flow://write-schema into the
-            // BuiltCollection.read_schema_json row but NOT `read_model`.
+            // We inline flow://write-schema and flow://relaxed-write-schema
+            // into BuiltCollection.read_schema_json, but NOT `read_model`.
 
             let mut defs = Vec::new();
             let relaxed: Option<models::Schema>;
@@ -434,7 +431,7 @@ fn walk_collection_projections(
                     // The goal of this error is to catch user typos and similar mistakes,
                     // but we don't want to block schema updates.
                     model_fixes.push(format!(
-                        "removed projection {field}: {raw_ptr}, which was from the schema"
+                        "removed projection {field}: {raw_ptr}, which is no longer in the schema"
                     ));
                     return false;
                 }
@@ -463,7 +460,7 @@ fn walk_collection_projections(
     });
 
     // If we didn't see an explicit projection of the root document,
-    // add an implicit projection with field "flow_document".
+    // then add an implicit projection with field "flow_document".
     if !saw_root_projection {
         let (r_shape, r_exists) = effective_read_spec
             .shape
@@ -511,8 +508,8 @@ fn walk_collection_projections(
         });
     }
 
-    // Now add statically inferred locations from the read-time JSON schema. We'll do this for
-    // all locations except for:
+    // Now add statically inferred locations from the read-time JSON schema.
+    // We'll do this for all locations except for:
     // - pattern properties
     // - the root location
     // - locations for object properties with empty keys

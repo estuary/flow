@@ -110,12 +110,19 @@ impl Schema {
                     ptr: ptr.to_string(),
                     schema: write.curi.clone(),
                 });
-            } else if read_shape.type_ != write_shape.type_ {
+            }
+
+            // Keyed location types may differ only in null-ability between
+            // the read and write schemas.
+            let read_type = read_shape.type_ - types::NULL;
+            let write_type = write_shape.type_ - types::NULL;
+
+            if read_type != write_type {
                 return Err(Error::KeyReadWriteTypesDiffer {
                     ptr: ptr.to_string(),
-                    read_type: read_shape.type_,
+                    read_type: read_type,
                     read_schema: read.curi.clone(),
-                    write_type: write_shape.type_,
+                    write_type: write_type,
                     write_schema: write.curi.clone(),
                 });
             }
