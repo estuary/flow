@@ -37,6 +37,8 @@ pub struct Delete {
     pub name_selector: NameSelector,
     #[clap(flatten)]
     pub type_selector: catalog::SpecTypeSelector,
+    #[clap(flatten)]
+    pub data_plane_selector: catalog::DataPlaneSelector,
     /// Proceed with deletion without prompting for confirmation.
     ///
     /// Normally, delete will stop and ask for confirmation before it proceeds. This flag disables
@@ -60,6 +62,7 @@ pub async fn do_delete(
     Delete {
         name_selector,
         type_selector,
+        data_plane_selector,
         dangerous_auto_approve,
     }: &Delete,
 ) -> anyhow::Result<()> {
@@ -67,6 +70,7 @@ pub async fn do_delete(
         flows: false,
         name_selector: name_selector.clone().into(),
         type_selector: type_selector.clone(),
+        data_plane_selector: data_plane_selector.clone(),
     };
 
     let specs = catalog::fetch_live_specs::<catalog::LiveSpecRow>(
@@ -81,6 +85,7 @@ pub async fn do_delete(
             "last_pub_user_email",
             "last_pub_user_id",
             "last_pub_user_full_name",
+            "data_plane_id",
         ],
     )
     .await
