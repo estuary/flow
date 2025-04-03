@@ -1,5 +1,6 @@
 use crate::catalog::{
-    collect_specs, fetch_live_specs, List, LiveSpecRow, NameSelector, SpecTypeSelector,
+    collect_specs, fetch_live_specs, DataPlaneSelector, List, LiveSpecRow, NameSelector,
+    SpecTypeSelector,
 };
 use crate::local_specs;
 use crate::CliContext;
@@ -11,6 +12,8 @@ pub struct PullSpecs {
     name_selector: NameSelector,
     #[clap(flatten)]
     type_selector: SpecTypeSelector,
+    #[clap(flatten)]
+    data_plane_selector: DataPlaneSelector,
     /// Root flow specification to create or update.
     #[clap(long, default_value = "flow.yaml")]
     target: String,
@@ -30,6 +33,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
             flows: false,
             name_selector: args.name_selector.clone(),
             type_selector: args.type_selector.clone(),
+            data_plane_selector: args.data_plane_selector.clone(),
         },
         vec![
             "catalog_name",
@@ -41,6 +45,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
             "last_pub_user_id",
             "spec_type",
             "spec",
+            "data_plane_id",
         ],
     )
     .await?;

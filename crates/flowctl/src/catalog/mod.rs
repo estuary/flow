@@ -176,6 +176,45 @@ impl SpecTypeSelector {
     }
 }
 
+/// Common selection criteria based on the data plane name.
+#[derive(Default, Debug, Clone, clap::Args)]
+pub struct DataPlaneSelector {
+    /// Select a spec by data plane name. May be provided multiple times.
+    #[clap(long)]
+    pub data_plane_name: Vec<String>,
+}
+
+impl DataPlaneSelector {
+    /// Adds postgrest query parameters to filter specs based on the `data_plane_id` column.
+    pub async fn add_data_plane_filters(
+        &self,
+        client: &crate::Client,
+        mut builder: postgrest::Builder,
+    ) -> anyhow::Result<postgrest::Builder> {
+        if self.data_plane_name.is_empty() {
+            return Ok(builder);
+        }
+
+        #[derive(Deserialize, Serialize)]
+        struct Row {
+            id: String,
+        }
+
+        let data_planes: Vec<Row> = api_exec(
+            client
+                .from("data_planes")
+                .in_("data_plane_name", &self.data_plane_name)
+                .select("id"),
+        )
+        .await?;
+
+        let data_plane_ids: Vec<String> = data_planes.into_iter().map(|r| r.id).collect();
+        builder = builder.in_("data_plane_id", data_plane_ids);
+
+        Ok(builder)
+    }
+}
+
 #[derive(Default, Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct List {
@@ -186,6 +225,8 @@ pub struct List {
     pub name_selector: NameSelector,
     #[clap(flatten)]
     pub type_selector: SpecTypeSelector,
+    #[clap(flatten)]
+    pub data_plane_selector: DataPlaneSelector,
 }
 
 #[derive(Debug, clap::Args)]
@@ -255,6 +296,10 @@ where
 
     let builder = client.from("live_specs_ext").select(columns.join(","));
     let builder = list.type_selector.add_spec_type_filters(builder);
+    let builder = list
+        .data_plane_selector
+        .add_data_plane_filters(client, builder)
+        .await?;
 
     // Drive the actual request(s) based on the name selector, since the arguments there may
     // necessitate multiple requests.
@@ -312,6 +357,7 @@ pub struct LiveSpecRow {
     pub id: models::Id,
     pub updated_at: crate::Timestamp,
     pub spec_type: CatalogType,
+    pub data_plane_id: models::Id,
     pub last_pub_id: models::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pub_user_email: Option<String>,
@@ -332,7 +378,14 @@ impl crate::output::CliOutput for LiveSpecRow {
     type CellValue = String;
 
     fn table_headers(flows: Self::TableAlt) -> Vec<&'static str> {
-        let mut headers = vec!["ID", "Name", "Type", "Updated", "Updated By"];
+        let mut headers = vec![
+            "ID",
+            "Name",
+            "Type",
+            "Updated",
+            "Updated By",
+            "Data Plane ID",
+        ];
         if flows {
             headers.push("Reads From");
             headers.push("Writes To");
@@ -351,6 +404,7 @@ impl crate::output::CliOutput for LiveSpecRow {
                 self.last_pub_user_full_name,
                 self.last_pub_user_id,
             ),
+            self.data_plane_id.to_string(),
         ];
         if flows {
             out.push(self.reads_from.iter().flatten().join("\n"));
@@ -454,6 +508,7 @@ async fn do_list(ctx: &mut crate::CliContext, list_args: &List) -> anyhow::Resul
         "last_pub_user_id",
         "spec_type",
         "updated_at",
+        "data_plane_id",
     ];
     if list_args.flows {
         columns.push("reads_from");
