@@ -80,6 +80,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Front
   - [Configuration](./front.md)
   - Package - ghcr.io/estuary/source-front:dev
+- Gainsight NXT
+  - [Configuration](./gainsight-nxt.md)
+  - Package - ghcr.io/estuary/source-gainsight-nxt:dev
 - Genesys
   - [Configuration](./genesys.md)
   - Package - ghcr.io/estuary/source-genesys:dev
