@@ -1346,35 +1346,52 @@ impl Session {
         .await?
         .ok_or(anyhow::anyhow!("Collection {} not found", collection_name))?;
 
-        if let Some(
-            partition_offset @ PartitionOffset {
-                offset: latest_offset,
-                ..
-            },
-        ) = collection
+        match collection
             .fetch_partition_offset(partition as usize, -1)
-            .await?
+            .await
         {
-            // If fetch_offset is >= latest_offset, this is a caught-up consumer
-            // polling for new documents, not a data preview request.
-            if fetch_offset < latest_offset && latest_offset - fetch_offset < 13 {
-                tracing::info!(
-                    latest_offset,
-                    diff = latest_offset - fetch_offset,
-                    "Marking session as data-preview"
-                );
-                Ok(Some(partition_offset))
-            } else {
+            Ok(Some(
+                partition_offset @ PartitionOffset {
+                    offset: latest_offset,
+                    ..
+                },
+            )) => {
+                // If fetch_offset is >= latest_offset, this is a caught-up consumer
+                // polling for new documents, not a data preview request.
+                if fetch_offset < latest_offset && latest_offset - fetch_offset < 13 {
+                    tracing::info!(
+                        latest_offset,
+                        diff = latest_offset - fetch_offset,
+                        "Marking session as data-preview"
+                    );
+                    Ok(Some(partition_offset))
+                } else {
+                    tracing::debug!(
+                        fetch_offset,
+                        latest_offset,
+                        diff = latest_offset - fetch_offset,
+                        "Marking session as non-data-preview"
+                    );
+                    Ok(None)
+                }
+            }
+            Ok(_) => Ok(None),
+            // Handle Suspended errors as not data preiew
+            Err(e)
+                if e.downcast_ref::<gazette::Error>().map_or(false, |err| {
+                    matches!(
+                        err,
+                        gazette::Error::BrokerStatus(gazette::broker::Status::Suspended { .. })
+                    )
+                }) =>
+            {
                 tracing::debug!(
-                    fetch_offset,
-                    latest_offset,
-                    diff = latest_offset - fetch_offset,
-                    "Marking session as non-data-preview"
+                    "Partition is suspended, treating as non-data-preview: {:?}",
+                    e
                 );
                 Ok(None)
             }
-        } else {
-            Ok(None)
+            Err(e) => return Err(e),
         }
     }
 }
