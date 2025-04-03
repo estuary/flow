@@ -22,7 +22,69 @@ Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX
 
 ## Connecting Estuary Flow to Tinybird
 
-In your Tinybird Workspace, create a new Data Source and use the Kafka Connector.
+When you create a new workspace in Tinybird, you may be able to choose between [**Tinybird Classic**](#classic-workspaces) and [**Tinybird Forward**](#forward-workspaces).
+Classic is based on UI configuration while Forward is based on CLI configuration, so each type of workspace requires different setup steps.
+
+![Creating a new Tinybird workspace](../../connector-images/tinybird-workspace-options.png)
+
+### Forward workspaces
+
+In a Tinybird Forward workspace, you will need to develop your project locally first before deploying it to Tinybird. Follow Tinybird's Quickstart prompts to get started with the CLI up through creating your project.
+
+Locally, you should have a directory structure with folders for all of your resources, such as connections and datasources.
+
+In the `connections` directory, modify the stub file or create a new `.connection` file. Add your Dekaf connection details here, following the structure below.
+Note that while the example uses plain text for clarity, you can use [`tb secret`](https://www.tinybird.co/docs/forward/commands/tb-secret) to manage secrets within your config.
+
+```
+TYPE kafka
+KAFKA_BOOTSTRAP_SERVERS "dekaf.estuary-data.com"
+KAFKA_SECURITY_PROTOCOL SASL_SSL
+KAFKA_SASL_MECHANISM PLAIN
+KAFKA_KEY "YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION"
+KAFKA_SECRET "YOUR-DEKAF-AUTH-TOKEN"
+KAFKA_SCHEMA_REGISTRY_URL "https://YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION:YOUR-DEKAF-AUTH-TOKEN@dekaf.estuary-data.com"
+```
+
+:::tip
+While Tinybird doesn't require a schema registry URL by default, the Avro message format that Dekaf uses does require it.
+Include the schema registry username and password (same as the Tinybird `KAFKA_KEY` and `KAFKA_SECRET`) within the address in the format: `https://username:password@dekaf.estuary-data.com`.
+:::
+
+You will then need to create an associated `.datasource` file in the `datasources` directory. The exact format will depend on your desired schema and how you want to handle [deletions](#configuring-support-for-deletions).
+
+A simple example is provided below; see [Tinybird's docs](https://www.tinybird.co/docs/forward/get-data-in/connectors/kafka) for more options and advanced configuration.
+
+```
+SCHEMA >
+   `__value` String `json:#.__value`,
+   `_meta_op` String `json:$._meta.op`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(__timestamp)"
+ENGINE_SORTING_KEY "__timestamp"
+
+KAFKA_CONNECTION_NAME "YOUR_TB_CONNECTION_FILENAME"
+KAFKA_TOPIC "YOUR_ESTUARY_COLLECTION_NAME"
+KAFKA_GROUP_ID "KAFKA_GROUP_ID"
+KAFKA_KEY_FORMAT "avro"
+KAFKA_VALUE_FORMAT "avro"
+KAFKA_STORE_RAW_VALUE "True"
+KAFKA_AUTO_OFFSET_RESET "earliest"
+```
+
+Build and deploy your Tinybird project using:
+
+```bash
+tb build
+tb --cloud deploy
+```
+
+You will then be able to view your Dekaf data in your Tinybird workspace.
+
+### Classic workspaces
+
+In a Tinybird Classic workspace, create a new Data Source using the Kafka Connector.
 
 ![Configure Estuary Flow Data Source](../../connector-images/tinybird-dekaf-connection.png)
 
