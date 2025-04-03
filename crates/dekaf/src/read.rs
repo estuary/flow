@@ -194,6 +194,8 @@ impl Read {
             let (root, next_offset) = match read {
                 ReadJsonLine::Meta(response) => {
                     self.last_write_head = response.write_head;
+                    // Skip self.offset forward in case we're skipping past a gap
+                    self.offset = response.offset;
                     continue;
                 }
                 ReadJsonLine::Doc { root, next_offset } => (root, next_offset),
