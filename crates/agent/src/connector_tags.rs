@@ -253,17 +253,28 @@ async fn spec_materialization(
 ) -> anyhow::Result<ConnectorSpec> {
     use proto_flow::materialize;
 
-    let connector_type = if image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
-        flow::materialization_spec::ConnectorType::Dekaf as i32
+    let (connector_type, config_json) = if image.starts_with(models::DEKAF_IMAGE_NAME_PREFIX) {
+        let variant = &image
+            [models::DEKAF_IMAGE_NAME_PREFIX.len()..image.len() - models::DEKAF_IMAGE_TAG.len()];
+
+        (
+            flow::materialization_spec::ConnectorType::Dekaf as i32,
+            serde_json::to_string(
+                &serde_json::json!({"variant": variant.to_string(), "config": {}}),
+            )
+            .unwrap(),
+        )
     } else {
-        flow::materialization_spec::ConnectorType::Image as i32
+        (
+            flow::materialization_spec::ConnectorType::Image as i32,
+            serde_json::to_string(&serde_json::json!({"image": image, "config": {}})).unwrap(),
+        )
     };
 
     let req = materialize::Request {
         spec: Some(materialize::request::Spec {
             connector_type,
-            config_json: serde_json::to_string(&serde_json::json!({"image": image, "config":{}}))
-                .unwrap(),
+            config_json,
         }),
         ..Default::default()
     };
