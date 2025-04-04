@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
+use futures::TryFutureExt;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
@@ -1103,13 +1104,21 @@ impl Session {
     #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn offset_commit(
         &mut self,
-        req: messages::OffsetCommitRequest,
+        mut req: messages::OffsetCommitRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetCommitResponse> {
-        let mut mutated_req = req.clone();
-        for topic in &mut mutated_req.topics {
+        let collection_partitions = self
+            .fetch_collection_partitions(req.topics.iter().map(|topic| &topic.name))
+            .await?
+            .into_iter()
+            .map(|(topic_name, partitions)| {
+                self.encrypt_topic_name(topic_name)
+                    .map(|encrypted_name| (encrypted_name, partitions))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for topic in &mut req.topics {
             let encrypted = self.encrypt_topic_name(topic.name.clone())?;
-            tracing::info!(topic_name = ?topic.name, partitions = ?topic.partitions, "Committing offset");
             topic.name = encrypted;
         }
 
@@ -1119,17 +1128,9 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
-        client
-            .ensure_topics(
-                mutated_req
-                    .topics
-                    .iter()
-                    .map(|t| t.name.to_owned())
-                    .collect(),
-            )
-            .await?;
+        client.ensure_topics(collection_partitions).await?;
 
-        let mut resp = client.send_request(mutated_req, Some(header)).await?;
+        let mut resp = client.send_request(req.clone(), Some(header)).await?;
 
         let auth = self
             .auth
@@ -1142,13 +1143,14 @@ impl Session {
         let auth = self.auth.as_ref().unwrap();
 
         for topic in resp.topics.iter_mut() {
-            topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
+            let encrypted_name = topic.name.clone();
+            let decrypted_name = self.decrypt_topic_name(topic.name.to_owned())?;
 
             let collection_partitions = Collection::new(
                 &self.app,
                 auth,
                 &flow_client.pg_client(),
-                topic.name.as_str(),
+                decrypted_name.as_str(),
             )
             .await?
             .context(format!("unable to look up partitions for {:?}", topic.name))?
@@ -1156,34 +1158,53 @@ impl Session {
 
             for partition in &topic.partitions {
                 if let Some(error) = partition.error_code.err() {
-                    tracing::warn!(topic=?topic.name,partition=partition.partition_index,?error,"Got error from upstream Kafka when trying to commit offsets");
+                    tracing::warn!(
+                        topic = decrypted_name.as_str(),
+                        partition = partition.partition_index,
+                        ?error,
+                        "Got error from upstream Kafka when trying to commit offsets"
+                    );
                 } else {
+                    let response_partition_index = partition.partition_index;
+
                     let journal_name = collection_partitions
-                        .get(partition.partition_index as usize)
+                        .get(response_partition_index as usize)
                         .context(format!(
-                            "unable to find partition {} in collection {:?}",
-                            partition.partition_index, topic.name
+                            "unable to find collection partition idx {} in collection {:?}",
+                            response_partition_index,
+                            decrypted_name.as_str()
                         ))?
                         .spec
                         .name
                         .to_owned();
 
-                    let committed_offset = req
+                    let request_partitions = &req
                         .topics
                         .iter()
-                        .find(|req_topic| req_topic.name == topic.name)
-                        .context(format!("unable to find topic in request {:?}", topic.name))?
-                        .partitions
-                        .get(partition.partition_index as usize)
+                        .find(|req_topic| req_topic.name == encrypted_name)
                         .context(format!(
-                            "unable to find partition {}",
-                            partition.partition_index
+                            "unable to find topic in request {:?}",
+                            decrypted_name.as_str()
+                        ))?
+                        .partitions;
+
+                    let committed_offset = request_partitions
+                        .iter()
+                        .find(|req_part| req_part.partition_index == response_partition_index)
+                        .context(format!(
+                            "Unable to find partition index {} in request partitions for topic {:?}, though response contained it. Request partitions: {:?}. Flow has: {:?}",
+                            response_partition_index,
+                            decrypted_name.as_str(),
+                            request_partitions,
+                            collection_partitions
                         ))?
                         .committed_offset;
 
                     metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name).set(committed_offset as f64);
                 }
             }
+
+            tracing::info!(topic_name = ?topic.name, partitions = ?topic.partitions, "Committed offset");
         }
 
         Ok(resp)
@@ -1192,11 +1213,23 @@ impl Session {
     #[instrument(skip_all, fields(group=?req.group_id))]
     pub async fn offset_fetch(
         &mut self,
-        req: messages::OffsetFetchRequest,
+        mut req: messages::OffsetFetchRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
-        let mut mutated_req = req.clone();
-        if let Some(ref mut topics) = mutated_req.topics {
+        let collection_partitions = if let Some(topics) = &req.topics {
+            self.fetch_collection_partitions(topics.iter().map(|topic| &topic.name))
+                .await?
+                .into_iter()
+                .map(|(topic_name, partitions)| {
+                    self.encrypt_topic_name(topic_name)
+                        .map(|encrypted_name| (encrypted_name, partitions))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            vec![]
+        };
+
+        if let Some(ref mut topics) = req.topics {
             for topic in topics {
                 topic.name = self.encrypt_topic_name(topic.name.clone())?;
             }
@@ -1208,12 +1241,11 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
-        if let Some(ref topics) = mutated_req.topics {
-            client
-                .ensure_topics(topics.iter().map(|t| t.name.to_owned()).collect())
-                .await?;
+        if !collection_partitions.is_empty() {
+            client.ensure_topics(collection_partitions).await?;
         }
-        let mut resp = client.send_request(mutated_req, Some(header)).await?;
+
+        let mut resp = client.send_request(req, Some(header)).await?;
 
         for topic in resp.topics.iter_mut() {
             topic.name = self.decrypt_topic_name(topic.name.to_owned())?;
@@ -1316,6 +1348,30 @@ impl Session {
         } else {
             Ok(TopicName(StrBytes::from_string(name)))
         }
+    }
+
+    async fn fetch_collection_partitions(
+        &mut self,
+        topics: impl IntoIterator<Item = &TopicName>,
+    ) -> anyhow::Result<Vec<(TopicName, usize)>> {
+        let auth = self
+            .auth
+            .as_mut()
+            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
+
+        let app = &self.app;
+        let flow_client = &auth.flow_client(app).await?.pg_client();
+
+        // Re-declare here to drop mutable reference
+        let auth = self.auth.as_ref().unwrap();
+
+        futures::future::try_join_all(topics.into_iter().map(|topic| async move {
+            let collection = Collection::new(app, auth, flow_client, topic.as_ref())
+                .await?
+                .context(format!("unable to look up partitions for {:?}", topic))?;
+            Ok::<(TopicName, usize), anyhow::Error>((topic.clone(), collection.partitions.len()))
+        }))
+        .await
     }
 
     /// If the fetched offset is within a fixed number of offsets from the end of the journal,
