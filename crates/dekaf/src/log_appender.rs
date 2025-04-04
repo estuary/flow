@@ -278,7 +278,7 @@ const WELL_KNOWN_LOG_FIELDS: &'static [&'static str] = &[
     SESSION_TASK_NAME_FIELD_MARKER,
     SESSION_CLIENT_ID_FIELD_MARKER,
 ];
-pub const LOG_MESSAGE_QUEUE_SIZE: usize = 50;
+pub const LOG_MESSAGE_QUEUE_SIZE: usize = 500;
 
 impl<W: TaskWriter + 'static> TaskForwarder<W> {
     pub fn new(
@@ -353,21 +353,23 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
         let mut pending_logs = Vec::new();
 
         loop {
-            tokio::select! {
+            if pending_logs.len() > 0 {
                 // We always want to start a new append before accumulating more log messages because in
                 // the extreme case where we're getting messages faster than we can store them, we don't want
-                // to end up with an infinitely growing buffer of `pending_logs`.
-                biased;
-
-                Err(append_error) = Self::append_logs_to_writer(
+                // to end up with an infinitely growing buffer of `pending_logs`. We also don't want `tokio::select!`
+                // to cancel the append_logs_to_writer call when the next message comes in.
+                if let Err(append_error) = Self::append_logs_to_writer(
                     &mut writer,
                     &mut pending_logs,
                     shard_ref.clone(),
                     uuid_producer.clone(),
-                ), if pending_logs.len() > 0 => {
+                )
+                .await
+                {
                     tracing::error!(?append_error, "Error appending logs");
                 }
-
+            }
+            tokio::select! {
                 _ = stats_interval.tick() => {
                     // Take current stats and write if non-zero
                     if let Some(current_stats) = stats.take(){
@@ -406,8 +408,7 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                         Some(TaskWriterMessage::Stats((collection_name, new_stats))) => {
                             stats.add(collection_name, new_stats);
                         }
-                        Some(TaskWriterMessage::Shutdown) => break,
-                        None => break,
+                        Some(TaskWriterMessage::Shutdown) | None => break,
                     }
                 },
             }
