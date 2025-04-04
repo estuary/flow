@@ -2,7 +2,10 @@ use crate::{dekaf_shard_template_id, topology::fetch_dekaf_task_auth, App};
 use anyhow::Context;
 use async_trait::async_trait;
 use flow_client::fetch_task_authorization;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{
+    future::{FusedFuture, MaybeDone},
+    Stream, StreamExt, TryStreamExt,
+};
 use gazette::{
     journal,
     uuid::{self, Producer},
@@ -11,8 +14,10 @@ use gazette::{
 use proto_gazette::message_flags;
 use std::{
     collections::{BTreeMap, VecDeque},
+    future::Future,
     marker::PhantomData,
     mem,
+    pin::Pin,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -278,9 +283,9 @@ const WELL_KNOWN_LOG_FIELDS: &'static [&'static str] = &[
     SESSION_TASK_NAME_FIELD_MARKER,
     SESSION_CLIENT_ID_FIELD_MARKER,
 ];
-pub const LOG_MESSAGE_QUEUE_SIZE: usize = 50;
+pub const LOG_MESSAGE_QUEUE_SIZE: usize = 500;
 
-impl<W: TaskWriter + 'static> TaskForwarder<W> {
+impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
     pub fn new(
         producer: Producer,
         writer: W,
@@ -352,42 +357,46 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
         let mut stats_interval = tokio::time::interval(std::time::Duration::from_secs(30));
         let mut pending_logs = Vec::new();
 
-        loop {
-            tokio::select! {
-                // We always want to start a new append before accumulating more log messages because in
-                // the extreme case where we're getting messages faster than we can store them, we don't want
-                // to end up with an infinitely growing buffer of `pending_logs`.
-                biased;
+        type PinnedAppendFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 
-                Err(append_error) = Self::append_logs_to_writer(
-                    &mut writer,
-                    &mut pending_logs,
+        let mut log_append_state: MaybeDone<PinnedAppendFuture> = MaybeDone::Gone;
+        let mut stats_append_state: MaybeDone<PinnedAppendFuture> = MaybeDone::Gone;
+
+        loop {
+            // First check if we can start a new log append
+            if log_append_state.is_terminated() && !pending_logs.is_empty() {
+                let logs_to_send = mem::take(&mut pending_logs);
+                let future = Self::append_logs_to_writer(
+                    writer.clone(),
+                    logs_to_send,
                     shard_ref.clone(),
                     uuid_producer.clone(),
-                ), if pending_logs.len() > 0 => {
-                    tracing::error!(?append_error, "Error appending logs");
-                }
+                );
+                log_append_state = MaybeDone::Future(Box::pin(future));
+            }
 
-                _ = stats_interval.tick() => {
-                    // Take current stats and write if non-zero
-                    if let Some(current_stats) = stats.take(){
-                        if let Err(append_error) = writer.append_stats(||{
-                            let serialized = Self::serialize_stats(
-                                uuid_producer,
-                                current_stats.clone(),
-                                shard_ref.clone(),
-                            );
-                            futures::stream::once(async move { Ok(serialized.clone().into()) })
-                        }).await {
-                            tracing::error!(?append_error, "Error appending stats")
-                        }
+            // Then drive all append futures and react to incoming messages
+            tokio::select! {
+                // Poll log and stats appends, if running
+                _ = &mut log_append_state, if !log_append_state.is_terminated() => {
+                    if let Some(Err(e)) = Pin::new(&mut log_append_state).take_output(){
+                        tracing::error!(error = ?e, "Error appending logs");
                     }
+                    log_append_state = MaybeDone::Gone;
                 }
 
-                msg = event_stream.next() => {
-                    match msg {
+                _ = &mut stats_append_state, if !stats_append_state.is_terminated() => {
+                    if let Some(Err(e)) = Pin::new(&mut stats_append_state).take_output(){
+                        tracing::error!(error = ?e, "Error appending stats");
+                    }
+                    stats_append_state = MaybeDone::Gone;
+                }
+
+                // Process next incoming message or shutdown
+                maybe_msg = event_stream.next() => {
+                    match maybe_msg {
                         Some(TaskWriterMessage::SetTaskName{name, build}) => {
-                            anyhow::bail!("You can't change the task name after it has already been set ({shard_ref:?} -> ({name}, {build})");
+                            anyhow::bail!("You can't change the task name after it has already been set ({shard_ref:?} -> ({name}, {build}))");
                         },
                         Some(TaskWriterMessage::Log(mut log)) => {
                             for well_known in WELL_KNOWN_LOG_FIELDS {
@@ -400,34 +409,69 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                                         .insert(well_known.to_string(), value.to_string());
                                 }
                             }
-
                             pending_logs.push(log);
                         }
                         Some(TaskWriterMessage::Stats((collection_name, new_stats))) => {
                             stats.add(collection_name, new_stats);
                         }
-                        Some(TaskWriterMessage::Shutdown) => break,
-                        None => break,
+                        Some(TaskWriterMessage::Shutdown) | None => break,
                     }
                 },
+
+                _ = stats_interval.tick() => {
+                    // Start a new stats append if we don't already have one in progress,
+                    if stats_append_state.is_terminated() {
+                        // and we have received some stats to send
+                        if let Some(stats_to_send) = stats.take() {
+                            let future = Self::append_stats_to_writer(
+                                writer.clone(),
+                                uuid_producer.clone(),
+                                stats_to_send,
+                                shard_ref.clone()
+                            );
+                            stats_append_state = futures::future::maybe_done(Box::pin(future));
+                        }
+                    }
+                }
             }
         }
 
-        // Flush any remaining stats after stream ends
-        if let Some(remaining_stats) = stats.take() {
-            if let Err(append_error) = writer
-                .append_stats(|| {
-                    let serialized = Self::serialize_stats(
-                        uuid_producer,
-                        remaining_stats.clone(),
-                        shard_ref.clone(),
-                    );
-                    futures::stream::once(async move { Ok(serialized.clone().into()) })
-                })
-                .await
+        // Flush any remaining logs after stream ends
+        if !log_append_state.is_terminated() {
+            (&mut log_append_state).await;
+            if let Some(Err(e)) = Pin::new(&mut log_append_state).take_output() {
+                tracing::error!(error = ?e, "Error appending final logs during shutdown");
+            }
+        }
+        // Append any remaining logs that arrived just before shutdown
+        if !pending_logs.is_empty() {
+            if let Err(e) = Self::append_logs_to_writer(
+                writer.clone(),
+                pending_logs,
+                shard_ref.clone(),
+                uuid_producer.clone(),
+            )
+            .await
             {
-                tracing::error!(?append_error, "Error appending stats")
-            };
+                tracing::error!(error = ?e, "Error appending final logs during shutdown");
+            }
+        }
+
+        // Wait for any in-progress stats append to finish
+        if !stats_append_state.is_terminated() {
+            (&mut stats_append_state).await;
+
+            if let Some(Err(e)) = Pin::new(&mut stats_append_state).take_output() {
+                tracing::error!(error = ?e, "Error appending final stats during shutdown");
+            }
+        }
+        // Append any final stats collected just before shutdown
+        if let Some(stats_to_send) = stats.take() {
+            if let Err(e) =
+                Self::append_stats_to_writer(writer, uuid_producer, stats_to_send, shard_ref).await
+            {
+                tracing::error!(error = ?e, "Error appending final stats during shutdown");
+            }
         }
 
         Ok(())
@@ -551,13 +595,11 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
     }
 
     async fn append_logs_to_writer(
-        writer: &mut W,
-        pending_logs: &mut Vec<ops::Log>,
+        mut writer: W,
+        logs_to_append: Vec<ops::Log>,
         shard_ref: ops::ShardRef,
         uuid_producer: Producer,
     ) -> anyhow::Result<()> {
-        let logs_to_append = mem::take(pending_logs);
-
         writer
             .append_logs(move || {
                 let shard = shard_ref.clone();
@@ -569,6 +611,24 @@ impl<W: TaskWriter + 'static> TaskForwarder<W> {
                         Ok(serialized)
                     }
                 }))
+            })
+            .await
+    }
+
+    async fn append_stats_to_writer(
+        mut writer: W,
+        uuid_producer: Producer,
+        stats: BTreeMap<String, ops::stats::Binding>,
+        shard_ref: ops::ShardRef,
+    ) -> anyhow::Result<()> {
+        writer
+            .append_stats(move || {
+                let shard = shard_ref.clone();
+                futures::stream::iter(vec![Ok(TaskForwarder::<W>::serialize_stats(
+                    uuid_producer.clone(),
+                    stats.clone(),
+                    shard,
+                ))])
             })
             .await
     }
