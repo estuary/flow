@@ -1,0 +1,67 @@
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+
+  liveCollections:
+    testing/foobar:
+      key: [/key]
+      lastPubId: "10:10:10:10:10:10:10:10"
+      controlId: "11:11:11:11:11:11:11:02"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+
+  liveInferredSchemas:
+    testing/foobar: &inferred_schema
+      type: object
+      properties:
+        key:
+          type: integer
+          minimum: 0
+          maximum: 10
+        timestamp:
+          type: string
+          format: date-time
+        changingType:
+          type: number
+        alwaysNull:
+          type: "null"
+
+      required: [key, timestamp, changingType]
+      additionalProperties: false
+      x-collection-generation-id: 0000000000000001
+
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      key: [/key]
+
+      writeSchema:
+        type: object
+        reduce: { strategy: merge }
+        properties:
+          key:
+            type: integer
+            title: I'm the key!
+          timestamp:
+            type: string
+            description: I'm a timestamp.
+            reduce: { strategy: firstWriteWins }
+          changingType:
+            type: array
+            items: { type: number }
+            title: My type is changing.
+          notSeen:
+            type: integer
+          alwaysNull:
+            type: [number, "null"]
+
+        required: [key]
+
+      readSchema:
+        $defs:
+          flow://inferred-schema:
+            $id: flow://inferred-schema
+            <<: *inferred_schema
+        allOf:
+          - $ref: flow://relaxed-write-schema
+          - $ref: flow://inferred-schema

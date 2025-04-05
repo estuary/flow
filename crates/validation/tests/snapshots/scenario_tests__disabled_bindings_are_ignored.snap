@@ -184,12 +184,14 @@ Outcome {
                   "target": "disabled/test/one"
                 },
                 {
-                  "resource": {"stream":"enabled-stream"},
+                  "resource": {"_meta":{"path":["enabled-stream"]},"stream":"enabled-stream"},
                   "target": "testing/collection"
                 }
               ]
             },
-            model_fixes: [],
+            model_fixes: [
+              "updated resource /_meta of 1 bindings"
+            ],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -1792,7 +1794,7 @@ Outcome {
                   }
                 },
                 {
-                  "resource": {"stream":"enabled-stream"},
+                  "resource": {"_meta":{"path":["enabled-stream"]},"stream":"enabled-stream"},
                   "source": "testing/collection",
                   "fields": {
                     "recommended": true
@@ -1800,7 +1802,9 @@ Outcome {
                 }
               ]
             },
-            model_fixes: [],
+            model_fixes: [
+              "updated resource /_meta of 1 bindings"
+            ],
             validated: Validated {
                 bindings: [
                     Binding {

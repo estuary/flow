@@ -9,6 +9,41 @@ fn test_updates() {
 }
 
 #[test]
+fn test_change_collection_key_and_partitions() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/collection:
+      key: [/f_two, /f_one]
+      projections:
+        F1:
+          location: /f_one
+          partition: true
+    "#,
+    );
+    insta::assert_debug_snapshot!(errors);
+
+    // Again, but this time: also reset the collection.
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/collection:
+      key: [/f_two, /f_one]
+      projections:
+        F1:
+          location: /f_one
+          partition: true
+      reset: true
+    "#,
+    );
+    assert!(errors.is_empty());
+}
+
+#[test]
 fn test_update_but_does_not_exist() {
     let errors = common::run_errors(
         MODEL_YAML,
@@ -46,9 +81,8 @@ driver:
         properties:
           f_one: {type: integer}
           f_two: {type: string}
-      derivation: true # For funsies, pretend we're a sourced derivation.
     the/derivation:
-      derivation: false # Not yet a derivation.
+      derive: null # Not yet a derivation.
   liveMaterializations: null
   liveTests: null
         "#,
@@ -154,7 +188,9 @@ test://example/catalog.yaml:
   collections:
     the/collection:
       expectPubId: "00:00:00:00:00:00:00:00"
-      projections: null
+      projections:
+        FX: null
+        FY: null
     the/derivation:
       expectPubId: "00:00:00:00:00:00:00:00"
   captures:
@@ -163,6 +199,9 @@ test://example/catalog.yaml:
   materializations:
     the/materialization:
       expectPubId: "00:00:00:00:00:00:00:00"
+      bindings:
+        - source: the/collection
+          resource: { schema: table, name: path }
   tests:
     the/test:
       expectPubId: "00:00:00:00:00:00:00:00"
@@ -230,16 +269,110 @@ test://example/catalog.yaml:
 
 #[test]
 fn test_deletion_of_used_collection() {
-    let errors = common::run_errors(
+    let outcome = common::run(
         MODEL_YAML,
         r#"
 test://example/catalog.yaml:
   collections:
     the/collection:
       delete: true
-    "#,
+driver:
+  captures:
+    the/capture:
+      bindings: []
+  derivations:
+    the/derivation:
+      shuffleKeyTypes: []
+      transforms: []
+  materializations:
+    the/materialization:
+      bindings: []
+"#,
     );
-    insta::assert_debug_snapshot!(errors);
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_reset_of_used_collection() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/collection:
+      reset: true
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_disable_live_bindings() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/derivation:
+      derive:
+        transforms:
+          - name: fromCollection
+            source: { name: the/collection }
+            lambda: the lambda
+            disable: true
+  captures:
+    the/capture:
+      bindings:
+        - target: the/collection
+          resource: {_meta: { path: [capture, path] }}
+          disable: true
+  materializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource: {_meta: { path: [table, path] }}
+          disable: true
+
+driver:
+  captures:
+    the/capture:
+      bindings: []
+  derivations:
+    the/derivation:
+      shuffleKeyTypes: []
+      transforms: []
+  materializations:
+    the/materialization:
+      bindings: []
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_disable_shards() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    the/derivation:
+      derive:
+        shards: {disable: true}
+  captures:
+    the/capture:
+      shards: {disable: true}
+  materializations:
+    the/materialization:
+      shards: {disable: true}
+
+driver:
+  captures: null
+  derivations: null
+  materializations: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
 }
 
 #[test]
@@ -276,77 +409,6 @@ driver:
     "#,
     );
     insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_relaxation_of_existing_exclusions() {
-    let errors = common::run_errors(
-        MODEL_YAML,
-        r#"
-test://example/catalog.yaml:
-  materializations:
-    the/materialization:
-      bindings:
-        - source: the/collection
-          resource: { table: bar }
-          fields:
-            recommended: true
-            exclude:
-              # Current projection.
-              - f_one
-              # Pre-existing exclusion which is not an error.
-              - existing/not/found
-              # Pre-existing exclusion, but its binding is disabled.
-              - existing/but/disabled
-              # Entirely new exclusion.
-              - new/not/found
-              # Existing exclusion, but for a different collection.
-              - other/not/found
-driver:
-  liveMaterializations:
-    the/materialization:
-      bindings:
-        - source: the/collection
-          resource: ~
-          fields:
-            recommended: true
-            exclude:
-              - existing/not/found
-
-        - source: the/collection
-          disable: true
-          resource: ~
-          fields:
-            recommended: true
-            exclude:
-              - existing/but/disabled
-
-        - source: some/other/collection
-          resource: ~
-          fields:
-            recommended: true
-            exclude:
-              - other/not/found
-    "#,
-    );
-
-    // Expect `existing/not/found` does NOT produce an error, while others do.
-    insta::assert_debug_snapshot!(errors, @r###"
-    [
-        Error {
-            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/exclude/2,
-            error: exclude projection existing/but/disabled does not exist in collection the/collection,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/exclude/3,
-            error: exclude projection new/not/found does not exist in collection the/collection,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/exclude/4,
-            error: exclude projection other/not/found does not exist in collection the/collection,
-        },
-    ]
-    "###);
 }
 
 #[test]
