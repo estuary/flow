@@ -456,6 +456,11 @@ test://example/int-string-captures:
         - target: testing/int-string.v2
           resource: {}
 
+          # Duplicated disabled resource path (disallowed).
+        - target: testing/int-string.v2
+          resource: {_meta: {path: [target, one]}}
+          disable: true
+
           # Duplicated collection (okay).
         - target: testing/int-string
           resource: {}
@@ -487,6 +492,11 @@ test://example/db-views:
         # Duplicated resource path (disallowed).
         - source: testing/int-string.v2
           resource: {}
+
+        # Duplicated disabled resource path (disallowed).
+        - source: testing/int-string.v2
+          resource: {_meta: {path: [target, one]}}
+          disable: true
 
         # Duplicated collection (okay).
         - source: testing/int-string
@@ -615,6 +625,38 @@ fn test_keyed_location_wrong_type() {
 test://example/int-string.schema:
   properties:
     int: { type: [number, object] }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_keyed_location_read_write_types_differ() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+
+test://example/int-string:
+  collections:
+    testing/int-string:
+      schema: null
+
+      readSchema:
+        type: object
+        properties:
+          int: { type: integer }
+          bit: { type: boolean }
+          str: { type: string }
+        required: [int, bit]
+
+      writeSchema:
+        type: object
+        properties:
+          int: { type: string }
+          bit: { type: string }
+        required: [int, bit]
+
+test://example/int-string-tests: null # Extra errors we don't care about.
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1291,4 +1333,70 @@ driver:
 "#,
     );
     insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_collection_inferred_schema_is_unchanged() {
+    let outcome = common::run(include_str!("schema_inference.yaml"), "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_is_updated() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      readSchema:
+        $defs: null
+    "#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_wrong_generation() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+driver:
+  liveCollections:
+    testing/foobar: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_not_available() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+driver:
+  liveInferredSchemas: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_generation_id_fallback() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      readSchema:
+        $defs: null
+
+driver:
+  liveInferredSchemas:
+    testing/foobar:
+      x-collection-generation-id: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
 }

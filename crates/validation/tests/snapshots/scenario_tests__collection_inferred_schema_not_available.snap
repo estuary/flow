@@ -1,0 +1,468 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: outcome
+---
+Outcome {
+    built_captures: [],
+    built_collections: [
+        BuiltCollection {
+            collection: testing/foobar,
+            scope: test://example/catalog.yaml#/collections/testing~1foobar,
+            control_id: "1111111111111102",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "1010101010101010",
+            expect_build_id: "1010101010101010",
+            model: {
+              "writeSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/writeSchema","properties":{"alwaysNull":{"type":["number","null"]},"changingType":{"items":{"type":"number"},"title":"My type is changing.","type":"array"},"key":{"title":"I'm the key!","type":"integer"},"notSeen":{"type":"integer"},"timestamp":{"description":"I'm a timestamp.","reduce":{"strategy":"firstWriteWins"},"type":"string"}},"reduce":{"strategy":"merge"},"required":["key"],"type":"object"},
+              "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","properties":{"_meta":{"properties":{"inferredSchemaIsNotAvailable":{"const":true,"description":"An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."}},"required":["inferredSchemaIsNotAvailable"]}},"required":["_meta"]}},"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/readSchema","allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
+              "key": [
+                "/key"
+              ]
+            },
+            model_fixes: [
+              "applied inferred schema placeholder (inferred schema is not available)"
+            ],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/foobar",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1foobar/writeSchema\",\"properties\":{\"alwaysNull\":{\"type\":[\"number\",\"null\"]},\"changingType\":{\"items\":{\"type\":\"number\"},\"title\":\"My type is changing.\",\"type\":\"array\"},\"key\":{\"title\":\"I'm the key!\",\"type\":\"integer\"},\"notSeen\":{\"type\":\"integer\"},\"timestamp\":{\"description\":\"I'm a timestamp.\",\"reduce\":{\"strategy\":\"firstWriteWins\"},\"type\":\"string\"}},\"reduce\":{\"strategy\":\"merge\"},\"required\":[\"key\"],\"type\":\"object\"}",
+                read_schema_json: "{\"$defs\":{\"flow://inferred-schema\":{\"$id\":\"flow://inferred-schema\",\"properties\":{\"_meta\":{\"properties\":{\"inferredSchemaIsNotAvailable\":{\"const\":true,\"description\":\"An inferred schema is not yet available because no documents have been written to this collection.\\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready.\"}},\"required\":[\"inferredSchemaIsNotAvailable\"]}},\"required\":[\"_meta\"]},\"flow://relaxed-write-schema\":{\"$id\":\"flow://relaxed-write-schema\",\"properties\":{\"alwaysNull\":{\"type\":[\"number\",\"null\"]},\"changingType\":{\"items\":{\"type\":\"number\"},\"title\":\"My type is changing.\",\"type\":\"array\"},\"key\":{\"title\":\"I'm the key!\",\"type\":\"integer\"},\"notSeen\":{\"type\":\"integer\"},\"timestamp\":{\"description\":\"I'm a timestamp.\",\"reduce\":{\"strategy\":\"firstWriteWins\"},\"type\":\"string\"}},\"reduce\":{\"strategy\":\"merge\"},\"required\":[\"key\"],\"type\":\"object\"}},\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1foobar/readSchema\",\"allOf\":[{\"$ref\":\"flow://relaxed-write-schema\"},{\"$ref\":\"flow://inferred-schema\"}]}",
+                key: [
+                    "/key",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta",
+                        field: "_meta",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "array",
+                                    "boolean",
+                                    "null",
+                                    "number",
+                                    "object",
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
+                                array: Some(
+                                    Array {
+                                        min_items: 0,
+                                        has_max_items: false,
+                                        max_items: 0,
+                                        item_types: [],
+                                    },
+                                ),
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/inferredSchemaIsNotAvailable",
+                        field: "_meta/inferredSchemaIsNotAvailable",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready.",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/alwaysNull",
+                        field: "alwaysNull",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "null",
+                                    "number",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/changingType",
+                        field: "changingType",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "array",
+                                ],
+                                string: None,
+                                title: "My type is changing.",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: None,
+                                array: Some(
+                                    Array {
+                                        min_items: 0,
+                                        has_max_items: false,
+                                        max_items: 0,
+                                        item_types: [
+                                            "number",
+                                        ],
+                                    },
+                                ),
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/key",
+                        field: "key",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "I'm the key!",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/notSeen",
+                        field: "notSeen",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/timestamp",
+                        field: "timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "I'm a timestamp.",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/foobar/0000000000000001",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/foobar",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: CollectionSpec {
+                name: "testing/foobar",
+                write_schema_json: "{\"x-live\":\"schema\"}",
+                read_schema_json: "",
+                key: [
+                    "/key",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [],
+                ack_template_json: "",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/foobar/0000000000000001",
+                        replication: 0,
+                        labels: None,
+                        fragment: None,
+                        flags: 0,
+                        max_append_rate: 0,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+    ],
+    built_materializations: [],
+    built_tests: [],
+    captures: [],
+    collections: [
+        DraftCollection {
+            collection: testing/foobar,
+            scope: test://example/catalog.yaml#/collections/testing~1foobar,
+            expect_pub_id: NULL,
+            model: {
+              "writeSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/writeSchema","properties":{"alwaysNull":{"type":["number","null"]},"changingType":{"items":{"type":"number"},"title":"My type is changing.","type":"array"},"key":{"title":"I'm the key!","type":"integer"},"notSeen":{"type":"integer"},"timestamp":{"description":"I'm a timestamp.","reduce":{"strategy":"firstWriteWins"},"type":"string"}},"reduce":{"strategy":"merge"},"required":["key"],"type":"object"},
+              "readSchema": {"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","additionalProperties":false,"properties":{"alwaysNull":{"type":"null"},"changingType":{"type":"number"},"key":{"maximum":10,"minimum":0,"type":"integer"},"timestamp":{"format":"date-time","type":"string"}},"required":["key","timestamp","changingType"],"type":"object","x-collection-generation-id":"0000000000000001"}},"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/readSchema","allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},
+              "key": [
+                "/key"
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    errors: [],
+    errors_draft: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"collections":{"testing/foobar":{"key":["/key"],"readSchema":{"$defs":{"flow://inferred-schema":{"$id":"flow://inferred-schema","additionalProperties":false,"properties":{"alwaysNull":{"type":"null"},"changingType":{"type":"number"},"key":{"maximum":10,"minimum":0,"type":"integer"},"timestamp":{"format":"date-time","type":"string"}},"required":["key","timestamp","changingType"],"type":"object","x-collection-generation-id":"0000000000000001"}},"allOf":[{"$ref":"flow://relaxed-write-schema"},{"$ref":"flow://inferred-schema"}]},"writeSchema":{"properties":{"alwaysNull":{"type":["number","null"]},"changingType":{"items":{"type":"number"},"title":"My type is changing.","type":"array"},"key":{"title":"I'm the key!","type":"integer"},"notSeen":{"type":"integer"},"timestamp":{"description":"I'm a timestamp.","reduce":{"strategy":"firstWriteWins"},"type":"string"}},"reduce":{"strategy":"merge"},"required":["key"],"type":"object"}}}},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            catalog_prefix: ,
+            control_id: "0000000000000000",
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "a-bucket",
+                "prefix": null,
+                "region": null
+              }
+            ],
+        },
+    ],
+    tests: [],
+}
