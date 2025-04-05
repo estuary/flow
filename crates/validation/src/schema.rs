@@ -35,14 +35,19 @@ impl Schema {
     // and collection projections.
     // A location which is serving as a key has additional restrictions
     // on its required existence and applicable types.
-    pub fn walk_ptr(&self, ptr: &models::JsonPointer, ptr_is_key: bool) -> Result<(), Error> {
+    pub fn walk_ptr(
+        read: &Self,
+        write: Option<&Self>,
+        ptr: &models::JsonPointer,
+        ptr_is_key: bool,
+    ) -> Result<(), Error> {
         let (start, stop) = models::JsonPointer::regex()
             .find(ptr)
             .map(|m| (m.start(), m.end()))
             .unwrap_or((0, 0));
         let unmatched = [&ptr[..start], &ptr[stop..]].concat();
 
-        let (shape, exists) = self.shape.locate(&doc::Pointer::from_str(ptr));
+        let (read_shape, read_exists) = read.shape.locate(&doc::Pointer::from_str(ptr));
 
         // These checks return early if matched because
         // further errors are likely spurious.
@@ -55,15 +60,15 @@ impl Schema {
                 ptr: ptr.to_string(),
                 unmatched,
             });
-        } else if exists == Exists::Implicit {
+        } else if read_exists == Exists::Implicit {
             return Err(Error::PtrIsImplicit {
                 ptr: ptr.to_string(),
-                schema: self.curi.clone(),
+                schema: read.curi.clone(),
             });
-        } else if exists == Exists::Cannot {
+        } else if read_exists == Exists::Cannot {
             return Err(Error::PtrCannotExist {
                 ptr: ptr.to_string(),
-                schema: self.curi.clone(),
+                schema: read.curi.clone(),
             });
         }
 
@@ -72,24 +77,55 @@ impl Schema {
             return Ok(());
         }
 
-        if !shape.type_.is_keyable_type() {
+        if !read_shape.type_.is_keyable_type() {
             return Err(Error::KeyWrongType {
                 ptr: ptr.to_string(),
-                type_: shape.type_,
-                schema: self.curi.clone(),
+                type_: read_shape.type_,
+                schema: read.curi.clone(),
             });
         }
 
         if !matches!(
-            shape.reduction,
+            read_shape.reduction,
             shape::Reduction::Unset
                 | shape::Reduction::Strategy(reduce::Strategy::LastWriteWins(_)),
         ) {
             return Err(Error::KeyHasReduction {
                 ptr: ptr.to_string(),
-                schema: self.curi.clone(),
-                strategy: shape.reduction.clone(),
+                schema: read.curi.clone(),
+                strategy: read_shape.reduction.clone(),
             });
+        }
+
+        if let Some(write) = write {
+            let (write_shape, write_exists) = write.shape.locate(&doc::Pointer::from_str(ptr));
+
+            if write_exists == Exists::Implicit {
+                return Err(Error::PtrIsImplicit {
+                    ptr: ptr.to_string(),
+                    schema: write.curi.clone(),
+                });
+            } else if write_exists == Exists::Cannot {
+                return Err(Error::PtrCannotExist {
+                    ptr: ptr.to_string(),
+                    schema: write.curi.clone(),
+                });
+            }
+
+            // Keyed location types may differ only in null-ability between
+            // the read and write schemas.
+            let read_type = read_shape.type_ - types::NULL;
+            let write_type = write_shape.type_ - types::NULL;
+
+            if read_type != write_type {
+                return Err(Error::KeyReadWriteTypesDiffer {
+                    ptr: ptr.to_string(),
+                    read_type: read_type,
+                    read_schema: read.curi.clone(),
+                    write_type: write_type,
+                    write_schema: write.curi.clone(),
+                });
+            }
         }
 
         Ok(())

@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use sources::Scope;
 use tables::EitherOrBoth as EOB;
 
@@ -14,8 +15,7 @@ mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
-pub use materialization::extract_resource_config_annotations as extract_materialization_resource_config_annotations;
-pub use noop::NoOpConnectors;
+use noop::NoOpConnectors;
 
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always
@@ -85,6 +85,7 @@ pub async fn validate<C: Connectors>(
         build_id,
         default_plane_id,
         &draft.collections,
+        &live.inferred_schemas,
         &live.collections,
         &live.storage_mappings,
         &mut errors,
@@ -187,11 +188,15 @@ pub async fn validate<C: Connectors>(
     errors.extend(materialize_errors.into_iter());
 
     // Attach all built derivations to the corresponding collections.
-    for (built_index, validated, derivation, dependency_hash) in built_derivations {
+    for (built_index, model, validated, derivation, dependency_hash, model_fixes) in
+        built_derivations
+    {
         let row = &mut built_collections[built_index];
+        row.model.as_mut().unwrap().derive = Some(model);
         row.validated = Some(validated);
         row.spec.as_mut().unwrap().derivation = Some(derivation);
         row.dependency_hash = dependency_hash;
+        row.model_fixes.extend(model_fixes.into_iter());
     }
 
     // Look for name collisions among all top-level catalog entities.
@@ -240,7 +245,7 @@ fn walk_transition<'a, D, L, B>(
     (
         &'a D::Key,               // Catalog name.
         &'a url::Url,             // Scope.
-        &'a D::ModelDef,          // Model to validate.
+        D::ModelDef,              // Model to validate.
         models::Id,               // Live control-plane ID.
         models::Id,               // Assigned data-plane.
         models::Id,               // Live publication ID.
@@ -312,7 +317,7 @@ where
                 Some(model) => Ok((
                     draft.catalog_name(),
                     draft.scope(),
-                    model,
+                    model.clone(),
                     models::Id::zero(), // Has no control-plane ID.
                     default_plane_id,   // Assign default data-plane.
                     models::Id::zero(), // Never published.
@@ -385,7 +390,7 @@ where
                     Ok((
                         draft.catalog_name(),
                         draft.scope(),
-                        model,
+                        model.clone(),
                         live.control_id(),
                         live.data_plane_id(),
                         live.last_pub_id(),
@@ -419,6 +424,116 @@ where
             }
         }
     }
+}
+
+// Load the resource path encoded in /_meta/path, or return an empty Vec
+// if there is no such location, or it's not an array of strings.
+pub fn load_resource_meta_path(resource: &models::RawValue) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Meta {
+        path: Vec<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Skim {
+        #[serde(rename = "_meta")]
+        meta: Option<Meta>,
+    }
+
+    if let Ok(Skim {
+        meta: Some(Meta { path }),
+    }) = serde_json::from_str::<Skim>(resource.get())
+    {
+        path
+    } else {
+        Vec::new()
+    }
+}
+
+// Store `resource_path` under /_meta/path of `resource`, returning an updated clone.
+fn store_resource_meta(resource: &models::RawValue, path: &[String]) -> models::RawValue {
+    type Skim = std::collections::BTreeMap<String, models::RawValue>;
+
+    let Ok(mut resource) = serde_json::from_str::<Skim>(resource.get()) else {
+        return resource.clone();
+    };
+
+    resource.insert(
+        "_meta".to_string(),
+        models::RawValue::from_value(&serde_json::json!({
+            "path": path
+        })),
+    );
+
+    serde_json::value::to_raw_value(&resource).unwrap().into()
+}
+
+// Strip /_meta from a resource config, before sending it to a connector.
+// TODO(johnny): We intend to remove this once connectors are updated.
+fn strip_resource_meta(resource: &models::RawValue) -> String {
+    type Skim = std::collections::BTreeMap<String, models::RawValue>;
+
+    let Ok(mut resource) = serde_json::from_str::<Skim>(resource.get()) else {
+        return resource.get().to_string();
+    };
+    _ = resource.remove("_meta");
+
+    let resource: Box<str> = serde_json::value::to_raw_value(&resource).unwrap().into();
+    resource.into()
+}
+
+/// Generate errors for duplicated, non-empty resource paths.
+fn validate_resource_paths<'a>(
+    scope: Scope<'a>,
+    entity: &'static str,
+    bindings_len: usize,
+    resource_path: impl Fn(usize) -> &'a [String],
+    errors: &mut tables::Errors,
+) {
+    let mut bindings_index: Vec<usize> = (0..bindings_len)
+        .filter(|i| !resource_path(*i).is_empty())
+        .collect();
+    bindings_index.sort_by_key(|i| resource_path(*i));
+
+    for (l_i, r_i) in bindings_index.into_iter().tuple_windows() {
+        if resource_path(l_i) != resource_path(r_i) {
+            continue;
+        }
+        Error::BindingDuplicatesResource {
+            entity,
+            resource: resource_path(l_i).iter().join("."),
+            lhs_index: l_i,
+            rhs_index: r_i,
+        }
+        .push(scope.push_prop("bindings").push_item(r_i), errors);
+    }
+}
+
+/// Determine if a collection was reset by inspecting for an equal collection
+/// name, but a non-equal journal partition template name. We attach a
+/// generation ID to the end of the journal partition template name, so these
+/// will differ if and only if the collection was semantically deleted and
+/// re-created (either literally, or through a reset).
+fn collection_was_reset(
+    built_spec: &proto_flow::flow::CollectionSpec,
+    live_spec: &Option<proto_flow::flow::CollectionSpec>,
+) -> bool {
+    if let Some(live_collection) = live_spec {
+        if let Some(live_partition_template) = &live_collection.partition_template {
+            let built_spec_partition_template_name = built_spec
+                .partition_template
+                .as_ref()
+                .expect("built collections populate partition_template")
+                .name
+                .as_str();
+
+            if live_collection.name == built_spec.name
+                && live_partition_template.name != built_spec_partition_template_name
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
