@@ -4,7 +4,11 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
-        error: capture testing/s3-source bindings duplicate the endpoint resource target.one at test://example/int-string-captures#/captures/testing~1s3-source/bindings/1,
+        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/1,
+        error: this capture binding at offset 1 is bound to endpoint resource "target.one", but so is the binding at offset 0, which is not permitted (each binding must have a unique endpoint resource),
+    },
+    Error {
+        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/2,
+        error: this capture binding at offset 2 is bound to endpoint resource "target.one", but so is the binding at offset 1, which is not permitted (each binding must have a unique endpoint resource),
     },
 ]
