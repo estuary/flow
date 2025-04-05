@@ -432,9 +432,9 @@ test://example/int-string-captures:
     testing/s3-source:
       bindings:
         - target: testiNg/int-strinK
-          resource: { stream: a-stream }
+          resource: { src-name: a-stream }
         - target: wildly/off/name
-          resource: { stream: v2-stream }
+          resource: { src-name: v2-stream }
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -450,23 +450,15 @@ test://example/int-string-captures:
     testing/s3-source:
       bindings:
         - target: testing/int-string
-          resource: {}
+          resource: { src-schema: target, src-name: one }
 
           # Duplicated resource path (disallowed).
         - target: testing/int-string.v2
-          resource: {}
+          resource: { src-schema: target, src-name: one }
 
           # Duplicated collection (okay).
         - target: testing/int-string
-          resource: {}
-
-driver:
-  captures:
-    testing/s3-source:
-      bindings:
-        - resourcePath: [target, one]
-        - resourcePath: [target, one]
-        - resourcePath: [target, two]
+          resource: { src-schema: other, src-name: one }
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -482,15 +474,15 @@ test://example/db-views:
     testing/db-views:
       bindings:
         - source: testing/int-string
-          resource: {}
+          resource: { tgt-schema: target, tgt-name: one }
 
         # Duplicated resource path (disallowed).
         - source: testing/int-string.v2
-          resource: {}
+          resource: { tgt-schema: target, tgt-name: one }
 
         # Duplicated collection (okay).
         - source: testing/int-string
-          resource: {}
+          resource: { tgt-schema: other, tgt-name: one }
 
 driver:
   materializations:
@@ -615,6 +607,38 @@ fn test_keyed_location_wrong_type() {
 test://example/int-string.schema:
   properties:
     int: { type: [number, object] }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_keyed_location_read_write_types_differ() {
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        r#"
+
+test://example/int-string:
+  collections:
+    testing/int-string:
+      schema: null
+
+      readSchema:
+        type: object
+        properties:
+          int: { type: integer }
+          bit: { type: boolean }
+          str: { type: string }
+        required: [int, bit]
+
+      writeSchema:
+        type: object
+        properties:
+          int: { type: string }
+          bit: { type: string }
+        required: [int, bit]
+
+test://example/int-string-tests: null # Extra errors we don't care about.
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -860,9 +884,9 @@ test://example/db-views:
     testing/db-views:
       bindings:
         - source: testiNg/int-strinK
-          resource: { table: the_table }
+          resource: { tgt-name: view }
         - source: wildly/off/name
-          resource: { table: other_table }
+          resource: { tgt-name: other_table }
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -879,10 +903,10 @@ test://example/webhook-deliveries:
       bindings:
         # Included only to maintain proper ordering of driver fixture.
         - source: testing/int-string
-          resource: { fixture: one }
+          resource: { tgt-schema: Web!hook, tgt-name: foo bar }
 
         - source: testing/int-halve
-          resource: { fixture: two }
+          resource: { tgt-schema: targe+, tgt-name: two }
           fields:
             include:
               int: {} # Include and exclude.
@@ -953,12 +977,12 @@ driver:
         - constraints:
             flow_document: { type: 1, reason: "location required" }
             int: { reason: "other whoops" }
-          resourcePath: [tar!get, one]
+          resourcePath: [Web!hook, foo bar]
           typeOverride: 98
         - constraints:
             Root: { type: 1, reason: "location required" }
             str: { reason: "whoops" }
-          resourcePath: [tar!get, two]
+          resourcePath: [targe+, two]
           typeOverride: 99
 "#,
     );
@@ -976,7 +1000,7 @@ test://example/db-views:
     testing/db-views:
       bindings:
         - source: testing/int-string
-          resource: { table: the_table }
+          resource: { tgt-name: tar!get }
           fields:
             include:
               str: {}
@@ -1101,7 +1125,7 @@ test://example/db-views:
                 bit: [false, "a string"]
                 Int: [false, "", 16]
                 AlsoUnknown: ["whoops"]
-          resource: { table: the_table }
+          resource: { tgt-name: view }
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1240,7 +1264,7 @@ test://example/webhook-deliveries:
             name: testing/int-string
             notBefore: 2017-03-03T03:02:01Z
             notAfter:  2016-03-03T03:02:01Z
-          resource: { fixture: one }
+          resource: { tgt-schema: Web!hook, tgt-name: foo bar }
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1291,4 +1315,54 @@ driver:
 "#,
     );
     insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_projection_write_inference() {
+    let outcome = common::run(include_str!("write_inference.yaml"), "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_is_inlined() {
+    let outcome = common::run(include_str!("schema_inference.yaml"), "{}");
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_placeholder() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+driver:
+  liveInferredSchemas: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
+fn test_collection_inferred_schema_not_overwritten() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      readSchema:
+        $defs:
+          flow://inferred-schema:
+            $id: flow://inferred-schema
+            type: object
+            properties:
+              key:
+                type: integer
+                description: not modified
+            required: [key]
+            additionalProperties: false
+driver:
+  liveInferredSchemas: null
+"#,
+    );
+    insta::assert_debug_snapshot!(outcome);
 }

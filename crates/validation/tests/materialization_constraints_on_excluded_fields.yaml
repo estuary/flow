@@ -17,17 +17,36 @@ test://example/catalog.yaml:
           config: {}
       bindings:
         - source: testing/constraints
-          resource: { table: anything }
+          # This binding is additionally backfilled, because it's currently live
+          # but references a collection of a different (older) generation ID,
+          # and this publication creates a new generation for testing/constraints.
+          resource: { tgt-name: anything }
           fields:
             recommended: true
             exclude:
               - naughty_u
               - naughty_f
+              - not_found_and_removed
 
 driver:
   dataPlanes:
     "1d:1d:1d:1d:1d:1d:1d:1d":
       default: true
+
+  liveMaterializations:
+    testing/db-views:
+      controlId: "11:11:11:11:11:11:11:04"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      lastPubId: "10:10:10:10:10:10:10:10"
+      bindings:
+        - source: testing/constraints
+          resource: { tgt-name: anything }
+          fields:
+            recommended: true
+            exclude:
+              - naughty_u
+              - naughty_f
+              - not_found_and_removed
 
   materializations:
     testing/db-views:

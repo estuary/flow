@@ -1,0 +1,398 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: outcome
+---
+Outcome {
+    built_captures: [],
+    built_collections: [
+        BuiltCollection {
+            collection: testing/foobar,
+            scope: test://example/catalog.yaml#/collections/testing~1foobar,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "writeSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/writeSchema","additionalProperties":{"type":"integer"},"properties":{"different":{"default":"hello","type":["string","integer"]},"impossible":{"description":"Description","type":"boolean"},"key":{"type":"integer"},"same":{"format":"date-time","type":"string"}},"required":["key"],"type":"object"},
+              "readSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/readSchema","patternProperties":{"explicit-.*":{"format":"number","type":"string"}},"properties":{"different":{"format":"uuid","type":"string"},"impossible":false,"key":{"type":"integer"},"same":{"format":"date-time","type":"string"}},"required":["key"],"type":"object"},
+              "key": [
+                "/key"
+              ],
+              "projections": {
+                "DiffAlt": "/different",
+                "Explicit": "/explicit-projection"
+              }
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/foobar",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1foobar/writeSchema\",\"additionalProperties\":{\"type\":\"integer\"},\"properties\":{\"different\":{\"default\":\"hello\",\"type\":[\"string\",\"integer\"]},\"impossible\":{\"description\":\"Description\",\"type\":\"boolean\"},\"key\":{\"type\":\"integer\"},\"same\":{\"format\":\"date-time\",\"type\":\"string\"}},\"required\":[\"key\"],\"type\":\"object\"}",
+                read_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1foobar/readSchema\",\"patternProperties\":{\"explicit-.*\":{\"format\":\"number\",\"type\":\"string\"}},\"properties\":{\"different\":{\"format\":\"uuid\",\"type\":\"string\"},\"impossible\":false,\"key\":{\"type\":\"integer\"},\"same\":{\"format\":\"date-time\",\"type\":\"string\"}},\"required\":[\"key\"],\"type\":\"object\"}",
+                key: [
+                    "/key",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/different",
+                        field: "DiffAlt",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "uuid",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/explicit-projection",
+                        field: "Explicit",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "number",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/different",
+                        field: "different",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "uuid",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/impossible",
+                        field: "impossible",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Cannot,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/key",
+                        field: "key",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/same",
+                        field: "same",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/foobar/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/foobar",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+    ],
+    built_materializations: [],
+    built_tests: [],
+    captures: [],
+    collections: [
+        DraftCollection {
+            collection: testing/foobar,
+            scope: test://example/catalog.yaml#/collections/testing~1foobar,
+            expect_pub_id: NULL,
+            model: {
+              "writeSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/writeSchema","additionalProperties":{"type":"integer"},"properties":{"different":{"default":"hello","type":["string","integer"]},"impossible":{"description":"Description","type":"boolean"},"key":{"type":"integer"},"same":{"format":"date-time","type":"string"}},"required":["key"],"type":"object"},
+              "readSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1foobar/readSchema","patternProperties":{"explicit-.*":{"format":"number","type":"string"}},"properties":{"different":{"format":"uuid","type":"string"},"impossible":false,"key":{"type":"integer"},"same":{"format":"date-time","type":"string"}},"required":["key"],"type":"object"},
+              "key": [
+                "/key"
+              ],
+              "projections": {
+                "DiffAlt": "/different",
+                "Explicit": "/explicit-projection"
+              }
+            },
+            is_touch: 0,
+        },
+    ],
+    errors: [],
+    errors_draft: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"collections":{"testing/foobar":{"key":["/key"],"projections":{"DiffAlt":"/different","Explicit":"/explicit-projection"},"readSchema":{"patternProperties":{"explicit-.*":{"format":"number","type":"string"}},"properties":{"different":{"format":"uuid","type":"string"},"impossible":false,"key":{"type":"integer"},"same":{"format":"date-time","type":"string"}},"required":["key"],"type":"object"},"writeSchema":{"additionalProperties":{"type":"integer"},"properties":{"different":{"default":"hello","type":["string","integer"]},"impossible":{"description":"Description","type":"boolean"},"key":{"type":"integer"},"same":{"format":"date-time","type":"string"}},"required":["key"],"type":"object"}}}},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            catalog_prefix: ,
+            control_id: "0000000000000000",
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "a-bucket",
+                "prefix": null,
+                "region": null
+              }
+            ],
+        },
+    ],
+    tests: [],
+}

@@ -1,0 +1,34 @@
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      key: [/key]
+
+      writeSchema:
+        type: object
+        properties:
+          key: { type: integer }
+          same: { type: string, format: date-time }
+          different: { type: [string, integer], default: hello }
+          impossible: { type: boolean, description: Description }
+        additionalProperties: { type: integer }
+        required: [key]
+
+      readSchema:
+        type: object
+        properties:
+          key: { type: integer }
+          same: { type: string, format: date-time }
+          different: { type: string, format: uuid }
+          impossible: false
+        patternProperties:
+          "explicit-.*": { type: string, format: number }
+        required: [key]
+
+      projections:
+        DiffAlt: /different
+        Explicit: /explicit-projection
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true

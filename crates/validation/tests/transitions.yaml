@@ -25,10 +25,10 @@ test://example/catalog.yaml:
           d_two: { type: string }
         required: [d_one, d_two]
       derive:
-        using:
-          sqlite: {}
+        using: { sqlite: {} }
         transforms:
-          - name: fromCollection
+          - &derive_transform
+            name: fromCollection
             source: { name: the/collection }
             shuffle: { key: [/f_two] }
             lambda: |
@@ -42,8 +42,9 @@ test://example/catalog.yaml:
           image: an/image
           config: { a: config }
       bindings:
-        - target: the/collection
-          resource: { table: foo }
+        - &capture_binding
+          target: the/collection
+          resource: { src-schema: capture, src-name: path }
       expectPubId: "10:10:10:10:10:10:10:10"
 
   materializations:
@@ -53,8 +54,19 @@ test://example/catalog.yaml:
           image: other/image
           config: { a: config }
       bindings:
-        - source: the/collection
-          resource: { table: bar }
+        - &materialization_binding
+          source: the/collection
+          resource: { tgt-schema: table, tgt-name: path }
+          fields:
+            recommended: true
+            include:
+              F1: {}
+              f_two: {}
+            exclude:
+              - F2 # Valid.
+              - FY # Removed projection.
+              - does/not/exist # Another removed projection.
+
       expectPubId: "10:10:10:10:10:10:10:10"
 
   tests:
@@ -79,6 +91,7 @@ driver:
       lastPubId: "10:10:10:10:10:10:10:10"
       controlId: "11:11:11:11:11:11:11:01"
       dataPlaneId: "12:12:12:12:12:12:12:01"
+      bindings: [*capture_binding]
 
   liveCollections:
     the/collection:
@@ -86,23 +99,26 @@ driver:
       lastPubId: "10:10:10:10:10:10:10:10"
       controlId: "11:11:11:11:11:11:11:02"
       dataPlaneId: "12:12:12:12:12:12:12:02"
-      derivation: false
       projections:
         F2: /f_two
         FX: /f_x
         FY: /f_y
+
     the/derivation:
       key: [/d_one]
       lastPubId: "10:10:10:10:10:10:10:10"
       controlId: "11:11:11:11:11:11:11:03"
       dataPlaneId: "12:12:12:12:12:12:12:03"
-      derivation: true
+      derive:
+        using: { sqlite: {} }
+        transforms: [*derive_transform]
 
   liveMaterializations:
     the/materialization:
       lastPubId: "10:10:10:10:10:10:10:10"
       controlId: "11:11:11:11:11:11:11:04"
       dataPlaneId: "12:12:12:12:12:12:12:04"
+      bindings: [*materialization_binding]
 
   liveTests:
     the/test:
@@ -134,5 +150,6 @@ driver:
         - constraints:
             flow_document: { type: 2, reason: "location required" }
             f_one: { type: 3, reason: "recommended" }
+            F1: { type: 4, reason: "optional" }
             f_two: { type: 1, reason: "field required" }
           resourcePath: [table, path]

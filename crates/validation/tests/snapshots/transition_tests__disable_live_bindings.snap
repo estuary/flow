@@ -26,9 +26,7 @@ Outcome {
                 }
               ]
             },
-            model_fixes: [
-              "disabled binding of deleted collection the/collection"
-            ],
+            model_fixes: [],
             validated: Validated {
                 bindings: [],
             },
@@ -262,7 +260,7 @@ Outcome {
                 inactive_bindings: [],
             },
             is_touch: 0,
-            dependency_hash: 5b38dc32c776e2b2,
+            dependency_hash: NULL,
         },
     ],
     built_collections: [
@@ -273,10 +271,322 @@ Outcome {
             data_plane_id: "1212121212121202",
             expect_pub_id: "1010101010101010",
             expect_build_id: "1010101010101010",
-            model: NULL,
-            model_fixes: [],
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"},
+              "key": [
+                "/f_one"
+              ],
+              "projections": {
+                "F1": "/f_one",
+                "F2": "/f_two",
+                "FX": "/f_x"
+              }
+            },
+            model_fixes: [
+              "removed projection FY: /f_y, which is no longer in the schema"
+            ],
             validated: NULL,
-            spec: NULL,
+            spec: CollectionSpec {
+                name: "the/collection",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/the~1collection/schema\",\"properties\":{\"f_one\":{\"type\":\"integer\"},\"f_two\":{\"type\":\"string\"},\"f_x\":false},\"required\":[\"f_one\",\"f_two\"],\"type\":\"object\"}",
+                read_schema_json: "",
+                key: [
+                    "/f_one",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/f_one",
+                        field: "F1",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/f_two",
+                        field: "F2",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/f_x",
+                        field: "FX",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Cannot,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/f_one",
+                        field: "f_one",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: Some(
+                                    Numeric {
+                                        has_minimum: false,
+                                        minimum: 0.0,
+                                        has_maximum: false,
+                                        maximum: 0.0,
+                                    },
+                                ),
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/f_two",
+                        field: "f_two",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/f_x",
+                        field: "f_x",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Cannot,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "the/collection/0000000000000001/",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "the/collection",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
             previous_spec: CollectionSpec {
                 name: "the/collection",
                 write_schema_json: "{\"x-live\":\"schema\"}",
@@ -326,20 +636,14 @@ Outcome {
                     "source": {
                       "name": "the/collection"
                     },
-                    "shuffle": {
-                      "key": [
-                        "/f_two"
-                      ]
-                    },
-                    "lambda": "select 123 as d_one, 'hello' as d_two;\n",
+                    "shuffle": "unset",
+                    "lambda": "the lambda",
                     "disable": true
                   }
                 ]
               }
             },
-            model_fixes: [
-              "disabled transform of deleted collection the/collection"
-            ],
+            model_fixes: [],
             validated: Validated {
                 transforms: [],
                 generated_files: {},
@@ -811,7 +1115,7 @@ Outcome {
                 ),
             },
             is_touch: 0,
-            dependency_hash: 5b38dc32c776e2b2,
+            dependency_hash: NULL,
         },
     ],
     built_materializations: [
@@ -835,23 +1139,12 @@ Outcome {
                   "source": "the/collection",
                   "disable": true,
                   "fields": {
-                    "include": {
-                      "F1": {},
-                      "f_two": {}
-                    },
-                    "exclude": [
-                      "F2",
-                      "FY",
-                      "does/not/exist"
-                    ],
                     "recommended": true
                   }
                 }
               ]
             },
-            model_fixes: [
-              "disabled binding of deleted collection the/collection"
-            ],
+            model_fixes: [],
             validated: Validated {
                 bindings: [],
             },
@@ -1099,7 +1392,7 @@ Outcome {
                 inactive_bindings: [],
             },
             is_touch: 0,
-            dependency_hash: 5b38dc32c776e2b2,
+            dependency_hash: NULL,
         },
     ],
     built_tests: [
@@ -1122,7 +1415,38 @@ Outcome {
             model_fixes: [],
             spec: TestSpec {
                 name: "the/test",
-                steps: [],
+                steps: [
+                    Step {
+                        step_type: Ingest,
+                        step_index: 0,
+                        description: "",
+                        step_scope: "test://example/catalog.yaml#/tests/the~1test/0/ingest",
+                        collection: "the/collection",
+                        docs_json_vec: [
+                            "{\"f_one\":42,\"f_two\":\"a string\"}",
+                        ],
+                        partitions: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "the/collection",
+                                                prefix: false,
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                    },
+                ],
             },
             previous_spec: TestSpec {
                 name: "the/test",
@@ -1147,6 +1471,7 @@ Outcome {
               "bindings": [
                 {
                   "resource": {"src-name":"path","src-schema":"capture"},
+                  "disable": true,
                   "target": "the/collection"
                 }
               ]
@@ -1159,7 +1484,18 @@ Outcome {
             collection: the/collection,
             scope: test://example/catalog.yaml#/collections/the~1collection,
             expect_pub_id: "1010101010101010",
-            model: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/the~1collection/schema","properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"},
+              "key": [
+                "/f_one"
+              ],
+              "projections": {
+                "F1": "/f_one",
+                "F2": "/f_two",
+                "FX": "/f_x",
+                "FY": "/f_y"
+              }
+            },
             is_touch: 0,
         },
         DraftCollection {
@@ -1181,12 +1517,9 @@ Outcome {
                     "source": {
                       "name": "the/collection"
                     },
-                    "shuffle": {
-                      "key": [
-                        "/f_two"
-                      ]
-                    },
-                    "lambda": "select 123 as d_one, 'hello' as d_two;\n"
+                    "shuffle": "unset",
+                    "lambda": "the lambda",
+                    "disable": true
                   }
                 ]
               }
@@ -1194,12 +1527,7 @@ Outcome {
             is_touch: 0,
         },
     ],
-    errors: [
-        Error {
-            scope: test://example/catalog.yaml#/tests/the~1test/0/ingest/collection,
-            error: deleted collection the/collection is still referenced by this test step,
-        },
-    ],
+    errors: [],
     errors_draft: [],
     fetches: [
         Fetch {
@@ -1224,16 +1552,8 @@ Outcome {
                 {
                   "resource": {"tgt-name":"path","tgt-schema":"table"},
                   "source": "the/collection",
+                  "disable": true,
                   "fields": {
-                    "include": {
-                      "F1": {},
-                      "f_two": {}
-                    },
-                    "exclude": [
-                      "F2",
-                      "FY",
-                      "does/not/exist"
-                    ],
                     "recommended": true
                   }
                 }
@@ -1247,7 +1567,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"src-name":"path","src-schema":"capture"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"fields":{"exclude":["F2","FY","does/not/exist"],"include":{"F1":{},"f_two":{}},"recommended":true},"resource":{"tgt-name":"path","tgt-schema":"table"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"tests":{"the/test":{"expectPubId":"10:10:10:10:10:10:10:10","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
+            content_dom: {"captures":{"the/capture":{"bindings":[{"disable":true,"resource":{"src-name":"path","src-schema":"capture"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"transforms":[{"disable":true,"lambda":"the lambda","name":"fromCollection","source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"disable":true,"resource":{"tgt-name":"path","tgt-schema":"table"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"tests":{"the/test":{"expectPubId":"10:10:10:10:10:10:10:10","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
         },
     ],
     storage_mappings: [

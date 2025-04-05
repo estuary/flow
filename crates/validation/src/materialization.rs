@@ -98,15 +98,17 @@ async fn walk_materialization<C: Connectors>(
         Err(built) => return Some(built),
     };
     let scope = Scope::new(scope);
+    let mut model_fixes = Vec::new();
 
+    let dependency_hash = dependencies.compute_hash(&model);
     let models::MaterializationDef {
         source_capture,
+        on_incompatible_schema_change,
         endpoint,
-        bindings: all_bindings,
-        shards: shard_template,
+        bindings: bindings_model,
+        shards,
         expect_pub_id: _,
         delete: _,
-        on_incompatible_schema_change: _,
     } = model;
 
     indexed::walk_name(
@@ -118,7 +120,7 @@ async fn walk_materialization<C: Connectors>(
     );
 
     // Unwrap `endpoint` into a connector type and configuration.
-    let (connector_type, config_json) = match endpoint {
+    let (connector_type, config_json) = match &endpoint {
         models::MaterializationEndpoint::Connector(config) => (
             flow::materialization_spec::ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
@@ -138,7 +140,7 @@ async fn walk_materialization<C: Connectors>(
 
     // Start an RPC with the task's connector.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
-    let response_rx = if noop_materializations || shard_template.disable {
+    let response_rx = if noop_materializations || shards.disable {
         futures::future::Either::Left(NoOpConnectors.materialize(
             data_plane,
             materialization,
@@ -164,7 +166,7 @@ async fn walk_materialization<C: Connectors>(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &shard_template.log_level {
+                if let Some(s) = &shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             }),
@@ -184,46 +186,76 @@ async fn walk_materialization<C: Connectors>(
     )
     .await?;
 
-    // If the materialization uses a sourceCapture, then require that the
-    // connector resource spec schema contains the necessary annotations.
-    if source_capture.is_some() {
-        let _resource_path_pointers =
-            match extract_resource_config_annotations(&resource_config_schema_json) {
-                Ok((resource_path_pointers, _delta_pointer)) => resource_path_pointers,
-                Err(_) if resource_config_schema_json == "true" => Vec::new(), // No-op schema.
-                Err(err) => {
-                    Error::Connector {
-                        detail: err
-                            .context("connector Response.Spec resource_config_schema is invalid"),
-                    }
-                    .push(scope, errors);
-                    Vec::new()
+    let resource_path_pointers =
+        match extract_resource_config_annotations(&resource_config_schema_json) {
+            Ok((resource_path_pointers, _delta_pointer)) => resource_path_pointers,
+            Err(_) if resource_config_schema_json == "true" => Vec::new(), // No-op schema.
+            Err(_) if source_capture.is_none() => Vec::new(), // Path pointers aren't required.
+            Err(err) => {
+                Error::Connector {
+                    detail: err
+                        .context("connector Response.Spec resource_config_schema is invalid"),
                 }
-            };
-    }
+                .push(scope, errors);
+                Vec::new()
+            }
+        };
 
-    // We only validate and build enabled bindings, in their declaration order.
-    let enabled_bindings: Vec<(usize, &models::MaterializationBinding)> = all_bindings
+    // Index live binding models on their extracted resource paths.
+    let live_bindings_model: BTreeMap<Vec<String>, &models::MaterializationBinding> = live_model
         .iter()
-        .enumerate()
-        .filter_map(|(index, binding)| (!binding.disable).then_some((index, binding)))
+        .flat_map(|model| model.bindings.iter())
+        .filter_map(|model| {
+            super::extract_resource_path(&resource_path_pointers, &model.resource)
+                .ok() // Best effort.
+                .map(|path| (path, model))
+        })
         .collect();
 
-    // Map enabled bindings into validation requests.
-    let binding_requests: Vec<_> = enabled_bindings
-        .iter()
-        .filter_map(|(binding_index, binding)| {
+    // Index live binding specs, both active and inactive, on their declared resource paths.
+    let mut live_bindings_spec: BTreeMap<&[String], &flow::materialization_spec::Binding> =
+        live_spec
+            .iter()
+            .flat_map(|spec| spec.inactive_bindings.iter().chain(spec.bindings.iter()))
+            .map(|binding| (binding.resource_path.as_slice(), binding))
+            .collect();
+
+    let scope_bindings = scope.push_prop("bindings");
+
+    // Map enumerated binding models into paired validation requests.
+    let bindings_model_len = bindings_model.len();
+    let bindings: Vec<(
+        models::MaterializationBinding,
+        models::ResourcePath,
+        Option<materialize::request::validate::Binding>,
+    )> = bindings_model
+        .into_iter()
+        .enumerate()
+        .map(|(index, model)| {
             walk_materialization_binding(
-                scope.push_prop("bindings").push_item(*binding_index),
-                materialization,
-                binding,
+                scope_bindings.push_item(index),
+                model,
                 built_collections,
+                materialization,
                 data_plane_id,
-                source_exclusions(live_model, binding.source.collection()),
+                noop_materializations || shards.disable,
+                &live_bindings_model,
+                &mut live_bindings_spec,
+                &mut model_fixes,
+                &resource_path_pointers,
                 errors,
             )
         })
         .collect();
+
+    super::validate_resource_paths(
+        scope,
+        "materialization",
+        &materialization,
+        bindings.len(),
+        |index| bindings[index].1.as_slice(),
+        errors,
+    );
 
     // Determine storage mappings for task recovery logs.
     let recovery_stores = storage_mapping::mapped_stores(
@@ -240,16 +272,23 @@ async fn walk_materialization<C: Connectors>(
         return None;
     }
 
+    // Filter to validation requests of active bindings.
+    let bindings_validate: Vec<materialize::request::validate::Binding> = bindings
+        .iter()
+        .filter_map(|(_model, _resource_path, validate)| validate.clone())
+        .collect();
+    let bindings_validate_len = bindings_validate.len();
+
     let validate_request = materialize::request::Validate {
         name: materialization.to_string(),
         connector_type,
         config_json: config_json.clone(),
-        bindings: binding_requests.clone(),
+        bindings: bindings_validate,
         last_materialization: live_spec.cloned(),
-        last_version: if expect_pub_id.is_zero() {
+        last_version: if expect_build_id.is_zero() {
             String::new()
         } else {
-            expect_pub_id.to_string()
+            expect_build_id.to_string()
         },
     };
 
@@ -261,7 +300,7 @@ async fn walk_materialization<C: Connectors>(
                 ..Default::default()
             }
             .with_internal(|internal| {
-                if let Some(s) = &shard_template.log_level {
+                if let Some(s) = &shards.log_level {
                     internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
                 }
             }),
@@ -283,37 +322,52 @@ async fn walk_materialization<C: Connectors>(
     .await?;
 
     let materialize::response::Validated {
-        bindings: binding_responses,
+        bindings: bindings_validated,
     } = &validated_response;
 
-    if enabled_bindings.len() != binding_responses.len() {
+    if bindings_validate_len != bindings_validated.len() {
         Error::WrongConnectorBindings {
-            expect: binding_requests.len(),
-            got: binding_responses.len(),
+            expect: bindings_validate_len,
+            got: bindings_validated.len(),
         }
         .push(scope, errors);
     }
 
-    // Jointly walk binding models, validate requests, and validated responses to produce built bindings.
-    let mut built_bindings = Vec::new();
+    // Join binding models and their Validate requests with their Validated responses.
+    let bindings = bindings.into_iter().scan(
+        bindings_validated.into_iter(),
+        |validated, (model, resource_path, validate)| {
+            if let Some(validate) = validate {
+                validated
+                    .next()
+                    .map(|validated| (model, resource_path, Some((validate, validated))))
+            } else {
+                Some((model, resource_path, None))
+            }
+        },
+    );
 
-    for ((index, model), (request, response)) in enabled_bindings.iter().zip(
-        binding_requests
-            .into_iter()
-            .zip(binding_responses.into_iter()),
-    ) {
+    let mut bindings_model = Vec::with_capacity(bindings_model_len);
+    let mut bindings_spec = Vec::with_capacity(bindings_validate_len);
+
+    // Map Validate / Validated pairs into MaterializationSpec::Bindings.
+    for (index, (model, resource_path, validate_validated)) in bindings.into_iter().enumerate() {
+        let Some((validate, validated)) = validate_validated else {
+            bindings_model.push(model);
+            continue;
+        };
         let materialize::request::validate::Binding {
             resource_config_json,
             collection,
             field_config_json_map: _,
             backfill,
-        } = request;
+        } = validate;
 
         let materialize::response::validated::Binding {
             constraints,
             delta_updates,
-            resource_path,
-        } = response;
+            resource_path: validated_resource_path,
+        } = validated;
 
         let models::MaterializationBinding {
             source,
@@ -323,10 +377,19 @@ async fn walk_materialization<C: Connectors>(
             resource: _,
             backfill: _,
             on_incompatible_schema_change: _,
-        } = model;
+        } = &model;
+
+        if resource_path != *validated_resource_path {
+            Error::BindingWrongResourcePath {
+                entity: "materialization",
+                computed: resource_path.clone(),
+                validated: validated_resource_path.clone(),
+            }
+            .push(scope_bindings.push_item(index), errors);
+        }
 
         let field_selection = Some(walk_materialization_response(
-            scope.push_prop("bindings").push_item(*index),
+            scope_bindings.push_item(index),
             materialization,
             fields,
             collection.as_ref().unwrap(),
@@ -349,13 +412,13 @@ async fn walk_materialization<C: Connectors>(
             source_partitions,
         ));
 
-        // Build a state key and read suffix using the transform name as it's resource path.
-        let state_key = assemble::encode_state_key(resource_path, backfill);
+        // Build a state key and read suffix using the resource path.
+        let state_key = assemble::encode_state_key(&resource_path, backfill);
         let journal_read_suffix = format!("materialize/{materialization}/{state_key}");
 
-        built_bindings.push(flow::materialization_spec::Binding {
+        let spec = flow::materialization_spec::Binding {
             resource_config_json,
-            resource_path: resource_path.clone(),
+            resource_path,
             collection,
             partition_selector,
             priority: *priority,
@@ -367,29 +430,10 @@ async fn walk_materialization<C: Connectors>(
             not_after: not_after.map(assemble::pb_datetime),
             backfill,
             state_key,
-        });
-    }
+        };
 
-    // Look for (and error on) duplicated resource paths within the bindings.
-    for ((path, (l_index, _)), (_, (r_index, _))) in binding_responses
-        .iter()
-        .map(|r| &r.resource_path)
-        .zip(enabled_bindings.iter())
-        .sorted_by(|(l_path, _), (r_path, _)| l_path.cmp(r_path))
-        .tuple_windows()
-        .filter(|((l_path, _), (r_path, _))| l_path == r_path)
-    {
-        let scope = scope.push_prop("bindings");
-        let lhs_scope = scope.push_item(*l_index);
-        let rhs_scope = scope.push_item(*r_index).flatten();
-
-        Error::BindingDuplicatesResource {
-            entity: "materialization",
-            name: materialization.to_string(),
-            resource: path.iter().join("."),
-            rhs_scope,
-        }
-        .push(lhs_scope, errors);
+        bindings_model.push(model);
+        bindings_spec.push(spec);
     }
 
     // Pluck out the current shard ID prefix, or create a unique one if it doesn't exist.
@@ -400,22 +444,25 @@ async fn walk_materialization<C: Connectors>(
     {
         shard_template.id.clone()
     } else {
-        let pub_id = match endpoint {
-            // Dekaf materializations don't create any shards, so the problem of
-            // deleting and re-creating tasks with the same name, which this
-            // shard id template logic was introduced to resolve, isn't applicable.
-            // Instead, since the Dekaf service uses the task name to authenticate
-            // whereas the authorization API expects the shard template id, it's
-            // useful to be able to generate the correct shard template id for a
-            // Dekaf materialization given only its task name, so we set the pub id
-            // to a well-known value of all zeros.
-            models::MaterializationEndpoint::Dekaf(_) => models::Id::zero(),
-            models::MaterializationEndpoint::Connector(_)
-            | models::MaterializationEndpoint::Local(_) => pub_id,
+        let generation_id = if let models::MaterializationEndpoint::Dekaf(_) = &endpoint {
+            // Dekaf materializations don't have shards or recovery logs,
+            // and thus don't need to distinguish across distinct generations.
+            // We use zero to have a predictable shard template ID for use with
+            // the authorization API.
+            models::Id::zero()
+        } else {
+            pub_id
         };
 
-        assemble::shard_id_prefix(pub_id, materialization, labels::TASK_TYPE_MATERIALIZATION)
+        assemble::shard_id_prefix(
+            generation_id,
+            materialization,
+            labels::TASK_TYPE_MATERIALIZATION,
+        )
     };
+
+    // Any remaining live binding specs were not removed while walking bindings, and must be inactive.
+    let inactive_bindings = live_bindings_spec.values().map(|v| (*v).clone()).collect();
 
     let recovery_log_template = assemble::recovery_log_template(
         build_id,
@@ -428,23 +475,30 @@ async fn walk_materialization<C: Connectors>(
         build_id,
         materialization,
         labels::TASK_TYPE_MATERIALIZATION,
-        shard_template,
+        &shards,
         &shard_id_prefix,
         false, // Don't disable wait_for_ack.
         &network_ports,
     );
-    let built_spec = flow::MaterializationSpec {
+    let spec = flow::MaterializationSpec {
         name: materialization.to_string(),
         connector_type,
         config_json,
-        bindings: built_bindings,
+        bindings: bindings_spec,
         recovery_log_template: Some(recovery_log_template),
         shard_template: Some(shard_template),
         network_ports,
-        inactive_bindings: Vec::new(),
+        inactive_bindings,
     };
-
-    let dependency_hash = dependencies.compute_hash(model);
+    let model = models::MaterializationDef {
+        source_capture,
+        on_incompatible_schema_change,
+        endpoint,
+        bindings: bindings_model,
+        shards,
+        expect_pub_id: None,
+        delete: false,
+    };
     Some(tables::BuiltMaterialization {
         materialization: materialization.clone(),
         scope: scope.flatten(),
@@ -452,41 +506,50 @@ async fn walk_materialization<C: Connectors>(
         data_plane_id,
         expect_pub_id,
         expect_build_id,
-        model: Some(model.clone()),
-        model_fixes: Vec::new(),
+        model: Some(model),
+        model_fixes,
         validated: Some(validated_response),
-        spec: Some(built_spec),
+        spec: Some(spec),
         previous_spec: live_spec.cloned(),
-        is_touch,
         dependency_hash,
+        is_touch,
     })
 }
 
 fn walk_materialization_binding<'a>(
     scope: Scope<'a>,
-    catalog_name: &models::Materialization,
-    binding: &'a models::MaterializationBinding,
+    mut model: models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
+    catalog_name: &models::Materialization,
     data_plane_id: models::Id,
-    prior_exclusions: impl Iterator<Item = &'a models::Field> + Clone,
+    disable: bool,
+    live_bindings_model: &BTreeMap<Vec<String>, &models::MaterializationBinding>,
+    live_bindings_spec: &mut BTreeMap<&[String], &flow::materialization_spec::Binding>,
+    model_fixes: &mut Vec<String>,
+    resource_path_pointers: &[doc::Pointer],
     errors: &mut tables::Errors,
-) -> Option<materialize::request::validate::Binding> {
-    let models::MaterializationBinding {
-        resource,
-        source,
-        fields:
-            models::MaterializationFields {
-                include: fields_include,
-                exclude: fields_exclude,
-                recommended: _,
-            },
-        disable: _,
-        priority: _,
-        backfill,
-        on_incompatible_schema_change: _,
-    } = binding;
+) -> (
+    models::MaterializationBinding,
+    models::ResourcePath,
+    Option<materialize::request::validate::Binding>,
+) {
+    let resource_path = match super::extract_resource_path(resource_path_pointers, &model.resource)
+    {
+        Err(err) => {
+            err.push(scope, errors);
+            Vec::new()
+        }
+        Ok(path) => path,
+    };
 
-    let (collection, source_partitions) = match source {
+    if disable || model.disable {
+        return (model, resource_path, None);
+    }
+    let live_model = live_bindings_model.get(&resource_path);
+    let modified = Some(&&model) != live_model;
+
+    // We must resolve the source collection to continue.
+    let (source, source_partitions) = match &model.source {
         models::Source::Collection(collection) => (collection, None),
         models::Source::Source(models::FullSource {
             name,
@@ -502,94 +565,122 @@ fn walk_materialization_binding<'a>(
             (name, partitions.as_ref())
         }
     };
-
-    // We must resolve the source collection to continue.
-    let (source_spec, source) = reference::walk_reference(
+    let Some((source_spec, built_collection)) = reference::walk_reference(
         scope,
         "this materialization binding",
-        collection,
+        source,
         built_collections,
-        errors,
-    )?;
+        modified.then_some(errors),
+    ) else {
+        model_fixes.push(format!("disabled binding of deleted collection {source}"));
+        model.disable = true;
+        return (model, resource_path, None);
+    };
+
+    // Removal from `live_bindings_spec` is how we know to not include it in `inactive_bindings`.
+    if let Some(live_spec) = live_bindings_spec.remove(resource_path.as_slice()) {
+        if model.backfill == live_spec.backfill
+            && super::collection_was_reset(&source_spec, &live_spec.collection)
+        {
+            model_fixes.push(format!("backfilled binding of reset collection {source}"));
+            model.backfill += 1;
+        }
+    }
 
     if let Some(selector) = source_partitions {
         collection::walk_selector(scope, &source_spec, &selector, errors);
     }
 
-    let field_config_json_map = walk_materialization_fields(
+    let models::MaterializationBinding {
+        backfill,
+        disable: _,
+        mut fields,
+        on_incompatible_schema_change,
+        priority,
+        resource,
+        source: source_model,
+    } = model;
+
+    let field_config_json_map: BTreeMap<String, String>;
+    (fields, field_config_json_map) = walk_materialization_fields(
         scope.push_prop("fields"),
+        fields,
         catalog_name,
         &source_spec,
-        fields_include,
-        fields_exclude,
-        prior_exclusions,
+        modified,
+        model_fixes,
         errors,
     );
 
-    super::temporary_cross_data_plane_read_check(scope, source, data_plane_id, errors);
+    super::temporary_cross_data_plane_read_check(scope, &built_collection, data_plane_id, errors);
 
-    let request = materialize::request::validate::Binding {
+    let validate = materialize::request::validate::Binding {
         resource_config_json: resource.to_string(),
         collection: Some(source_spec),
         field_config_json_map,
-        backfill: *backfill,
+        backfill,
+    };
+    let model = models::MaterializationBinding {
+        backfill,
+        disable: false,
+        fields,
+        on_incompatible_schema_change,
+        priority,
+        resource,
+        source: source_model,
     };
 
-    Some(request)
+    (model, resource_path, Some(validate))
 }
 
 fn walk_materialization_fields<'a>(
     scope: Scope,
+    model: models::MaterializationFields,
     catalog_name: &models::Materialization,
     collection: &flow::CollectionSpec,
-    include: &BTreeMap<models::Field, models::RawValue>,
-    exclude: &[models::Field],
-    prior_exclusions: impl Iterator<Item = &'a models::Field> + Clone,
+    modified: bool,
+    model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
-) -> BTreeMap<String, String> {
+) -> (models::MaterializationFields, BTreeMap<String, String>) {
+    let models::MaterializationFields {
+        include: require,
+        mut exclude,
+        recommended,
+    } = model;
+
     let flow::CollectionSpec {
-        name, projections, ..
+        name: source,
+        projections,
+        ..
     } = collection;
 
-    let mut bag = BTreeMap::new();
+    let mut field_config = BTreeMap::new();
 
-    for (field, config) in include {
+    // TODO(johnny): replace `include` => `require` throughout here.
+    // We're changing the name of this field to indicate its "required" semantics.
+    for (field, config) in &require {
         let scope = scope.push_prop("include");
         let scope = scope.push_prop(field);
 
         if projections.iter().any(|p| p.field == field.as_str()) {
-            bag.insert(field.to_string(), config.to_string());
+            field_config.insert(field.to_string(), config.to_string());
         } else {
             Error::NoSuchProjection {
                 category: "include".to_string(),
                 field: field.to_string(),
-                collection: name.clone(),
+                collection: source.clone(),
             }
             .push(scope, errors);
         }
     }
 
-    for (index, field) in exclude.iter().enumerate() {
+    let mut index = 0;
+    exclude.retain(|field| {
         let scope = scope.push_prop("exclude");
         let scope = scope.push_item(index);
+        index += 1;
 
-        if projections.iter().any(|p| p.field == field.as_str()) {
-            // Exclusion matches an existing collection projection.
-        } else if prior_exclusions.clone().any(|prior| field == prior) {
-            // As a special case, if this exclusion was also present in the prior
-            // model of this spec then allow it to carry forward without an error.
-            // This is to avoid breaking tasks which exclude inferred schema
-            // locations which may go away upon a simplification of the inferred
-            // schema (e.g. because they're collapsed into additionalProperties).
-        } else {
-            Error::NoSuchProjection {
-                category: "exclude".to_string(),
-                field: field.to_string(),
-                collection: name.clone(),
-            }
-            .push(scope, errors);
-        }
-        if include.contains_key(field) {
+        if require.contains_key(field) {
             Error::FieldUnsatisfiable {
                 name: catalog_name.to_string(),
                 field: field.to_string(),
@@ -597,9 +688,36 @@ fn walk_materialization_fields<'a>(
             }
             .push(scope, errors);
         }
-    }
 
-    bag
+        if projections.iter().any(|p| p.field == field.as_str()) {
+            true // Matches an existing collection projection.
+        } else if !modified {
+            // This exclusion doesn't match a collection projection, but the
+            // binding model also hasn't changed from its live model.
+            // This implies the projection was removed from the source collection,
+            // and we should react by removing the exclusion rather than error.
+            model_fixes.push(format!(
+                "removed dropped exclude projection {field} of source collection {source}"
+            ));
+            false
+        } else {
+            Error::NoSuchProjection {
+                category: "exclude".to_string(),
+                field: field.to_string(),
+                collection: source.clone(),
+            }
+            .push(scope, errors);
+            false
+        }
+    });
+
+    let model = models::MaterializationFields {
+        include: require,
+        exclude,
+        recommended,
+    };
+
+    (model, field_config)
 }
 
 fn walk_materialization_response(
@@ -794,30 +912,6 @@ fn walk_materialization_response(
         document,
         field_config_json_map,
     }
-}
-
-// Build a Iterator + Clone over all models::Fields excluded by any
-// binding of `source` in `model`. The sequence may include duplicates.
-fn source_exclusions<'m>(
-    model: Option<&'m models::MaterializationDef>,
-    source: &'m models::Collection,
-) -> impl Iterator<Item = &'m models::Field> + Clone + 'm {
-    model
-        .into_iter()
-        .map(move |model| {
-            model
-                .bindings
-                .iter()
-                .filter_map(move |binding| {
-                    if !binding.disable && binding.source.collection() == source {
-                        Some(binding.fields.exclude.iter())
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-        })
-        .flatten()
 }
 
 /// Given a materialization's resource config JSON-schema,

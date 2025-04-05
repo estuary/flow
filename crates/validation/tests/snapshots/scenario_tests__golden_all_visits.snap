@@ -20,7 +20,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"namespace":"and namespace","stream":"other-stream"},
+                  "resource": {"src-name":"table","src-schema":"schema"},
                   "target": "testing/int-string",
                   "backfill": 3
                 }
@@ -47,7 +47,7 @@ Outcome {
                 config_json: "{\"image\":\"database\",\"config\":{\"host\":\"a.host.name\",\"user\":\"a-user\"}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"namespace\":\"and namespace\",\"stream\":\"other-stream\"}",
+                        resource_config_json: "{\"src-name\":\"table\",\"src-schema\":\"schema\"}",
                         resource_path: [
                             "schema",
                             "table",
@@ -489,11 +489,11 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"a-stream"},
+                  "resource": {"src-name":"pr@fix","src-schema":"bucke+"},
                   "target": "testing/int-string"
                 },
                 {
-                  "resource": {"stream":"v2-stream"},
+                  "resource": {"src-name":"other-bucket"},
                   "target": "testing/int-string.v2"
                 }
               ],
@@ -521,7 +521,7 @@ Outcome {
                 config_json: "{\"image\":\"s3\",\"config\":{\"bucket\":\"a-bucket\",\"prefix\":\"and-prefix\"}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"stream\":\"a-stream\"}",
+                        resource_config_json: "{\"src-name\":\"pr@fix\",\"src-schema\":\"bucke+\"}",
                         resource_path: [
                             "bucke+",
                             "pr@fix",
@@ -788,7 +788,7 @@ Outcome {
                         state_key: "bucke+%2Fpr%40fix",
                     },
                     Binding {
-                        resource_config_json: "{\"stream\":\"v2-stream\"}",
+                        resource_config_json: "{\"src-name\":\"other-bucket\"}",
                         resource_path: [
                             "other-bucket",
                         ],
@@ -5802,7 +5802,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"table":"the_table"},
+                  "resource": {"tgt-name":"view"},
                   "source": "testing/int-string",
                   "fields": {
                     "recommended": true
@@ -5837,7 +5837,7 @@ Outcome {
                 config_json: "{\"image\":\"database/image\",\"config\":{\"foo\":\"bar\"}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"table\":\"the_table\"}",
+                        resource_config_json: "{\"tgt-name\":\"view\"}",
                         resource_path: [
                             "view",
                         ],
@@ -6275,7 +6275,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"fixture":"one"},
+                  "resource": {"tgt-name":"foo bar","tgt-schema":"Web!hook"},
                   "source": {
                     "name": "testing/int-string",
                     "partitions": {
@@ -6299,7 +6299,7 @@ Outcome {
                   }
                 },
                 {
-                  "resource": {"fixture":"two"},
+                  "resource": {"tgt-name":"two","tgt-schema":"targe+"},
                   "source": "testing/int-halve",
                   "priority": 3,
                   "fields": {
@@ -6377,7 +6377,7 @@ Outcome {
                 config_json: "{\"image\":\"webhook/connector\",\"config\":{\"address\":\"http://example/webhook\"}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"fixture\":\"one\"}",
+                        resource_config_json: "{\"tgt-name\":\"foo bar\",\"tgt-schema\":\"Web!hook\"}",
                         resource_path: [
                             "Web!hook",
                             "foo bar",
@@ -6694,7 +6694,7 @@ Outcome {
                         state_key: "Web%21hook%2Ffoo%20bar",
                     },
                     Binding {
-                        resource_config_json: "{\"fixture\":\"two\"}",
+                        resource_config_json: "{\"tgt-name\":\"two\",\"tgt-schema\":\"targe+\"}",
                         resource_path: [
                             "targe+",
                             "two",
@@ -7428,7 +7428,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"namespace":"and namespace","stream":"other-stream"},
+                  "resource": {"src-name":"table","src-schema":"schema"},
                   "target": "testing/int-string",
                   "backfill": 3
                 }
@@ -7453,11 +7453,11 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"a-stream"},
+                  "resource": {"src-name":"pr@fix","src-schema":"bucke+"},
                   "target": "testing/int-string"
                 },
                 {
-                  "resource": {"stream":"v2-stream"},
+                  "resource": {"src-name":"other-bucket"},
                   "target": "testing/int-string.v2"
                 }
               ],
@@ -7891,7 +7891,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"table":"the_table"},
+                  "resource": {"tgt-name":"view"},
                   "source": "testing/int-string",
                   "fields": {
                     "recommended": true
@@ -7918,7 +7918,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"fixture":"one"},
+                  "resource": {"tgt-name":"foo bar","tgt-schema":"Web!hook"},
                   "source": {
                     "name": "testing/int-string",
                     "partitions": {
@@ -7942,7 +7942,7 @@ Outcome {
                   }
                 },
                 {
-                  "resource": {"fixture":"two"},
+                  "resource": {"tgt-name":"two","tgt-schema":"targe+"},
                   "source": "testing/int-halve",
                   "priority": 3,
                   "fields": {
@@ -7987,7 +7987,7 @@ Outcome {
             resource: test://example/db-views,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string"],"materializations":{"testing/db-views":{"bindings":[{"resource":{"table":"the_table"},"source":"testing/int-string"}],"endpoint":{"connector":{"config":{"foo":"bar"},"image":"database/image"}},"shards":{"logLevel":"warn","maxTxnDuration":"123s"}}}},
+            content_dom: {"import":["test://example/int-string"],"materializations":{"testing/db-views":{"bindings":[{"resource":{"tgt-name":"view"},"source":"testing/int-string"}],"endpoint":{"connector":{"config":{"foo":"bar"},"image":"database/image"}},"shards":{"logLevel":"warn","maxTxnDuration":"123s"}}}},
         },
         Resource {
             resource: test://example/from-array-key,
@@ -8029,7 +8029,7 @@ Outcome {
             resource: test://example/int-string-captures,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"testing/db-cdc":{"bindings":[{"backfill":3,"resource":{"namespace":"and namespace","stream":"other-stream"},"target":"testing/int-string"}],"endpoint":{"connector":{"config":"cdc-config.yaml","image":"database"}},"shards":{"hotStandbys":1,"minTxnDuration":"10s"}},"testing/s3-source":{"bindings":[{"resource":{"stream":"a-stream"},"target":"testing/int-string"},{"resource":{"stream":"v2-stream"},"target":"testing/int-string.v2"}],"endpoint":{"connector":{"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"}},"interval":"10m"}},"import":["test://example/int-string"]},
+            content_dom: {"captures":{"testing/db-cdc":{"bindings":[{"backfill":3,"resource":{"src-name":"table","src-schema":"schema"},"target":"testing/int-string"}],"endpoint":{"connector":{"config":"cdc-config.yaml","image":"database"}},"shards":{"hotStandbys":1,"minTxnDuration":"10s"}},"testing/s3-source":{"bindings":[{"resource":{"src-name":"pr@fix","src-schema":"bucke+"},"target":"testing/int-string"},{"resource":{"src-name":"other-bucket"},"target":"testing/int-string.v2"}],"endpoint":{"connector":{"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"}},"interval":"10m"}},"import":["test://example/int-string"]},
         },
         Resource {
             resource: test://example/int-string-len.schema,
@@ -8059,7 +8059,7 @@ Outcome {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"tgt-name":"foo bar","tgt-schema":"Web!hook"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"tgt-name":"two","tgt-schema":"targe+"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     storage_mappings: [

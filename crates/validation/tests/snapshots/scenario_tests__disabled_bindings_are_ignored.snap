@@ -20,12 +20,12 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"src-name":"disabled-stream"},
                   "disable": true,
                   "target": "disabled/test/two"
                 },
                 {
-                  "resource": {"stream":"another-disabled-stream"},
+                  "resource": {"src-name":"another-disabled-stream"},
                   "disable": true,
                   "target": "disabled/test/three"
                 }
@@ -179,12 +179,12 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"src-name":"disabled-stream"},
                   "disable": true,
                   "target": "disabled/test/one"
                 },
                 {
-                  "resource": {"stream":"enabled-stream"},
+                  "resource": {"src-name":"enabled-stream"},
                   "target": "testing/collection"
                 }
               ]
@@ -205,7 +205,7 @@ Outcome {
                 config_json: "{\"image\":\"s3\",\"config\":{}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"stream\":\"enabled-stream\"}",
+                        resource_config_json: "{\"src-name\":\"enabled-stream\"}",
                         resource_path: [
                             "enabled-stream",
                         ],
@@ -1628,7 +1628,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"tgt-name":"disabled-stream"},
                   "source": "testing/collection",
                   "disable": true,
                   "fields": {
@@ -1784,7 +1784,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"tgt-name":"disabled-stream"},
                   "source": "testing/collection",
                   "disable": true,
                   "fields": {
@@ -1792,7 +1792,7 @@ Outcome {
                   }
                 },
                 {
-                  "resource": {"stream":"enabled-stream"},
+                  "resource": {"tgt-name":"enabled-stream"},
                   "source": "testing/collection",
                   "fields": {
                     "recommended": true
@@ -1823,7 +1823,7 @@ Outcome {
                 config_json: "{\"image\":\"s3\",\"config\":{}}",
                 bindings: [
                     Binding {
-                        resource_config_json: "{\"stream\":\"enabled-stream\"}",
+                        resource_config_json: "{\"tgt-name\":\"enabled-stream\"}",
                         resource_path: [
                             "enabled-stream",
                         ],
@@ -2179,12 +2179,12 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"src-name":"disabled-stream"},
                   "disable": true,
                   "target": "disabled/test/two"
                 },
                 {
-                  "resource": {"stream":"another-disabled-stream"},
+                  "resource": {"src-name":"another-disabled-stream"},
                   "disable": true,
                   "target": "disabled/test/three"
                 }
@@ -2205,12 +2205,12 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"src-name":"disabled-stream"},
                   "disable": true,
                   "target": "disabled/test/one"
                 },
                 {
-                  "resource": {"stream":"enabled-stream"},
+                  "resource": {"src-name":"enabled-stream"},
                   "target": "testing/collection"
                 }
               ]
@@ -2328,7 +2328,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"tgt-name":"disabled-stream"},
                   "source": "testing/collection",
                   "disable": true,
                   "fields": {
@@ -2352,7 +2352,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"disabled-stream"},
+                  "resource": {"tgt-name":"disabled-stream"},
                   "source": "testing/collection",
                   "disable": true,
                   "fields": {
@@ -2360,7 +2360,7 @@ Outcome {
                   }
                 },
                 {
-                  "resource": {"stream":"enabled-stream"},
+                  "resource": {"tgt-name":"enabled-stream"},
                   "source": "testing/collection",
                   "fields": {
                     "recommended": true
@@ -2376,7 +2376,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"testing/fully-disabled-capture":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"target":"disabled/test/two"},{"disable":true,"resource":{"stream":"another-disabled-stream"},"target":"disabled/test/three"}],"endpoint":{"connector":{"config":{},"image":"s3"}}},"testing/partially-disabled-capture":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"target":"disabled/test/one"},{"resource":{"stream":"enabled-stream"},"target":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}}},"collections":{"testing/collection":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/fully-disabled-derivation":{"derive":{"transforms":[{"disable":true,"lambda":"select $id, 1 as count;","name":"disabledTransformA","source":{"name":"testing/collection"}},{"disable":true,"lambda":"select $id, 2 as count;","name":"disabledTransformB","source":{"name":"testing/collection"}}],"using":{"sqlite":{}}},"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/partly-disabled-derivation":{"derive":{"transforms":[{"lambda":"select $id, 1 as count;","name":"enabledTransform","shuffle":"any","source":{"name":"testing/collection"}},{"disable":true,"lambda":"select $id, 2 as count;","name":"disabledTransform","shuffle":"any","source":{"name":"testing/collection"}}],"using":{"sqlite":{}}},"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/fully-disabled-materialization":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"source":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}},"testing/partially-disabled-materialization":{"bindings":[{"disable":true,"resource":{"stream":"disabled-stream"},"source":"testing/collection"},{"resource":{"stream":"enabled-stream"},"source":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}}}},
+            content_dom: {"captures":{"testing/fully-disabled-capture":{"bindings":[{"disable":true,"resource":{"src-name":"disabled-stream"},"target":"disabled/test/two"},{"disable":true,"resource":{"src-name":"another-disabled-stream"},"target":"disabled/test/three"}],"endpoint":{"connector":{"config":{},"image":"s3"}}},"testing/partially-disabled-capture":{"bindings":[{"disable":true,"resource":{"src-name":"disabled-stream"},"target":"disabled/test/one"},{"resource":{"src-name":"enabled-stream"},"target":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}}},"collections":{"testing/collection":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/fully-disabled-derivation":{"derive":{"transforms":[{"disable":true,"lambda":"select $id, 1 as count;","name":"disabledTransformA","source":{"name":"testing/collection"}},{"disable":true,"lambda":"select $id, 2 as count;","name":"disabledTransformB","source":{"name":"testing/collection"}}],"using":{"sqlite":{}}},"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/partly-disabled-derivation":{"derive":{"transforms":[{"lambda":"select $id, 1 as count;","name":"enabledTransform","shuffle":"any","source":{"name":"testing/collection"}},{"disable":true,"lambda":"select $id, 2 as count;","name":"disabledTransform","shuffle":"any","source":{"name":"testing/collection"}}],"using":{"sqlite":{}}},"key":["/id"],"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/fully-disabled-materialization":{"bindings":[{"disable":true,"resource":{"tgt-name":"disabled-stream"},"source":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}},"testing/partially-disabled-materialization":{"bindings":[{"disable":true,"resource":{"tgt-name":"disabled-stream"},"source":"testing/collection"},{"resource":{"tgt-name":"enabled-stream"},"source":"testing/collection"}],"endpoint":{"connector":{"config":{},"image":"s3"}}}}},
         },
     ],
     storage_mappings: [

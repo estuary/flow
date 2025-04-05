@@ -72,9 +72,9 @@ test://example/int-string-captures:
       interval: 10m
       bindings:
         - target: testing/int-string
-          resource: { stream: a-stream }
+          resource: { src-schema: bucke+, src-name: pr@fix }
         - target: testing/int-string.v2
-          resource: { stream: v2-stream }
+          resource: { src-name: other-bucket }
 
     testing/db-cdc:
       endpoint:
@@ -84,8 +84,8 @@ test://example/int-string-captures:
       bindings:
         - target: testing/int-string
           resource:
-            stream: other-stream
-            namespace: and namespace
+            src-schema: schema
+            src-name: table
           backfill: 3
       shards:
         hotStandbys: 1
@@ -112,7 +112,7 @@ test://example/webhook-deliveries:
               include:
                 bit: [true]
             notBefore: 2017-03-03T03:02:01Z
-          resource: { fixture: one }
+          resource: { tgt-schema: Web!hook, tgt-name: foo bar }
           fields:
             include:
               str: { pass: through }
@@ -120,7 +120,7 @@ test://example/webhook-deliveries:
               - bit
             recommended: true
         - source: testing/int-halve
-          resource: { fixture: two }
+          resource: { tgt-schema: targe+, tgt-name: two }
           priority: 3
           fields:
             include:
@@ -143,7 +143,7 @@ test://example/db-views:
             foo: bar
       bindings:
         - source: testing/int-string
-          resource: { table: the_table }
+          resource: { tgt-name: view }
       shards:
         maxTxnDuration: 123s
         logLevel: warn
