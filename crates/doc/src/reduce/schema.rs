@@ -10,6 +10,10 @@ use crate::{
 use json::schema::index::IndexBuilder;
 use serde_json::Value as JsonValue;
 
+Stuff that's not working:
+ * the runtime isn't properly resetting its emitted inferred schema if the generation ID changes
+ * collection_generation_id attached to inferred schema logs is always zero for some reason
+
 pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
 ) -> Result<HeapNode<'alloc>> {
