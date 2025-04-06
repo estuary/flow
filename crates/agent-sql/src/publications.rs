@@ -500,7 +500,7 @@ pub async fn delete_stale_flow(
 pub async fn insert_publication_spec(
     live_spec_id: Id,
     pub_id: Id,
-    detail: Option<&String>,
+    detail: String,
     draft_spec: &Option<Json<Box<RawValue>>>,
     draft_type: &Option<CatalogType>,
     user_id: Uuid,
@@ -519,7 +519,7 @@ pub async fn insert_publication_spec(
         "#,
         live_spec_id as Id,
         pub_id as Id,
-        detail as Option<&String>,
+        detail as String,
         draft_spec as &Option<Json<Box<RawValue>>>,
         draft_type as &Option<CatalogType>,
         user_id as Uuid,
