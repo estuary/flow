@@ -8,6 +8,7 @@ use crate::{
     AsNode, HeapNode, SerPolicy, Shape,
 };
 use json::schema::index::IndexBuilder;
+use serde_json::Value as JsonValue;
 
 pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
@@ -31,7 +32,30 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
     let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
 
-    let mut merged_shape = Shape::union(left, right);
+    const X_GEN_ID: &str = "x-collection-generation-id";
+
+    let mut merged_shape = match (
+        left.annotations.get(X_GEN_ID),
+        right.annotations.get(X_GEN_ID),
+    ) {
+        (Some(JsonValue::String(l_gen_id)), Some(JsonValue::String(r_gen_id))) => {
+            match l_gen_id.cmp(r_gen_id) {
+                std::cmp::Ordering::Equal => Shape::union(left, right),
+                std::cmp::Ordering::Less => right, // LHS is an older generation and is reset.
+                std::cmp::Ordering::Greater => left, // RHS is a stale update of an older generation and is discarded.
+            }
+        }
+        (_, Some(JsonValue::String(gen_id))) | (Some(JsonValue::String(gen_id)), _) => {
+            // Perform a merged reduction, retaining the generation ID available from only one side.
+            // Shape::union intersects annotations and retains only those having equal key/values.
+            let gen_id = JsonValue::String(gen_id.clone());
+            let mut merged = Shape::union(left, right);
+            merged.annotations.insert(X_GEN_ID.to_string(), gen_id);
+            merged
+        }
+        _ => Shape::union(left, right),
+    };
+
     limits::enforce_shape_complexity_limit(
         &mut merged_shape,
         DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
@@ -177,6 +201,155 @@ mod test {
                         "type": "integer",
                         "maximum": 6,
                         "minimum": 3
+                    })),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_with_reset() {
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "jsonSchemaMerge" } }),
+            vec![
+                // Initial schema without a generation ID.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 5,
+                        "minLength": 5
+                    }),
+                    expect: Ok(json!({
+                        "type": "string",
+                        "maxLength": 5,
+                        "minLength": 5
+                    })),
+                },
+                // Generation ID is retained if LHS omits it.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 6,
+                        "minLength": 6,
+                        "x-collection-generation-id": "0011223344556677",
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 6,
+                        "minLength": 5,
+                        "x-collection-generation-id": "0011223344556677",
+                    })),
+                },
+                // Another reduction of the same generation ID.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 4,
+                        "minLength": 4,
+                        "x-collection-generation-id": "0011223344556677",
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 6,
+                        "minLength": 4,
+                        "x-collection-generation-id": "0011223344556677",
+                    })),
+                },
+                // Reset! Old schema is dropped.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 10,
+                        "minLength": 10,
+                        "x-collection-generation-id": "1122334455667788",
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 10,
+                        "minLength": 10,
+                        "x-collection-generation-id": "1122334455667788",
+                    })),
+                },
+                // Stale update of older generation ID is ignored.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 1,
+                        "minLength": 1,
+                        "x-collection-generation-id": "0011223344556677",
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 10,
+                        "minLength": 10,
+                        "x-collection-generation-id": "1122334455667788",
+                    })),
+                },
+                // Update at current generation ID.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 5,
+                        "minLength": 5,
+                        "x-collection-generation-id": "1122334455667788",
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 10,
+                        "minLength": 5,
+                        "x-collection-generation-id": "1122334455667788",
+                    })),
+                },
+                // Reset once more.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 100,
+                        "minLength": 100,
+                        "x-collection-generation-id": "2233445566778899",
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 100,
+                        "minLength": 100,
+                        "x-collection-generation-id": "2233445566778899",
+                    })),
+                },
+                // Generation ID is retained if RHS omits it.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 200,
+                        "minLength": 200,
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 200,
+                        "minLength": 100,
+                        "x-collection-generation-id": "2233445566778899",
+                    })),
+                },
+                // Or if it's the wrong type.
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 50,
+                        "minLength": 50,
+                        "x-collection-generation-id": null,
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
+                        "type": "string",
+                        "maxLength": 200,
+                        "minLength": 50,
+                        "x-collection-generation-id": "2233445566778899",
                     })),
                 },
             ],
