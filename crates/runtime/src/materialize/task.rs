@@ -32,6 +32,7 @@ impl Task {
         // that don't handle large strings very well. This should be negotiated via connector protocol.
         // See go/runtime/materialize.go:135
         let ser_policy = if [
+            "ghcr.io/estuary/materialize-azure-fabric-warehouse",
             "ghcr.io/estuary/materialize-bigquery",
             "ghcr.io/estuary/materialize-kafka",
             "ghcr.io/estuary/materialize-snowflake",
