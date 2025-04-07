@@ -1193,8 +1193,8 @@ impl Session {
                         ))?
                         .committed_offset;
 
-                    metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name).set(committed_offset as f64);
-                    tracing::info!(topic_name = ?topic.name, partitions = ?topic.partitions, committed_offset, "Committed offset");
+                    metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name.clone()).set(committed_offset as f64);
+                    tracing::info!(topic_name = decrypted_name.as_str(), journal_name, partitions = ?topic.partitions, committed_offset, "Committed offset");
                 }
             }
         }
