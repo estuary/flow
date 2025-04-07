@@ -98,6 +98,8 @@ pub struct DataPlane {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aws_assume_role: Option<AWSAssumeRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure_byoc: Option<AzureBYOC>,
     pub builds_root: url::Url,
     pub builds_kms_keys: Vec<String>,
     pub control_plane_api: url::Url,
@@ -113,6 +115,12 @@ pub struct DataPlane {
 pub struct AWSAssumeRole {
     pub role_arn: String,
     pub external_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AzureBYOC {
+    pub tenant_id: String,
+    pub subscription_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -492,15 +500,23 @@ mod test {
                 service_name: "service".to_string(),
             }),
         );
+
+        let azure_parsed = serde_json::from_value::<DataPlane>(
+            fixtures.get("azure_private_link").unwrap().clone(),
+        )
+        .unwrap();
         assert_eq!(
-            serde_json::from_value::<DataPlane>(
-                fixtures.get("azure_private_link").unwrap().clone()
-            )
-            .unwrap()
-            .private_links[0],
+            azure_parsed.private_links[0],
             PrivateLink::Azure(AzurePrivateLink {
                 location: "eastus".to_string(),
                 service_name: "service".to_string(),
+            }),
+        );
+        assert_eq!(
+            azure_parsed.azure_byoc,
+            Some(AzureBYOC {
+                subscription_id: "12345678".to_string(),
+                tenant_id: "910111213".to_string(),
             }),
         );
     }
