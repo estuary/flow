@@ -1,0 +1,34 @@
+---
+sidebar_position: 1
+---
+
+# Azure BYOC (Bring Your Own Cloud)
+
+If you want to use your own Azure tenant and subscription for an Estuary Flow private deployment, you need to follow the steps below:
+
+1. Add data-plane-controller Azure Application to your subscription by following this link: [Add data-plane-controller](https://login.microsoftonline.com/common/oauth2/authorize?client_id=76f09062-041b-476e-9c79-1cf8d26fe213&response_type=code&redirect_uri=https%3A%2F%2Festuary.dev%2F)
+2. In Azure Portal, search for "Subscriptions" and find your subscription, then click on "Access control (IAM)"
+
+![Subscriptions -> Access control IAM](./azure/step-1.png)
+
+3. Click "Add" and then "Add role assignment"
+
+![Add role assignment](./azure/step-2.png)
+
+5. Click "Privileged administrator roles", then "Contributor", then "Next"
+
+![Privileged administrator roles](./azure/step-3.png)
+
+6. Click "+ Select Members", search for "data-plane-controller" and "Select" it, then "Next"
+
+![Select Members](./azure/step-4.png)
+
+7. Click "Review + Assign"
+
+![Review + Assign](./azure/step-5.png)
+
+
+Finally, provide the following information to your Estuary point of contact:
+
+ - Subscription ID (found in Subscriptions -> Overview)
+ - Tenant ID (found in Tenant Properties)
