@@ -88,7 +88,8 @@ pub struct Collection {
     pub journal_client: journal::Client,
     pub key_ptr: Vec<doc::Pointer>,
     pub key_schema: avro::Schema,
-    pub not_before: uuid::Clock,
+    pub not_before: Option<uuid::Clock>,
+    pub not_after: Option<uuid::Clock>,
     pub partitions: Vec<Partition>,
     pub spec: flow::CollectionSpec,
     pub uuid_ptr: doc::Pointer,
@@ -132,8 +133,6 @@ impl Collection {
         pg_client: &postgrest::Postgrest,
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
-        let not_before = uuid::Clock::default();
-
         let binding = if let SessionAuthentication::Task(task_auth) = auth {
             if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name) {
                 Some(binding)
@@ -214,6 +213,25 @@ impl Collection {
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
+        let (not_before, not_after) = if let Some(binding) = binding {
+            (
+                binding.not_before.map(|b| {
+                    uuid::Clock::from_unix(
+                        b.seconds.try_into().unwrap(),
+                        b.nanos.try_into().unwrap(),
+                    )
+                }),
+                binding.not_after.map(|b| {
+                    uuid::Clock::from_unix(
+                        b.seconds.try_into().unwrap(),
+                        b.nanos.try_into().unwrap(),
+                    )
+                }),
+            )
+        } else {
+            (None, None)
+        };
+
         tracing::debug!(
             collection_name,
             partitions = partitions.len(),
@@ -226,6 +244,7 @@ impl Collection {
             key_ptr,
             key_schema,
             not_before,
+            not_after,
             partitions,
             spec: collection_spec,
             uuid_ptr,
@@ -330,7 +349,10 @@ impl Collection {
                 }));
             }
             _ => {
-                let (not_before_sec, _) = self.not_before.to_unix();
+                let (not_before_sec, _) = self
+                    .not_before
+                    .map(|not_before| not_before.to_unix())
+                    .unwrap_or((0, 0));
 
                 let begin_mod_time = if timestamp_millis == -1 {
                     i64::MAX // Sentinel for "largest available offset",
