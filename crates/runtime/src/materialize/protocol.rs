@@ -586,5 +586,10 @@ pub async fn recv_connector_started_commit(
 }
 
 fn max_key_key(binding: &Binding) -> String {
-    format!("MK:{}", &binding.state_key)
+    // Key name changed in order to effectively disable the load optimization
+    // for all existing materializations, while preserving it for any new ones.
+    // The optimization was temporarily disabled as part of the 0325 incident
+    // recovery, and this effectively makes that permanent, while allowing it to
+    // be used on new tasks.
+    format!("MK-v2:{}", &binding.state_key)
 }
