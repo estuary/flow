@@ -17,14 +17,15 @@ pub struct Read {
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
 
-    key_ptr: Vec<doc::Pointer>, // Pointers to the document key.
-    key_schema: avro::Schema,   // Avro schema when encoding keys.
-    key_schema_id: u32,         // Registry ID of the key's schema.
-    meta_op_ptr: doc::Pointer,  // Location of document op (currently always `/_meta/op`).
-    not_before: uuid::Clock,    // Not before this clock.
-    stream: ReadJsonLines,      // Underlying document stream.
-    uuid_ptr: doc::Pointer,     // Location of document UUID.
-    value_schema_id: u32,       // Registry ID of the value's schema.
+    key_ptr: Vec<doc::Pointer>,      // Pointers to the document key.
+    key_schema: avro::Schema,        // Avro schema when encoding keys.
+    key_schema_id: u32,              // Registry ID of the key's schema.
+    meta_op_ptr: doc::Pointer,       // Location of document op (currently always `/_meta/op`).
+    not_before: Option<uuid::Clock>, // Not before this clock.
+    not_after: Option<uuid::Clock>,  // Not after this clock.
+    stream: ReadJsonLines,           // Underlying document stream.
+    uuid_ptr: doc::Pointer,          // Location of document UUID.
+    value_schema_id: u32,            // Registry ID of the value's schema.
     extractors: Vec<(avro::Schema, utils::CustomizableExtractor)>, // Projections to apply
 
     // Keep these details around so we can create a new ReadRequest if we need to skip forward
@@ -69,7 +70,10 @@ impl Read {
         rewrite_offsets_from: Option<i64>,
         auth: &SessionAuthentication,
     ) -> anyhow::Result<Self> {
-        let (not_before_sec, _) = collection.not_before.to_unix();
+        let (not_before_sec, _) = collection
+            .not_before
+            .map(|not_before| not_before.to_unix())
+            .unwrap_or((0, 0));
 
         let stream = client.clone().read_json_lines(
             broker::ReadRequest {
@@ -94,6 +98,7 @@ impl Read {
             key_schema_id,
             meta_op_ptr: doc::Pointer::from_str("/_meta/op"),
             not_before: collection.not_before,
+            not_after: collection.not_after,
             stream,
             uuid_ptr: collection.uuid_ptr.clone(),
             value_schema_id,
@@ -217,13 +222,23 @@ impl Read {
             };
             let (producer, clock, flags) = gazette::uuid::parse_str(uuid.as_str())?;
 
-            if clock < self.not_before {
+            // Is this a non-content control document, such as a transaction ACK?
+            let is_control = flags.is_ack();
+
+            let should_skip = match (self.not_before, self.not_after) {
+                (Some(not_before), Some(not_after)) => clock < not_before || clock > not_after,
+                (Some(not_before), None) => clock < not_before,
+                (None, Some(not_after)) => clock > not_after,
+                (None, None) => false,
+            };
+
+            // Only filter non-ack documents to allow the consumer to make and
+            // record progress scanning through the offset range.
+            if !is_control && should_skip {
                 continue;
             }
             last_source_published_at = Some(clock);
 
-            // Is this a non-content control document, such as a transaction ACK?
-            let is_control = flags.is_ack();
             // Is this a deletion?
             let is_deletion = matches!(
                 self.meta_op_ptr.query(root.get()),
