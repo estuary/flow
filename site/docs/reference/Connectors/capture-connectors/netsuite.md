@@ -116,7 +116,7 @@ Create a NetSuite _integration_ to obtain a Consumer Key and Consumer Secret. Yo
 
 Most of the time, you'll want to setup a custom role to use with Flow to limit the data available to Flow.
 
-If you are using SuiteAnalytics, you can use the bundled "Data Warehouse Integrator" role, instead of creating a new role using the instructions below, if you don't want to manage custom permissions. If you aren't using this read-all role, determining which permissions are required can be very challenging. [Check out this repository](https://github.com/iloveitaly/netsuite-permissions) for help with determining exactly which permissions are required in your case.
+If you are using SuiteAnalytics, you can use the bundled "Data Warehouse Integrator" role, instead of creating a new role using the instructions below, if you don't want to manage permissions on a custom role. If you aren't using this read-all role, determining which permissions are required can be very challenging depending on your NetSuite configuration. [Check out this repository](https://github.com/iloveitaly/netsuite-permissions) for help with determining exactly which permissions are required in your case.
 
 1. Go to **Setup** > **Users/Roles** > **Manage Roles** > **New**.
 
@@ -124,13 +124,22 @@ If you are using SuiteAnalytics, you can use the bundled "Data Warehouse Integra
 
 3. Scroll to the **Permissions** section.
 
-4. (IMPORTANT) Click **Transactions** and add all the dropdown entities with either **full** or **view** access level.
+4. (IMPORTANT) Click **Transactions** and add all the dropdown entities with either **full** or **view** access level that you want to allow Flow to access.
 
-5. (IMPORTANT) Click **Reports** and add all the dropdown entities with either **full** or **view** access level.
+5. (IMPORTANT) Click **Reports** and add the SuiteAnalytics Workbook dropdown entity with the **full** access level.
 
 6. (IMPORTANT) Click **Lists** and add all the dropdown entities with either **full** or **view** access level.
 
-7. (IMPORTANT) Click **Setup** an add all the dropdown entities with either **full** or **view** access level.
+7. (IMPORTANT) Click **Setup** an add the following dropdown entities with the **full** access level:
+
+  * Log in using Access Tokens
+  * User Access Tokens
+  * REST Web Services (if using the SuiteQL connector)
+  * Records Catalog
+  * SOAP Web Services
+  * SuiteAnalytics Connect (if using SuiteAnalytics Connect connector)
+
+8. (IMPORTANT) If you have multiple subsidiaries, make sure to select all of the subsidiaries you want the connector to have access to under the Role > Subsidiary Restrictions configuration.
 
 To allow your custom role to reflect future changes, be sure to edit these parameters again when you rename or customize any NetSuite object.
 
