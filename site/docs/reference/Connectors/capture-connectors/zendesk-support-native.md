@@ -26,6 +26,7 @@ The following data resources are supported through the Zendesk API:
 * [Schedules](https://developer.zendesk.com/api-reference/ticketing/ticket-management/schedules/)
 * [SLA policies](https://developer.zendesk.com/api-reference/ticketing/business-rules/sla_policies/)
 * [Tags](https://developer.zendesk.com/api-reference/ticketing/ticket-management/tags/)
+* [Ticket activities](https://developer.zendesk.com/api-reference/ticketing/tickets/activity_stream/#list-activities)
 * [Ticket audits](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_audits/)
 * [Ticket comments](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/)
 * [Ticket fields](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_fields/)
