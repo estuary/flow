@@ -2,6 +2,10 @@
 sidebar_position: 8
 ---
 
+# Secure connections
+
+There are various options for more securely connecting to your endpoints depending on your environment and needs.
+
 # Configure connections with SSH tunneling
 
 Flow connects to certain types of endpoints — generally databases — using their IP address and port.
@@ -178,3 +182,34 @@ After you've completed the prerequisites, you should have the following paramete
 
 Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
 in the web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
+
+# Expose ports on a Reverse SSH Tunnel Bastion
+
+If you are a customer of our [Private Deployment](/getting-started/deployment-options/#private-deployment) or [BYOC](/getting-started/deployment-options/#byoc-bring-your-own-cloud), we can deploy a bastion server for you which can be used to expose specific ports on. We will provide you with the bastion server address, port and key.
+
+Assuming you have a database running on a host named `db.example.com`, on port 5678, and you want to expose this as port 8080 on the bastion, you would run the following command on the database machine or a machine which can access your database through the network:
+
+
+```bash
+ssh -o 'ConnectTimeout=5s' \\
+    -o 'ServerAliveInterval=30' \\
+    -i bastion.key \\
+    -N -T \\
+    -R 8080:db.example.com:5678 \\
+    ssh://tunnel@bastion.your-bastion-host.com:2222
+```
+
+Once the port is exposed, you can establish a tunnel to the same bastion when setting up your task on the Estuary Flow web app, specifying the bastion's connection string and key, and using `localhost:8080` as the address of your endpoint (since the port will be opened on the `localhost` of the bastion).
+
+# Azure Private Link
+
+For customers of Azure [Private Deployment](/getting-started/deployment-options/#private-deployment) or [BYOC](/getting-started/deployment-options/#byoc-bring-your-own-cloud), we can establish connections to your endpoints using Azure Private Link.
+
+You will need to create an [Azure Private Link Service](https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview) which also requires having an [Azure Load Balancer](https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview) in front of the services you intend to expose. After creating these resources make sure your LoadBalancer is able to route traffic correctly to your instances, you can check this by looking at the Monitoring -> Metrics page of your LoadBalancer and checking for its Health Probe Status.
+
+Once you have your Private Link Service set up, we need these details from you to establish the connection, send them to your Estuary point of contact:
+
+ - The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`, this can be found by navigating to the private link service's details page on Azure Portal and copying the URL
+ - Location for private endpoint, like `westus`
+
+After establishing the connection we will give you a private IP address which you can use to connect to your endpoint when setting up your task on the Estuary Flow web app.
