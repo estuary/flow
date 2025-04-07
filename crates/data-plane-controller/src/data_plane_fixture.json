@@ -32,6 +32,10 @@
         "location": "eastus"
       }
     ],
+    "azure_byoc": {
+      "subscription_id": "12345678",
+      "tenant_id": "910111213"
+    },
     "control_plane_api": "https://agent-api.app/"
   }
 }
