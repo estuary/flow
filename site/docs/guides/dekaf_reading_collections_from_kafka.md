@@ -26,9 +26,9 @@ To connect to Estuary Flow via Dekaf, use the following connection details in co
 - **Schema Registry Address**: `https://dekaf.estuary-data.com`
 - **Security Protocol**: `SASL_SSL`
 - **SASL Mechanism**: `PLAIN`
-- **SASL Username**: The task name of your Dekaf materialization
+- **SASL Username**: The full name of your Dekaf materialization, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`
 - **SASL Password**: The auth token from your Dekaf materialization
-- **Schema Registry Username**: The task name of your Dekaf materialization
+- **Schema Registry Username**: The full name of your Dekaf materialization
 - **Schema Registry Password**: The auth token from your Dekaf materialization
 
 ## How to Connect to Dekaf
@@ -44,7 +44,7 @@ To connect to Estuary Flow via Dekaf, use the following connection details in co
 
 3. Provide a **name** and **auth token** to your materialization.
 
-   - The full task name, which includes your materialization name, will be used as the **username** when consumers connect to Dekaf.
+   - The full materialization name, which also includes your organization/prefix, will be used as the **username** when consumers connect to Dekaf.
 
    - The auth token that you provide will be used as the **password** when consumers connect to Dekaf. Make sure to use a secure token.
 

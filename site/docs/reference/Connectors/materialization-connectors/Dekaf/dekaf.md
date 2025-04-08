@@ -30,7 +30,7 @@ For other use cases, continue with the setup details below for general instructi
 
 Provide an auth token when setting up the Dekaf connector. This can be a password of your choosing and will be used to authenticate consumers to your Kafka topics.
 
-Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
+Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
 You may then connect to a Kafka consumer of your choice using the following details:
 
@@ -38,9 +38,9 @@ You may then connect to a Kafka consumer of your choice using the following deta
 * **Schema Registry Address**: `https://dekaf.estuary-data.com`
 * **Security Protocol**: `SASL_SSL`
 * **SASL Mechanism**: `PLAIN`
-* **SASL Username**: The full task name of your materialization
+* **SASL Username**: The full name of your materialization
 * **SASL Password**: The auth token you specified
-* **Schema Registry Username**: The full task name of your materialization
+* **Schema Registry Username**: The full name of your materialization
 * **Schema Registry Password**: The auth token you specified
 
 To subscribe to a particular topic, use a binding's topic name. By default, this will be the collection name.

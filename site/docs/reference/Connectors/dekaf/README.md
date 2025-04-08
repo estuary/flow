@@ -36,3 +36,5 @@ Dekaf is compatible with many Kafka consumers. For instructions on integrating w
 - [SingleStore](../materialization-connectors/Dekaf/singlestore.md)
 - [Startree](../materialization-connectors/Dekaf/startree.md)
 - [Tinybird](../materialization-connectors/Dekaf/tinybird.md)
+
+You may use the [generic Dekaf materialization connector](../materialization-connectors/Dekaf/dekaf.md) for other use cases.

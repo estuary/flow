@@ -18,7 +18,7 @@ This connector is a variant of the default Dekaf connector. For other integratio
 
 Provide an auth token when setting up the Dekaf connector. This can be a password of your choosing and will be used to authenticate consumers to your Kafka topics.
 
-Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
+Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
 ## Connecting Estuary Flow to ClickPipes in ClickHouse Cloud
 
@@ -31,7 +31,7 @@ Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX
         * **Schema Registry Address**: `https://dekaf.estuary-data.com`
         * **Security Protocol**: `SASL_SSL`
         * **SASL Mechanism**: `PLAIN`
-        * **SASL Username**: The full task name of your materialization
+        * **SASL Username**: The full name of your materialization
         * **SASL Password**: The auth token you specified in your materialization
         * **Schema Registry Username**: Same as the SASL username
         * **Schema Registry Password**: Same as the SASL password
