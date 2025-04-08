@@ -19,6 +19,7 @@ use kafka_protocol::{
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
+use rustls::crypto::hash::Hash;
 use std::{cmp::max, sync::Arc};
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -1107,13 +1108,15 @@ impl Session {
         mut req: messages::OffsetCommitRequest,
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetCommitResponse> {
-        let collection_partitions = self
-            .fetch_collection_partitions(req.topics.iter().map(|topic| &topic.name))
-            .await?
-            .into_iter()
-            .map(|(topic_name, partitions)| {
-                self.encrypt_topic_name(topic_name)
-                    .map(|encrypted_name| (encrypted_name, partitions))
+        let collections = self
+            .fetch_collections(req.topics.iter().map(|topic| &topic.name))
+            .await?;
+
+        let desired_topic_partitions = collections
+            .iter()
+            .map(|(topic_name, collection)| {
+                self.encrypt_topic_name(topic_name.clone())
+                    .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -1128,33 +1131,23 @@ impl Session {
             .connect_to_group_coordinator(req.group_id.as_str())
             .await?;
 
-        client.ensure_topics(collection_partitions).await?;
+        client.ensure_topics(desired_topic_partitions).await?;
 
         let mut resp = client.send_request(req.clone(), Some(header)).await?;
-
-        let auth = self
-            .auth
-            .as_mut()
-            .ok_or(anyhow::anyhow!("Session not authenticated"))?;
-
-        let flow_client = auth.flow_client(&self.app).await?.clone();
-
-        // Redeclare to drop mutability
-        let auth = self.auth.as_ref().unwrap();
 
         for topic in resp.topics.iter_mut() {
             let encrypted_name = topic.name.clone();
             let decrypted_name = self.decrypt_topic_name(topic.name.to_owned())?;
 
-            let collection_partitions = Collection::new(
-                &self.app,
-                auth,
-                &flow_client.pg_client(),
-                decrypted_name.as_str(),
-            )
-            .await?
-            .context(format!("unable to look up partitions for {:?}", topic.name))?
-            .partitions;
+            let collection_partitions = &collections
+                .iter()
+                .find(|(topic_name, _)| topic_name == &decrypted_name)
+                .context(format!(
+                    "unable to look up partitions for {:?}",
+                    decrypted_name
+                ))?
+                .1
+                .partitions;
 
             for partition in &topic.partitions {
                 if let Some(error) = partition.error_code.err() {
@@ -1201,10 +1194,9 @@ impl Session {
                         .committed_offset;
 
                     metrics::gauge!("dekaf_committed_offset", "group_id"=>req.group_id.to_string(),"journal_name"=>journal_name).set(committed_offset as f64);
+                    tracing::info!(topic_name = ?topic.name, partitions = ?topic.partitions, committed_offset, "Committed offset");
                 }
             }
-
-            tracing::info!(topic_name = ?topic.name, partitions = ?topic.partitions, "Committed offset");
         }
 
         Ok(resp)
@@ -1217,12 +1209,12 @@ impl Session {
         header: RequestHeader,
     ) -> anyhow::Result<messages::OffsetFetchResponse> {
         let collection_partitions = if let Some(topics) = &req.topics {
-            self.fetch_collection_partitions(topics.iter().map(|topic| &topic.name))
+            self.fetch_collections(topics.iter().map(|topic| &topic.name))
                 .await?
                 .into_iter()
-                .map(|(topic_name, partitions)| {
+                .map(|(topic_name, collection)| {
                     self.encrypt_topic_name(topic_name)
-                        .map(|encrypted_name| (encrypted_name, partitions))
+                        .map(|encrypted_name| (encrypted_name, collection.partitions.len()))
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
@@ -1350,10 +1342,10 @@ impl Session {
         }
     }
 
-    async fn fetch_collection_partitions(
+    async fn fetch_collections(
         &mut self,
         topics: impl IntoIterator<Item = &TopicName>,
-    ) -> anyhow::Result<Vec<(TopicName, usize)>> {
+    ) -> anyhow::Result<Vec<(TopicName, Collection)>> {
         let auth = self
             .auth
             .as_mut()
@@ -1369,7 +1361,7 @@ impl Session {
             let collection = Collection::new(app, auth, flow_client, topic.as_ref())
                 .await?
                 .context(format!("unable to look up partitions for {:?}", topic))?;
-            Ok::<(TopicName, usize), anyhow::Error>((topic.clone(), collection.partitions.len()))
+            Ok::<(TopicName, Collection), anyhow::Error>((topic.clone(), collection))
         }))
         .await
     }
