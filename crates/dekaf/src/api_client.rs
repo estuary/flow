@@ -454,11 +454,11 @@ impl KafkaApiClient {
     #[instrument(skip_all)]
     pub async fn ensure_topics(
         &mut self,
-        topic_names: Vec<(messages::TopicName, usize)>,
+        topics: Vec<(messages::TopicName, usize)>,
     ) -> anyhow::Result<()> {
         let req = messages::MetadataRequest::default()
             .with_topics(Some(
-                topic_names
+                topics
                     .iter()
                     .map(|(name, _)| {
                         messages::metadata_request::MetadataRequestTopic::default()
@@ -475,7 +475,7 @@ impl KafkaApiClient {
         let mut topics_to_update = Vec::new();
         let mut topics_to_create = Vec::new();
 
-        for (topic_name, desired_partitions) in topic_names.iter() {
+        for (topic_name, desired_partitions) in topics.iter() {
             if let Some(topic) = resp
                 .topics
                 .iter()
@@ -491,11 +491,10 @@ impl KafkaApiClient {
                     );
                     topics_to_update.push((topic_name.clone(), *desired_partitions));
                 } else if *desired_partitions < current_partitions {
-                    tracing::warn!(
-                        topic = ?topic_name,
-                        current_partitions = topic.partitions.len(),
-                        desired_partitions = *desired_partitions,
-                        "Topic has more partitions than requested, cannot decrease partition count"
+                    anyhow::bail!("Topic {} has more partitions ({}) than requested ({}), cannot decrease partition count",
+                        topic_name.as_str(),
+                        current_partitions,
+                        desired_partitions
                     );
                 }
             } else {
