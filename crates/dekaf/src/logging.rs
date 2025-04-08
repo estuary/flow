@@ -131,12 +131,12 @@ where
     )
 }
 
-pub fn get_log_forwarder() -> TaskForwarder<GazetteWriter> {
-    TASK_FORWARDER.get()
+pub fn get_log_forwarder() -> Option<TaskForwarder<GazetteWriter>> {
+    TASK_FORWARDER.try_with(|v| v.clone()).ok()
 }
 
 pub fn set_log_level(level: ops::LogLevel) {
-    LOG_LEVEL.with(|current_level| {
+    let _ = LOG_LEVEL.try_with(|current_level| {
         current_level.set(build_log_filter(level));
-    })
+    });
 }
