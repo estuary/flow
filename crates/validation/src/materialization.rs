@@ -101,8 +101,8 @@ async fn walk_materialization<C: Connectors>(
     let mut model_fixes = Vec::new();
 
     let models::MaterializationDef {
-        source_capture,
         on_incompatible_schema_change,
+        sources,
         endpoint,
         bindings: bindings_model,
         mut shards,
@@ -514,7 +514,7 @@ async fn walk_materialization<C: Connectors>(
         inactive_bindings,
     };
     let model = models::MaterializationDef {
-        source_capture,
+        sources,
         on_incompatible_schema_change,
         endpoint,
         bindings: bindings_model,

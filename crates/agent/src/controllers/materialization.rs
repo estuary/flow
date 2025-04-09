@@ -11,7 +11,7 @@ use models::{
         materialization::{MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
-    ModelDef, OnIncompatibleSchemaChange, SourceCapture,
+    ModelDef, OnIncompatibleSchemaChange, Sources,
 };
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use serde::{Deserialize, Serialize};
@@ -120,7 +120,14 @@ async fn source_capture_update<C: ControlPlane>(
     state: &ControllerState,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<bool> {
-    if let Some(model_source_capture) = &model.source_capture {
+    if let Some(model_source_capture) = model
+        .sources
+        .as_ref()
+        .filter(|s| s.capture_name().is_some())
+    {
+        let capture_name = model_source_capture
+            .capture_name()
+            .expect("capture must be Some");
         let MaterializationStatus {
             source_capture,
             publications,
@@ -129,11 +136,7 @@ async fn source_capture_update<C: ControlPlane>(
         // If the source capture has been deleted, we should have already
         // removed the models sourceCapture as a part of
         // `handle_deleted_dependencies`.
-        let Some(capture_model) = dependencies
-            .live
-            .captures
-            .get_by_key(&model_source_capture.capture_name())
-        else {
+        let Some(capture_model) = dependencies.live.captures.get_by_key(capture_name) else {
             anyhow::bail!("sourceCapture spec was missing from live dependencies");
         };
         let source_capture_status = source_capture.get_or_insert_with(Default::default);
@@ -398,7 +401,7 @@ pub async fn update_source_capture<C: ControlPlane>(
 
     let mut new_model = model.clone();
     update_linked_materialization(
-        model.source_capture.as_ref().unwrap(),
+        model.sources.as_ref().unwrap(),
         resource_spec_pointers,
         &status.add_bindings,
         &mut new_model,
@@ -442,7 +445,7 @@ fn get_bindings_to_add(
 }
 
 fn update_linked_materialization(
-    source_capture: &SourceCapture,
+    source_capture: &Sources,
     resource_spec_pointers: tables::utils::ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
     materialization: &mut models::MaterializationDef,

@@ -1,7 +1,7 @@
 use crate::Capture;
 use crate::{connector::DekafConfig, source::OnIncompatibleSchemaChange, Collection, Id};
 
-use crate::source_capture::SourceCapture;
+use crate::source_capture::Sources;
 
 use super::{ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source};
 use schemars::JsonSchema;
@@ -16,7 +16,8 @@ use std::collections::BTreeMap;
 pub struct MaterializationDef {
     /// # Automatically materialize new bindings from a named capture
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_capture: Option<SourceCapture>,
+    #[serde(alias = "sourceCapture")]
+    pub sources: Option<Sources>,
     /// # Default handling of schema changes that are incompatible with the target resource.
     /// This can be overridden on a per-binding basis.
     #[serde(
@@ -128,7 +129,7 @@ pub struct MaterializationFields {
 impl MaterializationDef {
     pub fn example() -> Self {
         Self {
-            source_capture: None,
+            sources: None,
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
@@ -208,9 +209,9 @@ impl super::ModelDef for MaterializationDef {
     }
 
     fn materialization_source_capture_name(&self) -> Option<&Capture> {
-        match &self.source_capture {
-            Some(SourceCapture::Simple(capture_name)) => Some(capture_name),
-            Some(SourceCapture::Configured(sc)) => Some(&sc.capture),
+        match &self.sources {
+            Some(Sources::Simple(capture_name)) => Some(capture_name),
+            Some(Sources::Configured(sc)) => sc.capture.as_ref(),
             None => None,
         }
     }
