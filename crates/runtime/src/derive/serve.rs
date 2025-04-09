@@ -88,6 +88,15 @@ async fn serve_session<L: LogHandler>(
 
     () = co.yield_(opened).await;
 
+    // Attach the current generation ID to the derivation's inferred schema.
+    let generation_id = serde_json::Value::String(task.collection_generation_id.to_string());
+    if shape.annotations.get(crate::X_GENERATION_ID) != Some(&generation_id) {
+        *shape = doc::Shape::nothing();
+        shape
+            .annotations
+            .insert(crate::X_GENERATION_ID.to_string(), generation_id);
+    }
+
     let mut buf = bytes::BytesMut::new();
     loop {
         let mut saw_flush = false;

@@ -14,22 +14,25 @@ impl Task {
 
         let response::Opened {} = opened.opened.as_ref().context("expected Opened")?;
 
-        let collection_spec = collection.context("missing collection")?;
-        let collection_generation_id =
-            tables::utils::get_collection_generation_id(&collection_spec)
-                .unwrap_or(models::Id::zero());
         let flow::CollectionSpec {
             ack_template_json: _,
             derivation,
             key,
             name: collection_name,
             partition_fields,
-            partition_template: _,
+            partition_template,
             projections,
             read_schema_json: _,
             uuid_ptr,
             write_schema_json,
-        } = collection_spec;
+        } = collection.context("missing collection")?;
+
+        let partition_template = partition_template
+            .as_ref()
+            .context("missing partition template")?;
+
+        let collection_generation_id =
+            assemble::extract_generation_id_suffix(&partition_template.name);
 
         let flow::collection_spec::Derivation {
             config_json: _,
