@@ -105,7 +105,7 @@
                 "/shard/name"
               ]
             },
-            "lambda": "select\n  $fields->>'collection_name' as collection_name,\n  coalesce($fields->>'collection_generation_id', '0000000000000000') as collection_generation_id,\n  $fields->'schema' as schema\nwhere $message = 'inferred schema updated';\n"
+            "lambda": "select\n  $fields->>'collection_name' as collection_name,\n  $fields->'schema' as schema\nwhere $message = 'inferred schema updated';\n"
           }
         ],
         "shards": {
