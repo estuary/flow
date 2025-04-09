@@ -173,7 +173,14 @@ impl Collection {
         let journal_client =
             Self::build_journal_client(app, &auth, collection_name, &partition_template_name)
                 .await?;
-        let partitions = Self::fetch_partitions(&journal_client, collection_name).await?;
+
+        let selector = if let Some(binding) = binding {
+            binding.partition_selector.clone()
+        } else {
+            None
+        };
+
+        let partitions = Self::fetch_partitions(&journal_client, collection_name, selector).await?;
 
         tracing::debug!(?partitions, "Got partitions");
 
@@ -299,12 +306,13 @@ impl Collection {
     async fn fetch_partitions(
         journal_client: &journal::Client,
         collection: &str,
+        partition_selector: Option<broker::LabelSelector>,
     ) -> anyhow::Result<Vec<Partition>> {
         let request = broker::ListRequest {
-            selector: Some(broker::LabelSelector {
+            selector: Some(partition_selector.unwrap_or(broker::LabelSelector {
                 include: Some(labels::build_set([(labels::COLLECTION, collection)])),
                 exclude: None,
-            }),
+            })),
             ..Default::default()
         };
 
