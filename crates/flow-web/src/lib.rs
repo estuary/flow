@@ -4,7 +4,7 @@ use doc::{
     Annotation, Shape,
 };
 use json::schema;
-use models::SourceCapture;
+use models::SourceType;
 use serde::{Deserialize, Serialize};
 use tables::utils::ResourceSpecPointers;
 use wasm_bindgen::prelude::*;
@@ -219,7 +219,7 @@ pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, J
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Input {
-        source_capture: SourceCapture,
+        source_capture: SourceType,
         resource_spec: serde_json::Value,
         resource_spec_pointers: ResourceSpecPointers,
         collection_name: String,
