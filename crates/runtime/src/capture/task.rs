@@ -69,13 +69,20 @@ impl Task {
         by_index.resize_with(self.bindings.len(), || doc::shape::Shape::nothing());
 
         for (index, binding) in self.bindings.iter().enumerate() {
-            let key = binding.resource_path.join("\t"); // TODO(johnny): bindings PRD.
+            // partition_template_name embeds the collection name and generation ID,
+            // while state_key is unique if a single target collection is bound
+            // to multiple endpoint resources.
+            let key = format!("{};{}", binding.partition_template_name, binding.state_key);
 
             if let Some(shape) = by_key.remove(&key) {
                 by_index[index] = shape;
             }
-        }
 
+            by_index[index].annotations.insert(
+                crate::X_GENERATION_ID.to_string(),
+                serde_json::Value::String(binding.collection_generation_id.to_string()),
+            );
+        }
         by_index
     }
 
@@ -83,7 +90,8 @@ impl Task {
         let mut by_key = BTreeMap::new();
 
         for (index, shape) in by_index.into_iter().enumerate() {
-            let key = self.bindings[index].resource_path.join("\t"); // TODO(johnny): bindings PRD.
+            let binding = &self.bindings[index];
+            let key = format!("{};{}", binding.partition_template_name, binding.state_key);
             by_key.insert(key, shape);
         }
         by_key
@@ -127,15 +135,9 @@ impl Binding {
             backfill: _,
             collection,
             resource_config_json: _,
-            resource_path,
-            state_key: _,
+            resource_path: _,
+            state_key,
         } = spec;
-
-        let collection_spec = collection.as_ref().context("missing collection")?;
-        // Determine the generation id of the collection, which we'll need when updating inferred schemas.
-        // For legacy collections that don't have a generation id, we'll use the zero id.
-        let collection_generation_id = tables::utils::get_collection_generation_id(collection_spec)
-            .unwrap_or(models::Id::zero());
 
         let flow::CollectionSpec {
             ack_template_json: _,
@@ -143,12 +145,19 @@ impl Binding {
             key,
             name,
             partition_fields,
-            partition_template: _,
+            partition_template,
             projections,
             read_schema_json: _,
             uuid_ptr,
             write_schema_json,
-        } = collection_spec;
+        } = collection.as_ref().context("missing collection")?;
+
+        let partition_template = partition_template
+            .as_ref()
+            .context("missing partition template")?;
+
+        let collection_generation_id =
+            assemble::extract_generation_id_suffix(&partition_template.name);
 
         let document_uuid_ptr = doc::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(&key, &projections, &ser_policy)?;
@@ -167,8 +176,9 @@ impl Binding {
             document_uuid_ptr,
             key_extractors,
             partition_extractors,
-            resource_path: resource_path.clone(),
+            partition_template_name: partition_template.name.clone(),
             ser_policy,
+            state_key: state_key.clone(),
             write_schema_json: write_schema_json.clone(),
             write_shape,
         })
