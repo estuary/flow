@@ -31,21 +31,22 @@ impl Task {
         // TODO(johnny): Hack to limit serialized value sizes for these common materialization connectors
         // that don't handle large strings very well. This should be negotiated via connector protocol.
         // See go/runtime/materialize.go:135
-        let ser_policy = if [
-            "ghcr.io/estuary/materialize-azure-fabric-warehouse",
-            "ghcr.io/estuary/materialize-bigquery",
-            "ghcr.io/estuary/materialize-kafka",
-            "ghcr.io/estuary/materialize-snowflake",
-            "ghcr.io/estuary/materialize-redshift",
-            "ghcr.io/estuary/materialize-sqlite",
+        let ser_policy = if let Some(limit) = [
+            ("ghcr.io/estuary/materialize-azure-fabric-warehouse", 1000),
+            ("ghcr.io/estuary/materialize-bigquery", 1500),
+            ("ghcr.io/estuary/materialize-kafka", 1000),
+            ("ghcr.io/estuary/materialize-snowflake", 1000),
+            ("ghcr.io/estuary/materialize-redshift", 1000),
+            ("ghcr.io/estuary/materialize-sqlite", 1000),
         ]
         .iter()
-        .any(|image| config_json.contains(image))
+        .filter_map(|(image, limit)| config_json.contains(image).then_some(*limit))
+        .next()
         {
             doc::SerPolicy {
                 str_truncate_after: 1 << 16, // Truncate at 64KB.
-                nested_obj_truncate_after: 1000,
-                array_truncate_after: 1000,
+                nested_obj_truncate_after: limit,
+                array_truncate_after: limit,
                 ..doc::SerPolicy::noop()
             }
         } else {
