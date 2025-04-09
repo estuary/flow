@@ -31,6 +31,11 @@ pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
 /// documents without yielding, so it should not be *too* small.
 pub const CHANNEL_BUFFER: usize = 16;
 
+/// X_GENERATION_ID is a JSON-Schema annotation added to every inferred schema,
+/// which documents the generation ID of its associated collection.
+/// We use it to properly reset inferred schemas upon generation ID change.
+pub const X_GENERATION_ID: &str = "x-collection-generation-id";
+
 /// Describes the basic type of runtime protocol. This corresponds to the
 /// `FLOW_RUNTIME_PROTOCOL` label that's used on docker images.
 ///

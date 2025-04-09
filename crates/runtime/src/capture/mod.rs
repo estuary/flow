@@ -38,10 +38,12 @@ struct Binding {
     key_extractors: Vec<doc::Extractor>,
     // Partition values which are extracted from written documents.
     partition_extractors: Vec<doc::Extractor>,
-    // Specification of this binding.
-    resource_path: Vec<String>,
+    // Partition template name for journals of the target collection.
+    partition_template_name: String,
     // Serialization policy for the Target collection.
     ser_policy: doc::SerPolicy,
+    // Encoded resource path + backfill state key of this binding.
+    state_key: String,
     // Write schema of the target collection.
     write_schema_json: String,
     // Inferred Shape of written documents.
