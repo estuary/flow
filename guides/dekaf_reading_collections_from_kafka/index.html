@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n,g){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var m=t.getElementsByTagName(a)[0],r=t.createElement(a);r.async=!0,r.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",m.parentNode.insertBefore(r,m)}(window,document,"script","dataLayer")</script>
 <script id="runllm-widget-script" type="module" src="https://widget.runllm.com" runllm-name="Estuary AI Assistant" runllm-assistant-id="253" runllm-position="BOTTOM_RIGHT" runllm-keyboard-shortcut="Mod+j" runllm-preset="docusaurus" async runllm-theme-color="#5072EB" runllm-brand-logo="https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//estuary_logo_a373037876/estuary_logo_a373037876.png" runllm-support-email="support@estuary.dev" runllm-community-url="https://go.estuary.dev/slack" runllm-community-type="slack"></script><link rel="stylesheet" href="/assets/css/styles.7552b07e.css">
-<script src="/assets/js/runtime~main.34cd78bb.js" defer="defer"></script>
-<script src="/assets/js/main.e6cf77cf.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.eb458323.js" defer="defer"></script>
+<script src="/assets/js/main.a63842dd.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <script>!function(){function t(t){document.documentElement.setAttribute("data-theme",t)}var e=function(){try{return new URLSearchParams(window.location.search).get("docusaurus-theme")}catch(t){}}()||function(){try{return window.localStorage.getItem("theme")}catch(t){}}();t(null!==e?e:"light")}(),function(){try{const n=new URLSearchParams(window.location.search).entries();for(var[t,e]of n)if(t.startsWith("docusaurus-data-")){var a=t.replace("docusaurus-data-","data-");document.documentElement.setAttribute(a,e)}}catch(t){}}()</script>
@@ -39,9 +39,9 @@ Schema Registry.</li>
 <li><strong>Schema Registry Address</strong>: <code>https://dekaf.estuary-data.com</code></li>
 <li><strong>Security Protocol</strong>: <code>SASL_SSL</code></li>
 <li><strong>SASL Mechanism</strong>: <code>PLAIN</code></li>
-<li><strong>SASL Username</strong>: The task name of your Dekaf materialization</li>
+<li><strong>SASL Username</strong>: The full name of your Dekaf materialization, such as <code>YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION</code></li>
 <li><strong>SASL Password</strong>: The auth token from your Dekaf materialization</li>
-<li><strong>Schema Registry Username</strong>: The task name of your Dekaf materialization</li>
+<li><strong>Schema Registry Username</strong>: The full name of your Dekaf materialization</li>
 <li><strong>Schema Registry Password</strong>: The auth token from your Dekaf materialization</li>
 </ul>
 <h2 class="anchor anchorWithStickyNavbar_LWe7" id="how-to-connect-to-dekaf">How to Connect to Dekaf<a class="hash-link" aria-label="Direct link to How to Connect to Dekaf" title="Direct link to How to Connect to Dekaf" href="/guides/dekaf_reading_collections_from_kafka/#how-to-connect-to-dekaf">​</a></h2>
@@ -61,7 +61,7 @@ You may use the different variations to keep your data organized, manage what da
 <p>Provide a <strong>name</strong> and <strong>auth token</strong> to your materialization.</p>
 <ul>
 <li>
-<p>The full task name, which includes your materialization name, will be used as the <strong>username</strong> when consumers connect to Dekaf.</p>
+<p>The full materialization name, which also includes your organization/prefix, will be used as the <strong>username</strong> when consumers connect to Dekaf.</p>
 </li>
 <li>
 <p>The auth token that you provide will be used as the <strong>password</strong> when consumers connect to Dekaf. Make sure to use a secure token.</p>
