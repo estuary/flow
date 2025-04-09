@@ -1,4 +1,4 @@
-use models::{SourceCapture, SourceCaptureSchemaMode};
+use models::{SourceType, TargetNaming};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -14,7 +14,7 @@ pub struct ResourceSpecPointers {
 /// If the `full_collection_name` doesn't contain any `/` characters, which should never
 /// be the case since we should have already validated the collection name.
 pub fn update_materialization_resource_spec(
-    source_capture: &SourceCapture,
+    source_capture: &SourceType,
     resource_spec: &mut Value,
     resource_spec_pointers: &ResourceSpecPointers,
     full_collection_name: &str,
@@ -28,23 +28,35 @@ pub fn update_materialization_resource_spec(
     }
 
     let source_capture_def = source_capture.to_normalized_def();
-    // If we're setting the schema name as a separate property, then the
-    // x-collection-name will be only the last path component of the full
-    // collection name. But if there isn't a separate schema name property, or
-    // if the user does not wish to use it, then concatenate the last two path
-    // components to end up with something like `schema_table`, which helps to
-    // avoid conflicts arising from capturing identically named tables from
-    // different schemas, and then materializing them into the same schema.
-    let set_schema_name = {
-        //extra braces prevent rustfmt from doing bad things here
-        source_capture_def.target_schema == SourceCaptureSchemaMode::FromSourceName
-            && resource_spec_pointers.x_schema_name.is_some()
+
+    let maybe_x_schema_name = match source_capture_def.target_naming {
+        TargetNaming::WithSchema => Some(split[1].to_string()),
+        TargetNaming::NoSchema | TargetNaming::PrefixSchema => None,
     };
-    let x_collection_name = if set_schema_name {
-        split[0].to_string()
-    } else {
-        format!("{}_{}", split[1], split[0])
+
+    let x_collection_name = match source_capture_def.target_naming {
+        TargetNaming::NoSchema | TargetNaming::WithSchema => split[0].to_string(),
+        TargetNaming::PrefixSchema => format!("{}_{}", split[1], split[0]),
     };
+
+    // // If we're setting the schema name as a separate property, then the
+    // // x-collection-name will be only the last path component of the full
+    // // collection name. But if there isn't a separate schema name property, or
+    // // if the user does not wish to use it, then concatenate the last two path
+    // // components to end up with something like `schema_table`, which helps to
+    // // avoid conflicts arising from capturing identically named tables from
+    // // different schemas, and then materializing them into the same schema.
+    // let set_schema_name = {
+    //     //extra braces prevent rustfmt from doing bad things here
+    //     source_capture_def.target_naming == TargetNaming::WithSchema
+    //         && resource_spec_pointers.x_schema_name.is_some()
+    // };
+
+    // let x_collection_name = if set_schema_name {
+    //     split[0].to_string()
+    // } else {
+    //     format!("{}_{}", split[1], split[0])
+    // };
 
     let x_collection_name_ptr = &resource_spec_pointers.x_collection_name;
     let Some(x_collection_name_prev) = x_collection_name_ptr.create_value(resource_spec) else {
@@ -54,8 +66,7 @@ pub fn update_materialization_resource_spec(
     };
     let _ = std::mem::replace(x_collection_name_prev, x_collection_name.into());
 
-    if set_schema_name {
-        let x_schema_name = split[1];
+    if let Some(x_schema_name) = maybe_x_schema_name {
         let Some(x_schema_name_ptr) = &resource_spec_pointers.x_schema_name else {
             anyhow::bail!(
                 "sourceCapture.targetSchema set on a materialization which does not have x-schema-name annotation"
@@ -123,5 +134,34 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
         Err(anyhow::anyhow!(
             "resource spec schema does not contain any location annotated with x-collection-name"
         ))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_updating_materialization_resource_spec() {
+        let pointers = ResourceSpecPointers {
+            x_collection_name: doc::Pointer::new("/collectionName"),
+            x_schema_name: doc::Pointer::new("/schemaName"),
+            x_delta_updates: doc::Pointer::new("/deltaUpdates"),
+        };
+
+        let sources = models::SourceType::Configured(models::SourcesDef {
+            capture: None,
+            target_naming: models::TargetNaming::PrefixSchema,
+            delta_updates: true,
+        });
+
+        unimplemented!("write this test");
+        /*
+
+        source_capture: &Sources,
+        resource_spec: &mut Value,
+        resource_spec_pointers: &ResourceSpecPointers,
+        full_collection_name: &str,
+        */
     }
 }

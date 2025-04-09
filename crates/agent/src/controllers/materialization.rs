@@ -13,7 +13,7 @@ use models::{
         materialization::{MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
-    MaterializationEndpoint, ModelDef, OnIncompatibleSchemaChange, RawValue, SourceCapture,
+    MaterializationEndpoint, ModelDef, OnIncompatibleSchemaChange, RawValue, SourceType,
 };
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use serde::{Deserialize, Serialize};
@@ -51,10 +51,8 @@ pub async fn update<C: ControlPlane>(
 
             let materialization_name = models::Materialization::new(&state.catalog_name);
             let mut pending = PendingPublication::new();
-            let draft = pending.start_spec_update(
-                state,
-                config_update::CONFIG_UPDATE_PUBLICATION_DETAIL,
-            );
+            let draft =
+                pending.start_spec_update(state, config_update::CONFIG_UPDATE_PUBLICATION_DETAIL);
 
             let draft_row =
                 draft
@@ -179,7 +177,11 @@ async fn source_capture_update<C: ControlPlane>(
     state: &ControllerState,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<bool> {
-    if let Some(model_source_capture) = &model.source_capture {
+    if let Some(model_source_capture) = model.source.as_ref().filter(|s| s.capture_name().is_some())
+    {
+        let capture_name = model_source_capture
+            .capture_name()
+            .expect("capture must be Some");
         let MaterializationStatus {
             source_capture,
             publications,
@@ -188,11 +190,7 @@ async fn source_capture_update<C: ControlPlane>(
         // If the source capture has been deleted, we should have already
         // removed the models sourceCapture as a part of
         // `handle_deleted_dependencies`.
-        let Some(capture_model) = dependencies
-            .live
-            .captures
-            .get_by_key(&model_source_capture.capture_name())
-        else {
+        let Some(capture_model) = dependencies.live.captures.get_by_key(capture_name) else {
             anyhow::bail!("sourceCapture spec was missing from live dependencies");
         };
         let source_capture_status = source_capture.get_or_insert_with(Default::default);
@@ -364,20 +362,19 @@ fn handle_deleted_dependencies(
     deleted: &BTreeSet<String>,
     mut model: models::MaterializationDef,
 ) -> (String, models::MaterializationDef) {
-    if let Some(source_capture) = model
-        .source_capture
-        .take_if(|sc| deleted.contains(sc.capture_name().as_str()))
-    {
-        (
-            format!(
-                r#"removed sourceCapture: "{}" because the capture was deleted"#,
-                source_capture.capture_name()
-            ),
-            model,
-        )
-    } else {
-        (String::new(), model)
+    let mut description = String::new();
+    if let Some(source_model) = model.source.as_mut() {
+        if let Some(deleted_capture) = source_model
+            .capture_name()
+            .filter(|c| deleted.contains(c.as_str()))
+        {
+            description = format!("removed source Capture: '{deleted_capture}'");
+            *source_model = models::SourceType::Configured(
+                source_model.to_normalized_def().without_source_capture(),
+            );
+        }
     }
+    (description, model)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -457,7 +454,7 @@ pub async fn update_source_capture<C: ControlPlane>(
 
     let mut new_model = model.clone();
     update_linked_materialization(
-        model.source_capture.as_ref().unwrap(),
+        model.source.as_ref().unwrap(),
         resource_spec_pointers,
         &status.add_bindings,
         &mut new_model,
@@ -501,7 +498,7 @@ fn get_bindings_to_add(
 }
 
 fn update_linked_materialization(
-    source_capture: &SourceCapture,
+    source_capture: &SourceType,
     resource_spec_pointers: tables::utils::ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
     materialization: &mut models::MaterializationDef,
