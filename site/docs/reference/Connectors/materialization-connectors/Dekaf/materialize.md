@@ -19,7 +19,7 @@ This connector is a variant of the default Dekaf connector. For other integratio
 
 Provide an auth token when setting up the Dekaf connector. This can be a password of your choosing and will be used to authenticate consumers to your Kafka topics.
 
-Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
+Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
 ## Connecting Estuary Flow to Materialize
 
@@ -36,14 +36,14 @@ Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX
        BROKER 'dekaf.estuary-data.com',
        SECURITY PROTOCOL = 'SASL_SSL',
        SASL MECHANISMS = 'PLAIN',
-       SASL USERNAME = 'your_materialization_task_name_here',
+       SASL USERNAME = 'YOUR/MATERIALIZATION/NAME',
        SASL PASSWORD = SECRET estuary_token
    );
 
    CREATE
    CONNECTION csr_estuary_connection TO CONFLUENT SCHEMA REGISTRY (
        URL 'https://dekaf.estuary-data.com',
-       USERNAME = 'your_materialization_task_name_here',
+       USERNAME = 'YOUR/MATERIALIZATION/NAME',
        PASSWORD = SECRET estuary_token
    );
    ```

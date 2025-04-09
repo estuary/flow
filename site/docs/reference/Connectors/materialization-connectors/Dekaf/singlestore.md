@@ -19,7 +19,7 @@ This connector is a variant of the default Dekaf connector. For other integratio
 
 Provide an auth token when setting up the Dekaf connector. This can be a password of your choosing and will be used to authenticate consumers to your Kafka topics.
 
-Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
+Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
 ## Connecting Estuary Flow to SingleStore
 
@@ -37,9 +37,9 @@ Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX
             CONFIG '{
                 "security.protocol":"SASL_SSL",
                 "sasl.mechanism":"PLAIN",
-                "sasl.username":"{YOUR_TASK_NAME}",
+                "sasl.username":"{YOUR/MATERIALIZATION/NAME}",
                 "broker.address.family": "v4",
-                "schema.registry.username": "{YOUR_TASK_NAME}",
+                "schema.registry.username": "{YOUR/MATERIALIZATION/NAME}",
                 "fetch.wait.max.ms": "2000"
             }'
             CREDENTIALS '{

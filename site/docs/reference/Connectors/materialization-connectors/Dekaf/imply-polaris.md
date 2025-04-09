@@ -19,7 +19,7 @@ This connector is a variant of the default Dekaf connector. For other integratio
 
 Provide an auth token when setting up the Dekaf connector. This can be a password of your choosing and will be used to authenticate consumers to your Kafka topics.
 
-Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
+Once the connector is created, note the full materialization name, such as `YOUR-ORG/YOUR-PREFIX/YOUR-MATERIALIZATION`. You will use this as the username.
 
 ## Connecting Estuary Flow to Imply Polaris
 
@@ -35,7 +35,7 @@ Once the connector is created, note the task name, such as `YOUR-ORG/YOUR-PREFIX
     - **Topic**: The name of an Estuary Flow collection you added to your materialization (e.g., `/my-collection`)
     - **Security Protocol**: `SASL_SSL`
     - **SASL Mechanism**: `PLAIN`
-    - **SASL Username**: Your materialization's task name
+    - **SASL Username**: Your materialization's full name
     - **SASL Password**: Your materialization's auth token
 
 5. For the "Input Format", select "avro".
