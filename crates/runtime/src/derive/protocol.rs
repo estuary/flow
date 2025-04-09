@@ -152,6 +152,7 @@ pub fn recv_client_read_or_flush(
     let read_stats = &mut txn.read_stats.entry(read.transform).or_default();
     read_stats.0.docs_total += 1;
     read_stats.0.bytes_total += read.doc_json.len() as u64;
+
     if let Some(flow::UuidParts { clock, .. }) = &read.uuid {
         read_stats.1 = *clock;
     }
