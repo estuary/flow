@@ -25,6 +25,7 @@ The following data resources are supported through the Stripe API:
 * [Customers](https://docs.stripe.com/api/customers/list)
 * [Disputes](https://docs.stripe.com/api/disputes/list)
 * [Early fraud warning](https://docs.stripe.com/api/radar/early_fraud_warnings/list)
+* [Events](https://docs.stripe.com/api/events/list)
 * [External account cards](https://docs.stripe.com/api/external_account_cards/list)
 * [External bank account](https://docs.stripe.com/api/external_account_bank_accounts/list)
 * [Files](https://docs.stripe.com/api/files/list)
