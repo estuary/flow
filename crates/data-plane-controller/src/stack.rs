@@ -42,6 +42,8 @@ pub struct State {
     pub logs_token: sqlx::types::Uuid,
     // Pulumi configuration for this data-plane.
     pub stack: PulumiStack,
+    // Private links configuration for this data-plane
+    pub private_links: Vec<PrivateLink>,
     // Name of the data-plane "stack" within the Pulumi tooling.
     pub stack_name: String,
     // Status of this controller.

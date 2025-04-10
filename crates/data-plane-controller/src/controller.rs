@@ -64,6 +64,32 @@ impl automations::Executor for Controller {
         };
         let state = state.as_mut().unwrap();
 
+        // Certain configurations are allowed to be changed during deployment (e.g. private links)
+        // such updates will trigger a restart of the deployment
+        if self.config_updated(pool, task_id, state).await? {
+            self.logs_tx
+                .send(logs::Line {
+                    token: state.logs_token,
+                    stream: "controller".to_string(),
+                    line: "detected change in data plane configuration, restarting deployment"
+                        .to_string(),
+                })
+                .await
+                .context("failed to send to logs sink")?;
+
+            state.status = Status::Idle;
+            state.pending_converge = true;
+
+            return Ok(Outcome {
+                data_plane_id: state.data_plane_id,
+                task_id,
+                sleep: POLL_AGAIN,
+                status: Status::Idle,
+                publish_exports: None,
+                publish_stack: None,
+            });
+        }
+
         let sleep = match state.status {
             Status::Idle => self.on_idle(pool, task_id, state, inbox).await?,
             Status::SetEncryption => self.on_set_encryption(state).await?,
@@ -111,6 +137,35 @@ impl Controller {
             )
         })
         .collect()
+    }
+
+    async fn config_updated(
+        &self,
+        pool: &sqlx::PgPool,
+        task_id: models::Id,
+        state: &mut State,
+    ) -> anyhow::Result<bool> {
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                config_private_links AS "private_links: sqlx::types::Json<Vec<stack::PrivateLink>>"
+            FROM data_planes
+            WHERE id = $1 and controller_task_id = $2
+            "#,
+            state.data_plane_id as models::Id,
+            task_id as models::Id,
+        )
+        .fetch_one(pool)
+        .await
+        .context("failed to fetch data-plane row")?;
+
+        if !row.private_links.is_empty() {
+            if state.private_links != row.private_links.0 {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     async fn on_start(
@@ -629,6 +684,7 @@ impl Controller {
             r#"
             SELECT
                 config AS "config: sqlx::types::Json<stack::DataPlane>",
+                config_private_links AS "private_links: sqlx::types::Json<Vec<stack::PrivateLink>>",
                 deploy_branch AS "deploy_branch!",
                 logs_token,
                 data_plane_name,
@@ -651,6 +707,16 @@ impl Controller {
         config.model.name = Some(row.data_plane_name);
         config.model.fqdn = Some(row.data_plane_fqdn);
 
+        if !row.private_links.0.is_empty() {
+            if !config.model.private_links.is_empty() {
+                anyhow::bail!(
+                    "cannot set both config.private_links and config_private_links, prefer the latter."
+                );
+            }
+
+            config.model.private_links = row.private_links.0.clone()
+        }
+
         let stack = if let Some(key) = row.pulumi_key {
             stack::PulumiStack {
                 config,
@@ -672,6 +738,7 @@ impl Controller {
             last_refresh: chrono::DateTime::default(),
             logs_token: row.logs_token,
             stack,
+            private_links: row.private_links.0,
             stack_name: row.pulumi_stack,
             status: Status::Idle,
 
@@ -707,7 +774,7 @@ impl Controller {
         Ok(rows)
     }
 
-    async fn checkout(&self, state: &State) -> anyhow::Result<repo::Checkout> {
+    async fn checkout(&self, state: &mut State) -> anyhow::Result<repo::Checkout> {
         let checkout = self
             .repo
             .checkout(&self.logs_tx, state.logs_token, &state.deploy_branch)
