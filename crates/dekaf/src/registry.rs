@@ -27,40 +27,10 @@ pub fn build_router(app: Arc<App>) -> axum::Router<()> {
             get(get_subject_latest),
         )
         .route("/schemas/ids/:id", get(get_schema_by_id))
-        .route_layer(axum::middleware::from_fn_with_state(
-            app.clone(),
-            attach_logger,
-        ))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(app);
 
     schema_router
-}
-
-async fn attach_logger(
-    axum::extract::State(app): axum::extract::State<Arc<App>>,
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Response {
-    let writer = GazetteWriter::new(app);
-
-    logging::forward_logs(
-        writer,
-        tokio_util::sync::CancellationToken::new(),
-        async move {
-            if let Some(user_agent) = request.headers().get(USER_AGENT) {
-                match user_agent.to_str() {
-                    Ok(user_agent) => {
-                        tracing::Span::current()
-                            .record_hierarchical(SESSION_CLIENT_ID_FIELD_MARKER, user_agent);
-                    }
-                    Err(e) => tracing::warn!(?e, "Got bad user agent header"),
-                };
-            }
-            next.run(request).await
-        },
-    )
-    .await
 }
 
 // List all collections as "subjects", which are generally Kafka topics in the ecosystem.

@@ -354,22 +354,24 @@ impl Read {
         // Right: Input documents from journal. Left: Input docs from destination. Out: Right Keys ⋃ Left Keys
         // Dekaf reads docs from journals, so it emits "right". It doesn't do reduction with a destination system,
         // so it does not emit "left". And right now, it does not reduce at all, so "out" is the same as "right".
-        logging::get_log_forwarder().send_stats(
-            self.collection_name.to_owned(),
-            ops::stats::Binding {
-                right: Some(ops::stats::DocsAndBytes {
-                    docs_total: stats_records,
-                    bytes_total: stats_bytes,
-                }),
-                out: Some(ops::stats::DocsAndBytes {
-                    docs_total: stats_records,
-                    bytes_total: stats_bytes,
-                }),
-                left: None,
-                last_source_published_at: last_source_published_at
-                    .and_then(|c| c.to_pb_json_timestamp()),
-            },
-        );
+        logging::get_log_forwarder().map(|f| {
+            f.send_stats(
+                self.collection_name.to_owned(),
+                ops::stats::Binding {
+                    right: Some(ops::stats::DocsAndBytes {
+                        docs_total: stats_records,
+                        bytes_total: stats_bytes,
+                    }),
+                    out: Some(ops::stats::DocsAndBytes {
+                        docs_total: stats_records,
+                        bytes_total: stats_bytes,
+                    }),
+                    left: None,
+                    last_source_published_at: last_source_published_at
+                        .and_then(|c| c.to_pb_json_timestamp()),
+                },
+            );
+        });
 
         let frozen = buf.freeze();
 

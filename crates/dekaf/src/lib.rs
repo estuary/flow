@@ -243,7 +243,8 @@ impl App {
             // We only set this after successfully validating that this task exists and is a Dekaf
             // materialization. Otherwise we will either log auth errors attempting to append to
             // a journal that doesn't exist, or possibly log confusing errors to a different task's logs entirely.
-            logging::get_log_forwarder().set_task_name(username.clone(), labels.build.clone());
+            logging::get_log_forwarder()
+                .map(|f| f.set_task_name(username.clone(), labels.build.clone()));
 
             // 3. Validate that the provided password matches the task's bearer token
             if password != config.token {
@@ -261,8 +262,8 @@ impl App {
             )?))
         } else if username.contains("{") {
             // Since we don't have a task, we also don't have a logs journal to write to,
-            // so we should isable log forwarding for this session.
-            logging::get_log_forwarder().shutdown();
+            // so we should disable log forwarding for this session.
+            logging::get_log_forwarder().map(|f| f.shutdown());
 
             let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
             let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
