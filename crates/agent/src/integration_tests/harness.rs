@@ -1147,6 +1147,33 @@ impl TestHarness {
         .await
         .expect("failed to update inferred schema");
     }
+
+    pub async fn get_publication_specs(&mut self, catalog_name: &str) -> Vec<PublicationSpec> {
+        sqlx::query_as!(
+            PublicationSpec,
+            r#"select
+              ps.spec as "spec!: agent_sql::TextJson<models::RawValue>",
+              ps.pub_id as "pub_id: Id",
+              coalesce(ps.detail, '') as "detail!: String",
+              ps.published_at as "published_at: DateTime<Utc>"
+            from live_specs ls
+            join publication_specs ps on ls.id = ps.live_spec_id
+            where ls.catalog_name::text = $1
+            order by ps.published_at;"#,
+            catalog_name,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("failed to get publication specs")
+    }
+}
+
+#[derive(Debug)]
+pub struct PublicationSpec {
+    pub pub_id: Id,
+    pub published_at: DateTime<Utc>,
+    pub detail: String,
+    pub spec: agent_sql::TextJson<models::RawValue>,
 }
 
 /// Returns a simple json schema with properties named `p1,p2,pn`, up to `num_properties`.

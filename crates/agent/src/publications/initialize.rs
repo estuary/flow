@@ -14,8 +14,8 @@ pub trait Initialize: Send + Sync {
 }
 
 /// A no-op `Initialize` impl, for when you don't want to expand the draft.
-pub struct NoExpansion;
-impl Initialize for NoExpansion {
+pub struct NoopInitialize;
+impl Initialize for NoopInitialize {
     async fn initialize(
         &self,
         _db: &sqlx::PgPool,

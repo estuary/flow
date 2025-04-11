@@ -225,6 +225,10 @@ pub async fn validate<C: Connectors>(
         &mut errors,
     );
 
+    for row in built_materializations.iter() {
+        tracing::warn!(model_fixes = ?row.model_fixes, name = ?row.materialization, is_touch = ?row.is_touch, "wut, why is the materialization still touched");
+    }
+
     tables::Validations {
         built_captures,
         built_collections,
@@ -517,6 +521,7 @@ fn collection_was_reset(
     built_spec: &proto_flow::flow::CollectionSpec,
     live_spec: &Option<proto_flow::flow::CollectionSpec>,
 ) -> bool {
+    tracing::warn!(?built_spec, ?live_spec, "collection_was_reset?");
     if let Some(live_collection) = live_spec {
         if let Some(live_partition_template) = &live_collection.partition_template {
             let built_spec_partition_template_name = built_spec

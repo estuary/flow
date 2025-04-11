@@ -488,6 +488,13 @@ async fn walk_materialization<C: Connectors>(
         expect_pub_id: None,
         delete: false,
     };
+
+    // If this started out as a touch publication, then it must be changed to a
+    // non-touch publication if we've applied any model fixes.
+    let is_touch = is_touch && model_fixes.is_empty();
+
+    tracing::warn!(%is_touch, %materialization, ?model_fixes, err_count = errors.len(), "finished walk_materialization");
+
     Some(tables::BuiltMaterialization {
         materialization: materialization.clone(),
         scope: scope.flatten(),
@@ -522,12 +529,12 @@ fn walk_materialization_binding<'a>(
     Option<materialize::request::validate::Binding>,
 ) {
     let model_path = super::load_resource_meta_path(&model.resource);
-
     if disable || model.disable {
         return (model_path, model, None);
     }
     let live_model = live_bindings_model.get(&model_path);
     let modified = Some(&&model) != live_model;
+    tracing::warn!(?model_path, ?live_model, ?modified, "walk binding");
 
     // We must resolve the source collection to continue.
     let (source, source_partitions) = match &model.source {
@@ -553,6 +560,7 @@ fn walk_materialization_binding<'a>(
         built_collections,
         modified.then_some(errors),
     ) else {
+        tracing::warn!("disabling binding for deleted collection {}", source);
         model_fixes.push(format!("disabled binding of deleted collection {source}"));
         model.disable = true;
         return (model_path, model, None);
@@ -563,9 +571,14 @@ fn walk_materialization_binding<'a>(
         if model.backfill == live_spec.backfill
             && super::collection_was_reset(&source_spec, &live_spec.collection)
         {
+            tracing::warn!("backfilling binding for reset collection {}", source);
             model_fixes.push(format!("backfilled binding of reset collection {source}"));
             model.backfill += 1;
+        } else {
+            tracing::warn!(?model, ?live_spec, "collection was NOT reset");
         }
+    } else {
+        tracing::warn!("what, no live binding spec?");
     }
 
     if let Some(selector) = source_partitions {

@@ -12,6 +12,7 @@ mod periodic_publications;
 mod quotas;
 mod schema_evolution;
 mod source_captures;
+mod spec_updates;
 mod unknown_connectors;
 mod user_discovers;
 mod user_publications;
