@@ -493,15 +493,15 @@ async fn walk_materialization<C: Connectors>(
         scope: scope.flatten(),
         control_id,
         data_plane_id,
-        expect_pub_id,
+        dependency_hash,
         expect_build_id,
+        expect_pub_id,
+        is_touch: is_touch && model_fixes.is_empty(),
         model: Some(model),
         model_fixes,
-        validated: Some(validated_response),
-        spec: Some(spec),
         previous_spec: live_spec.cloned(),
-        dependency_hash,
-        is_touch,
+        spec: Some(spec),
+        validated: Some(validated_response),
     })
 }
 
