@@ -1,5 +1,5 @@
 use crate::{LogHandler, Runtime};
-use anyhow::{bail, Context};
+use anyhow::Context;
 use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
 use proto_flow::{
     flow::materialization_spec::ConnectorType,

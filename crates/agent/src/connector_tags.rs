@@ -300,22 +300,13 @@ async fn spec_materialization(
         None
     };
 
-    let (resource_path_pointers, _delta_updates_pointer) =
-        validation::extract_materialization_resource_config_annotations(
-            &resource_config_schema_json,
-        )
-        .context("connector has an invalid resource_config_schema_json")?;
-
     Ok(ConnectorSpec {
         documentation_url,
         endpoint_config_schema: RawValue::from_string(config_schema_json)
             .context("parsing endpoint config schema")?,
         resource_config_schema: RawValue::from_string(resource_config_schema_json)
             .context("parsing resource config schema")?,
-        resource_path_pointers: resource_path_pointers
-            .iter()
-            .map(doc::Pointer::to_string)
-            .collect(),
+        resource_path_pointers: Vec::new(),
         oauth2,
     })
 }

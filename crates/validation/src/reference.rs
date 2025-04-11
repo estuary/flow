@@ -26,7 +26,7 @@ pub fn walk_reference<'s, 'a>(
     this_entity: &str,
     ref_name: &models::Collection,
     built_collections: &'a tables::BuiltCollections,
-    errors: &mut tables::Errors,
+    errors: Option<&mut tables::Errors>,
 ) -> Option<(flow::CollectionSpec, &'a tables::BuiltCollection)> {
     const COLLECTION: &'static str = "collection";
 
@@ -35,16 +35,20 @@ pub fn walk_reference<'s, 'a>(
             let mut spec = spec.clone();
             spec.derivation = None; // Clear interior derivation, returning just the collection.
             return Some((spec, row));
+        } else if let Some(errors) = errors {
+            Error::DeletedSpecStillInUse {
+                this_entity: this_entity.to_string(),
+                ref_entity: COLLECTION,
+                ref_name: ref_name.to_string(),
+            }
+            .push(this_scope, errors);
+            return None;
         }
-        Error::DeletedSpecStillInUse {
-            this_entity: this_entity.to_string(),
-            ref_entity: COLLECTION,
-            ref_name: ref_name.to_string(),
-        }
-        .push(this_scope, errors);
-
-        return None;
     }
+
+    let Some(errors) = errors else {
+        return None;
+    };
 
     let closest = built_collections
         .iter()

@@ -332,12 +332,7 @@ pub async fn recv_client_start_commit(
     // produce structured logs of all inferred schemas that have changed
     // in this transaction.
     for binding in txn.updated_inferences.iter() {
-        let mut serialized = doc::shape::schema::to_schema(shapes[*binding].clone());
-        let gen_id = task.bindings[*binding].collection_generation_id.to_string();
-        serialized.schema.extensions.insert(
-            "x-collection-generation-id".to_string(),
-            serde_json::Value::String(gen_id),
-        );
+        let serialized = doc::shape::schema::to_schema(shapes[*binding].clone());
 
         tracing::info!(
             schema = ?ops::DebugJson(serialized),

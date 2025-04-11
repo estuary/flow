@@ -1,7 +1,7 @@
 use ::ops::stats::DocsAndBytes;
 use futures::Stream;
 use proto_flow::derive::{Request, Response};
-use proto_gazette::{consumer, uuid::Clock};
+use proto_gazette::consumer;
 use std::collections::BTreeMap;
 
 mod connector;

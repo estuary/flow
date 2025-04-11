@@ -1,19 +1,6 @@
 use models::{SourceCapture, SourceCaptureSchemaMode};
-use proto_flow::flow;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-/// Returns the generation id for a given collection spec, if specified. Legacy
-/// collection specs may not have a generation id, in which case `None` is
-/// returned.
-pub fn get_collection_generation_id(c: &flow::CollectionSpec) -> Option<models::Id> {
-    let partition_prefix = &c.partition_template.as_ref()?.name;
-    let (_, last) = partition_prefix.rsplit_once('/')?;
-
-    // If this is a legacy collection spec, then the `last` path component will
-    // be a string that cannot be parsed as an id.
-    models::Id::from_hex(last).ok()
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct ResourceSpecPointers {

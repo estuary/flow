@@ -448,6 +448,19 @@ async fn insert_publication_specs(
     built: &tables::Validations,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<()> {
+    let build_detail = |model_fixes: &[String]| -> String {
+        let mut out = detail.map(String::clone).unwrap_or_default();
+
+        for fix in model_fixes {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str("- ");
+            out.extend(fix.chars());
+        }
+        out
+    };
+
     for r in built
         .built_captures
         .iter()
@@ -457,7 +470,7 @@ async fn insert_publication_specs(
         agent_sql::publications::insert_publication_spec(
             r.control_id().into(),
             publication_id.into(),
-            detail,
+            build_detail(&r.model_fixes),
             &spec,
             &Some(agent_sql::CatalogType::Capture),
             user_id,
@@ -475,7 +488,7 @@ async fn insert_publication_specs(
         agent_sql::publications::insert_publication_spec(
             r.control_id().into(),
             publication_id.into(),
-            detail,
+            build_detail(&r.model_fixes),
             &spec,
             &Some(agent_sql::CatalogType::Collection),
             user_id,
@@ -493,7 +506,7 @@ async fn insert_publication_specs(
         agent_sql::publications::insert_publication_spec(
             r.control_id().into(),
             publication_id.into(),
-            detail,
+            build_detail(&r.model_fixes),
             &spec,
             &Some(agent_sql::CatalogType::Materialization),
             user_id,
@@ -511,7 +524,7 @@ async fn insert_publication_specs(
         agent_sql::publications::insert_publication_spec(
             r.control_id().into(),
             publication_id.into(),
-            detail,
+            build_detail(&r.model_fixes),
             &spec,
             &Some(agent_sql::CatalogType::Test),
             user_id,

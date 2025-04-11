@@ -115,7 +115,7 @@ pub fn inference_truncation_indicator() -> flow::Inference {
 pub fn partition_template(
     build_id: models::Id,
     collection: &models::Collection,
-    journal_name_prefix: &str,
+    journal_name_prefix: String,
     journals: &models::JournalTemplate,
     stores: &[models::Store],
 ) -> broker::JournalSpec {
@@ -170,7 +170,7 @@ pub fn partition_template(
     ]);
 
     broker::JournalSpec {
-        name: journal_name_prefix.to_string(),
+        name: journal_name_prefix,
         replication,
         fragment: Some(broker::journal_spec::Fragment {
             compression_codec: compression_codec as i32,
@@ -261,12 +261,25 @@ pub fn recovery_log_template(
     }
 }
 
-// shard_id_base returns the base Gazette Shard ID for the task name and type.
+// partition_prefix returns the base Gazette Journal name for logical and
+// physical partitions of the given collection name.
+// At runtime, this base ID is then '/'-joined with logical partition values,
+// represented as directory-like /key=value/ components, and a final hex-encoded
+// "pivot={KeyBegin}" suffix of the specific physical splits of the
+// logical partition, to form complete journal names.
+// See also PartitionSuffix in go/labels/partitions.go
+pub fn partition_prefix(generation_id: models::Id, collection: &models::Collection) -> String {
+    // Semi-colons are disallowed in Gazette journal names.
+    let generation_id = generation_id.to_string().replace(":", "");
+    format!("{collection}/{generation_id}")
+}
+
+// shard_id_prefix returns the base Gazette Shard ID for the task name and type.
 // At runtime, this base ID is then '/'-joined with a hex-encoded
 // "{KeyBegin}-{RClockBegin}" suffix of the specific splits of the task,
 // to form complete shard IDs.
 // See also ShardSuffix in go/labels/partitions.go
-pub fn shard_id_prefix(pub_id: models::Id, task_name: &str, task_type: &str) -> String {
+pub fn shard_id_prefix(generation_id: models::Id, task_name: &str, task_type: &str) -> String {
     let task_type = match task_type {
         labels::TASK_TYPE_CAPTURE => "capture",
         labels::TASK_TYPE_DERIVATION => "derivation",
@@ -274,7 +287,21 @@ pub fn shard_id_prefix(pub_id: models::Id, task_name: &str, task_type: &str) -> 
         _ => panic!("invalid task type {}", task_type),
     };
 
-    format!("{task_type}/{task_name}/{pub_id}")
+    format!("{task_type}/{task_name}/{generation_id}")
+}
+
+// extract_generation_id returns the generation ID which was embedded in the
+// suffix of a template name returned by `partition_prefix` or `shard_id_prefix`.
+// If the collection or shard is legacy, then it won't have a generation ID:
+// and the last path component will fail to parse as one, and models::Id::zero()
+// is returned instead.
+pub fn extract_generation_id_suffix(journal_or_shard_prefix: &str) -> models::Id {
+    if let Some((_, last)) = journal_or_shard_prefix.rsplit_once('/') {
+        if let Ok(id) = models::Id::from_hex(last) {
+            return id;
+        }
+    }
+    models::Id::zero()
 }
 
 // shard_template returns a template ShardSpec for creating or updating
@@ -637,5 +664,28 @@ mod test {
         };
         let labels = journal_selector(&collection, Some(&selector));
         insta::assert_debug_snapshot!(labels);
+    }
+
+    #[test]
+    fn journal_and_shard_template_prefixes() {
+        let id = models::Id::new([1, 2, 3, 4, 1, 2, 3, 4]);
+
+        let prefix = super::partition_prefix(id, &models::Collection::new("acmeCo/some/anvils"));
+        assert_eq!(prefix, "acmeCo/some/anvils/0102030401020304");
+        assert_eq!(super::extract_generation_id_suffix(&prefix), id);
+
+        let prefix = super::shard_id_prefix(id, "some/task/name", "capture");
+        assert_eq!(prefix, "capture/some/task/name/0102030401020304");
+        assert_eq!(super::extract_generation_id_suffix(&prefix), id);
+
+        // Legacy prefixes without generation IDs map to zeros.
+        assert_eq!(
+            super::extract_generation_id_suffix("acmeCo/some/anvils"),
+            models::Id::zero()
+        );
+        assert_eq!(
+            super::extract_generation_id_suffix("capture/some/task/name"),
+            models::Id::zero()
+        );
     }
 }

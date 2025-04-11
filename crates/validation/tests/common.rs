@@ -138,7 +138,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     for (capture, mock) in &mock_calls.live_captures {
         let model = models::CaptureDef {
             auto_discover: None,
-            bindings: Vec::new(),
+            bindings: mock.bindings.clone(),
             endpoint: models::CaptureEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
             interval: std::time::Duration::from_secs(32),
@@ -146,20 +146,38 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             delete: false,
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
-            id: format!("{capture}/pass-through/shard_id_prefix"),
+            id: format!("capture/{capture}/0000000000000001"),
             ..Default::default()
         };
         let recovery_template = proto_gazette::broker::JournalSpec {
-            name: format!("{capture}/pass-through/recovery_name_prefix"),
+            name: format!("recovery/capture/{capture}/0000000000000001"),
             ..Default::default()
         };
+
+        let bindings: Vec<flow::capture_spec::Binding> = mock
+            .bindings
+            .iter()
+            .map(|binding| flow::capture_spec::Binding {
+                collection: Some(flow::CollectionSpec {
+                    name: binding.target.to_string(),
+                    partition_template: Some(proto_gazette::broker::JournalSpec {
+                        name: format!("{}/0000000000000001", binding.target),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                resource_path: validation::load_resource_meta_path(&binding.resource),
+                ..Default::default()
+            })
+            .collect();
+
         let built_spec = flow::CaptureSpec {
             name: capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             interval_seconds: 100,
             network_ports: Vec::new(),
             recovery_log_template: Some(recovery_template),
-            bindings: Vec::new(),
+            bindings,
             shard_template: Some(shard_template),
             config_json: String::new(),
             inactive_bindings: Vec::new(),
@@ -188,7 +206,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
 
         let model = models::CollectionDef {
             delete: false,
-            derive: None,
+            derive: mock.derive.clone(),
             expect_pub_id: None,
             journals: Default::default(),
             key: mock.key.clone(),
@@ -199,18 +217,35 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             reset: false,
         };
         let partition_template = proto_gazette::broker::JournalSpec {
-            name: format!("{collection}/pass-through/partition_name_prefix"),
+            name: format!("{collection}/0000000000000001"),
             ..Default::default()
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
-            id: format!("{collection}/pass-through/shard_id_prefix"),
+            id: format!("derivation/{collection}/0000000000000001"),
             ..Default::default()
         };
         let recovery_template = proto_gazette::broker::JournalSpec {
-            name: format!("{collection}/pass-through/recovery_name_prefix"),
+            name: format!("recovery/derivation/{collection}/0000000000000001"),
             ..Default::default()
         };
-        let derivation = if mock.derivation {
+        let derivation = if let Some(derive) = &mock.derive {
+            let transforms: Vec<flow::collection_spec::derivation::Transform> = derive
+                .transforms
+                .iter()
+                .map(|transform| flow::collection_spec::derivation::Transform {
+                    name: transform.name.to_string(),
+                    collection: Some(flow::CollectionSpec {
+                        name: transform.source.collection().to_string(),
+                        partition_template: Some(proto_gazette::broker::JournalSpec {
+                            name: format!("{}/0000000000000001", transform.source.collection()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .collect();
+
             Some(flow::collection_spec::Derivation {
                 config_json: String::new(),
                 connector_type: flow::collection_spec::derivation::ConnectorType::Sqlite as i32,
@@ -218,7 +253,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                 recovery_log_template: Some(recovery_template),
                 shard_template: Some(shard_template),
                 shuffle_key_types: Vec::new(),
-                transforms: Vec::new(),
+                transforms,
                 inactive_transforms: Vec::new(),
             })
         } else {
@@ -260,19 +295,36 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             on_incompatible_schema_change: Default::default(),
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
-            id: format!("{materialization}/pass-through/shard_id_prefix"),
+            id: format!("materialize/{materialization}/0000000000000001"),
             ..Default::default()
         };
         let recovery_template = proto_gazette::broker::JournalSpec {
-            name: format!("{materialization}/pass-through/recovery_name_prefix"),
+            name: format!("recovery/materialize/{materialization}/0000000000000001"),
             ..Default::default()
         };
+        let bindings: Vec<flow::materialization_spec::Binding> = mock
+            .bindings
+            .iter()
+            .map(|binding| flow::materialization_spec::Binding {
+                collection: Some(flow::CollectionSpec {
+                    name: binding.source.collection().to_string(),
+                    partition_template: Some(proto_gazette::broker::JournalSpec {
+                        name: format!("{}/0000000000000001", binding.source.collection()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                resource_path: validation::load_resource_meta_path(&binding.resource),
+                ..Default::default()
+            })
+            .collect();
+
         let built_spec = flow::MaterializationSpec {
             name: materialization.to_string(),
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
             network_ports: Vec::new(),
             recovery_log_template: Some(recovery_template),
-            bindings: Vec::new(),
+            bindings,
             shard_template: Some(shard_template),
             config_json: String::new(),
             inactive_bindings: Vec::new(),
@@ -292,7 +344,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     for (test, mock) in &mock_calls.live_tests {
         let model = models::TestDef {
             description: "live test".to_string(),
-            steps: Vec::new(),
+            steps: mock.steps.clone(),
             expect_pub_id: None,
             delete: false,
         };
@@ -309,6 +361,11 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             built_spec,
             None,
         );
+    }
+    // Load into LiveCatalog::inferred_schemas.
+    for (collection, schema) in &mock_calls.live_inferred_schemas {
+        live.inferred_schemas
+            .insert_row(collection, schema, "an-md5".to_string());
     }
     // Load into LiveCatalog::storage_mappings.
     for (prefix, storage) in &mock_calls.storage_mappings {
@@ -393,6 +450,8 @@ struct MockLiveCapture {
     last_pub_id: models::Id,
     #[serde(default)]
     last_build_id: Option<models::Id>,
+    #[serde(default)]
+    bindings: Vec<models::CaptureBinding>,
 }
 
 #[derive(serde::Deserialize)]
@@ -405,11 +464,11 @@ struct MockLiveCollection {
     last_build_id: Option<models::Id>,
     key: models::CompositeKey,
     #[serde(default)]
-    derivation: bool,
-    #[serde(default)]
     schema: Option<models::Schema>,
     #[serde(default)]
     projections: BTreeMap<models::Field, models::Projection>,
+    #[serde(default)]
+    derive: Option<models::Derivation>,
 }
 
 #[derive(serde::Deserialize)]
@@ -431,6 +490,8 @@ struct MockLiveTest {
     last_pub_id: models::Id,
     #[serde(default)]
     last_build_id: Option<models::Id>,
+    #[serde(default)]
+    steps: Vec<models::TestStep>,
 }
 
 #[derive(serde::Deserialize)]
@@ -458,6 +519,8 @@ struct MockDriverCalls {
     live_captures: BTreeMap<models::Capture, MockLiveCapture>,
     #[serde(default)]
     live_collections: BTreeMap<models::Collection, MockLiveCollection>,
+    #[serde(default)]
+    live_inferred_schemas: BTreeMap<models::Collection, models::Schema>,
     #[serde(default)]
     live_materializations: BTreeMap<models::Materialization, MockLiveMaterialization>,
     #[serde(default)]
@@ -556,7 +619,7 @@ impl validation::Connectors for MockDriverCalls {
                                     "required": ["source"]
                                 })
                                 .to_string(),
-                                resource_path_pointers: vec!["/id".to_string()],
+                                resource_path_pointers: Vec::new(),
                                 ..Default::default()
                             }),
                             ..Default::default()

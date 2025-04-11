@@ -19,11 +19,45 @@ Outcome {
                 name: "the/capture",
                 connector_type: Image,
                 config_json: "",
-                bindings: [],
+                bindings: [
+                    Binding {
+                        resource_config_json: "",
+                        resource_path: [
+                            "capture",
+                            "path",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "the/collection",
+                                write_schema_json: "",
+                                read_schema_json: "",
+                                key: [],
+                                uuid_ptr: "",
+                                partition_fields: [],
+                                projections: [],
+                                ack_template_json: "",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "the/collection/0000000000000001",
+                                        replication: 0,
+                                        labels: None,
+                                        fragment: None,
+                                        flags: 0,
+                                        max_append_rate: 0,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        backfill: 0,
+                        state_key: "",
+                    },
+                ],
                 interval_seconds: 100,
                 shard_template: Some(
                     ShardSpec {
-                        id: "the/capture/pass-through/shard_id_prefix",
+                        id: "capture/the/capture/0000000000000001",
                         sources: [],
                         recovery_log_prefix: "",
                         hint_prefix: "",
@@ -40,7 +74,7 @@ Outcome {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "the/capture/pass-through/recovery_name_prefix",
+                        name: "recovery/capture/the/capture/0000000000000001",
                         replication: 0,
                         labels: None,
                         fragment: None,
@@ -81,7 +115,7 @@ Outcome {
                 ack_template_json: "",
                 partition_template: Some(
                     JournalSpec {
-                        name: "the/collection/pass-through/partition_name_prefix",
+                        name: "the/collection/0000000000000001",
                         replication: 0,
                         labels: None,
                         fragment: None,
@@ -119,7 +153,7 @@ Outcome {
                 ack_template_json: "",
                 partition_template: Some(
                     JournalSpec {
-                        name: "the/derivation/pass-through/partition_name_prefix",
+                        name: "the/derivation/0000000000000001",
                         replication: 0,
                         labels: None,
                         fragment: None,
@@ -132,11 +166,50 @@ Outcome {
                     Derivation {
                         connector_type: Sqlite,
                         config_json: "",
-                        transforms: [],
+                        transforms: [
+                            Transform {
+                                name: "fromCollection",
+                                collection: Some(
+                                    CollectionSpec {
+                                        name: "the/collection",
+                                        write_schema_json: "",
+                                        read_schema_json: "",
+                                        key: [],
+                                        uuid_ptr: "",
+                                        partition_fields: [],
+                                        projections: [],
+                                        ack_template_json: "",
+                                        partition_template: Some(
+                                            JournalSpec {
+                                                name: "the/collection/0000000000000001",
+                                                replication: 0,
+                                                labels: None,
+                                                fragment: None,
+                                                flags: 0,
+                                                max_append_rate: 0,
+                                                suspend: None,
+                                            },
+                                        ),
+                                        derivation: None,
+                                    },
+                                ),
+                                partition_selector: None,
+                                priority: 0,
+                                read_delay_seconds: 0,
+                                shuffle_key: [],
+                                shuffle_lambda_config_json: "",
+                                lambda_config_json: "",
+                                read_only: false,
+                                journal_read_suffix: "",
+                                not_before: None,
+                                not_after: None,
+                                backfill: 0,
+                            },
+                        ],
                         shuffle_key_types: [],
                         shard_template: Some(
                             ShardSpec {
-                                id: "the/derivation/pass-through/shard_id_prefix",
+                                id: "derivation/the/derivation/0000000000000001",
                                 sources: [],
                                 recovery_log_prefix: "",
                                 hint_prefix: "",
@@ -153,7 +226,7 @@ Outcome {
                         ),
                         recovery_log_template: Some(
                             JournalSpec {
-                                name: "the/derivation/pass-through/recovery_name_prefix",
+                                name: "recovery/derivation/the/derivation/0000000000000001",
                                 replication: 0,
                                 labels: None,
                                 fragment: None,
@@ -187,10 +260,52 @@ Outcome {
                 name: "the/materialization",
                 connector_type: Image,
                 config_json: "",
-                bindings: [],
+                bindings: [
+                    Binding {
+                        resource_config_json: "",
+                        resource_path: [
+                            "table",
+                            "path",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "the/collection",
+                                write_schema_json: "",
+                                read_schema_json: "",
+                                key: [],
+                                uuid_ptr: "",
+                                partition_fields: [],
+                                projections: [],
+                                ack_template_json: "",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "the/collection/0000000000000001",
+                                        replication: 0,
+                                        labels: None,
+                                        fragment: None,
+                                        flags: 0,
+                                        max_append_rate: 0,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: None,
+                        priority: 0,
+                        field_selection: None,
+                        delta_updates: false,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 0,
+                        state_key: "",
+                    },
+                ],
                 shard_template: Some(
                     ShardSpec {
-                        id: "the/materialization/pass-through/shard_id_prefix",
+                        id: "materialize/the/materialization/0000000000000001",
                         sources: [],
                         recovery_log_prefix: "",
                         hint_prefix: "",
@@ -207,7 +322,7 @@ Outcome {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "the/materialization/pass-through/recovery_name_prefix",
+                        name: "recovery/materialize/the/materialization/0000000000000001",
                         replication: 0,
                         labels: None,
                         fragment: None,
@@ -289,7 +404,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"table":"foo"},"target":"the/collection"}],"delete":true,"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"delete":true,"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"resource":{"table":"bar"},"source":"the/collection"}],"delete":true,"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"tests":{"the/test":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
+            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"_meta":{"path":["capture","path"]},"table":"foo"},"target":"the/collection"}],"delete":true,"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"delete":true,"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"fields":{"exclude":["F2","FY","does/not/exist"],"include":{"F1":{},"f_two":{}},"recommended":true},"resource":{"_meta":{"path":["table","path"]},"table":"bar"},"source":"the/collection"}],"delete":true,"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"tests":{"the/test":{"delete":true,"expectPubId":"10:10:10:10:10:10:10:10","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
         },
     ],
     storage_mappings: [

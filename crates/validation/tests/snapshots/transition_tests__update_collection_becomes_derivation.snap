@@ -38,7 +38,7 @@ Outcome {
                 ack_template_json: "",
                 partition_template: Some(
                     JournalSpec {
-                        name: "the/collection/pass-through/partition_name_prefix",
+                        name: "the/collection/0000000000000001",
                         replication: 0,
                         labels: None,
                         fragment: None,
@@ -47,44 +47,7 @@ Outcome {
                         suspend: None,
                     },
                 ),
-                derivation: Some(
-                    Derivation {
-                        connector_type: Sqlite,
-                        config_json: "",
-                        transforms: [],
-                        shuffle_key_types: [],
-                        shard_template: Some(
-                            ShardSpec {
-                                id: "the/collection/pass-through/shard_id_prefix",
-                                sources: [],
-                                recovery_log_prefix: "",
-                                hint_prefix: "",
-                                hint_backups: 0,
-                                max_txn_duration: None,
-                                min_txn_duration: None,
-                                disable: false,
-                                hot_standbys: 0,
-                                labels: None,
-                                disable_wait_for_ack: false,
-                                ring_buffer_size: 0,
-                                read_channel_size: 0,
-                            },
-                        ),
-                        recovery_log_template: Some(
-                            JournalSpec {
-                                name: "the/collection/pass-through/recovery_name_prefix",
-                                replication: 0,
-                                labels: None,
-                                fragment: None,
-                                flags: 0,
-                                max_append_rate: 0,
-                                suspend: None,
-                            },
-                        ),
-                        network_ports: [],
-                        inactive_transforms: [],
-                    },
-                ),
+                derivation: None,
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -276,7 +239,7 @@ Outcome {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "the/derivation/pass-through/partition_name_prefix",
+                        name: "the/derivation/0000000000000001",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -353,7 +316,7 @@ Outcome {
                                         ack_template_json: "",
                                         partition_template: Some(
                                             JournalSpec {
-                                                name: "the/collection/pass-through/partition_name_prefix",
+                                                name: "the/collection/0000000000000001",
                                                 replication: 0,
                                                 labels: None,
                                                 fragment: None,
@@ -535,7 +498,7 @@ Outcome {
                 ack_template_json: "",
                 partition_template: Some(
                     JournalSpec {
-                        name: "the/derivation/pass-through/partition_name_prefix",
+                        name: "the/derivation/0000000000000001",
                         replication: 0,
                         labels: None,
                         fragment: None,
