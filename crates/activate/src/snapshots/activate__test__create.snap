@@ -39,7 +39,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/logs-journal",
-                "value": "ops/logs/name"
+                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/rclock-begin",
@@ -51,7 +51,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/stats-journal",
-                "value": "ops/stats/name"
+                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -144,7 +144,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/logs-journal",
-                "value": "ops/logs/name"
+                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/rclock-begin",
@@ -156,7 +156,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/stats-journal",
-                "value": "ops/stats/name"
+                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -249,7 +249,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/logs-journal",
-                "value": "ops/logs/name"
+                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/rclock-begin",
@@ -261,7 +261,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/stats-journal",
-                "value": "ops/stats/name"
+                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -354,7 +354,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/logs-journal",
-                "value": "ops/logs/name"
+                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/rclock-begin",
@@ -366,7 +366,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/stats-journal",
-                "value": "ops/stats/name"
+                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -419,6 +419,118 @@ expression: "(partition_changes, task_changes)"
               "gs://example-bucket/"
             ],
             "refreshInterval": "300s"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304"
+        }
+      }
+    },
+    {
+      "Journal": {
+        "upsert": {
+          "name": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-ndjson"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/collection",
+                "value": "ops/tasks/BASE_NAME/logs"
+              },
+              {
+                "name": "estuary.dev/field/kind",
+                "value": "derivation"
+              },
+              {
+                "name": "estuary.dev/field/name",
+                "value": "example%2Fderivation"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "00000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "ffffffff"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "536870912",
+            "compressionCodec": "GZIP",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s",
+            "flushInterval": "86400s",
+            "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
+          },
+          "flags": 4,
+          "maxAppendRate": "4194304"
+        }
+      }
+    },
+    {
+      "Journal": {
+        "upsert": {
+          "name": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00",
+          "replication": 3,
+          "labels": {
+            "labels": [
+              {
+                "name": "app.gazette.dev/managed-by",
+                "value": "estuary.dev/flow"
+              },
+              {
+                "name": "content-type",
+                "value": "application/x-ndjson"
+              },
+              {
+                "name": "estuary.dev/build",
+                "value": "0101010101010101"
+              },
+              {
+                "name": "estuary.dev/collection",
+                "value": "ops/tasks/BASE_NAME/stats"
+              },
+              {
+                "name": "estuary.dev/field/kind",
+                "value": "derivation"
+              },
+              {
+                "name": "estuary.dev/field/name",
+                "value": "example%2Fderivation"
+              },
+              {
+                "name": "estuary.dev/key-begin",
+                "value": "00000000"
+              },
+              {
+                "name": "estuary.dev/key-end",
+                "value": "ffffffff"
+              }
+            ]
+          },
+          "fragment": {
+            "length": "536870912",
+            "compressionCodec": "GZIP",
+            "stores": [
+              "gs://example-bucket/"
+            ],
+            "refreshInterval": "300s",
+            "flushInterval": "86400s",
+            "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
           },
           "flags": 4,
           "maxAppendRate": "4194304"
