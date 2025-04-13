@@ -38,6 +38,88 @@ struct TaskTemplate<'a> {
     recovery: &'a JournalSpec,
 }
 
+// Map a CaptureSpec into its activation TaskTemplate.
+fn capture_template(task_spec: Option<&flow::CaptureSpec>) -> anyhow::Result<Option<TaskTemplate>> {
+    let Some(task_spec) = task_spec else {
+        return Ok(None);
+    };
+
+    let shard_template = task_spec
+        .shard_template
+        .as_ref()
+        .context("CaptureSpec missing shard_template")?;
+
+    let recovery_template = task_spec
+        .recovery_log_template
+        .as_ref()
+        .context("CaptureSpec missing recovery_log_template")?;
+
+    Ok(Some(TaskTemplate {
+        shard: shard_template,
+        recovery: recovery_template,
+    }))
+}
+
+// Map a MaterializationSpec into its activation TaskTemplate.
+fn materialization_template(
+    task_spec: Option<&flow::MaterializationSpec>,
+) -> anyhow::Result<Option<TaskTemplate>> {
+    let Some(task_spec) = task_spec else {
+        return Ok(None);
+    };
+
+    let shard_template = task_spec
+        .shard_template
+        .as_ref()
+        .context("MaterializationSpec missing shard_template")?;
+
+    let recovery_template = task_spec
+        .recovery_log_template
+        .as_ref()
+        .context("MaterializationSpec missing recovery_log_template")?;
+
+    Ok(Some(TaskTemplate {
+        shard: shard_template,
+        recovery: recovery_template,
+    }))
+}
+
+// Map a CollectionSpeck into its activation partition template and,
+// if a derivation, its activation TaskTemplate.
+fn collection_template(
+    task_spec: Option<&flow::CollectionSpec>,
+) -> anyhow::Result<(Option<&JournalSpec>, Option<TaskTemplate>)> {
+    let Some(task_spec) = task_spec else {
+        return Ok((None, None));
+    };
+
+    let partition_template = task_spec
+        .partition_template
+        .as_ref()
+        .context("CollectionSpec missing partition_template")?;
+
+    let task_template = if let Some(derivation) = &task_spec.derivation {
+        let shard_template = derivation
+            .shard_template
+            .as_ref()
+            .context("CollectionSpec.Derivation missing shard_template")?;
+
+        let recovery_template = derivation
+            .recovery_log_template
+            .as_ref()
+            .context("CollectionSpec.Derivation missing recovery_log_template")?;
+
+        Some(TaskTemplate {
+            shard: shard_template,
+            recovery: recovery_template,
+        })
+    } else {
+        None
+    };
+
+    Ok((Some(partition_template), task_template))
+}
+
 /// Activate a capture into a data-plane.
 pub async fn activate_capture(
     journal_client: &gazette::journal::Client,
@@ -48,24 +130,7 @@ pub async fn activate_capture(
     ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<()> {
-    let task_template = if let Some(task_spec) = task_spec {
-        let shard_template = task_spec
-            .shard_template
-            .as_ref()
-            .context("CaptureSpec missing shard_template")?;
-
-        let recovery_template = task_spec
-            .recovery_log_template
-            .as_ref()
-            .context("CaptureSpec missing recovery_log_template")?;
-
-        Some(TaskTemplate {
-            shard: shard_template,
-            recovery: recovery_template,
-        })
-    } else {
-        None
-    };
+    let task_template = capture_template(task_spec)?;
 
     let changes = converge_task_changes(
         journal_client,
@@ -92,35 +157,7 @@ pub async fn activate_collection(
     ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<()> {
-    let (task_template, partition_template) = if let Some(task_spec) = task_spec {
-        let partition_template = task_spec
-            .partition_template
-            .as_ref()
-            .context("CollectionSpec missing partition_template")?;
-
-        let task_template = if let Some(derivation) = &task_spec.derivation {
-            let shard_template = derivation
-                .shard_template
-                .as_ref()
-                .context("CollectionSpec.Derivation missing shard_template")?;
-
-            let recovery_template = derivation
-                .recovery_log_template
-                .as_ref()
-                .context("CollectionSpec.Derivation missing recovery_log_template")?;
-
-            Some(TaskTemplate {
-                shard: shard_template,
-                recovery: recovery_template,
-            })
-        } else {
-            None
-        };
-
-        (task_template, Some(partition_template))
-    } else {
-        (None, None)
-    };
+    let (partition_template, task_template) = collection_template(task_spec)?;
 
     let (changes_1, changes_2) = futures::try_join!(
         converge_task_changes(
@@ -154,24 +191,7 @@ pub async fn activate_materialization(
     ops_stats_template: Option<&broker::JournalSpec>,
     initial_splits: usize,
 ) -> anyhow::Result<()> {
-    let task_template = if let Some(task_spec) = task_spec {
-        let shard_template = task_spec
-            .shard_template
-            .as_ref()
-            .context("MaterializationSpec missing shard_template")?;
-
-        let recovery_template = task_spec
-            .recovery_log_template
-            .as_ref()
-            .context("MaterializationSpec missing recovery_log_template")?;
-
-        Some(TaskTemplate {
-            shard: shard_template,
-            recovery: recovery_template,
-        })
-    } else {
-        None
-    };
+    let task_template = materialization_template(task_spec)?;
 
     let changes = converge_task_changes(
         journal_client,
@@ -519,6 +539,16 @@ fn task_changes<'a>(
             ..template.shard.clone()
         };
 
+        // Next resolve the shard's recovery-log JournalSpec.
+        let recovery_name = format!("{}/{}", shard_spec.recovery_log_prefix, shard_spec.id);
+        let recovery_split = recovery.remove(&recovery_name).unwrap_or_default();
+
+        let mut recovery_spec = JournalSpec {
+            name: recovery_name,
+            suspend: recovery_split.suspend, // Must be passed through.
+            ..template.recovery.clone()
+        };
+
         // Resolve the labels of the ShardSpec by merging labels managed the
         // control-plane versus the data-plane.
         let mut shard_labels = shard_spec.labels.take().unwrap_or_default();
@@ -536,20 +566,16 @@ fn task_changes<'a>(
             if label.name == labels::SPLIT_SOURCE {
                 shard_spec.hot_standbys = 0
             }
+
+            // A cordoned task is disabled with its recovery log marked read-only.
+            if label.name == labels::CORDON {
+                shard_spec.disable = true;
+                recovery_spec.flags = proto_gazette::broker::journal_spec::Flag::ORdonly as u32;
+            }
         }
         shard_labels = labels::set_value(shard_labels, labels::LOGS_JOURNAL, ops_logs_name);
         shard_labels = labels::set_value(shard_labels, labels::STATS_JOURNAL, ops_stats_name);
         shard_spec.labels = Some(shard_labels);
-
-        // Next resolve the shard's recovery-log JournalSpec.
-        let recovery_name = format!("{}/{}", shard_spec.recovery_log_prefix, shard_spec.id);
-        let recovery_split = recovery.remove(&recovery_name).unwrap_or_default();
-
-        let recovery_spec = JournalSpec {
-            name: recovery_name,
-            suspend: recovery_split.suspend, // Must be passed through.
-            ..template.recovery.clone()
-        };
 
         changes.push(Change::Shard(consumer::apply_request::Change {
             expect_mod_revision: shard_revision,
@@ -626,6 +652,11 @@ fn partition_changes(
                 continue;
             }
             spec_labels = labels::add_value(spec_labels, &label.name, &label.value);
+
+            // A cordoned journal is marked as read-only to prevent further writes.
+            if label.name == labels::CORDON {
+                spec.flags = proto_gazette::broker::journal_spec::Flag::ORdonly as u32;
+            }
         }
         spec.labels = Some(spec_labels);
 
@@ -932,9 +963,9 @@ mod test {
         let mut all_recovery = Vec::new();
         let mut all_recovery_disabled = Vec::new();
 
-        let mut make_partition = |key_begin, key_end, doc: serde_json::Value| {
+        let mut make_partition = |key_begin, key_end, doc: serde_json::Value, labels: LabelSet| {
             let labels = labels::partition::encode_field_range(
-                labels::build_set([("extra", "1")]),
+                labels::add_value(labels, "extra", "1"),
                 key_begin,
                 key_end,
                 partition_fields,
@@ -958,9 +989,11 @@ mod test {
             });
         };
 
-        let mut make_task = |range_spec| {
-            let labels =
-                labels::shard::encode_range_spec(labels::build_set([("extra", "1")]), range_spec);
+        let mut make_task = |range_spec, labels: LabelSet| {
+            let labels = labels::shard::encode_range_spec(
+                labels::add_value(labels, "extra", "1"),
+                range_spec,
+            );
             let shard_id = format!(
                 "{}/{}",
                 shard_template.id,
@@ -1008,32 +1041,48 @@ mod test {
             0x10000000,
             0x3fffffff,
             json!({"a_bool": true, "a_str": "a-val"}),
+            LabelSet::default(),
         );
         make_partition(
             0x40000000,
             0x5fffffff,
             json!({"a_bool": true, "a_str": "a-val"}),
+            LabelSet::default(),
         );
-        make_partition(0, u32::MAX, json!({"a_bool": false, "a_str": "other-val"}));
+        make_partition(
+            0,
+            u32::MAX,
+            json!({"a_bool": false, "a_str": "other-val"}),
+            labels::build_set([(labels::CORDON, "true")]),
+        );
 
-        make_task(&flow::RangeSpec {
-            key_begin: 0x10000000,
-            key_end: 0x2fffffff,
-            r_clock_begin: 0x60000000,
-            r_clock_end: 0x9fffffff,
-        });
-        make_task(&flow::RangeSpec {
-            key_begin: 0x30000000,
-            key_end: 0x3fffffff,
-            r_clock_begin: 0x60000000,
-            r_clock_end: 0x7fffffff,
-        });
-        make_task(&flow::RangeSpec {
-            key_begin: 0x30000000,
-            key_end: 0x3fffffff,
-            r_clock_begin: 0x80000000,
-            r_clock_end: 0x9fffffff,
-        });
+        make_task(
+            &flow::RangeSpec {
+                key_begin: 0x10000000,
+                key_end: 0x2fffffff,
+                r_clock_begin: 0x60000000,
+                r_clock_end: 0x9fffffff,
+            },
+            LabelSet::default(),
+        );
+        make_task(
+            &flow::RangeSpec {
+                key_begin: 0x30000000,
+                key_end: 0x3fffffff,
+                r_clock_begin: 0x60000000,
+                r_clock_end: 0x7fffffff,
+            },
+            LabelSet::default(),
+        );
+        make_task(
+            &flow::RangeSpec {
+                key_begin: 0x30000000,
+                key_end: 0x3fffffff,
+                r_clock_begin: 0x80000000,
+                r_clock_end: 0x9fffffff,
+            },
+            labels::build_set([(labels::CORDON, "true")]),
+        );
 
         // Case: test update of existing specs.
         {
