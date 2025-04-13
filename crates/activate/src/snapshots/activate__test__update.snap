@@ -228,7 +228,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/logs-journal",
-                "value": "ops/logs/name"
+                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/rclock-begin",
@@ -240,7 +240,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/stats-journal",
-                "value": "ops/stats/name"
+                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -338,7 +338,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/logs-journal",
-                "value": "ops/logs/name"
+                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/rclock-begin",
@@ -350,7 +350,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/stats-journal",
-                "value": "ops/stats/name"
+                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/task-name",
@@ -453,7 +453,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/logs-journal",
-                "value": "ops/logs/name"
+                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/rclock-begin",
@@ -465,7 +465,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/stats-journal",
-                "value": "ops/stats/name"
+                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
               },
               {
                 "name": "estuary.dev/task-name",
