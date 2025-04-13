@@ -10,36 +10,39 @@ use std::collections::BTreeMap;
 
 // A Shard or Journal change to be applied.
 #[derive(serde::Serialize)]
-enum Change {
+pub enum Change {
     Shard(consumer::apply_request::Change),
     Journal(broker::apply_request::Change),
 }
 
 // JournalSplit describes a collection partition or a shard recovery log.
 #[derive(Debug, Default, Clone, serde::Serialize)]
-struct JournalSplit {
-    name: String,
-    labels: LabelSet,
-    mod_revision: i64,
-    suspend: Option<journal_spec::Suspend>,
+pub struct JournalSplit {
+    pub name: String,
+    pub labels: LabelSet,
+    pub mod_revision: i64,
+    pub suspend: Option<journal_spec::Suspend>,
 }
 
 // ShardSplit describes a task partition.
 #[derive(Debug, Clone, serde::Serialize)]
-struct ShardSplit {
-    id: String,
-    labels: LabelSet,
-    mod_revision: i64,
+pub struct ShardSplit {
+    pub id: String,
+    pub labels: LabelSet,
+    pub mod_revision: i64,
+    pub primary_hints: Option<recoverylog::FsmHints>,
 }
 
 #[derive(Copy, Clone, Debug)]
-struct TaskTemplate<'a> {
-    shard: &'a ShardSpec,
-    recovery: &'a JournalSpec,
+pub struct TaskTemplate<'a> {
+    pub shard: &'a ShardSpec,
+    pub recovery: &'a JournalSpec,
 }
 
 // Map a CaptureSpec into its activation TaskTemplate.
-fn capture_template(task_spec: Option<&flow::CaptureSpec>) -> anyhow::Result<Option<TaskTemplate>> {
+pub fn capture_template(
+    task_spec: Option<&flow::CaptureSpec>,
+) -> anyhow::Result<Option<TaskTemplate>> {
     let Some(task_spec) = task_spec else {
         return Ok(None);
     };
@@ -61,7 +64,7 @@ fn capture_template(task_spec: Option<&flow::CaptureSpec>) -> anyhow::Result<Opt
 }
 
 // Map a MaterializationSpec into its activation TaskTemplate.
-fn materialization_template(
+pub fn materialization_template(
     task_spec: Option<&flow::MaterializationSpec>,
 ) -> anyhow::Result<Option<TaskTemplate>> {
     let Some(task_spec) = task_spec else {
@@ -86,7 +89,7 @@ fn materialization_template(
 
 // Map a CollectionSpeck into its activation partition template and,
 // if a derivation, its activation TaskTemplate.
-fn collection_template(
+pub fn collection_template(
     task_spec: Option<&flow::CollectionSpec>,
 ) -> anyhow::Result<(Option<&JournalSpec>, Option<TaskTemplate>)> {
     let Some(task_spec) = task_spec else {
@@ -132,17 +135,18 @@ pub async fn activate_capture(
 ) -> anyhow::Result<()> {
     let task_template = capture_template(task_spec)?;
 
-    let changes = converge_task_changes(
+    let (shards, recovery, ops_logs, ops_stats) = fetch_task_splits(
         journal_client,
         shard_client,
         ops::TaskType::Capture,
         capture,
-        task_template,
         ops_logs_template,
         ops_stats_template,
-        initial_splits,
     )
     .await?;
+
+    let shards = apply_initial_splits(task_template, initial_splits, shards)?;
+    let changes = task_changes(task_template, shards, recovery, ops_logs, ops_stats)?;
 
     apply_changes(journal_client, shard_client, changes).await
 }
@@ -159,24 +163,26 @@ pub async fn activate_collection(
 ) -> anyhow::Result<()> {
     let (partition_template, task_template) = collection_template(task_spec)?;
 
-    let (changes_1, changes_2) = futures::try_join!(
-        converge_task_changes(
+    let ((shards, recovery, ops_logs, ops_stats), partitions) = futures::try_join!(
+        fetch_task_splits(
             journal_client,
             shard_client,
             ops::TaskType::Derivation,
             collection,
-            task_template,
             ops_logs_template,
             ops_stats_template,
-            initial_splits,
         ),
-        converge_partition_changes(journal_client, collection, partition_template),
+        fetch_partition_splits(journal_client, collection),
     )?;
+
+    let shards = apply_initial_splits(task_template, initial_splits, shards)?;
+    let changes_1 = partition_changes(partition_template, partitions)?;
+    let changes_2 = task_changes(task_template, shards, recovery, ops_logs, ops_stats)?;
 
     apply_changes(
         journal_client,
         shard_client,
-        changes_1.into_iter().chain(changes_2.into_iter()),
+        changes_1.into_iter().chain(changes_2),
     )
     .await
 }
@@ -193,22 +199,23 @@ pub async fn activate_materialization(
 ) -> anyhow::Result<()> {
     let task_template = materialization_template(task_spec)?;
 
-    let changes = converge_task_changes(
+    let (shards, recovery, ops_logs, ops_stats) = fetch_task_splits(
         journal_client,
         shard_client,
         ops::TaskType::Materialization,
         materialization,
-        task_template,
         ops_logs_template,
         ops_stats_template,
-        initial_splits,
     )
     .await?;
+
+    let shards = apply_initial_splits(task_template, initial_splits, shards)?;
+    let changes = task_changes(task_template, shards, recovery, ops_logs, ops_stats)?;
 
     apply_changes(journal_client, shard_client, changes).await
 }
 
-async fn apply_changes(
+pub async fn apply_changes(
     journal_client: &gazette::journal::Client,
     shard_client: &gazette::shard::Client,
     changes: impl IntoIterator<Item = Change>,
@@ -307,69 +314,59 @@ async fn apply_changes(
     Ok(())
 }
 
-/// Converge a task by listing data-plane ShardSpecs and recovery log
-/// JournalSpecs, and then applying updates to bring them into alignment
-/// with the templated task configuration.
-async fn converge_task_changes<'a>(
+pub async fn fetch_task_splits<'a>(
     journal_client: &gazette::journal::Client,
     shard_client: &gazette::shard::Client,
     task_type: ops::TaskType,
     task_name: &str,
-    template: Option<TaskTemplate<'a>>,
     ops_logs_template: Option<&broker::JournalSpec>,
     ops_stats_template: Option<&broker::JournalSpec>,
-    initial_splits: usize,
-) -> anyhow::Result<Vec<Change>> {
+) -> anyhow::Result<(
+    Vec<ShardSplit>,                                  // Shards.
+    Vec<JournalSplit>,                                // Recovery logs.
+    (String, Option<JournalSpec>, Vec<JournalSplit>), // Ops logs.
+    (String, Option<JournalSpec>, Vec<JournalSplit>), // Ops stats.
+)> {
     let (list_shards, list_recovery) = list_task_request(task_type, task_name);
-    let list_logs = list_ops_journal(journal_client, task_type, task_name, ops_logs_template);
-    let list_stats = list_ops_journal(journal_client, task_type, task_name, ops_stats_template);
+    let list_ops_logs = list_ops_journal(journal_client, task_type, task_name, ops_logs_template);
+    let list_ops_stats = list_ops_journal(journal_client, task_type, task_name, ops_stats_template);
 
     // List task shards, shard recovery logs, task ops logs, and task ops stats concurrently.
-    let (shards, recovery, logs, stats) = futures::join!(
+    let (shards, recovery, ops_logs, ops_stats) = futures::join!(
         shard_client.list(list_shards),
         journal_client.list(list_recovery),
-        list_logs,
-        list_stats,
+        list_ops_logs,
+        list_ops_stats,
     );
 
     // Unpack list responses.
     let shards = unpack_shard_listing(shards?)?;
     let recovery = unpack_journal_listing(recovery?)?;
-    let (ops_logs_name, ops_logs_spec, ops_logs_splits) = logs?;
-    let (ops_stats_name, ops_stats_spec, ops_stats_splits) = stats?;
 
-    let mut changes = task_changes(
-        template,
-        shards,
-        recovery,
-        initial_splits,
-        &ops_logs_name,
-        &ops_stats_name,
-    )?;
-
-    // Apply ops partitions iff the task is active.
-    if matches!(template, Some(template) if !template.shard.disable) {
-        changes.extend(ops_journal_changes(ops_logs_spec, ops_logs_splits));
-        changes.extend(ops_journal_changes(ops_stats_spec, ops_stats_splits));
+    if !shards.is_sorted_by_key(|shard| &shard.id) {
+        anyhow::bail!("shards are not sorted by id");
+    }
+    if !recovery.is_sorted_by_key(|recovery| &recovery.name) {
+        anyhow::bail!("recovery logs are not sorted by name");
     }
 
-    Ok(changes)
+    Ok((shards, recovery, ops_logs?, ops_stats?))
 }
 
-/// Converge a collection by listing data-plane partition JournalSpecs,
-/// and then applying updates to bring them into alignment
-/// with the templated collection configuration.
-async fn converge_partition_changes(
+pub async fn fetch_partition_splits(
     journal_client: &gazette::journal::Client,
-    collection: &models::Collection,
-    template: Option<&JournalSpec>,
-) -> anyhow::Result<Vec<Change>> {
+    collection: &str,
+) -> anyhow::Result<Vec<JournalSplit>> {
     let list_partitions = list_partitions_request(&collection);
 
     let partitions = journal_client.list(list_partitions).await?;
     let partitions = unpack_journal_listing(partitions)?;
 
-    partition_changes(template, partitions)
+    if !partitions.is_sorted_by_key(|partition| &partition.name) {
+        anyhow::bail!("partitions are not sorted by name");
+    }
+
+    Ok(partitions)
 }
 
 /// Build ListRequests of a Task's shard splits and recovery logs.
@@ -402,12 +399,12 @@ fn list_task_request(
 }
 
 /// Build a ListRequest of a collections partitions.
-fn list_partitions_request(collection: &models::Collection) -> broker::ListRequest {
+fn list_partitions_request(collection: &str) -> broker::ListRequest {
     broker::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
                 ("name:prefix", format!("{collection}/").as_str()),
-                (labels::COLLECTION, collection.as_str()),
+                (labels::COLLECTION, collection),
             ])),
             exclude: None,
         }),
@@ -456,46 +453,17 @@ fn unpack_journal_listing(resp: broker::ListResponse) -> anyhow::Result<Vec<Jour
     Ok(v)
 }
 
-/// Determine the consumer shard and broker recovery log changes required to
-/// converge from current `shards` and `recovery` splits into the desired state.
-fn task_changes<'a>(
+/// Determine the consumer shard and broker recovery and ops journal changes
+/// required to converge the desired splits towards the `template`.
+pub fn task_changes<'a>(
     template: Option<TaskTemplate<'a>>,
-    mut shards: Vec<ShardSplit>,
+    shards: Vec<ShardSplit>,
     recovery: Vec<JournalSplit>,
-    initial_splits: usize,
-    ops_logs_name: &str,
-    ops_stats_name: &str,
+    ops_logs: (String, Option<JournalSpec>, Vec<JournalSplit>),
+    ops_stats: (String, Option<JournalSpec>, Vec<JournalSplit>),
 ) -> anyhow::Result<Vec<Change>> {
-    // If the task is being upsert-ed, no current shards have its template prefix,
-    // and it's not disabled, then create `initial_splits` new shards.
-    if let Some(template) = template {
-        if !template.shard.disable
-            && !shards
-                .iter()
-                .any(|split| split.id.starts_with(&template.shard.id))
-        {
-            // Invent initial splits.
-            for pivot in 0..initial_splits {
-                let range = flow::RangeSpec {
-                    key_begin: ((1 << 32) * (pivot + 0) / initial_splits) as u32,
-                    key_end: (((1 << 32) * (pivot + 1) / initial_splits) - 1) as u32,
-                    r_clock_begin: 0,
-                    r_clock_end: u32::MAX,
-                };
-                let labels = labels::shard::encode_range_spec(LabelSet::default(), &range);
-                let id = format!(
-                    "{}/{}",
-                    template.shard.id,
-                    labels::shard::id_suffix(&labels)?
-                );
-                shards.push(ShardSplit {
-                    id,
-                    labels,
-                    mod_revision: 0,
-                });
-            }
-        }
-    }
+    let (ops_logs_name, ops_logs_spec, ops_logs_splits) = ops_logs;
+    let (ops_stats_name, ops_stats_spec, ops_stats_splits) = ops_stats;
 
     let mut recovery: BTreeMap<_, _> = recovery
         .into_iter()
@@ -503,6 +471,7 @@ fn task_changes<'a>(
         .collect();
 
     let mut changes = Vec::new();
+    let mut active = false;
 
     for ShardSplit {
         id,
@@ -553,8 +522,20 @@ fn task_changes<'a>(
         // control-plane versus the data-plane.
         let mut shard_labels = shard_spec.labels.take().unwrap_or_default();
 
+        let build = labels::values(&shard_labels, labels::BUILD)
+            .first()
+            .map(|l| l.value.clone())
+            .unwrap_or_default();
+
         for label in &split.labels {
-            if !labels::is_data_plane_label(&label.name) {
+            if label.name == labels::BUILD && label.value > build {
+                anyhow::bail!(
+                    "current ShardSpec {} has a newer build then the template ({} vs {})",
+                    shard_spec.id,
+                    label.value,
+                    build
+                );
+            } else if !labels::is_data_plane_label(&label.name) {
                 continue;
             }
             shard_labels = labels::add_value(shard_labels, &label.name, &label.value);
@@ -573,8 +554,8 @@ fn task_changes<'a>(
                 recovery_spec.flags = proto_gazette::broker::journal_spec::Flag::ORdonly as u32;
             }
         }
-        shard_labels = labels::set_value(shard_labels, labels::LOGS_JOURNAL, ops_logs_name);
-        shard_labels = labels::set_value(shard_labels, labels::STATS_JOURNAL, ops_stats_name);
+        shard_labels = labels::set_value(shard_labels, labels::LOGS_JOURNAL, &ops_logs_name);
+        shard_labels = labels::set_value(shard_labels, labels::STATS_JOURNAL, &ops_stats_name);
         shard_spec.labels = Some(shard_labels);
 
         changes.push(Change::Shard(consumer::apply_request::Change {
@@ -587,6 +568,8 @@ fn task_changes<'a>(
             upsert: Some(recovery_spec),
             delete: String::new(),
         }));
+
+        active = true;
     }
 
     // Any remaining recovery logs are not paired with an active shard, and are deleted.
@@ -598,12 +581,18 @@ fn task_changes<'a>(
         }));
     }
 
+    // Apply ops partitions iff the task is active.
+    if active {
+        changes.extend(ops_journal_changes(ops_logs_spec, ops_logs_splits));
+        changes.extend(ops_journal_changes(ops_stats_spec, ops_stats_splits));
+    }
+
     Ok(changes)
 }
 
 /// Determine the broker partition changes required to converge
-/// from current `partitions` into the desired state.
-fn partition_changes(
+/// the desired `partitions` towards the `template`.
+pub fn partition_changes(
     template: Option<&broker::JournalSpec>,
     partitions: Vec<JournalSplit>,
 ) -> anyhow::Result<Vec<Change>> {
@@ -647,8 +636,20 @@ fn partition_changes(
         };
         let mut spec_labels = spec.labels.take().unwrap_or_default();
 
+        let build = labels::values(&spec_labels, labels::BUILD)
+            .first()
+            .map(|l| l.value.clone())
+            .unwrap_or_default();
+
         for label in &split.labels {
-            if !labels::is_data_plane_label(&label.name) {
+            if label.name == labels::BUILD && label.value > build {
+                anyhow::bail!(
+                    "current JournalSpec {} has a newer build then the template ({} vs {})",
+                    spec.name,
+                    label.value,
+                    build
+                );
+            } else if !labels::is_data_plane_label(&label.name) {
                 continue;
             }
             spec_labels = labels::add_value(spec_labels, &label.name, &label.value);
@@ -670,11 +671,11 @@ fn partition_changes(
     Ok(changes)
 }
 
-fn list_ops_journal_request(
+pub fn ops_partition_spec(
     task_type: ops::TaskType,
     task_name: &str,
     template: &JournalSpec,
-) -> (broker::ListRequest, JournalSpec) {
+) -> JournalSpec {
     let mut spec = template.clone();
     let set = spec.labels.take().unwrap_or_default();
     let set = labels::partition::encode_key_range(set, 0, u32::MAX);
@@ -687,6 +688,16 @@ fn list_ops_journal_request(
         labels::partition::name_suffix(&set).unwrap()
     );
     spec.labels = Some(set);
+
+    spec
+}
+
+fn list_ops_journal_request(
+    task_type: ops::TaskType,
+    task_name: &str,
+    template: &JournalSpec,
+) -> (broker::ListRequest, JournalSpec) {
+    let spec = ops_partition_spec(task_type, task_name, template);
 
     let list_req = broker::ListRequest {
         selector: Some(LabelSelector {
@@ -729,6 +740,50 @@ fn ops_journal_changes(spec: Option<JournalSpec>, splits: Vec<JournalSplit>) -> 
         expect_mod_revision: 0, // Will be created.
         delete: String::new(),
     }))
+}
+
+fn apply_initial_splits<'a>(
+    template: Option<TaskTemplate<'a>>,
+    initial_splits: usize,
+    mut shards: Vec<ShardSplit>,
+) -> anyhow::Result<Vec<ShardSplit>> {
+    let Some(template) = template else {
+        return Ok(shards);
+    };
+    if template.shard.disable {
+        return Ok(shards);
+    }
+    if shards
+        .iter()
+        .any(|split| split.id.starts_with(&template.shard.id))
+    {
+        return Ok(shards);
+    }
+    // The task is being upsert-ed, it's not disabled, and no current shards
+    // have its template prefix.
+
+    // Invent `initial_splits` new shards.
+    for pivot in 0..initial_splits {
+        let range = flow::RangeSpec {
+            key_begin: ((1 << 32) * (pivot + 0) / initial_splits) as u32,
+            key_end: (((1 << 32) * (pivot + 1) / initial_splits) - 1) as u32,
+            r_clock_begin: 0,
+            r_clock_end: u32::MAX,
+        };
+        let labels = labels::shard::encode_range_spec(LabelSet::default(), &range);
+        let id = format!(
+            "{}/{}",
+            template.shard.id,
+            labels::shard::id_suffix(&labels)?
+        );
+        shards.push(ShardSplit {
+            id,
+            labels,
+            mod_revision: 0,
+        });
+    }
+
+    Ok(shards)
 }
 
 /// Map a parent JournalSplit into two subdivided splits.
@@ -954,6 +1009,19 @@ mod test {
             unreachable!()
         };
 
+        let tables::BuiltCollection { spec, .. } = built
+            .built_collections
+            .get_key(&models::Collection::new("ops/tasks/BASE_NAME/stats"))
+            .unwrap();
+
+        let Some(flow::CollectionSpec {
+            partition_template: Some(ops_stats_template),
+            ..
+        }) = spec
+        else {
+            unreachable!()
+        };
+
         let extractors =
             extractors::for_fields(partition_fields, projections, &doc::SerPolicy::noop()).unwrap();
 
@@ -962,6 +1030,15 @@ mod test {
         let mut all_shards_disabled = Vec::new();
         let mut all_recovery = Vec::new();
         let mut all_recovery_disabled = Vec::new();
+
+        let task_template = TaskTemplate {
+            shard: shard_template,
+            recovery: recovery_template,
+        };
+        let disabled_task_template = TaskTemplate {
+            shard: disabled_shard_template,
+            recovery: disabled_recovery_template,
+        };
 
         let mut make_partition = |key_begin, key_end, doc: serde_json::Value, labels: LabelSet| {
             let labels = labels::partition::encode_field_range(
@@ -1084,20 +1161,40 @@ mod test {
             labels::build_set([(labels::CORDON, "true")]),
         );
 
+        let (_, ops_logs_spec) = list_ops_journal_request(
+            ops::TaskType::Derivation,
+            "example/derivation",
+            ops_logs_template,
+        );
+        let (_, ops_stats_spec) = list_ops_journal_request(
+            ops::TaskType::Derivation,
+            "example/derivation",
+            ops_stats_template,
+        );
+        let all_ops = vec![JournalSplit {
+            mod_revision: 123,
+            ..Default::default()
+        }];
+
         // Case: test update of existing specs.
         {
             let partition_changes =
                 partition_changes(Some(&partition_template), all_partitions.clone()).unwrap();
+
             let task_changes = task_changes(
-                Some(TaskTemplate {
-                    shard: shard_template,
-                    recovery: recovery_template,
-                }),
+                Some(task_template),
                 all_shards.clone(),
                 all_recovery.clone(),
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (
+                    ops_logs_spec.name.clone(),
+                    Some(ops_logs_spec.clone()),
+                    all_ops.clone(),
+                ),
+                (
+                    ops_stats_spec.name.clone(),
+                    Some(ops_stats_spec.clone()),
+                    all_ops.clone(),
+                ),
             )
             .unwrap();
 
@@ -1106,18 +1203,24 @@ mod test {
 
         // Case: test creation of new specs.
         {
+            let shards = apply_initial_splits(Some(task_template), 4, Vec::new()).unwrap();
+
             let partition_changes =
                 partition_changes(Some(&partition_template), Vec::new()).unwrap();
             let task_changes = task_changes(
-                Some(TaskTemplate {
-                    shard: shard_template,
-                    recovery: recovery_template,
-                }),
+                Some(task_template),
+                shards,
                 Vec::new(),
-                Vec::new(),
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (
+                    ops_logs_spec.name.clone(),
+                    Some(ops_logs_spec.clone()),
+                    Vec::new(),
+                ),
+                (
+                    ops_stats_spec.name.clone(),
+                    Some(ops_stats_spec.clone()),
+                    Vec::new(),
+                ),
             )
             .unwrap();
 
@@ -1126,18 +1229,24 @@ mod test {
 
         // Case: test creation of new specs with no initial splits.
         {
+            let shards = apply_initial_splits(Some(task_template), 0, Vec::new()).unwrap();
+
             let partition_changes =
                 partition_changes(Some(&partition_template), Vec::new()).unwrap();
             let task_changes = task_changes(
-                Some(TaskTemplate {
-                    shard: shard_template,
-                    recovery: recovery_template,
-                }),
+                Some(task_template),
+                shards,
                 Vec::new(),
-                Vec::new(),
-                0,
-                "ops/logs/name",
-                "ops/stats/name",
+                (
+                    ops_logs_spec.name.clone(),
+                    Some(ops_logs_spec.clone()),
+                    Vec::new(),
+                ),
+                (
+                    ops_stats_spec.name.clone(),
+                    Some(ops_stats_spec.clone()),
+                    Vec::new(),
+                ),
             )
             .unwrap();
 
@@ -1149,15 +1258,19 @@ mod test {
             let partition_changes =
                 partition_changes(Some(&partition_template), all_partitions.clone()).unwrap();
             let task_changes = task_changes(
-                Some(TaskTemplate {
-                    shard: disabled_shard_template,
-                    recovery: disabled_recovery_template,
-                }),
+                Some(disabled_task_template),
                 all_shards_disabled.clone(),
                 all_recovery_disabled.clone(),
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (
+                    ops_logs_spec.name.clone(),
+                    Some(ops_logs_spec.clone()),
+                    all_ops.clone(),
+                ),
+                (
+                    ops_stats_spec.name.clone(),
+                    Some(ops_stats_spec.clone()),
+                    all_ops.clone(),
+                ),
             )
             .unwrap();
 
@@ -1166,6 +1279,8 @@ mod test {
 
         // Case: test creation of new specs when disabled.
         {
+            let shards = apply_initial_splits(Some(disabled_task_template), 4, Vec::new()).unwrap();
+
             let partition_changes =
                 partition_changes(Some(&partition_template), Vec::new()).unwrap();
             let task_changes = task_changes(
@@ -1173,11 +1288,18 @@ mod test {
                     shard: disabled_shard_template,
                     recovery: disabled_recovery_template,
                 }),
+                shards,
                 Vec::new(),
-                Vec::new(),
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (
+                    ops_logs_spec.name.clone(),
+                    Some(ops_logs_spec.clone()),
+                    Vec::new(),
+                ),
+                (
+                    ops_stats_spec.name.clone(),
+                    Some(ops_stats_spec.clone()),
+                    Vec::new(),
+                ),
             )
             .unwrap();
 
@@ -1187,13 +1309,21 @@ mod test {
         // Case: test deletion of existing specs.
         {
             let partition_changes = partition_changes(None, all_partitions.clone()).unwrap();
+
             let task_changes = task_changes(
                 None,
                 all_shards.clone(),
                 all_recovery.clone(),
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (
+                    ops_logs_spec.name.clone(),
+                    Some(ops_logs_spec.clone()),
+                    all_ops.clone(),
+                ),
+                (
+                    ops_stats_spec.name.clone(),
+                    Some(ops_stats_spec.clone()),
+                    all_ops.clone(),
+                ),
             )
             .unwrap();
 
@@ -1220,18 +1350,24 @@ mod test {
                 *name = name.replace("2020202020202020", "replaced-pub-id");
             }
 
+            let shards = apply_initial_splits(Some(task_template), 4, all_shards).unwrap();
+
             let partition_changes =
                 partition_changes(Some(&partition_template), all_partitions).unwrap();
             let task_changes = task_changes(
-                Some(TaskTemplate {
-                    shard: shard_template,
-                    recovery: recovery_template,
-                }),
-                all_shards,
+                Some(task_template),
+                shards,
                 all_recovery,
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (
+                    ops_logs_spec.name.clone(),
+                    Some(ops_logs_spec.clone()),
+                    all_ops.clone(),
+                ),
+                (
+                    ops_stats_spec.name.clone(),
+                    Some(ops_stats_spec.clone()),
+                    all_ops.clone(),
+                ),
             )
             .unwrap();
 
@@ -1246,28 +1382,20 @@ mod test {
             let (clock_lhs, clock_rhs) = map_shard_to_split(parent, false).unwrap();
 
             let key_changes = task_changes(
-                Some(TaskTemplate {
-                    shard: shard_template,
-                    recovery: recovery_template,
-                }),
+                Some(task_template),
                 vec![key_lhs.clone(), key_rhs.clone()],
                 vec![all_recovery[0].clone()],
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (ops_logs_spec.name.clone(), None, Vec::new()),
+                (ops_stats_spec.name.clone(), None, Vec::new()),
             )
             .unwrap();
 
             let clock_changes = task_changes(
-                Some(TaskTemplate {
-                    shard: shard_template,
-                    recovery: recovery_template,
-                }),
+                Some(task_template),
                 vec![clock_lhs.clone(), clock_rhs.clone()],
                 vec![all_recovery[0].clone()],
-                4,
-                "ops/logs/name",
-                "ops/stats/name",
+                (ops_logs_spec.name.clone(), None, Vec::new()),
+                (ops_stats_spec.name.clone(), None, Vec::new()),
             )
             .unwrap();
 
