@@ -7,6 +7,7 @@ use proto_gazette::broker::{Label, LabelSet};
 // JournalSpec & ShardSpec labels.
 pub const BUILD: &str = "estuary.dev/build";
 pub const COLLECTION: &str = "estuary.dev/collection";
+pub const CORDON: &str = "estuary.dev/cordon";
 pub const FIELD_PREFIX: &str = "estuary.dev/field/";
 pub const KEY_BEGIN: &str = "estuary.dev/key-begin";
 pub const KEY_BEGIN_MIN: &str = "00000000";
@@ -169,10 +170,10 @@ pub fn remove(mut set: LabelSet, name: &str) -> LabelSet {
 }
 
 // Determine whether `label` is managed by the Flow data-plane,
-// as opposed to the Flow control-plane.
+// as opposed to the Flow control plane.
 // * Data-plane labels exist exclusively within the data-plane,
 //   and use its Etcd as their source of truth.
-// * All other labels are set by the contorl-plane.
+// * All other labels are set by the control plane.
 pub fn is_data_plane_label(label: &str) -> bool {
     // If `label` has FIELD_PREFIX as a prefix, its suffix is an encoded logical partition.
     if label.starts_with(FIELD_PREFIX) {
@@ -180,7 +181,9 @@ pub fn is_data_plane_label(label: &str) -> bool {
     }
     match label {
         // Key and R-Clock splits are performed within the data-plane.
-        KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET => true,
+        CORDON | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET => {
+            true
+        }
         _ => false,
     }
 }
