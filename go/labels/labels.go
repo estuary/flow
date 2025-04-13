@@ -16,6 +16,9 @@ const (
 	// Collection is the name of the Estuary collection for which this Journal
 	// holds documents.
 	Collection = "estuary.dev/collection"
+	// Cordon is a label that indicates that this journal or shard is cordoned
+	// due to an ongoing data-plane migration.
+	Cordon = "estuary.dev/cordon"
 	// Field is a logical partition of the Collection that's implemented by this
 	// journal.
 	FieldPrefix = "estuary.dev/field/"
@@ -95,6 +98,8 @@ func IsRuntimeLabel(label string) bool {
 
 	switch label {
 	case
+		// Cordoning is tracked in the data-plane.
+		Cordon,
 		// Key splits are performed dynamically by the runtime.
 		KeyBegin, KeyEnd,
 		// R-Clock splits are performed dynamically by the runtime.

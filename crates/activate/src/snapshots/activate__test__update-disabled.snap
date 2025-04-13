@@ -151,6 +151,10 @@ expression: "(partition_changes, task_changes)"
                 "value": "example/collection"
               },
               {
+                "name": "estuary.dev/cordon",
+                "value": "true"
+              },
+              {
                 "name": "estuary.dev/field/a_bool",
                 "value": "%_false"
               },
@@ -178,7 +182,7 @@ expression: "(partition_changes, task_changes)"
             "flushInterval": "900s",
             "pathPostfixTemplate": "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}"
           },
-          "flags": 4,
+          "flags": 1,
           "maxAppendRate": "4194304",
           "suspend": {
             "level": "PARTIAL",
@@ -433,6 +437,10 @@ expression: "(partition_changes, task_changes)"
                 "value": "0101010101010101"
               },
               {
+                "name": "estuary.dev/cordon",
+                "value": "true"
+              },
+              {
                 "name": "estuary.dev/key-begin",
                 "value": "30000000"
               },
@@ -513,7 +521,7 @@ expression: "(partition_changes, task_changes)"
             ],
             "refreshInterval": "300s"
           },
-          "flags": 4,
+          "flags": 1,
           "maxAppendRate": "4194304",
           "suspend": {
             "level": "FULL",
