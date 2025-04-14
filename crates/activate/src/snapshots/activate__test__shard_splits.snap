@@ -35,7 +35,8 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           }
         ]
       },
-      "mod_revision": 111
+      "mod_revision": 111,
+      "primary_hints": null
     },
     {
       "id": "derivation/example/derivation/2020202020202020/20000000-60000000",
@@ -67,7 +68,8 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           }
         ]
       },
-      "mod_revision": 0
+      "mod_revision": 0,
+      "primary_hints": null
     }
   ],
   "clock_splits",
@@ -102,7 +104,8 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           }
         ]
       },
-      "mod_revision": 111
+      "mod_revision": 111,
+      "primary_hints": null
     },
     {
       "id": "derivation/example/derivation/2020202020202020/10000000-80000000",
@@ -134,7 +137,8 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           }
         ]
       },
-      "mod_revision": 0
+      "mod_revision": 0,
+      "primary_hints": null
     }
   ],
   "key_changes",

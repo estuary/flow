@@ -385,6 +385,12 @@ pub mod apply_request {
         /// Shard to be deleted. expect_mod_revision must not be zero.
         #[prost(string, tag = "3")]
         pub delete: ::prost::alloc::string::String,
+        /// (Optional) Primary hints to set for the shard. This is rarely required,
+        /// as shards start with an empty recovery log and track their own hints,
+        /// but is useful in some advanced migration scenarios.
+        /// If set, then this Change must be an upsert.
+        #[prost(message, optional, tag = "4")]
+        pub primary_hints: ::core::option::Option<super::super::recoverylog::FsmHints>,
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

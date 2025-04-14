@@ -127,6 +127,9 @@ impl serde::Serialize for apply_request::Change {
         if !self.delete.is_empty() {
             len += 1;
         }
+        if self.primary_hints.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("consumer.ApplyRequest.Change", len)?;
         if self.expect_mod_revision != 0 {
             #[allow(clippy::needless_borrow)]
@@ -138,6 +141,9 @@ impl serde::Serialize for apply_request::Change {
         }
         if !self.delete.is_empty() {
             struct_ser.serialize_field("delete", &self.delete)?;
+        }
+        if let Some(v) = self.primary_hints.as_ref() {
+            struct_ser.serialize_field("primaryHints", v)?;
         }
         struct_ser.end()
     }
@@ -153,6 +159,8 @@ impl<'de> serde::Deserialize<'de> for apply_request::Change {
             "expectModRevision",
             "upsert",
             "delete",
+            "primary_hints",
+            "primaryHints",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -160,6 +168,7 @@ impl<'de> serde::Deserialize<'de> for apply_request::Change {
             ExpectModRevision,
             Upsert,
             Delete,
+            PrimaryHints,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -184,6 +193,7 @@ impl<'de> serde::Deserialize<'de> for apply_request::Change {
                             "expectModRevision" | "expect_mod_revision" => Ok(GeneratedField::ExpectModRevision),
                             "upsert" => Ok(GeneratedField::Upsert),
                             "delete" => Ok(GeneratedField::Delete),
+                            "primaryHints" | "primary_hints" => Ok(GeneratedField::PrimaryHints),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -206,6 +216,7 @@ impl<'de> serde::Deserialize<'de> for apply_request::Change {
                 let mut expect_mod_revision__ = None;
                 let mut upsert__ = None;
                 let mut delete__ = None;
+                let mut primary_hints__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ExpectModRevision => {
@@ -228,12 +239,19 @@ impl<'de> serde::Deserialize<'de> for apply_request::Change {
                             }
                             delete__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::PrimaryHints => {
+                            if primary_hints__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("primaryHints"));
+                            }
+                            primary_hints__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(apply_request::Change {
                     expect_mod_revision: expect_mod_revision__.unwrap_or_default(),
                     upsert: upsert__,
                     delete: delete__.unwrap_or_default(),
+                    primary_hints: primary_hints__,
                 })
             }
         }
