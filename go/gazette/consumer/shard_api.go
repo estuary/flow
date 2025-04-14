@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -126,6 +127,14 @@ func ShardApply(ctx context.Context, claims pb.Claims, srv *Service, req *pc.App
 			}
 			key = allocator.ItemKey(s.KS, change.Upsert.Id.String())
 			ops = append(ops, clientv3.OpPut(key, change.Upsert.MarshalString()))
+
+			if change.PrimaryHints != nil {
+				var val, err = json.Marshal(change.PrimaryHints)
+				if err != nil {
+					return nil, errors.WithMessage(err, "json.Marshal(hints)")
+				}
+				ops = append(ops, clientv3.OpPut(change.Upsert.HintPrimaryKey(), string(val)))
+			}
 		} else {
 			if err := authorizeShard(&claims, change.Delete); err != nil {
 				return nil, err

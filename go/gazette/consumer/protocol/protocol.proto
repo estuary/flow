@@ -358,6 +358,11 @@ message ApplyRequest {
     ShardSpec upsert = 2;
     // Shard to be deleted. expect_mod_revision must not be zero.
     string delete = 3 [ (gogoproto.casttype) = "ShardID" ];
+    // (Optional) Primary hints to set for the shard. This is rarely required,
+    // as shards start with an empty recovery log and track their own hints,
+    // but is useful in some advanced migration scenarios.
+    // If set, then this Change must be an upsert.
+    recoverylog.FSMHints primary_hints = 4;
   }
   repeated Change changes = 1 [ (gogoproto.nullable) = false ];
   // Optional extension of the ApplyRequest.

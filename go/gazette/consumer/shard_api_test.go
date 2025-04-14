@@ -145,11 +145,12 @@ func TestAPIApplyCases(t *testing.T) {
 	var tf, cleanup = newTestFixture(t)
 	defer cleanup()
 
+	var ctx = context.Background()
 	var specA = makeShard(shardA)
 	var specB = makeShard(shardB)
 
 	var verifyAndFetchRev = func(id pc.ShardID, expect pc.ShardSpec) int64 {
-		var resp, err = tf.service.List(context.Background(), allClaims, &pc.ListRequest{
+		var resp, err = tf.service.List(ctx, allClaims, &pc.ListRequest{
 			Selector: pb.LabelSelector{Include: pb.MustLabelSet("id", id.String())},
 		})
 		require.NoError(t, err)
@@ -158,7 +159,7 @@ func TestAPIApplyCases(t *testing.T) {
 		return resp.Shards[0].ModRevision
 	}
 	var apply = func(req *pc.ApplyRequest) *pc.ApplyResponse {
-		var resp, err = tf.service.Apply(context.Background(), allClaims, req)
+		var resp, err = tf.service.Apply(ctx, allClaims, req)
 		require.NoError(t, err)
 		return resp
 	}
@@ -167,9 +168,16 @@ func TestAPIApplyCases(t *testing.T) {
 	require.Equal(t, pc.Status_OK, apply(&pc.ApplyRequest{
 		Changes: []pc.ApplyRequest_Change{
 			{Upsert: specA},
-			{Upsert: specB},
+			{Upsert: specB, PrimaryHints: &recoverylog.FSMHints{
+				Log:        specB.RecoveryLog(),
+				Properties: []recoverylog.Property{{Path: "hello", Content: "shard"}}}},
 		},
 	}).Status)
+
+	var hints, err = tf.service.GetHints(ctx, allClaims, &pc.GetHintsRequest{Shard: shardB})
+	require.NoError(t, err)
+	require.Equal(t, recoverylog.Property{Path: "hello", Content: "shard"},
+		hints.PrimaryHints.Hints.Properties[0])
 
 	// Case: Update existing spec B.
 	var origSpecB = *specB
@@ -217,19 +225,19 @@ func TestAPIApplyCases(t *testing.T) {
 	}).Status)
 
 	// Case: Insufficient claimed selector on delete.
-	var _, err = tf.service.Apply(context.Background(), noClaims, &pc.ApplyRequest{
+	_, err = tf.service.Apply(ctx, noClaims, &pc.ApplyRequest{
 		Changes: []pc.ApplyRequest_Change{{Delete: "shard-A", ExpectModRevision: -1}},
 	})
 	require.EqualError(t, err, `rpc error: code = Unauthenticated desc = not authorized to shard-A`)
 
 	// Case: Insufficient claimed selector on upsert.
-	_, err = tf.service.Apply(context.Background(), noClaims, &pc.ApplyRequest{
+	_, err = tf.service.Apply(ctx, noClaims, &pc.ApplyRequest{
 		Changes: []pc.ApplyRequest_Change{{Upsert: specB}},
 	})
 	require.EqualError(t, err, `rpc error: code = Unauthenticated desc = not authorized to shard-B`)
 
 	// Case: Invalid requests fail with an error.
-	_, err = tf.service.Apply(context.Background(), allClaims, &pc.ApplyRequest{
+	_, err = tf.service.Apply(ctx, allClaims, &pc.ApplyRequest{
 		Changes: []pc.ApplyRequest_Change{{Delete: "invalid shard id"}},
 	})
 	require.EqualError(t, err, `Changes[0].Delete: not a valid token (invalid shard id)`)

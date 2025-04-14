@@ -97,11 +97,19 @@ func (m *ApplyRequest_Change) Validate() error {
 		} else if m.ExpectModRevision < 0 && (m.ExpectModRevision != -1) {
 			return pb.NewValidationError("invalid ExpectModRevision (%d; expected >= 0 or -1)", m.ExpectModRevision)
 		}
+
+		if m.PrimaryHints == nil {
+			// Pass.
+		} else if err := m.PrimaryHints.Validate(); err != nil {
+			return pb.ExtendContext(err, "PrimaryHints")
+		}
 	} else if m.Delete != "" {
 		if err := m.Delete.Validate(); err != nil {
 			return pb.ExtendContext(err, "Delete")
 		} else if m.ExpectModRevision <= 0 && (m.ExpectModRevision != -1) {
 			return pb.NewValidationError("invalid ExpectModRevision (%d; expected > 0 or -1)", m.ExpectModRevision)
+		} else if m.PrimaryHints != nil {
+			return pb.NewValidationError("hints may be set only with an upsert, not a delete")
 		}
 	} else {
 		return pb.NewValidationError("neither Upsert nor Delete are set (expected exactly one)")
