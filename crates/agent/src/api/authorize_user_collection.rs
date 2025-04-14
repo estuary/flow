@@ -24,25 +24,42 @@ pub async fn authorize_user_collection(
         started_unix,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
-    let (has_started, started_unix) = if started_unix == 0 {
-        (false, jsonwebtoken::get_current_timestamp())
+    let (has_started, started) = if started_unix == 0 {
+        (false, chrono::Utc::now())
     } else {
-        (true, started_unix)
+        (
+            true,
+            chrono::DateTime::from_timestamp(started_unix as i64, 0).unwrap_or_default(),
+        )
     };
 
     loop {
-        match Snapshot::evaluate(&app.snapshot, started_unix, |snapshot: &Snapshot| {
+        match Snapshot::evaluate(&app.snapshot, started, |snapshot: &Snapshot| {
             evaluate_authorization(snapshot, user_id, email.as_ref(), &collection_name)
         }) {
-            Ok(response) => return Ok(axum::Json(response)),
-            Err(Ok(retry_millis)) if has_started => {
+            Ok((exp, (encoding_key, mut claims, broker_address, journal_name_prefix))) => {
+                claims.inner.iat = started.timestamp() as u64;
+                claims.inner.exp = exp.timestamp() as u64;
+
+                let broker_token =
+                    jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
+                        .context("failed to encode authorized JWT")?;
+
                 return Ok(axum::Json(Response {
-                    retry_millis,
+                    broker_address,
+                    broker_token,
+                    journal_name_prefix,
+                    retry_millis: 0,
+                }));
+            }
+            Err(Ok(backoff)) if has_started => {
+                return Ok(axum::Json(Response {
+                    retry_millis: backoff.as_millis() as u64,
                     ..Default::default()
                 }))
             }
-            Err(Ok(retry_millis)) => {
-                () = tokio::time::sleep(std::time::Duration::from_millis(retry_millis)).await;
+            Err(Ok(backoff)) => {
+                () = tokio::time::sleep(backoff).await;
             }
             Err(Err(err)) => return Err(err),
         }
@@ -54,7 +71,13 @@ fn evaluate_authorization(
     user_id: uuid::Uuid,
     user_email: Option<&String>,
     collection_name: &models::Collection,
-) -> Result<Response, crate::api::ApiError> {
+) -> Result<
+    (
+        Option<chrono::DateTime<chrono::Utc>>,
+        (jsonwebtoken::EncodingKey, super::DataClaims, String, String),
+    ),
+    crate::api::ApiError,
+> {
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
@@ -90,15 +113,11 @@ fn evaluate_authorization(
     let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)
         .context("invalid data-plane hmac key")?;
 
-    let iat = jsonwebtoken::get_current_timestamp();
-    let exp = iat + super::exp_seconds();
-    let header = jsonwebtoken::Header::default();
-
     let claims = super::DataClaims {
         inner: proto_gazette::Claims {
             cap: proto_gazette::capability::LIST | proto_gazette::capability::READ,
-            exp,
-            iat,
+            exp: 0, // Filled later.
+            iat: 0, // Filled later.
             iss: data_plane.data_plane_fqdn.clone(),
             sub: user_id.to_string(),
             sel: proto_gazette::broker::LabelSelector {
@@ -115,13 +134,14 @@ fn evaluate_authorization(
             collection.journal_template_name.clone(),
         ],
     };
-    let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
-        .context("failed to encode authorized JWT")?;
 
-    Ok(Response {
-        broker_address: super::maybe_rewrite_address(true, &data_plane.broker_address),
-        broker_token: token,
-        journal_name_prefix: collection.journal_template_name.clone(),
-        retry_millis: 0,
-    })
+    Ok((
+        snapshot.cordon_at(&collection.collection_name, data_plane),
+        (
+            encoding_key,
+            claims,
+            super::maybe_rewrite_address(true, &data_plane.broker_address),
+            collection.journal_template_name.clone(),
+        ),
+    ))
 }

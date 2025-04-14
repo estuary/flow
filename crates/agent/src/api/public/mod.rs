@@ -130,5 +130,7 @@ fn api_docs(api: aide::transform::TransformOpenApi) -> aide::transform::Transfor
             },
         )
         .security_requirement("ApiKey")
-        .default_response_with::<axum::Json<ApiError>, _>(|res| res.example(ApiError::not_found()))
+        .default_response_with::<axum::Json<ApiError>, _>(|res| {
+            res.example(ApiError::unauthorized("acmeCo/anvils/"))
+        })
 }
