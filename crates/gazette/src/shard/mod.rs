@@ -100,6 +100,26 @@ impl Client {
         check_ok(resp.status(), resp)
     }
 
+    /// Invoke the Gazette shard GetHints RPC.
+    pub async fn get_hints(
+        &self,
+        req: consumer::GetHintsRequest,
+    ) -> Result<consumer::GetHintsResponse, crate::Error> {
+        let mut client = self.into_sub(self.router.route(
+            None,
+            router::Mode::Default,
+            &self.default,
+        )?);
+
+        let resp = client
+            .get_hints(req)
+            .await
+            .map_err(crate::Error::Grpc)?
+            .into_inner();
+
+        check_ok(resp.status(), resp)
+    }
+
     fn into_sub(&self, (channel, _local): (Channel, bool)) -> SubClient {
         proto_grpc::consumer::shard_client::ShardClient::with_interceptor(
             channel,
