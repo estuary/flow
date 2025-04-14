@@ -4,6 +4,7 @@ use proto_flow::flow;
 use proto_gazette::{
     broker::{self, JournalSpec, Label, LabelSelector, LabelSet},
     consumer::{self, ShardSpec},
+    recoverylog,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -427,6 +428,7 @@ fn unpack_shard_listing(resp: consumer::ListResponse) -> anyhow::Result<Vec<Shar
             id: spec.id,
             labels: set,
             mod_revision: resp.mod_revision,
+            primary_hints: None,
         });
     }
     Ok(v)
@@ -476,6 +478,7 @@ pub fn task_changes<'a>(
         id,
         labels: split,
         mod_revision: shard_revision,
+        primary_hints,
     } in shards
     {
         let template = match template {
@@ -487,6 +490,7 @@ pub fn task_changes<'a>(
                     expect_mod_revision: shard_revision,
                     upsert: None,
                     delete: id,
+                    primary_hints: None,
                 }));
                 continue;
             }
@@ -561,6 +565,7 @@ pub fn task_changes<'a>(
             expect_mod_revision: shard_revision,
             upsert: Some(shard_spec),
             delete: String::new(),
+            primary_hints,
         }));
         changes.push(Change::Journal(broker::apply_request::Change {
             expect_mod_revision: recovery_split.mod_revision,
@@ -785,6 +790,7 @@ fn apply_initial_splits<'a>(
             id,
             labels,
             mod_revision: 0,
+            primary_hints: None,
         });
     }
 
@@ -886,11 +892,15 @@ fn map_shard_to_split(
             id: parent.id.clone(),
             labels: lhs_labels,
             mod_revision: parent.mod_revision,
+            primary_hints: None,
         },
         ShardSplit {
             id: rhs_id,
             labels: rhs_labels,
             mod_revision: 0,
+            // TODO(johnny): Set explicit hints seeded from parent?
+            // This would let us roll back some special handling for recovery log splits.
+            primary_hints: None,
         },
     ))
 }
@@ -1111,11 +1121,16 @@ mod test {
                 id: shard_id,
                 labels: labels.clone(),
                 mod_revision: 111,
+                primary_hints: None,
             });
             all_shards_disabled.push(ShardSplit {
                 id: disabled_shard_id,
                 labels: labels,
                 mod_revision: 111,
+                primary_hints: Some(recoverylog::FsmHints {
+                    log: "some/log".to_string(),
+                    ..Default::default()
+                }),
             });
         };
 
