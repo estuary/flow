@@ -45,32 +45,10 @@ pub async fn authorize_dekaf(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum::Json(Request { token }): axum::Json<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
-    let jsonwebtoken::TokenData { header, claims }: jsonwebtoken::TokenData<proto_gazette::Claims> = {
-        // In this pass we do not validate the signature,
-        // because we don't yet know which data-plane the JWT is signed by.
-        let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
-        let mut validation = jsonwebtoken::Validation::default();
-        validation.insecure_disable_signature_validation();
-        jsonwebtoken::decode(&token, &empty_key, &validation)
-            .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
-    };
-    tracing::debug!(?claims, ?header, "decoded authorization request");
+    let (_header, claims) = super::parse_untrusted_data_plane_claims(&token)?;
 
     let task_name = claims.sub.as_str();
-    if task_name.is_empty() {
-        return Err(
-            anyhow::anyhow!("missing required materialization name (`sub` claim)")
-                .with_status(StatusCode::BAD_REQUEST),
-        );
-    }
-
     let shard_data_plane_fqdn = claims.iss.as_str();
-    if shard_data_plane_fqdn.is_empty() {
-        return Err(
-            anyhow::anyhow!("missing required task data-plane FQDN (`iss` claim)")
-                .with_status(StatusCode::BAD_REQUEST),
-        );
-    }
 
     if claims.cap != proto_flow::capability::AUTHORIZE {
         return Err(
@@ -79,18 +57,22 @@ pub async fn authorize_dekaf(
         );
     }
 
-    match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
-        evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, &token)
-    }) {
-        Ok((ops_logs_journal, ops_stats_journal)) => {
+    match Snapshot::evaluate(
+        &app.snapshot,
+        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
+        |snapshot: &Snapshot| {
+            evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, &token)
+        },
+    ) {
+        Ok((exp, (ops_logs_journal, ops_stats_journal))) => {
             let materialization_spec = sqlx::query!(
                 r#"
-                    select
-                        built_spec as "spec: sqlx::types::Json<models::RawValue>",
-                        spec_type as "spec_type: models::CatalogType"
-                    from live_specs
-                    where live_specs.catalog_name = $1
-                    "#,
+                SELECT
+                    built_spec AS "spec: sqlx::types::Json<models::RawValue>",
+                    spec_type AS "spec_type: models::CatalogType"
+                FROM live_specs
+                WHERE live_specs.catalog_name = $1
+                "#,
                 task_name
             )
             .fetch_one(&app.pg_pool)
@@ -111,14 +93,12 @@ pub async fn authorize_dekaf(
                     .with_status(StatusCode::INTERNAL_SERVER_ERROR));
             }
 
-            let unix_ts = jsonwebtoken::get_current_timestamp();
             let claims = AccessTokenClaims {
-                iat: unix_ts,
-                exp: unix_ts + (60 * 60),
+                iat: claims.iat,
+                exp: exp.timestamp() as u64,
                 role: DEKAF_ROLE.to_string(),
             };
-
-            let signed = jsonwebtoken::encode(
+            let token = jsonwebtoken::encode(
                 &jsonwebtoken::Header::default(),
                 &claims,
                 &app.control_plane_jwt_signer,
@@ -126,15 +106,15 @@ pub async fn authorize_dekaf(
             .context("failed to encode authorized JWT")?;
 
             Ok(axum::Json(Response {
-                token: signed,
+                token,
                 ops_logs_journal,
                 ops_stats_journal,
                 task_spec: Some(materialization_spec.0),
                 retry_millis: 0,
             }))
         }
-        Err(Ok(retry_millis)) => Ok(axum::Json(Response {
-            retry_millis,
+        Err(Ok(backoff)) => Ok(axum::Json(Response {
+            retry_millis: backoff.as_millis() as u64,
             ..Default::default()
         })),
         Err(Err(err)) => Err(err),
@@ -146,7 +126,7 @@ fn evaluate_authorization(
     task_name: &str,
     shard_data_plane_fqdn: &str,
     token: &str,
-) -> Result<(String, String), crate::api::ApiError> {
+) -> Result<(Option<chrono::DateTime<chrono::Utc>>, (String, String)), crate::api::ApiError> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot
         .verify_data_plane_token(shard_data_plane_fqdn, token)
@@ -160,7 +140,7 @@ fn evaluate_authorization(
 
     // Map `claims.sub`, a task name, into a task running in `task_data_plane`.
     let Some(task) = snapshot
-        .task_by_catalog_name(&models::Name::new(task_name.to_string()))
+        .task_by_catalog_name(&task_name)
         .filter(|task| task.data_plane_id == task_data_plane.control_id)
     else {
         return Err(anyhow::anyhow!(
@@ -192,7 +172,10 @@ fn evaluate_authorization(
     let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
     let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
 
-    Ok((ops_logs_journal, ops_stats_journal))
+    Ok((
+        snapshot.cordon_at(&task.task_name, task_data_plane),
+        (ops_logs_journal, ops_stats_journal),
+    ))
 }
 
 const DEKAF_ROLE: &str = "dekaf";

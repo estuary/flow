@@ -100,10 +100,10 @@ mod error_serde {
 }
 
 impl ApiError {
-    pub fn not_found() -> ApiError {
+    pub fn unauthorized(prefix: &str) -> ApiError {
         ApiError::new(
-            StatusCode::NOT_FOUND,
-            anyhow::anyhow!("requested entity does not exist or you are not authorized"),
+            StatusCode::UNAUTHORIZED,
+            anyhow::anyhow!("user is not authorized to {prefix}"),
         )
     }
 
