@@ -254,6 +254,9 @@ expression: "(partition_changes, task_changes)"
           },
           "ringBufferSize": 65536,
           "readChannelSize": 4096
+        },
+        "primaryHints": {
+          "log": "some/log"
         }
       }
     },
@@ -365,6 +368,9 @@ expression: "(partition_changes, task_changes)"
           },
           "ringBufferSize": 65536,
           "readChannelSize": 4096
+        },
+        "primaryHints": {
+          "log": "some/log"
         }
       }
     },
@@ -480,6 +486,9 @@ expression: "(partition_changes, task_changes)"
           },
           "ringBufferSize": 65536,
           "readChannelSize": 4096
+        },
+        "primaryHints": {
+          "log": "some/log"
         }
       }
     },
