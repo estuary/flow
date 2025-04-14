@@ -24,25 +24,62 @@ pub async fn authorize_user_task(
         started_unix,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
-    let (has_started, started_unix) = if started_unix == 0 {
-        (false, jsonwebtoken::get_current_timestamp())
+    let (has_started, started) = if started_unix == 0 {
+        (false, chrono::Utc::now())
     } else {
-        (true, started_unix)
+        (
+            true,
+            chrono::DateTime::from_timestamp(started_unix as i64, 0).unwrap_or_default(),
+        )
     };
 
     loop {
-        match Snapshot::evaluate(&app.snapshot, started_unix, |snapshot: &Snapshot| {
+        match Snapshot::evaluate(&app.snapshot, started, |snapshot: &Snapshot| {
             evaluate_authorization(snapshot, user_id, email.as_ref(), &task_name)
         }) {
-            Ok(response) => return Ok(axum::Json(response)),
-            Err(Ok(retry_millis)) if has_started => {
+            Ok((
+                exp,
+                (
+                    encoding_key,
+                    mut broker_claims,
+                    broker_address,
+                    ops_logs_journal,
+                    ops_stats_journal,
+                    mut reactor_claims,
+                    reactor_address,
+                    shard_id_prefix,
+                ),
+            )) => {
+                broker_claims.inner.exp = exp.timestamp() as u64;
+                broker_claims.inner.iat = started.timestamp() as u64;
+                reactor_claims.inner.exp = exp.timestamp() as u64;
+                reactor_claims.inner.iat = started.timestamp() as u64;
+
+                let header = jsonwebtoken::Header::default();
+                let broker_token = jsonwebtoken::encode(&header, &broker_claims, &encoding_key)
+                    .context("failed to encode authorized JWT")?;
+                let reactor_token = jsonwebtoken::encode(&header, &reactor_claims, &encoding_key)
+                    .context("failed to encode authorized JWT")?;
+
                 return Ok(axum::Json(Response {
-                    retry_millis,
+                    broker_token,
+                    broker_address,
+                    reactor_token,
+                    ops_logs_journal,
+                    ops_stats_journal,
+                    reactor_address,
+                    shard_id_prefix,
+                    retry_millis: 0,
+                }));
+            }
+            Err(Ok(backoff)) if has_started => {
+                return Ok(axum::Json(Response {
+                    retry_millis: backoff.as_millis() as u64,
                     ..Default::default()
                 }))
             }
-            Err(Ok(retry_millis)) => {
-                () = tokio::time::sleep(std::time::Duration::from_millis(retry_millis)).await;
+            Err(Ok(backoff)) => {
+                () = tokio::time::sleep(backoff).await;
             }
             Err(Err(err)) => return Err(err),
         }
@@ -54,7 +91,22 @@ fn evaluate_authorization(
     user_id: uuid::Uuid,
     user_email: Option<&String>,
     task_name: &models::Name,
-) -> Result<Response, crate::api::ApiError> {
+) -> Result<
+    (
+        Option<chrono::DateTime<chrono::Utc>>,
+        (
+            jsonwebtoken::EncodingKey,
+            super::DataClaims, // Broker claims.
+            String,            // Broker address.
+            String,            // ops logs journal
+            String,            // opts stats journal
+            super::DataClaims, // Reactor claims.
+            String,            // Reactor address.
+            String,            // Shard ID prefix.
+        ),
+    ),
+    crate::api::ApiError,
+> {
     if !tables::UserGrant::is_authorized(
         &snapshot.role_grants,
         &snapshot.user_grants,
@@ -105,15 +157,11 @@ fn evaluate_authorization(
     let ops_logs_journal = format!("{}{}", ops_logs.journal_template_name, &ops_suffix[1..]);
     let ops_stats_journal = format!("{}{}", ops_stats.journal_template_name, &ops_suffix[1..]);
 
-    let iat = jsonwebtoken::get_current_timestamp();
-    let exp = iat + super::exp_seconds();
-    let header = jsonwebtoken::Header::default();
-
-    let claims = super::DataClaims {
+    let broker_claims = super::DataClaims {
         inner: proto_gazette::Claims {
             cap: proto_gazette::capability::LIST | proto_gazette::capability::READ,
-            exp,
-            iat,
+            exp: 0, // Filled later.
+            iat: 0, // Filled later.
             iss: data_plane.data_plane_fqdn.clone(),
             sub: user_id.to_string(),
             sel: proto_gazette::broker::LabelSelector {
@@ -127,18 +175,16 @@ fn evaluate_authorization(
         // TODO(johnny): Temporary support for data-plane-gateway.
         prefixes: vec![ops_logs_journal.clone(), ops_stats_journal.clone()],
     };
-    let broker_token = jsonwebtoken::encode(&header, &claims, &encoding_key)
-        .context("failed to encode authorized JWT")?;
 
-    let claims = super::DataClaims {
+    let reactor_claims = super::DataClaims {
         inner: proto_gazette::Claims {
             cap: proto_gazette::capability::LIST
                 | proto_gazette::capability::READ
                 | proto_flow::capability::NETWORK_PROXY,
-            exp,
-            iat,
-            iss: claims.inner.iss,
-            sub: claims.inner.sub,
+            exp: 0, // Filled later.
+            iat: 0, // Filled later.
+            iss: data_plane.data_plane_fqdn.clone(),
+            sub: user_id.to_string(),
             sel: proto_gazette::broker::LabelSelector {
                 include: Some(labels::build_set([(
                     "id:prefix",
@@ -149,17 +195,18 @@ fn evaluate_authorization(
         },
         prefixes: vec![task.task_name.to_string(), task.shard_template_id.clone()],
     };
-    let reactor_token = jsonwebtoken::encode(&header, &claims, &encoding_key)
-        .context("failed to encode authorized JWT")?;
 
-    Ok(Response {
-        broker_address: super::maybe_rewrite_address(true, &data_plane.broker_address),
-        broker_token,
-        ops_logs_journal,
-        ops_stats_journal,
-        reactor_address: super::maybe_rewrite_address(true, &data_plane.reactor_address),
-        reactor_token,
-        retry_millis: 0,
-        shard_id_prefix: task.shard_template_id.clone(),
-    })
+    Ok((
+        snapshot.cordon_at(&task.task_name, data_plane),
+        (
+            encoding_key,
+            broker_claims,
+            super::maybe_rewrite_address(true, &data_plane.broker_address),
+            ops_logs_journal,
+            ops_stats_journal,
+            reactor_claims,
+            super::maybe_rewrite_address(true, &data_plane.reactor_address),
+            task.shard_template_id.clone(),
+        ),
+    ))
 }

@@ -1,6 +1,5 @@
-use crate::api::{public::ApiErrorExt, App, ControlClaims};
+use crate::api::{public::ApiErrorExt, ApiError, App, ControlClaims};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use chrono::{Datelike, TimeZone};
 use futures::StreamExt;
 use ops::stats::DocsAndBytes;
@@ -13,24 +12,17 @@ pub async fn handle_get_metrics(
     state: axum::extract::State<Arc<App>>,
     axum::Extension(claims): axum::Extension<ControlClaims>,
     axum::extract::Path(prefix): axum::extract::Path<String>,
-) -> axum::response::Response {
-    match state
-        .0
-        .is_user_authorized(&claims, &[&prefix], models::Capability::Read)
-        .await
-    {
-        Ok(false) => {
-            return anyhow::anyhow!("user is not authorized to {prefix}")
-                .with_status(StatusCode::UNAUTHORIZED)
-                .into_response()
-        }
-        Err(err) => {
-            return err
-                .with_status(StatusCode::INTERNAL_SERVER_ERROR)
-                .into_response()
-        }
-        Ok(true) => (),
+) -> Result<axum::response::Response, ApiError> {
+    if !prefix.ends_with('/') {
+        return Err(
+            anyhow::anyhow!("prefix {prefix:?} must end with a trailing '/' slash")
+                .with_status(StatusCode::BAD_REQUEST),
+        );
     }
+    let prefixes = state
+        .0
+        .verify_user_authorization(&claims, vec![prefix], models::Capability::Read)
+        .await?;
 
     let pg_pool = state.pg_pool.clone();
     let now = chrono::Utc::now();
@@ -55,13 +47,13 @@ pub async fn handle_get_metrics(
 
     let mut stats = sqlx::query!(
         r#"
-            SELECT flow_document AS "stats: sqlx::types::Json<CatalogStats>"
-            FROM   catalog_stats
-            WHERE  starts_with(catalog_name, $1) AND right(catalog_name, 1) != '/'
-            AND    grain = 'monthly'
-            AND    ts = $2
-            "#,
-        prefix,
+        SELECT flow_document AS "stats: sqlx::types::Json<CatalogStats>"
+        FROM   catalog_stats
+        WHERE  starts_with(catalog_name, $1) AND right(catalog_name, 1) != '/'
+        AND    grain = 'monthly'
+        AND    ts = $2
+        "#,
+        &prefixes[0],
         now_month,
     )
     .fetch(&pg_pool);
@@ -69,11 +61,7 @@ pub async fn handle_get_metrics(
     loop {
         match stats.next().await {
             Some(Ok(stat)) => encode_metrics(&mut buf, scrape_at, stat.stats.0),
-            Some(Err(err)) => {
-                return err
-                    .with_status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .into_response()
-            }
+            Some(Err(err)) => return Err(err.with_status(StatusCode::INTERNAL_SERVER_ERROR)),
             None => break,
         }
     }
@@ -89,7 +77,7 @@ pub async fn handle_get_metrics(
         Ok::<(), sqlx::Error>(())
     });
 
-    axum::response::Response::builder()
+    Ok(axum::response::Response::builder()
         .header(
             axum::http::header::CONTENT_TYPE,
             // Use Prometheus format, not OpenMetrics, because parser support is immature:
@@ -98,7 +86,7 @@ pub async fn handle_get_metrics(
             // "application/openmetrics-text; version=1.0.0; charset=utf-8",
         )
         .body(axum::body::Body::from_stream(stream))
-        .expect("response headers are valid")
+        .expect("response headers are valid"))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -377,7 +365,7 @@ macro_rules! define_metrics {
     };
 }
 
-// When testing changes to PREAMBLE and metrics,feed an example scrape as stdin of:
+// When testing changes to metrics, feed an example scrape as stdin of:
 //   docker run --rm -i --entrypoint '' prom/prometheus:latest promtool check metrics
 define_metrics! {
     LOGGED_WARNINGS= Metric {

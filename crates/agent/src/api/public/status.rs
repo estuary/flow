@@ -23,17 +23,15 @@ pub struct StatusQuery {
 pub async fn handle_get_status(
     state: axum::extract::State<Arc<App>>,
     Extension(claims): Extension<ControlClaims>,
-    Query(params): Query<StatusQuery>,
+    Query(StatusQuery { name }): Query<StatusQuery>,
 ) -> Result<Json<Vec<StatusResponse>>, ApiError> {
-    if !state
+    let name = state
         .0
-        .is_user_authorized(&claims, &params.name, models::Capability::Read)
-        .await?
-    {
-        return Err(ApiError::not_found());
-    }
+        .verify_user_authorization(&claims, name, models::Capability::Read)
+        .await?;
+
     let pool = state.0.pg_pool.clone();
-    let status = fetch_status(&pool, &params.name).await?;
+    let status = fetch_status(&pool, &name).await?;
     Ok(Json(status))
 }
 

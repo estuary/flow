@@ -25,33 +25,7 @@ pub async fn authorize_task(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum::Json(Request { token }): axum::Json<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
-    let jsonwebtoken::TokenData { header, mut claims }: jsonwebtoken::TokenData<
-        proto_gazette::Claims,
-    > = {
-        // In this pass we do not validate the signature,
-        // because we don't yet know which data-plane the JWT is signed by.
-        let empty_key = jsonwebtoken::DecodingKey::from_secret(&[]);
-        let mut validation = jsonwebtoken::Validation::default();
-        validation.insecure_disable_signature_validation();
-        jsonwebtoken::decode(&token, &empty_key, &validation)
-            .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
-    };
-    tracing::debug!(?claims, ?header, "decoded authorization request");
-
-    let shard_id = claims.sub.as_str();
-    if shard_id.is_empty() {
-        return Err(anyhow::anyhow!("missing required shard ID (`sub` claim)")
-            .with_status(StatusCode::BAD_REQUEST));
-    }
-
-    let shard_data_plane_fqdn = claims.iss.as_str();
-    if shard_data_plane_fqdn.is_empty() {
-        return Err(
-            anyhow::anyhow!("missing required shard data-plane FQDN (`iss` claim)")
-                .with_status(StatusCode::BAD_REQUEST),
-        );
-    }
-
+    let (_header, mut claims) = super::parse_untrusted_data_plane_claims(&token)?;
     let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")
         .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
         .to_owned();
@@ -96,22 +70,53 @@ pub async fn authorize_task(
         }
     };
 
-    match Snapshot::evaluate(&app.snapshot, claims.iat, |snapshot: &Snapshot| {
-        evaluate_authorization(
-            snapshot,
-            shard_id,
-            shard_data_plane_fqdn,
-            &token,
-            &journal_name_or_prefix,
-            required_role,
-        )
-    }) {
-        Ok((encoding_key, data_plane_fqdn, broker_address)) => {
+    match Snapshot::evaluate(
+        &app.snapshot,
+        chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
+        |snapshot: &Snapshot| {
+            evaluate_authorization(
+                snapshot,
+                &claims.sub,
+                &claims.iss,
+                &token,
+                &journal_name_or_prefix,
+                required_role,
+            )
+        },
+    ) {
+        Ok((exp, (encoding_key, data_plane_fqdn, broker_address, found))) => {
             claims.iss = data_plane_fqdn;
-            claims.exp = claims.iat + super::exp_seconds();
+            claims.exp = exp.timestamp() as u64;
 
-            let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
-                .context("failed to encode authorized JWT")?;
+            let token =
+                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
+                    .context("failed to encode authorized JWT")?;
+
+            // Was the request authorized, but its `journal_name_or_prefix`
+            // didn't map to a collection (either because the collection is
+            // deleted, or exists under a different generation ID)?
+            //
+            // Return a "black hole" response by extending the request claims
+            // with a label selector that never matches anything. This:
+            // - Causes List RPCs to succeed, but return nothing:
+            //   This avoids failing a sourcing task, on the presumption
+            //   that it's just awaiting an update from the control plane
+            //   and should be allowed to gracefully finish its other work.
+            // - Causes Append RPCs to error with status JOURNAL_NOT_FOUND.
+            //   This allows for correct handling of recovered ACK intents
+            //   destined for a journal which has since been deleted.
+            // - Causes an Apply RPC, used to create partitions, to fail.
+            //
+            // Note that we're directing the task back to it's own data-plane,
+            // since we have no idea what data-plane the collection might have
+            // once lived in, as we couldn't find it.
+            if !found {
+                claims.sel.include = Some(labels::add_value(
+                    claims.sel.include.unwrap_or_default(),
+                    "estuary.dev/match-nothing",
+                    "1",
+                ));
+            }
 
             Ok(axum::Json(Response {
                 broker_address,
@@ -119,66 +124,11 @@ pub async fn authorize_task(
                 ..Default::default()
             }))
         }
-        Err(Err(err)) if err.error.downcast_ref::<BlackHole>().is_some() => {
-            let BlackHole {
-                encoding_key,
-                broker_address,
-            } = err.error.downcast::<BlackHole>().unwrap();
-
-            // claims.iss is left unchanged.
-            claims.sel.include = Some(labels::add_value(
-                claims.sel.include.unwrap_or_default(),
-                "estuary.dev/match-nothing",
-                "1",
-            ));
-            claims.exp = claims.iat + super::exp_seconds();
-
-            let token = jsonwebtoken::encode(&header, &claims, &encoding_key)
-                .context("failed to encode authorized JWT")?;
-
-            Ok(axum::Json(Response {
-                broker_address,
-                token,
-                ..Default::default()
-            }))
-        }
-        Err(Ok(retry_millis)) => Ok(axum::Json(Response {
-            retry_millis,
+        Err(Ok(backoff)) => Ok(axum::Json(Response {
+            retry_millis: backoff.as_millis() as u64,
             ..Default::default()
         })),
         Err(Err(err)) => Err(err),
-    }
-}
-
-// A BlackHole error is raised when a task request is authorized,
-// but its `journal_name_or_prefix` doesn't map to a collection
-// (either because the collection is deleted, or exists under a
-// different generation ID).
-//
-// A "black hole" response extends the request claims with a
-// label selector that never matches anything, which:
-// - Causes List RPCs to succeed, but return nothing:
-//   This avoids failing a sourcing task, on the presumption
-//   that it's just awaiting an update from the control plane
-//   and should be allowed to gracefully finish its other work.
-// - Causes Append RPCs to error with status JOURNAL_NOT_FOUND.
-//   This allows for correct handling of recovered ACK intents
-//   destined for a journal which has since been deleted.
-// - Causes an Apply RPC, used to create partitions, to fail.
-//
-// Note that we're directing this token to the task's data-plane,
-// since we have no idea what data-plane the collection might have
-// lived in, as we couldn't find it.
-#[derive(thiserror::Error)]
-#[error("black hole")]
-struct BlackHole {
-    encoding_key: jsonwebtoken::EncodingKey,
-    broker_address: String,
-}
-
-impl std::fmt::Debug for BlackHole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self, f)
     }
 }
 
@@ -189,15 +139,13 @@ fn evaluate_authorization(
     token: &str,
     journal_name_or_prefix: &str,
     required_role: models::Capability,
-) -> Result<(jsonwebtoken::EncodingKey, String, String), crate::api::ApiError> {
-    let Snapshot {
-        collections,
-        data_planes,
-        role_grants,
-        tasks,
-        ..
-    } = snapshot;
-
+) -> Result<
+    (
+        Option<chrono::DateTime<chrono::Utc>>,
+        (jsonwebtoken::EncodingKey, String, String, bool),
+    ),
+    crate::api::ApiError,
+> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot
         .verify_data_plane_token(shard_data_plane_fqdn, token)
@@ -210,16 +158,8 @@ fn evaluate_authorization(
     };
 
     // Map `claims.sub`, a Shard ID, into a task running in `task_data_plane`.
-    let Some(task) = tasks
-        .binary_search_by(|task| {
-            if shard_id.starts_with(&task.shard_template_id) {
-                std::cmp::Ordering::Equal
-            } else {
-                task.shard_template_id.as_str().cmp(shard_id)
-            }
-        })
-        .ok()
-        .map(|index| &tasks[index])
+    let Some(task) = snapshot
+        .task_by_shard_id(shard_id)
         .filter(|task| task.data_plane_id == task_data_plane.control_id)
     else {
         return Err(anyhow::anyhow!(
@@ -229,22 +169,12 @@ fn evaluate_authorization(
     };
 
     // Map a required `name` journal label selector into its collection.
-    let collection = collections
-        .binary_search_by(|collection| {
-            if journal_name_or_prefix.starts_with(&collection.journal_template_name) {
-                std::cmp::Ordering::Equal
-            } else {
-                collection
-                    .journal_template_name
-                    .as_str()
-                    .cmp(journal_name_or_prefix)
-            }
-        })
-        .ok()
-        .map(|index| &collections[index]);
+    let collection = snapshot.collection_by_journal_name(journal_name_or_prefix);
 
     let (found, collection_data_plane, is_ops) = if let Some(collection) = collection {
-        let Some(collection_data_plane) = data_planes.get_by_key(&collection.data_plane_id) else {
+        let Some(collection_data_plane) =
+            snapshot.data_planes.get_by_key(&collection.data_plane_id)
+        else {
             return Err(anyhow::anyhow!(
                 "collection data-plane {} not found",
                 collection.data_plane_id
@@ -267,7 +197,7 @@ fn evaluate_authorization(
 
     if !is_ops
         && !tables::RoleGrant::is_authorized(
-            role_grants,
+            &snapshot.role_grants,
             &task.task_name,
             &journal_name_or_prefix,
             required_role,
@@ -298,22 +228,27 @@ fn evaluate_authorization(
     let encoding_key = jsonwebtoken::EncodingKey::from_base64_secret(&encoding_key)
         .context("invalid data-plane hmac key")?;
 
-    if found {
-        Ok((
+    let cordon_at = match (
+        snapshot.cordon_at(&task.task_name, task_data_plane),
+        collection.and_then(|collection| {
+            snapshot.cordon_at(&collection.collection_name, collection_data_plane)
+        }),
+    ) {
+        (Some(l), Some(r)) => Some(l.min(r)),
+        (Some(i), None) | (None, Some(i)) => Some(i),
+        (None, None) => None,
+    };
+
+    Ok((
+        cordon_at,
+        (
             encoding_key,
             collection_data_plane.data_plane_fqdn.clone(),
             super::maybe_rewrite_address(
                 task.data_plane_id != collection_data_plane.control_id,
                 &collection_data_plane.broker_address,
             ),
-        ))
-    } else {
-        Err(super::ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            error: anyhow::anyhow!(BlackHole {
-                broker_address: collection_data_plane.broker_address.to_string(),
-                encoding_key,
-            }),
-        })
-    }
+            found,
+        ),
+    ))
 }
