@@ -34,6 +34,9 @@ pub struct Read {
     // Stats are aggregated per collection
     collection_name: String,
 
+    // Include task name in emitted metrics
+    task_name: String,
+
     // Offset before which no documents should be emitted
     offset_start: i64,
 
@@ -106,6 +109,12 @@ impl Read {
 
             journal_name: partition.spec.name.clone(),
             collection_name: collection.name.to_owned(),
+            task_name: match auth {
+                SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
+                SessionAuthentication::User(user_auth) => {
+                    format!("user-auth: {:?}", user_auth.claims.email)
+                }
+            },
             rewrite_offsets_from,
             deletes: auth.deletions(),
             offset_start: offset,
@@ -359,12 +368,24 @@ impl Read {
             "batch complete"
         );
 
-        metrics::counter!("dekaf_documents_read", "journal_name" => self.journal_name.to_owned())
-            .increment(records.len() as u64);
-        metrics::counter!("dekaf_bytes_read_in", "journal_name" => self.journal_name.to_owned())
-            .increment(stats_bytes as u64);
-        metrics::counter!("dekaf_bytes_read", "journal_name" => self.journal_name.to_owned())
-            .increment(output_bytes as u64);
+        metrics::counter!(
+            "dekaf_documents_read",
+            "task_name" => self.task_name.to_owned(),
+            "journal_name" => self.journal_name.to_owned()
+        )
+        .increment(records.len() as u64);
+        metrics::counter!(
+            "dekaf_bytes_read_in",
+            "task_name" => self.task_name.to_owned(),
+            "journal_name" => self.journal_name.to_owned()
+        )
+        .increment(stats_bytes as u64);
+        metrics::counter!(
+            "dekaf_bytes_read",
+            "task_name" => self.task_name.to_owned(),
+            "journal_name" => self.journal_name.to_owned()
+        )
+        .increment(output_bytes as u64);
 
         // Right: Input documents from journal. Left: Input docs from destination. Out: Right Keys ⋃ Left Keys
         // Dekaf reads docs from journals, so it emits "right". It doesn't do reduction with a destination system,
