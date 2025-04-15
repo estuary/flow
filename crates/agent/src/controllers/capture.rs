@@ -62,6 +62,9 @@ async fn maybe_publish<C: ControlPlane>(
     model: &models::CaptureDef,
 ) -> anyhow::Result<bool> {
     if model.shards.disable {
+        if let Some(ad) = status.auto_discover.as_mut() {
+            ad.next_at.take();
+        }
         return Ok(false);
     }
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
