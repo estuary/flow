@@ -440,6 +440,14 @@ impl Session {
     ) -> anyhow::Result<messages::FetchResponse> {
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
 
+        let task_name = match &self.auth {
+            Some(SessionAuthentication::Task(auth)) => auth.task_name.clone(),
+            Some(SessionAuthentication::User(auth)) => {
+                format!("user-auth: {:?}", auth.claims.email)
+            }
+            None => bail!("Not authenticated"),
+        };
+
         let messages::FetchRequest {
             topics: topic_requests,
             max_bytes: _, // Ignored.
@@ -523,6 +531,7 @@ impl Session {
                             "dekaf_fetch_requests",
                             "topic_name" => key.0.to_string(),
                             "partition_index" => key.1.to_string(),
+                            "task_name" => task_name.to_string(),
                             "state" => "read_expired"
                         )
                         .increment(1);
@@ -541,6 +550,7 @@ impl Session {
                             "dekaf_fetch_requests",
                             "topic_name" => key.0.to_string(),
                             "partition_index" => key.1.to_string(),
+                            "task_name" => task_name.to_string(),
                             "state" => "read_pending"
                         )
                         .increment(1);
@@ -558,6 +568,7 @@ impl Session {
                         "dekaf_fetch_requests",
                         "topic_name" => key.0.to_string(),
                         "partition_index" => key.1.to_string(),
+                        "task_name" => task_name.to_string(),
                         "state" => "collection_not_found"
                     )
                     .increment(1);
@@ -572,6 +583,7 @@ impl Session {
                         "dekaf_fetch_requests",
                         "topic_name" => key.0.to_string(),
                         "partition_index" => key.1.to_string(),
+                        "task_name" => task_name.to_string(),
                         "state" => "partition_not_found"
                     )
                     .increment(1);
@@ -595,6 +607,7 @@ impl Session {
                                 "dekaf_fetch_requests",
                                 "topic_name" => key.0.to_string(),
                                 "partition_index" => key.1.to_string(),
+                                "task_name" => task_name.to_string(),
                                 "state" => "new_data_preview_read"
                             )
                             .increment(1);
@@ -624,6 +637,7 @@ impl Session {
                                 "dekaf_fetch_requests",
                                 "topic_name" => key.0.to_string(),
                                 "partition_index" => key.1.to_string(),
+                                "task_name" => task_name.to_string(),
                                 "state" => "new_regular_read"
                             )
                             .increment(1);
