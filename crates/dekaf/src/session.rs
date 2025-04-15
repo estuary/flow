@@ -49,6 +49,8 @@ pub struct Session {
     data_preview_state: SessionDataPreviewState,
     broker_urls: Vec<String>,
     msk_region: String,
+    // Number of ReadResponses to buffer in PendingReads
+    read_buffer_size: usize,
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
     legacy_mode_broker_urls: Vec<String>,
@@ -63,6 +65,7 @@ impl Session {
         secret: String,
         broker_urls: Vec<String>,
         msk_region: String,
+        read_buffer_size: usize,
         legacy_mode_broker_urls: Vec<String>,
         legacy_mode_broker_username: String,
         legacy_mode_broker_password: String,
@@ -72,6 +75,7 @@ impl Session {
             client: None,
             broker_urls,
             msk_region,
+            read_buffer_size,
             legacy_mode_broker_urls,
             legacy_mode_broker_username,
             legacy_mode_broker_password,
@@ -604,6 +608,7 @@ impl Session {
                                     value_schema_id,
                                     Some(partition_request.fetch_offset - 1),
                                     &auth,
+                                    self.read_buffer_size,
                                 )?
                                 .next_batch(
                                     // Have to read at least 2 docs, as the very last doc
@@ -632,6 +637,7 @@ impl Session {
                                     value_schema_id,
                                     None,
                                     &auth,
+                                    self.read_buffer_size,
                                 )?
                                 .next_batch(
                                     crate::read::ReadTarget::Bytes(
