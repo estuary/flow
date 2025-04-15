@@ -11,6 +11,7 @@ pub(crate) mod publication_status;
 use crate::controlplane::ControlPlane;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use itertools::Itertools;
 use models::{status::ControllerStatus, AnySpec, CatalogType, Id};
 use proto_flow::{flow, AnyBuiltSpec};
 use serde::Serialize;
@@ -326,6 +327,44 @@ impl NextRun {
     }
 }
 
+/// Reduces a collection of results into a single result, setting the next run
+/// time to the smallest value among all the results, regardless of whether the
+/// result is an error or not.
+pub fn coalesce_results(
+    results: impl IntoIterator<Item = anyhow::Result<Option<NextRun>>>,
+) -> anyhow::Result<Option<NextRun>> {
+    let mut min = None;
+    let mut errs = Vec::new();
+    for result in results {
+        match result {
+            Ok(nr) => {
+                min = NextRun::earliest([min, nr]);
+            }
+            Err(e) => match e.downcast::<RetryableError>() {
+                Ok(rt) => {
+                    min = NextRun::earliest([min, rt.retry]);
+                    errs.push(rt.inner);
+                }
+                Err(reg_err) => errs.push(reg_err),
+            },
+        }
+    }
+    let res = if errs.is_empty() {
+        Ok(min)
+    } else if errs.len() > 1 {
+        Err(anyhow::anyhow!(
+            "{} errors:\n- {}",
+            errs.len(),
+            errs.iter().join("\n- ")
+        ))
+    } else {
+        Err(errs.into_iter().next().unwrap())
+    };
+
+    let maybe_next = res.with_maybe_retry(min)?;
+    Ok(maybe_next)
+}
+
 /// Looks for a failed publication in the history that has a detail message
 /// prefixed by the given string, and returns the time of the last attempt, and
 /// the total number of failures. This allows the backoff to reset whenever a new version of a
@@ -446,5 +485,77 @@ mod test {
             .as_millis();
         assert!(millis >= 60000, "duration too small, got: {millis}ms");
         assert!(millis <= 72000, "duration too big, got: {millis}ms");
+    }
+
+    #[test]
+    fn test_coalesce_results() {
+        // All Ok with a retry
+        let res = coalesce_results([
+            Ok(None),
+            Ok(Some(NextRun::after_minutes(1))),
+            Ok(Some(NextRun::after_minutes(55))),
+        ]);
+        assert_eq!(
+            60,
+            res.expect("should be Ok")
+                .expect("should be Some")
+                .after_seconds
+        );
+
+        // Multiple errors, with retry set from an Ok result
+        let res = coalesce_results([
+            Ok(None),
+            Err(RetryableError {
+                inner: anyhow::anyhow!("first error"),
+                retry: None,
+            }
+            .into()),
+            Ok(Some(NextRun::after_minutes(1))),
+            Err(RetryableError {
+                inner: anyhow::anyhow!("second error"),
+                retry: Some(NextRun::after_minutes(5)),
+            }
+            .into()),
+        ]);
+        let err = res.unwrap_err().downcast::<RetryableError>().unwrap();
+        assert_eq!(60, err.retry.unwrap().after_seconds);
+        assert_eq!(
+            "2 errors:\n- first error\n- second error (will retry)",
+            &err.to_string()
+        );
+
+        // No next run
+        let res = coalesce_results([
+            Ok(None),
+            Err(RetryableError {
+                inner: anyhow::anyhow!("an error"),
+                retry: None,
+            }
+            .into()),
+        ]);
+        let err = res.unwrap_err().downcast::<RetryableError>().unwrap();
+        assert!(err.retry.is_none());
+
+        // Multiple errors, with retry set from an Err result
+        let res = coalesce_results([
+            Ok(None),
+            Err(RetryableError {
+                inner: anyhow::anyhow!("first error"),
+                retry: None,
+            }
+            .into()),
+            Ok(Some(NextRun::after_minutes(55))),
+            Err(RetryableError {
+                inner: anyhow::anyhow!("second error"),
+                retry: Some(NextRun::after_minutes(5)),
+            }
+            .into()),
+        ]);
+        let err = res.unwrap_err().downcast::<RetryableError>().unwrap();
+        assert_eq!(300, err.retry.unwrap().after_seconds);
+        assert_eq!(
+            "2 errors:\n- first error\n- second error (will retry)",
+            &err.to_string()
+        );
     }
 }

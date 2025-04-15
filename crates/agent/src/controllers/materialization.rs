@@ -1,7 +1,7 @@
 use super::{
-    activation, backoff_data_plane_activate, dependencies::Dependencies, periodic,
-    publication_status::PendingPublication, ControlPlane, ControllerErrorExt, ControllerState,
-    Inbox, NextRun,
+    activation, backoff_data_plane_activate, coalesce_results, dependencies::Dependencies,
+    periodic, publication_status::PendingPublication, ControlPlane, ControllerErrorExt,
+    ControllerState, Inbox, NextRun,
 };
 use crate::publications::{PublicationResult, RejectedField};
 use anyhow::Context;
@@ -33,19 +33,18 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    let activation_next =
+    let activation_result =
         activation::update_activation(&mut status.activation, state, events, control_plane)
             .await
-            .with_retry(backoff_data_plane_activate(state.failures))?;
-
-    // Return the publication error now, if there is one.
-    let _ = published?;
+            .with_retry(backoff_data_plane_activate(state.failures))
+            .map_err(Into::into);
 
     // There isn't any call to notify dependents because nothing currently can depend on a materialization.
-    Ok(NextRun::earliest([
-        periodic::next_periodic_publish(state),
-        activation_next,
-    ]))
+    coalesce_results([
+        published.map(|_| None),
+        activation_result,
+        Ok(periodic::next_periodic_publish(state)),
+    ])
 }
 
 async fn maybe_publish<C: ControlPlane>(
