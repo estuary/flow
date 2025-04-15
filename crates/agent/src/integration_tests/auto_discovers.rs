@@ -633,21 +633,13 @@ async fn test_auto_discovers_update_only() {
     harness
         .assert_controller_not_pending("pikas/disabled-capture")
         .await;
-    assert!(disabled_state
-        .current_status
-        .unwrap_capture()
-        .auto_discover
-        .is_some());
     assert!(
         disabled_state
             .current_status
             .unwrap_capture()
             .auto_discover
-            .as_ref()
-            .unwrap()
-            .next_at
             .is_none(),
-        "expect auto-discover next_at to be unset"
+        "expect auto-discover status to be None since this was published as disabled"
     );
     let ad_disabled_state = harness
         .get_controller_state("pikas/capture-auto-disco-disabled")

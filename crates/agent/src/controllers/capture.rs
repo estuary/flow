@@ -61,6 +61,9 @@ async fn maybe_publish<C: ControlPlane>(
     control_plane: &C,
     model: &models::CaptureDef,
 ) -> anyhow::Result<bool> {
+    if model.shards.disable {
+        return Ok(false);
+    }
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
     let published = dependencies
         .update(state, control_plane, &mut status.publications, |deleted| {

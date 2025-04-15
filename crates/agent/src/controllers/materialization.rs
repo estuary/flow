@@ -53,6 +53,9 @@ async fn maybe_publish<C: ControlPlane>(
     control_plane: &C,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<bool> {
+    if model.shards.disable {
+        return Ok(false);
+    }
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
 
     // Materializations use a slightly different process for updating based on changes in dependencies,
