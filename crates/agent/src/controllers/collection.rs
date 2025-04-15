@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::{
-    backoff_data_plane_activate, dependencies::Dependencies, periodic,
+    backoff_data_plane_activate, coalesce_results, dependencies::Dependencies, periodic,
     publication_status::PendingPublication, ControlPlane, ControllerErrorExt, ControllerState,
     Inbox, NextRun,
 };
@@ -30,13 +30,17 @@ pub async fn update<C: ControlPlane>(
     let activate_next_run =
         activation::update_activation(&mut status.activation, state, events, control_plane)
             .await
-            .with_retry(backoff_data_plane_activate(state.failures))?;
+            .with_retry(backoff_data_plane_activate(state.failures))
+            .map_err(Into::into);
 
-    // Return now if the publication failed.
-    let _ = published?;
-
-    publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
-        .await?;
+    // Only notify dependents if our publication and activation were successful.
+    let notify_result = if published.is_ok() && activate_next_run.is_ok() {
+        publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
+            .await
+            .map(|_| None)
+    } else {
+        Ok(None)
+    };
 
     // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
     // bypassed for some reason.
@@ -50,11 +54,13 @@ pub async fn update<C: ControlPlane>(
     } else {
         None
     };
-    Ok(NextRun::earliest([
-        inferred_schema_next,
-        periodic_next,
+    coalesce_results([
+        published.map(|_| None),
+        Ok(inferred_schema_next),
+        Ok(periodic_next),
         activate_next_run,
-    ]))
+        notify_result,
+    ])
 }
 
 /// Performs a publication of the spec, if necessary.
