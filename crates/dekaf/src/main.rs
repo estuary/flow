@@ -119,6 +119,15 @@ pub struct Cli {
     )]
     data_plane_access_key: String,
 
+    /// Maximum number of connections to allow at once
+    #[arg(long, env = "MAX_CONNECTIONS", default_value = "300")]
+    max_connections: usize,
+    /// Maximum number of chunks to buffer for each pending read.
+    /// A chunk represents a single ReadResponse from Gazette, and
+    /// can be up to 130K in size.
+    #[arg(long, env = "READ_BUFFER_CHUNK_LIMIT", default_value = "20")]
+    read_buffer_chunk_limit: usize,
+
     #[command(flatten)]
     tls: Option<TlsArgs>,
 }
@@ -223,6 +232,8 @@ async fn main() -> anyhow::Result<()> {
         ctrl_c_token.cancel();
     });
 
+    let connection_limit = Arc::new(tokio::sync::Semaphore::new(cli.max_connections));
+
     let schema_addr = format!("[::]:{}", cli.schema_registry_port).parse()?;
     let metrics_addr = format!("[::]:{}", cli.metrics_port).parse()?;
     // Build a listener for Kafka sessions.
@@ -302,6 +313,7 @@ async fn main() -> anyhow::Result<()> {
                                     cli.encryption_secret.to_owned(),
                                     upstream_kafka_urls.clone(),
                                     msk_region.to_string(),
+                                    cli.read_buffer_chunk_limit,
                                     legacy_mode_kafka_urls.clone(),
                                     legacy_broker_username.to_string(),
                                     legacy_broker_password.to_string()
@@ -309,7 +321,8 @@ async fn main() -> anyhow::Result<()> {
                                 socket,
                                 addr,
                                 cli.idle_session_timeout,
-                                task_cancellation
+                                task_cancellation,
+                                connection_limit.clone()
                             )
                         )
                     );
@@ -345,6 +358,7 @@ async fn main() -> anyhow::Result<()> {
                                     cli.encryption_secret.to_owned(),
                                     upstream_kafka_urls.clone(),
                                     msk_region.to_string(),
+                                    cli.read_buffer_chunk_limit,
                                     legacy_mode_kafka_urls.clone(),
                                     legacy_broker_username.to_string(),
                                     legacy_broker_password.to_string()
@@ -352,7 +366,8 @@ async fn main() -> anyhow::Result<()> {
                                 socket,
                                 addr,
                                 cli.idle_session_timeout,
-                                task_cancellation
+                                task_cancellation,
+                                connection_limit.clone()
                             )
                         )
                     );
@@ -365,17 +380,26 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, stop), fields(?addr))]
+#[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(session, socket, stop, connection_limit), fields(?addr))]
 async fn serve<S>(
     mut session: Session,
     socket: S,
     addr: std::net::SocketAddr,
     idle_timeout: std::time::Duration,
     stop: tokio_util::sync::CancellationToken,
+    connection_limit: Arc<tokio::sync::Semaphore>,
 ) -> anyhow::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    let permit = match connection_limit.try_acquire() {
+        Ok(permit) => permit,
+        Err(_) => {
+            metrics::counter!("dekaf_rejected_connections", "reason" => "over_limit").increment(1);
+            anyhow::bail!("Connection limit reached, rejecting connection");
+        }
+    };
+
     tracing::info!("accepted client connection");
 
     let (r, mut w) = tokio::io::split(socket);
@@ -420,6 +444,9 @@ where
     metrics::gauge!("dekaf_total_connections").decrement(1);
 
     w.shutdown().await?;
+
+    drop(permit);
+
     result
 }
 
