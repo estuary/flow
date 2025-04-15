@@ -76,6 +76,8 @@ async fn maybe_publish<C: ControlPlane>(
     control_plane: &C,
     model: &models::CollectionDef,
 ) -> anyhow::Result<bool> {
+    // We don't care whether derivation shards are disabled, because the collection is
+    // still usable as a regular collection in that case.
     let uses_inferred_schema = uses_inferred_schema(model);
     if uses_inferred_schema {
         let inferred_schema_status = status.inferred_schema.get_or_insert_with(Default::default);
