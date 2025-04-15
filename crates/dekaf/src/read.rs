@@ -69,6 +69,7 @@ impl Read {
         value_schema_id: u32,
         rewrite_offsets_from: Option<i64>,
         auth: &SessionAuthentication,
+        buffer_size: usize,
     ) -> anyhow::Result<Self> {
         let (not_before_sec, _) = collection
             .not_before
@@ -86,7 +87,7 @@ impl Read {
             // Each ReadResponse can be up to 130K. Buffer up to ~4MB so that
             // `dekaf` can do lots of useful transcoding work while waiting for
             // network delay of the next fetch request.
-            30,
+            buffer_size,
         );
 
         Ok(Self {
