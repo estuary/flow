@@ -110,11 +110,10 @@ async fn test_specs_with_null_bytes() {
     harness.run_pending_controller("possums/bugs").await;
     let state = harness.get_controller_state("possums/bugs").await;
 
-    insta::assert_debug_snapshot!(state.error, @r###"
-    Some(
-        "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)",
-    )
-    "###);
+    // the actual error might have a `(will retry)` suffix
+    assert!(state.error.as_ref().expect("error should be set").contains(
+        "a string in the spec contains a disallowed unicode null escape (\\x00 or \\u0000)"
+    ));
 
     let history = state
         .current_status
