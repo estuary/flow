@@ -82,6 +82,7 @@ typestate = { workspace = true }
 url = { workspace = true }
 webpki = { workspace = true }
 apache-avro = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 async-process = { path = "../async-process" }

@@ -2372,6 +2372,7 @@ dependencies = [
  "socket2",
  "tables",
  "tempfile",
+ "thiserror",
  "time 0.3.36",
  "tokio",
  "tokio-rustls 0.26.0",
