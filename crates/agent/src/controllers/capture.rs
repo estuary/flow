@@ -1,7 +1,7 @@
 mod auto_discover;
 use super::{
-    backoff_data_plane_activate, dependencies::Dependencies, ControlPlane, ControllerErrorExt,
-    ControllerState, Inbox, NextRun,
+    backoff_data_plane_activate, coalesce_results, dependencies::Dependencies, ControlPlane,
+    ControllerErrorExt, ControllerState, Inbox, NextRun,
 };
 use crate::controllers::{activation, periodic, publication_status};
 use anyhow::Context;
@@ -24,28 +24,35 @@ pub async fn update<C: ControlPlane>(
         return Ok(Some(NextRun::immediately()));
     }
 
-    let activate_next_run =
+    let activate_result =
         activation::update_activation(&mut status.activation, state, events, control_plane)
             .await
-            .with_retry(backoff_data_plane_activate(state.failures))?;
+            .with_retry(backoff_data_plane_activate(state.failures))
+            .map_err(Into::into);
 
-    // Return the publication error now, if there is one.
-    let _ = published?;
-
-    publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
-        .await
-        .context("failed to notify dependents")?;
+    // Only notify dependents if our publication and activation were successful.
+    let notify_result = if published.is_ok() && activate_result.is_ok() {
+        publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
+            .await
+            .context("failed to notify dependents")
+            .map(|_| None)
+    } else {
+        Ok(None)
+    };
 
     let ad_next = status
         .auto_discover
         .as_ref()
         .and_then(auto_discover::next_run);
     let periodic_next = periodic::next_periodic_publish(state);
-    Ok(NextRun::earliest([
-        ad_next,
-        periodic_next,
-        activate_next_run,
-    ]))
+
+    coalesce_results([
+        published.map(|_| None),
+        Ok(ad_next),
+        Ok(periodic_next),
+        activate_result,
+        notify_result,
+    ])
 }
 
 async fn maybe_publish<C: ControlPlane>(

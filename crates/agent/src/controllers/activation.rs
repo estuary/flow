@@ -184,12 +184,6 @@ async fn do_activate<C: ControlPlane>(
     Ok(())
 }
 
-fn is_shard_failed(events: &Inbox) -> bool {
-    events
-        .iter()
-        .any(|(_, e)| matches!(e, Some(Event::ShardFailed)))
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
