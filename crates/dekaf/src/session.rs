@@ -2,11 +2,11 @@ use super::{App, Collection, Read};
 use crate::{
     api_client::KafkaClientAuth, from_downstream_topic_name, from_upstream_topic_name,
     logging::propagate_task_forwarder, read::BatchResult, to_downstream_topic_name,
-    to_upstream_topic_name, topology::PartitionOffset, KafkaApiClient, SessionAuthentication,
+    to_upstream_topic_name, topology::PartitionOffset, DekafError, KafkaApiClient,
+    SessionAuthentication,
 };
 use anyhow::{bail, Context};
 use bytes::{BufMut, Bytes, BytesMut};
-use futures::TryFutureExt;
 use kafka_protocol::{
     error::{ParseResponseErrorCode, ResponseError},
     messages::{
@@ -19,7 +19,6 @@ use kafka_protocol::{
     },
     protocol::{buf::ByteBuf, Decodable, Encodable, Message, StrBytes},
 };
-use rustls::crypto::hash::Hash;
 use std::{cmp::max, sync::Arc};
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -177,11 +176,12 @@ impl Session {
                 self.auth.replace(auth);
                 response
             }
-            Err(err) => messages::SaslAuthenticateResponse::default()
+            Err(DekafError::Authentication(e)) => messages::SaslAuthenticateResponse::default()
                 .with_error_code(ResponseError::SaslAuthenticationFailed.code())
-                .with_error_message(Some(StrBytes::from_string(format!(
-                    "SASL authentication error: Authentication failed: {err:#}",
-                )))),
+                .with_error_message(Some(StrBytes::from_string(format!("{e}")))),
+            Err(DekafError::Unknown(e)) => messages::SaslAuthenticateResponse::default()
+                .with_error_code(ResponseError::UnknownServerError.code())
+                .with_error_message(Some(StrBytes::from_string(format!("{e:#}",)))),
         };
 
         Ok(response)

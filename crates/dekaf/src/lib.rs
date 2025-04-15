@@ -200,13 +200,25 @@ impl TaskAuth {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+enum DekafError {
+    #[error("Authentication failed: {0}")]
+    Authentication(String),
+    #[error("{0}")]
+    Unknown(
+        #[from]
+        #[source]
+        anyhow::Error,
+    ),
+}
+
 impl App {
     #[tracing::instrument(level = "info", err(Debug, level = "warn"), skip(self, password))]
     async fn authenticate(
         &self,
         username: &str,
         password: &str,
-    ) -> anyhow::Result<SessionAuthentication> {
+    ) -> Result<SessionAuthentication, DekafError> {
         let username = if let Ok(decoded) = decode_safe_name(username.to_string()) {
             decoded
         } else {
@@ -248,7 +260,9 @@ impl App {
 
             // 3. Validate that the provided password matches the task's bearer token
             if password != config.token {
-                anyhow::bail!("Invalid username or password")
+                return Err(DekafError::Authentication(
+                    "Invalid username or password".into(),
+                ));
             }
 
             logging::set_log_level(labels.log_level());
@@ -265,8 +279,14 @@ impl App {
             // so we should disable log forwarding for this session.
             logging::get_log_forwarder().map(|f| f.shutdown());
 
-            let raw_token = String::from_utf8(base64::decode(password)?.to_vec())?;
-            let refresh: RefreshToken = serde_json::from_str(raw_token.as_str())?;
+            let raw_token = String::from_utf8(
+                base64::decode(password)
+                    .map_err(anyhow::Error::from)?
+                    .to_vec(),
+            )
+            .map_err(anyhow::Error::from)?;
+            let refresh: RefreshToken =
+                serde_json::from_str(raw_token.as_str()).map_err(anyhow::Error::from)?;
 
             let (access, refresh) =
                 refresh_authorizations(&self.client_base, None, Some(refresh)).await?;
@@ -290,7 +310,9 @@ impl App {
                 config,
             }))
         } else {
-            anyhow::bail!("Invalid username or password")
+            return Err(DekafError::Authentication(
+                "Invalid username or password".into(),
+            ));
         }
     }
 }
