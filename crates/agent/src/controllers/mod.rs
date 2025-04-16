@@ -369,8 +369,11 @@ pub fn coalesce_results(
     // If the controller returned an error and also a desire for an immediate next run,
     // then warn and override the next run to be a few seconds in the future. This is to
     // guard against controllers erroring in a tight loop, which has happened recently.
+    // Log at info level because this is not necessarily indicative of any problems,
+    // but it definitely _would_ indicate a problem if we see this log consistently
+    // repeating for the same spec.
     if !errs.is_empty() && min.as_ref().is_some_and(|n| n.after_seconds == 0) {
-        tracing::warn!("controller returned error and NextRun::immediately, overriding backoff");
+        tracing::info!("controller returned error and NextRun::immediately, overriding backoff");
         min = Some(NextRun {
             after_seconds: 3,
             jitter_percent: 50,
