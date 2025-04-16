@@ -347,3 +347,24 @@ async fn test_longs() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_only_null_fields() -> anyhow::Result<()> {
+    let fixture_path = "tests/fixtures/nulls.yaml".to_string();
+    let docs = vec![
+        json!({
+            "key": 1234,
+            "a_null": null,
+            "nullable": null,
+        }),
+        json!({
+            "key": 1234,
+            "a_null": null,
+            "nullable": "foo",
+        }),
+    ];
+
+    insta::assert_debug_snapshot!(roundtrip(fixture_path, serde_to_jsonl(docs)?.as_slice()).await);
+
+    Ok(())
+}

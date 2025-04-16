@@ -1,0 +1,31 @@
+collections:
+  test/collection:
+    key:
+      - /key
+    schema:
+      properties:
+        key:
+          type: string
+        a_null:
+          type: ["null"]
+        nullable:
+          type: ["string", "null"]
+      type: object
+      required:
+        - key
+        - a_null
+materializations:
+  test/materialization:
+    endpoint:
+      dekaf:
+        variant: foo
+        config:
+          deletions: kafka
+          token: "1234"
+          strict_topic_names: false
+    bindings:
+      - source: test/collection
+        resource:
+          topic_name: foo
+        fields:
+          recommended: true

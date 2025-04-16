@@ -47,20 +47,7 @@ expression: "json!({ \"key\": &key, \"value\": &value, })"
     "fields": [
       {
         "name": "a",
-        "type": [
-          {
-            "fields": [
-              {
-                "name": "json",
-                "type": "string"
-              }
-            ],
-            "name": "RawJSON",
-            "namespace": "root.a",
-            "type": "record"
-          },
-          "null"
-        ]
+        "type": "null"
       },
       {
         "name": "b",

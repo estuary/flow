@@ -94,20 +94,7 @@ expression: "schema_test(&fixture, &key)"
       },
       {
         "name": "a_null",
-        "type": [
-          {
-            "fields": [
-              {
-                "name": "json",
-                "type": "string"
-              }
-            ],
-            "name": "RawJSON",
-            "namespace": "root.a_null",
-            "type": "record"
-          },
-          "null"
-        ]
+        "type": "null"
       },
       {
         "name": "a_number_like",

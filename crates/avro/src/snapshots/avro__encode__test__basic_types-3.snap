@@ -6,19 +6,7 @@ Record(
     [
         (
             "a",
-            Union(
-                0,
-                Record(
-                    [
-                        (
-                            "json",
-                            String(
-                                "null",
-                            ),
-                        ),
-                    ],
-                ),
-            ),
+            Null,
         ),
         (
             "b",

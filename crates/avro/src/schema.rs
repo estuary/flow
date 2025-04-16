@@ -48,6 +48,10 @@ pub fn shape_to_avro(loc: json::Location, shape: doc::Shape, required: bool) -> 
             types::INTEGER => avro::Schema::Long,
             types::INT_OR_FRAC | types::FRACTIONAL => avro::Schema::Double,
             types::OBJECT => object_to_avro(loc, shape.object),
+            // We initially remove `NULL` from the type mask if it's present in order to make
+            // matching on the remaining type simpler. But if the input type is exactly `NULL`,
+            // we need to return `avro::Schema::Null` instead of the `RawJSON` fallback.
+            types::INVALID if nullable => avro::Schema::Null,
             // Other combinations fall back to JSON encoding.
             _ => raw_json_schema(loc),
         }
