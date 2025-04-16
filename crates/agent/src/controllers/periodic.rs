@@ -11,7 +11,7 @@ use models::{status::publications::PublicationStatus, ModelDef};
 
 use crate::ControlPlane;
 
-use super::{publication_status::PendingPublication, ControllerState, NextRun};
+use super::{publication_status::PendingPublication, ControllerErrorExt, ControllerState, NextRun};
 
 /// 20 days was chosen because we'd like to have a 30 day retention on our
 /// builds, so this gives us 10 days to notice and correct any problems before
@@ -73,7 +73,9 @@ pub async fn update_periodic_publish<C: ControlPlane>(
         .finish(state, pub_status, control_plane)
         .await
         .context("executing periodic publication")?;
-    pub_result.error_for_status()?;
+    pub_result
+        .error_for_status()
+        .with_retry(NextRun::after_minutes(180))?;
     Ok(true)
 }
 
