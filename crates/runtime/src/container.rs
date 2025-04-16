@@ -279,13 +279,13 @@ pub async fn start(
 }
 
 /// Performs a basic validation of logs that represent events, to restrict
-/// connectors to emitting connectorStatus events for the currently running
-/// task.
+/// connectors to emitting connectorStatus and configUpdate events for the
+/// currently running task.
 fn sanitize_event_type(quoted_task_name: &str, mut log: ops::Log) -> ops::Log {
     match log
         .fields_json_map
         .get("eventType")
-        .map(|v| v == "\"connectorStatus\"")
+        .map(|v| v == "\"connectorStatus\"" || v == "\"configUpdate\"")
     {
         Some(true) => {
             match log
