@@ -25,13 +25,33 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<Option<NextRun>> {
-    let published = maybe_publish(status, state, control_plane, model).await;
-    // Return immediately if we've successfully published. If a publication was
-    // attempted, but failed, then we'll still attempt to update activation, so
-    // that we can activate new builds and restart failed shards.
-    if Some(&true) == published.as_ref().ok() {
+    let mut dependencies = Dependencies::resolve(state, control_plane).await?;
+
+    let dependencies_published =
+        dependencies_update(&mut dependencies, status, control_plane, state, model).await;
+    if dependencies_published.as_ref().ok() == Some(&true) {
         return Ok(Some(NextRun::immediately()));
     }
+    let dependencies_result = dependencies_published.map(|_| None);
+
+    // Don't attempt to add bindings if we've already failed to publish
+    // with the bindings that are already there.
+    let source_capture_result = if dependencies_result.is_ok() {
+        let source_capture_published =
+            source_capture_update(&mut dependencies, status, control_plane, state, model).await;
+        if source_capture_published.as_ref().ok() == Some(&true) {
+            return Ok(Some(NextRun::immediately()));
+        }
+        source_capture_published.map(|_| None)
+    } else {
+        Ok(None)
+    };
+
+    let periodic_published = periodic_update(status, control_plane, state).await;
+    if periodic_published.as_ref().ok() == Some(&true) {
+        return Ok(Some(NextRun::immediately()));
+    }
+    let periodic_result = periodic_published.map(|_| periodic::next_periodic_publish(state));
 
     let activation_result =
         activation::update_activation(&mut status.activation, state, events, control_plane)
@@ -40,24 +60,37 @@ pub async fn update<C: ControlPlane>(
             .map_err(Into::into);
 
     // There isn't any call to notify dependents because nothing currently can depend on a materialization.
-    coalesce_results([
-        published.map(|_| None),
-        activation_result,
-        Ok(periodic::next_periodic_publish(state)),
-    ])
+    coalesce_results(
+        state.failures,
+        [
+            dependencies_result,
+            source_capture_result,
+            periodic_result,
+            activation_result,
+        ],
+    )
 }
 
-async fn maybe_publish<C: ControlPlane>(
+async fn periodic_update<C: ControlPlane>(
     status: &mut MaterializationStatus,
-    state: &ControllerState,
     control_plane: &C,
+    state: &ControllerState,
+) -> anyhow::Result<bool> {
+    let periodic = periodic::start_periodic_publish_update(state, control_plane)?;
+    if periodic.has_pending() {
+        do_publication(&mut status.publications, state, periodic, control_plane).await?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+async fn dependencies_update<C: ControlPlane>(
+    dependencies: &mut Dependencies,
+    status: &mut MaterializationStatus,
+    control_plane: &C,
+    state: &ControllerState,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<bool> {
-    if model.shards.disable {
-        return Ok(false);
-    }
-    let mut dependencies = Dependencies::resolve(state, control_plane).await?;
-
     // Materializations use a slightly different process for updating based on changes in dependencies,
     // because we need to handle the schema evolution whenever we publish. The collection schemas could have changed
     // since the last publish, and we might need to apply `onIncompatibleSchemaChange` actions.
@@ -74,9 +107,19 @@ async fn maybe_publish<C: ControlPlane>(
             control_plane,
         )
         .await?;
-        return Ok(true);
+        Ok(true)
+    } else {
+        Ok(false)
     }
+}
 
+async fn source_capture_update<C: ControlPlane>(
+    dependencies: &mut Dependencies,
+    status: &mut MaterializationStatus,
+    control_plane: &C,
+    state: &ControllerState,
+    model: &models::MaterializationDef,
+) -> anyhow::Result<bool> {
     if let Some(model_source_capture) = &model.source_capture {
         let MaterializationStatus {
             source_capture,
@@ -94,7 +137,7 @@ async fn maybe_publish<C: ControlPlane>(
             anyhow::bail!("sourceCapture spec was missing from live dependencies");
         };
         let source_capture_status = source_capture.get_or_insert_with(Default::default);
-        if update_source_capture(
+        update_source_capture(
             source_capture_status,
             publications,
             state,
@@ -102,21 +145,11 @@ async fn maybe_publish<C: ControlPlane>(
             capture_model,
             model,
         )
-        .await?
-        {
-            // If the sourceCapture update published, then return and schedule another run immediately
-            return Ok(true);
-        }
+        .await
     } else {
         status.source_capture.take();
+        Ok(false)
     }
-
-    let periodic = periodic::start_periodic_publish_update(state, control_plane)?;
-    if periodic.has_pending() {
-        do_publication(&mut status.publications, state, periodic, control_plane).await?;
-        return Ok(true);
-    }
-    Ok(false)
 }
 
 /// Publishes, and handles any incompatibleCollections by automatically
@@ -166,7 +199,7 @@ async fn do_publication<C: ControlPlane>(
     // oftentimes users will abandon live tasks after deleting those external systems.
     result
         .error_for_status()
-        .with_maybe_retry(backoff_publication_failure(state.failures))?;
+        .with_retry(backoff_publication_failure(state.failures))?;
     Ok(())
 }
 
@@ -260,13 +293,11 @@ fn apply_evolution_actions(
     Ok(updated)
 }
 
-fn backoff_publication_failure(prev_failures: i32) -> Option<NextRun> {
+fn backoff_publication_failure(prev_failures: i32) -> NextRun {
     if prev_failures < 3 {
-        Some(NextRun::after_minutes(prev_failures.max(1) as u32))
-    } else if prev_failures < 10 {
-        Some(NextRun::after_minutes(prev_failures as u32 * 60))
+        NextRun::after_minutes(prev_failures.max(1) as u32)
     } else {
-        None
+        NextRun::after_minutes(prev_failures as u32 * 10)
     }
 }
 
