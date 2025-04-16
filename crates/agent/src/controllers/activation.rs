@@ -146,7 +146,16 @@ fn get_next_retry_time(now: DateTime<Utc>, failures: &[ShardFailure]) -> Option<
     let consecutive_failures = (failures.len() as f32 / shard_count as f32).ceil() as u32;
     let next = match consecutive_failures {
         0..=2 => Some(now),
-        moar => Some(now + chrono::Duration::minutes(180.min(moar as i64 * 3))),
+        moar => {
+            // Limit the backoff to at most 15 minutes, since we don't yet have
+            // a way to alert users to failures. We use a pretty substantial
+            // jitter to try to stagger restarts, since various data plane
+            // issues can cause many shards to fail at around the same time.
+            let backoff = NextRun::after_minutes(10.min(moar * 2))
+                .with_jitter_percent(50)
+                .compute_duration();
+            Some(now + backoff)
+        }
     };
     tracing::info!(
         ?next,
@@ -198,12 +207,25 @@ mod test {
         backoff_test(no_backoff, &[(zero, zero)]);
         backoff_test(no_backoff, &[(zero, zero), (zero, zero)]);
         backoff_test(
-            Duration::minutes(9),
+            Duration::minutes(6),
             &[(zero, zero), (zero, zero), (zero, zero)],
         );
         backoff_test(
-            Duration::minutes(12),
+            Duration::minutes(8),
             &[(zero, zero), (zero, zero), (zero, zero), (zero, zero)],
+        );
+        backoff_test(
+            Duration::minutes(10),
+            &[
+                (zero, zero),
+                (zero, zero),
+                (zero, zero),
+                (zero, zero),
+                (zero, zero),
+                (zero, zero),
+                (zero, zero),
+                (zero, zero),
+            ],
         );
 
         // One or two failures of each shard should be retried immediately
@@ -235,7 +257,7 @@ mod test {
             ],
         );
         backoff_test(
-            Duration::minutes(9),
+            Duration::minutes(6),
             &[
                 (zero, zero),
                 (zero, one), // different shard
@@ -250,7 +272,7 @@ mod test {
         let min = expected
             .checked_sub(&Duration::seconds(10))
             .unwrap_or(Duration::zero());
-        let max = expected + Duration::seconds(10);
+        let max = expected + (expected / 2);
         let backoff = compute_backoff(failures);
         assert!(
             backoff >= min,
