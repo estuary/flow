@@ -9,7 +9,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    controllers::{fetch_controller_state, RetryableError},
+    controllers::{fallback_backoff_next_run, fetch_controller_state, RetryableError},
     ControlPlane,
 };
 use anyhow::Context;
@@ -202,13 +202,4 @@ async fn run_controller<C: ControlPlane>(
     };
     inbox.clear();
     result_parts
-}
-
-fn fallback_backoff_next_run(failures: i32) -> NextRun {
-    let minutes = match failures.max(1).min(8) as u32 {
-        1 => 1,
-        2 => 10,
-        more => more * 45,
-    };
-    NextRun::after_minutes(minutes).with_jitter_percent(50)
 }

@@ -33,14 +33,13 @@ pub async fn update<C: ControlPlane>(
             .with_retry(backoff_data_plane_activate(state.failures))
             .map_err(Into::into);
 
-    // Only notify dependents if our publication and activation were successful.
-    let notify_result = if published.is_ok() && activation_result.is_ok() {
-        publication_status::update_notify_dependents(&mut status.publications, state, control_plane)
-            .await
-            .map(|_| None)
-    } else {
-        Ok(None)
-    };
+    let notify_result = publication_status::update_notify_dependents(
+        &mut status.publications,
+        state,
+        control_plane,
+    )
+    .await
+    .map(|_| None);
 
     // Use an infrequent periodic check for inferred schema updates, just in case the database trigger gets
     // bypassed for some reason.
@@ -49,18 +48,15 @@ pub async fn update<C: ControlPlane>(
     } else {
         None
     };
-    let periodic_next = if model.derive.is_some() {
-        periodic::next_periodic_publish(state)
-    } else {
-        None
-    };
-    coalesce_results([
-        published.map(|_| None),
-        Ok(inferred_schema_next),
-        Ok(periodic_next),
-        activation_result,
-        notify_result,
-    ])
+    coalesce_results(
+        state.failures,
+        [
+            published.map(|_| periodic::next_periodic_publish(state)),
+            Ok(inferred_schema_next),
+            activation_result,
+            notify_result,
+        ],
+    )
 }
 
 /// Performs a publication of the spec, if necessary.
@@ -70,6 +66,12 @@ pub async fn update<C: ControlPlane>(
 /// - Periodically rebuild the spec
 ///
 /// Returns a boolean indicating whether a publication was performed.
+/// Note that unlike captures and materializations, all collection publications
+/// are practically equivalent, meaning that there's no reason to attempt
+/// another publication in the same controller run if one of these fails. And
+/// any successful publication of the collection will satisfy all of the reasons
+/// why we might publish. This is why we can have a single `maybe_publish` function
+/// instead of needing separate results like captures and materializations.
 async fn maybe_publish<C: ControlPlane>(
     status: &mut CollectionStatus,
     state: &ControllerState,

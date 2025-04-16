@@ -810,14 +810,33 @@ async fn test_dependencies_and_controllers() {
 
     // Simulate a failed call to activate the collection in the data plane
     harness.control_plane().fail_next_activation("owls/hoots");
-    // Only the hoots controller should have run, because it should not have
-    // notified dependents yet due to the activation failure.
+    // Fetch the other specs, so we can assert that they get touched
+    let mut all_except_hoots = all_names.clone();
+    all_except_hoots.remove("owls/hoots");
+    let starting_specs = harness
+        .control_plane()
+        .get_live_specs(all_except_hoots.clone())
+        .await
+        .unwrap();
+
     let runs = harness.run_pending_controllers(None).await;
-    assert_eq!(1, runs.len());
-    assert_eq!("owls/hoots", &runs[0].catalog_name);
-    // Assert that the controller_jobs row recorded the failure.
+    assert_controllers_ran(
+        &[
+            "owls/capture",
+            "owls/materialize",
+            "owls/hoots",
+            "owls/nests",
+            "owls/test-test",
+        ],
+        runs,
+    );
+
+    // Assert that the hoots controller_jobs row recorded the failure.
     let hoots_state = harness.get_controller_state("owls/hoots").await;
-    assert_eq!(1, hoots_state.failures);
+    // The hoots controller may have been run multiple times, due to its
+    // dependencies being published, but we'd expect each run to result
+    // in the same activation error.
+    assert!(hoots_state.failures > 0);
     assert!(hoots_state
         .error
         .as_ref()
@@ -832,9 +851,21 @@ async fn test_dependencies_and_controllers() {
             .last_activated,
         "expect hoots last_activated to be unchanged"
     );
-    harness.control_plane().reset_activations();
 
-    // Now re-try the controller, and expect it to have recovered from the error
+    // Assert that other specs where touched and activated
+    harness.assert_specs_touched_since(&starting_specs).await;
+    harness.control_plane().assert_activations(
+        "subsequent activations",
+        vec![
+            ("owls/capture", Some(CatalogType::Capture)),
+            ("owls/materialize", Some(CatalogType::Materialization)),
+            ("owls/nests", Some(CatalogType::Collection)),
+            // tests do not get activated
+        ],
+    );
+
+    // Now re-try the hoots controller, and expect it to have recovered from the error
+    harness.control_plane().reset_activations();
     let run = harness.run_pending_controller("owls/hoots").await;
     assert_eq!("owls/hoots", &run.catalog_name);
     harness.control_plane().assert_activations(
@@ -855,38 +886,6 @@ async fn test_dependencies_and_controllers() {
     assert!(
         hoots_state.last_build_id > hoots_last_activated,
         "sanity check that the last_build_id increased"
-    );
-
-    // Other controllers should run now that the activation of hoots was successful.
-    // Before running, fetch the current state of their live specs, so we can assert
-    // that they only get touched instead of being fully published.
-    let mut all_except_hoots = all_names.clone();
-    all_except_hoots.remove("owls/hoots");
-    let starting_specs = harness
-        .control_plane()
-        .get_live_specs(all_except_hoots.clone())
-        .await
-        .unwrap();
-    let runs = harness.run_pending_controllers(None).await;
-    assert_controllers_ran(
-        &[
-            "owls/capture",
-            "owls/materialize",
-            "owls/hoots",
-            "owls/nests",
-            "owls/test-test",
-        ],
-        runs,
-    );
-    harness.assert_specs_touched_since(&starting_specs).await;
-    harness.control_plane().assert_activations(
-        "subsequent activations",
-        vec![
-            ("owls/capture", Some(CatalogType::Capture)),
-            ("owls/materialize", Some(CatalogType::Materialization)),
-            ("owls/nests", Some(CatalogType::Collection)),
-            // tests do not get activated
-        ],
     );
 
     // Publish hoots again and expect dependents to be touched again in response.
