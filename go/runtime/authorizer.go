@@ -10,6 +10,7 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/golang-jwt/jwt/v5"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"google.golang.org/grpc/metadata"
 )
@@ -58,8 +59,21 @@ type authCacheValue struct {
 	token   string
 }
 
-func (v *authCacheValue) apply(ctx context.Context) (context.Context, error) {
+func (v *authCacheValue) apply(ctx context.Context, key authCacheKey) (context.Context, error) {
 	if v.err != nil {
+
+		// Special case (hack) for task migration:
+		// A newly-migrated task will recover an ACK intent which commits its last
+		// stats document to its stats partition. However, as it's migrated to a
+		// different data-plane, it's no longer authorized to its old partition.
+		// Handle this by returning JOURNAL_NOT_FOUND, which trips logic in the
+		// Gazette `consumer` module that discards the ACK intent and continues.
+		if key.capability == pb.Capability_APPEND &&
+			(strings.HasPrefix(key.name, "ops/tasks/") || strings.HasPrefix(key.name, "ops.us-central1.v1/stats")) &&
+			strings.Contains(v.err.Error(), "403 Forbidden") {
+			return nil, client.ErrJournalNotFound
+		}
+
 		return nil, v.err
 	}
 
@@ -105,7 +119,7 @@ func (a *controlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 	// Note that we cache and return errors for a period of time, to avoid any potential
 	// accidental DoS of the authorization server due to a thundering herd.
 	if ok && !value.expires.Before(now) {
-		return value.apply(ctx)
+		return value.apply(ctx, key)
 	}
 
 	// Fail-fast if the context is already done.
@@ -153,7 +167,7 @@ func (a *controlPlaneAuthorizer) Authorize(ctx context.Context, claims pb.Claims
 	a.cache.m[key] = value
 	a.cache.mu.Unlock()
 
-	return value.apply(ctx)
+	return value.apply(ctx, key)
 }
 
 func doAuthFetch(cp *controlPlane, claims pb.Claims) (string, pb.Endpoint, time.Time, error) {
