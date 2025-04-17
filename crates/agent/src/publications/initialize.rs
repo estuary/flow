@@ -14,8 +14,8 @@ pub trait Initialize: Send + Sync {
 }
 
 /// A no-op `Initialize` impl, for when you don't want to expand the draft.
-pub struct NoExpansion;
-impl Initialize for NoExpansion {
+pub struct NoopInitialize;
+impl Initialize for NoopInitialize {
     async fn initialize(
         &self,
         _db: &sqlx::PgPool,
@@ -24,62 +24,6 @@ impl Initialize for NoExpansion {
     ) -> anyhow::Result<()> {
         Ok(())
     }
-}
-
-pub struct UpdateInferredSchemas;
-impl Initialize for UpdateInferredSchemas {
-    async fn initialize(
-        &self,
-        db: &sqlx::PgPool,
-        _user_id: Uuid,
-        draft: &mut tables::DraftCatalog,
-    ) -> anyhow::Result<()> {
-        let collection_names = draft
-            .collections
-            .iter()
-            .filter(|r| uses_inferred_schema(*r))
-            .map(|c| c.collection.as_str())
-            .collect::<Vec<_>>();
-        let rows = agent_sql::live_specs::fetch_inferred_schemas(&collection_names, db).await?;
-        tracing::debug!(
-            inferred_schemas = %rows.iter().map(|r| r.collection_name.as_str()).format(", "),
-            "fetched inferred schemas"
-        );
-        let mut by_name = rows
-            .into_iter()
-            .map(|r| (r.collection_name, r.schema.0))
-            .collect::<BTreeMap<_, _>>();
-
-        for drafted in draft
-            .collections
-            .iter_mut()
-            .filter(|r| uses_inferred_schema(*r))
-        {
-            let maybe_inferred = by_name
-                .remove(drafted.collection.as_str())
-                .map(|json| models::Schema::new(json.into()));
-
-            let draft_model = drafted.model.as_mut().unwrap();
-            let draft_read_schema = draft_model.read_schema.take().unwrap();
-
-            let new_schema = models::Schema::extend_read_bundle(
-                &draft_read_schema,
-                None,
-                maybe_inferred.as_ref(),
-            );
-            draft_model.read_schema = Some(new_schema);
-        }
-        Ok(())
-    }
-}
-
-fn uses_inferred_schema(c: &tables::DraftCollection) -> bool {
-    !c.is_touch
-        && c.model.as_ref().is_some_and(|s| {
-            s.read_schema
-                .as_ref()
-                .is_some_and(models::Schema::references_inferred_schema)
-        })
 }
 
 impl<I1, I2> Initialize for (I1, I2)

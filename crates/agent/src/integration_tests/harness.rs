@@ -3,7 +3,7 @@ pub mod connectors;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::publications::NoopWithCommit;
+use crate::publications::{NoopInitialize, NoopWithCommit};
 use crate::{
     controllers::ControllerState,
     controlplane::ConnectorSpec,
@@ -11,7 +11,6 @@ use crate::{
     evolution,
     publications::{
         self, DefaultRetryPolicy, DraftPublication, PublicationResult, Publisher, UncommittedBuild,
-        UpdateInferredSchemas,
     },
     ControlPlane, PGControlPlane,
 };
@@ -1397,7 +1396,7 @@ impl ControlPlane for TestControlPlane {
             dry_run: false,
             default_data_plane_name: data_plane_name,
             verify_user_authz: false,
-            initialize: UpdateInferredSchemas,
+            initialize: NoopInitialize,
             finalize,
             retry: DefaultRetryPolicy,
             with_commit: NoopWithCommit,

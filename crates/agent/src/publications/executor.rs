@@ -6,8 +6,8 @@ use tracing::info;
 use crate::{
     draft,
     publications::{
-        initialize::UpdateInferredSchemas, specs, DefaultRetryPolicy, DraftPublication,
-        ExpandDraft, JobStatus, PruneUnboundCollections, PublicationResult, Publisher,
+        specs, DefaultRetryPolicy, DraftPublication, ExpandDraft, JobStatus,
+        PruneUnboundCollections, PublicationResult, Publisher,
     },
 };
 
@@ -166,12 +166,9 @@ impl Publisher {
             draft,
             verify_user_authz: true,
             default_data_plane_name: Some(row.data_plane_name.clone()).filter(|s| !s.is_empty()),
-            initialize: (
-                UpdateInferredSchemas,
-                ExpandDraft {
-                    filter_user_has_admin: true,
-                },
-            ),
+            initialize: ExpandDraft {
+                filter_user_has_admin: true,
+            },
             finalize: PruneUnboundCollections,
             retry: DefaultRetryPolicy,
             with_commit: (
