@@ -1,7 +1,7 @@
 use super::App;
 use crate::api::error::ApiErrorExt;
 use crate::publications::{
-    DoNotRetry, DraftPublication, NoExpansion, NoopFinalize, NoopWithCommit,
+    DoNotRetry, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
 };
 use anyhow::Context;
 use axum::http::StatusCode;
@@ -228,7 +228,7 @@ export class Derivation extends Types.IDerivation {"#
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,
-        initialize: NoExpansion,
+        initialize: NoopInitialize,
         finalize: NoopFinalize,
         retry: DoNotRetry,
         with_commit: NoopWithCommit,
