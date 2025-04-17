@@ -19,7 +19,7 @@ pub mod specs;
 
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
-pub use self::initialize::{ExpandDraft, Initialize, NoExpansion, UpdateInferredSchemas};
+pub use self::initialize::{ExpandDraft, Initialize, NoopInitialize};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
 pub use models::publications::{
     AffectedConsumer, IncompatibleCollection, JobStatus, LockFailure, ReCreateReason, RejectedField,

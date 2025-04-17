@@ -11,8 +11,8 @@ use crate::{
     discovers::{Discover, DiscoverOutput},
     evolution::{self, EvolutionOutput},
     publications::{
-        DefaultRetryPolicy, DraftPublication, NoopFinalize, NoopWithCommit, PublicationResult,
-        Publisher, UpdateInferredSchemas,
+        DefaultRetryPolicy, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
+        PublicationResult, Publisher,
     },
     DiscoverConnectors, DiscoverHandler,
 };
@@ -459,7 +459,7 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
             default_data_plane_name: default_data_plane,
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
-            initialize: UpdateInferredSchemas,
+            initialize: NoopInitialize,
             finalize: NoopFinalize,
             retry: DefaultRetryPolicy,
             with_commit: NoopWithCommit,

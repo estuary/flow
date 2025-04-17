@@ -1,7 +1,7 @@
 use super::App;
 use crate::api::error::ApiErrorExt;
 use crate::publications::{
-    DoNotRetry, DraftPublication, NoExpansion, NoopWithCommit, PruneUnboundCollections,
+    DoNotRetry, DraftPublication, NoopInitialize, NoopWithCommit, PruneUnboundCollections,
 };
 use anyhow::Context;
 use axum::http::StatusCode;
@@ -214,7 +214,7 @@ pub async fn create_data_plane(
         // so further authZ checks are unnecessary.
         verify_user_authz: false,
         default_data_plane_name: Some(data_plane_name.clone()),
-        initialize: NoExpansion,
+        initialize: NoopInitialize,
         finalize: PruneUnboundCollections,
         retry: DoNotRetry,
         with_commit: NoopWithCommit,
