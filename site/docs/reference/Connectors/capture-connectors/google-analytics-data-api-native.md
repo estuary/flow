@@ -83,9 +83,19 @@ Fill out the Custom Reports property with a JSON array as a string with the foll
 [{"name": "<report-name>", "dimensions": ["<dimension-name>", ...], "metrics": ["<metric-name>", ...], "dimensionFilter": "<filter-object>", "metricFilter": "<another-filter-object>"}]
 ```
 
-### Sample
+The `TOTAL`, `MAXIMUM`, and `MINIMUM` [metric aggregations](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/MetricAggregation) are supported as well. These aggregates will be emitted as separate documents with the dimension values indicating the type of aggregation, like `RESTRICTED_TOTAL`.
 
-This sample reflects the manual authentication method.
+```json
+[{"name": "<report-name>", "dimensions": ["<dimension-name>", ...], "metrics": ["<metric-name>", ...], "metricAggregations": ["TOTAL", "MAXIMUM", "MINIMUM"]}]
+```
+
+:::tip
+
+After editing custom reports for a capture, always [re-discover](../../../concepts/captures.md#discovery) bindings to ensure the changes to your custom reports are reflected in the associated collections' specs and schemas.
+
+:::
+
+### Sample
 
 ```yaml
 captures:
@@ -94,7 +104,7 @@ captures:
       connector:
         image: ghcr.io/estuary/source-google-analytics-data-api-native:dev
           config:
-            custom_reports: '[{"name": "my_custom_report_with_a_filter", "dimensions": ["browser"], "metrics": ["totalUsers"], "dimensionFilter": {"filter": {"fieldName": "browser", "stringFilter": {"value": "Chrome"}}}}]'
+            custom_reports: '[{"name": "my_custom_report_with_a_filter_and_aggregate", "dimensions": ["browser"], "metrics": ["totalUsers"], "dimensionFilter": {"filter": {"fieldName": "browser", "stringFilter": {"value": "Chrome"}}}, "metricAggregates": ["TOTAL"]}]'
             credentials:
                 credentials_title: OAuth Credentials
                 client_id: <secret>
