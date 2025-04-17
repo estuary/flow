@@ -3,7 +3,7 @@ DATABASE_URL="postgresql://postgres:postgres@db.flow.localhost:5432/postgres"
 
 # Secret used to sign Authorizations within a local data plane, as base64("supersecret").
 # Also allow requests without an Authorization (to not break data-plane-gateway just yet).
-AUTH_KEYS="c3VwZXJzZWNyZXQ=,AA=="
+AUTH_KEYS="c3VwZXJzZWNyZXQ="
 
 REPO_BASE= '%s/..' % os.getcwd()
 TEST_KMS_KEY="projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/testing"
@@ -103,6 +103,7 @@ local_resource(
         "BROKER_SERVER_CERT_FILE": TLS_CERT_PATH,
         "BROKER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
         "ETCD_ADDRESS": "http://etcd.flow.localhost:2379",
+        "ETCD_PREFIX": "/gazette/cluster",
         "LOG_LEVEL": "info",
     },
     links='https://gazette.flow.localhost:%d/debug/pprof' % port,
@@ -132,6 +133,7 @@ local_resource(
         "CONSUMER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
         "DOCKER_DEFAULT_PLATFORM": "linux/amd64",
         "ETCD_ADDRESS": "http://etcd.flow.localhost:2379",
+        "ETCD_PREFIX": "/flow/cluster",
         "FLOW_ALLOW_LOCAL": "true",
         "FLOW_BUILDS_ROOT": FLOW_BUILDS_ROOT,
         "FLOW_CONTROL_API": "http://agent.flow.localhost:8675",
@@ -140,7 +142,7 @@ local_resource(
         "FLOW_NETWORK": "supabase_network_flow",
         "LOG_LEVEL": "info",
     },
-    links='https://reactor.flow.localhost:9000/debug/pprof',
+    links='https://reactor.flow.localhost:%d/debug/pprof' % port,
     resource_deps=['etcd'],
     readiness_probe=probe(
         initial_delay_secs=5,
@@ -181,10 +183,10 @@ local_resource(
                 "manual": {\
                     "brokerAddress": "https://gazette.flow.localhost:8080",\
                     "reactorAddress": "https://reactor.flow.localhost:9000",\
-                    "hmacKeys": ["c3VwZXJzZWNyZXQ="]\
+                    "hmacKeys": ["%s"]\
                 }\
             }\
-        }\' http://agent.flow.localhost:8675/admin/create-data-plane' % SYSTEM_USER_TOKEN,
+        }\' http://agent.flow.localhost:8675/admin/create-data-plane' % (SYSTEM_USER_TOKEN, AUTH_KEYS),
     resource_deps=['agent']
 )
 
@@ -224,3 +226,91 @@ local_resource(
     serve_cmd='BROWSER=none npm start',
     links='http://localhost:3000'
 )
+
+
+# Uncomment the below sections to enable a second data-plane cluster.
+
+
+# A second data-plane cluster.
+#OTHER_AUTH_KEYS="b3RoZXItY2x1c3Rlcg=="
+#
+#[local_resource(
+#    'gazette-%d' % port,
+#    serve_cmd='%s/flow/.build/package/bin/gazette serve' % REPO_BASE,
+#    serve_env={
+#        "BROKER_ALLOW_ORIGIN": "http://localhost:3000",
+#        "BROKER_AUTH_KEYS": OTHER_AUTH_KEYS,
+#        "BROKER_AUTO_SUSPEND": "true",
+#        "BROKER_FILE_ONLY": "true",
+#        "BROKER_FILE_ROOT": FLOW_DIR,
+#        "BROKER_HOST": "other-gazette.flow.localhost",
+#        "BROKER_PEER_CA_FILE": CA_CERT_PATH,
+#        "BROKER_PORT": "%d" % port,
+#        "BROKER_SERVER_CERT_FILE": TLS_CERT_PATH,
+#        "BROKER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
+#        "ETCD_ADDRESS": "http://etcd.flow.localhost:2379",
+#        "ETCD_PREFIX": "/other/gazette/cluster",
+#        "LOG_LEVEL": "info",
+#    },
+#    links='https://other-gazette.flow.localhost:%d/debug/pprof' % port,
+#    resource_deps=['etcd'],
+#    readiness_probe=probe(
+#        initial_delay_secs=5,
+#        http_get=http_get_action(port=port, path='/debug/ready', scheme='https')
+#    )
+#) for port in range(8180, 8184)]
+#
+#[local_resource(
+#    'reactor-%d' % port,
+#    serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer' % (REPO_BASE),
+#    serve_env={
+#        "BROKER_ADDRESS": "https://other-gazette.flow.localhost:8180",
+#        "BROKER_AUTH_KEYS": OTHER_AUTH_KEYS,
+#        "BROKER_CACHE_SIZE": "128",
+#        "BROKER_FILE_ROOT": FLOW_DIR,
+#        "BROKER_TRUSTED_CA_FILE": CA_CERT_PATH,
+#        "CONSUMER_ALLOW_ORIGIN": "http://localhost:3000",
+#        "CONSUMER_AUTH_KEYS": OTHER_AUTH_KEYS,
+#        "CONSUMER_HOST": "other-reactor.flow.localhost",
+#        "CONSUMER_LIMIT": "1024",
+#        "CONSUMER_PEER_CA_FILE": CA_CERT_PATH,
+#        "CONSUMER_PORT": "%d" % port,
+#        "CONSUMER_SERVER_CERT_FILE": TLS_CERT_PATH,
+#        "CONSUMER_SERVER_CERT_KEY_FILE": TLS_KEY_PATH,
+#        "DOCKER_DEFAULT_PLATFORM": "linux/amd64",
+#        "ETCD_ADDRESS": "http://etcd.flow.localhost:2379",
+#        "ETCD_PREFIX": "/other/flow/cluster",
+#        "FLOW_ALLOW_LOCAL": "true",
+#        "FLOW_BUILDS_ROOT": FLOW_BUILDS_ROOT,
+#        "FLOW_CONTROL_API": "http://agent.flow.localhost:8675",
+#        "FLOW_DASHBOARD": "http://localhost:3000",
+#        "FLOW_DATA_PLANE_FQDN": "other-cluster.dp.estuary-data.com",
+#        "FLOW_NETWORK": "supabase_network_flow",
+#        "LOG_LEVEL": "info",
+#    },
+#    links='https://other-reactor.flow.localhost:%d/debug/pprof' % port,
+#    resource_deps=['etcd'],
+#    readiness_probe=probe(
+#        initial_delay_secs=5,
+#        http_get=http_get_action(port=port, path='/debug/ready', scheme='https')
+#    ),
+#) for port in range(9100, 9101)]
+#
+#local_resource(
+#    'create-data-plane-other-cluster',
+#    cmd='sleep 2 && curl -v \
+#        -X POST \
+#        -H "content-type: application/json" \
+#        -H "authorization: bearer %s" \
+#        --data-binary \'{ \
+#            "name":"other-cluster",\
+#            "category": {\
+#                "manual": {\
+#                    "brokerAddress": "https://other-gazette.flow.localhost:8180",\
+#                    "reactorAddress": "https://other-reactor.flow.localhost:9100",\
+#                    "hmacKeys": ["%s"]\
+#                }\
+#            }\
+#        }\' http://agent.flow.localhost:8675/admin/create-data-plane' % (SYSTEM_USER_TOKEN, OTHER_AUTH_KEYS),
+#    resource_deps=['agent']
+#)
