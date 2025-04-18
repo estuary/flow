@@ -148,7 +148,7 @@ impl GazetteWriter {
         task_name: &str,
     ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
         let (_, _, ops_logs, ops_stats, _) = fetch_dekaf_task_auth(
-            self.app.client_base.clone(),
+            &self.app.client_base,
             &task_name,
             &self.app.data_plane_fqdn,
             &self.app.data_plane_signer,
@@ -242,11 +242,11 @@ impl GazetteAppender {
 
         let template_id = dekaf_shard_template_id(task_name);
 
-        let (auth_client, _, _, _, _) =
-            fetch_dekaf_task_auth(base_client, task_name, data_plane_fqdn, signer).await?;
+        let (auth_token, _, _, _, _) =
+            fetch_dekaf_task_auth(&base_client, task_name, data_plane_fqdn, signer).await?;
 
         let (new_client, new_claims) = fetch_task_authorization(
-            &auth_client,
+            &base_client.with_user_access_token(Some(auth_token)),
             &template_id,
             data_plane_fqdn,
             signer,

@@ -4,14 +4,16 @@ extern crate allocator;
 use anyhow::{bail, Context};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser};
-use dekaf::{log_appender::GazetteWriter, logging, KafkaApiClient, KafkaClientAuth, Session};
+use dekaf::{
+    log_appender::GazetteWriter, logging, KafkaApiClient, KafkaClientAuth, Session, SpecCache,
+};
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
     LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
     LOCAL_PG_URL,
 };
 use futures::{FutureExt, TryStreamExt};
-use rustls::pki_types::CertificateDer;
+use rustls::{crypto::ring::sign, pki_types::CertificateDer};
 use std::{
     fs::File,
     io,
@@ -96,6 +98,10 @@ pub struct Cli {
     /// How long to wait for a message before closing an idle connection
     #[arg(long, env = "IDLE_SESSION_TIMEOUT", value_parser = humantime::parse_duration, default_value = "30s")]
     idle_session_timeout: std::time::Duration,
+
+    /// How long to cache materialization specs for before re-fetching them
+    #[arg(long, env = "SPEC_CACHE_TTL", value_parser = humantime::parse_duration, default_value = "30s")]
+    spec_cache_ttl: std::time::Duration,
 
     /// The fully-qualified domain name of the data plane that Dekaf is running inside of
     #[arg(
@@ -209,15 +215,24 @@ async fn main() -> anyhow::Result<()> {
         (cli.api_endpoint, cli.api_key)
     };
 
+    let client_base = flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None);
+    let signing_token = jsonwebtoken::EncodingKey::from_base64_secret(&cli.data_plane_access_key)?;
+
+    let spec_cache = SpecCache::new(
+        cli.spec_cache_ttl,
+        client_base.clone(),
+        cli.data_plane_fqdn.clone(),
+        signing_token.clone(),
+    );
+
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),
         advertise_kafka_port: cli.kafka_port,
         secret: cli.encryption_secret.to_owned(),
-        data_plane_signer: jsonwebtoken::EncodingKey::from_base64_secret(
-            &cli.data_plane_access_key,
-        )?,
+        data_plane_signer: signing_token,
         data_plane_fqdn: cli.data_plane_fqdn,
-        client_base: flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None),
+        client_base,
+        spec_cache: spec_cache.clone(),
     });
 
     let cancel_token = tokio_util::sync::CancellationToken::new();
@@ -230,6 +245,19 @@ async fn main() -> anyhow::Result<()> {
             .expect("failed to listen for CTRL-C");
         tracing::info!("Received Ctrl+C, initiating shutdown");
         ctrl_c_token.cancel();
+    });
+
+    // Start the SpecCache expiration loop
+    let purge_shutdown = cancel_token.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = purge_shutdown.cancelled() => break,
+                _ = tokio::time::sleep(cli.spec_cache_ttl) => {
+                    spec_cache.prune_expired().await;
+                }
+            }
+        }
     });
 
     let connection_limit = Arc::new(tokio::sync::Semaphore::new(cli.max_connections));
