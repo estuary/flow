@@ -20,7 +20,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"namespace":"and namespace","stream":"other-stream"},
+                  "resource": {"_meta":{"path":["schema","table"]},"namespace":"and namespace","stream":"other-stream"},
                   "target": "testing/int-string",
                   "backfill": 3
                 }
@@ -30,7 +30,9 @@ Outcome {
                 "hotStandbys": 1
               }
             },
-            model_fixes: [],
+            model_fixes: [
+              "updated resource /_meta of 1 bindings"
+            ],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -489,17 +491,19 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"stream":"a-stream"},
+                  "resource": {"_meta":{"path":["bucke+","pr@fix"]},"stream":"a-stream"},
                   "target": "testing/int-string"
                 },
                 {
-                  "resource": {"stream":"v2-stream"},
+                  "resource": {"_meta":{"path":["other-bucket"]},"stream":"v2-stream"},
                   "target": "testing/int-string.v2"
                 }
               ],
               "interval": "10m"
             },
-            model_fixes: [],
+            model_fixes: [
+              "updated resource /_meta of 2 bindings"
+            ],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -5802,7 +5806,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"table":"the_table"},
+                  "resource": {"_meta":{"path":["view"]},"table":"the_table"},
                   "source": "testing/int-string",
                   "fields": {
                     "recommended": true
@@ -5814,7 +5818,9 @@ Outcome {
                 "logLevel": "warn"
               }
             },
-            model_fixes: [],
+            model_fixes: [
+              "updated resource /_meta of 1 bindings"
+            ],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -6275,7 +6281,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"fixture":"one"},
+                  "resource": {"_meta":{"path":["Web!hook","foo bar"]},"fixture":"one"},
                   "source": {
                     "name": "testing/int-string",
                     "partitions": {
@@ -6299,7 +6305,7 @@ Outcome {
                   }
                 },
                 {
-                  "resource": {"fixture":"two"},
+                  "resource": {"_meta":{"path":["targe+","two"]},"fixture":"two"},
                   "source": "testing/int-halve",
                   "priority": 3,
                   "fields": {
@@ -6312,7 +6318,9 @@ Outcome {
                 }
               ]
             },
-            model_fixes: [],
+            model_fixes: [
+              "updated resource /_meta of 2 bindings"
+            ],
             validated: Validated {
                 bindings: [
                     Binding {

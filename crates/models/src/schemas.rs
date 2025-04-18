@@ -87,7 +87,7 @@ impl Schema {
     pub fn default_inferred_read_schema() -> Self {
         let read_schema = serde_json::json!({
             "allOf": [
-                {"$ref": Self::REF_WRITE_SCHEMA_URL}, // TODO(johnny): Switch to Self::REF_RELAXED_WRITE_SCHEMA_URL
+                {"$ref": Self::REF_RELAXED_WRITE_SCHEMA_URL},
                 {"$ref": Self::REF_INFERRED_SCHEMA_URL},
             ],
         });

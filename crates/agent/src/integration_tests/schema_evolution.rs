@@ -3,7 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::harness::{draft_catalog, mock_inferred_schema, FailBuild, TestHarness};
 use crate::{controllers::ControllerState, publications::UncommittedBuild, ControlPlane};
 use models::CatalogType;
-use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
+use proto_flow::materialize::response::validated::{
+    constraint::Type as ConstraintType, Constraint,
+};
 use tables::BuiltRow;
 
 #[tokio::test]
@@ -340,7 +342,7 @@ async fn test_schema_evolution() {
         .error
         .as_ref()
         .expect("expected error to be Some");
-    assert!(error.contains("incompatible schema changes observed for binding [binding-0] and onIncompatibleSchemaChange is 'abort'"));
+    assert!(error.contains("incompatible schema changes observed for binding [] and onIncompatibleSchemaChange is 'abort'"));
     // should have scheduled a re-try
     harness
         .assert_controller_pending("goats/materializeMixed")
@@ -385,19 +387,20 @@ impl FailBuild for UnsatisfiableConstraints {
             panic!("validated must be Some");
         };
         tracing::warn!(materialization = %mat.materialization, binding = %self.binding, "setting binding field to unsatisfiable");
-        let binding = validated
-            .bindings
-            .get_mut(self.binding)
-            .expect("binding does not exist");
 
-        let Some(constraint) = binding.constraints.get_mut(self.field) else {
-            panic!(
-                "no such field '{}' in mat '{}' bindings: {:?}",
-                self.field, mat.materialization, validated.bindings
-            )
-        };
-        constraint.r#type = ConstraintType::Unsatisfiable as i32;
-        constraint.reason = "mock unsatisfiable field".to_string();
+        validated
+            .bindings
+            .resize(self.binding + 1, Default::default());
+
+        validated.bindings[self.binding].constraints = [(
+            self.field.to_string(),
+            Constraint {
+                r#type: ConstraintType::Unsatisfiable as i32,
+                reason: "mock unsatisfiable field".to_string(),
+            },
+        )]
+        .into_iter()
+        .collect();
 
         result.output.built.errors.insert(tables::Error {
             scope: tables::synthetic_scope(

@@ -31,4 +31,8 @@ expression: errors
         scope: test://example/catalog.yaml#/materializations/the~1materialization,
         error: expected publication ID 1010101010101010 was not matched (it's actually 0000000000000000): your changes have already been published or another publication has modified this spec; please try again with a fresh copy of the spec.,
     },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0/fields/exclude/2,
+        error: exclude projection does/not/exist does not exist in collection the/collection,
+    },
 ]

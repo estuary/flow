@@ -236,19 +236,10 @@ pub fn recv_client_load_or_flush(
             stats.1.docs_total += 1;
             stats.1.bytes_total += doc_json.len() as u64;
 
-            let maybe_clock = binding
-                .uuid_ptr
-                .query(&doc)
-                .and_then(|node| match node {
-                    doc::HeapNode::String(uuid) => {
-                        proto_gazette::uuid::parse_str(uuid.as_str()).inspect_err(|err| {
-                            tracing::error!(%binding_index, doc_key_json = %doc_json, uuid_ptr = %binding.uuid_ptr, "failed to extract clock from document uuid");
-                        }).ok()
-                    }
-                    _ => None,
-                })
-                .map(|(_, clock, _)| clock);
-            if let Some(clock) = maybe_clock {
+            if let Some((_, clock, _)) = binding.uuid_ptr.query(&doc).and_then(|node| match node {
+                doc::HeapNode::String(uuid) => proto_gazette::uuid::parse_str(uuid.as_str()).ok(),
+                _ => None,
+            }) {
                 stats.3 = clock;
             }
 

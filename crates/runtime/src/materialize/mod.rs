@@ -41,8 +41,8 @@ struct Binding {
 #[derive(Debug)]
 pub struct Transaction {
     checkpoint: consumer::Checkpoint, // Recorded checkpoint.
-    stats: BTreeMap<u32, (DocsAndBytes, DocsAndBytes, DocsAndBytes, Clock)>, // Per-binding stats.
-    started: bool,                    // Has the transaction been started?
+    stats: BTreeMap<u32, (DocsAndBytes, DocsAndBytes, DocsAndBytes, Clock)>, // Per-binding (left, right, out, last-source-clock) stats.
+    started: bool,                     // Has the transaction been started?
     started_at: std::time::SystemTime, // Time of first Read request.
 }
 

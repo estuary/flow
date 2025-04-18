@@ -8,12 +8,12 @@ expression: errors
         error: schema $ref 'test://example/int-string.schema#/not/found', referenced by 'test://example/int-string#/collections/testing~1int-string/schema', was not found,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw/writeSchema,
-        error: schema $ref 'test://example/int-string.schema#/also/not/found', referenced by 'test://example/int-string#/collections/testing~1int-string-rw/writeSchema', was not found,
-    },
-    Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
         error: schema $ref 'test://example/int-string-len.schema#DoesNotExist', referenced by 'test://example/int-string?ptr=/collections/testing~1int-string-rw/readSchema#/properties/missing', was not found,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/writeSchema,
+        error: schema $ref 'test://example/int-string.schema#/also/not/found', referenced by 'test://example/int-string#/collections/testing~1int-string-rw/writeSchema', was not found,
     },
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/collection,

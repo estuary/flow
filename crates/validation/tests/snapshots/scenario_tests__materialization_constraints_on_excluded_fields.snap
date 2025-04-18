@@ -261,10 +261,10 @@ Outcome {
         BuiltMaterialization {
             materialization: testing/db-views,
             scope: test://example/catalog.yaml#/materializations/testing~1db-views,
-            control_id: "0000000000000000",
+            control_id: "1111111111111104",
             data_plane_id: "1d1d1d1d1d1d1d1d",
-            expect_pub_id: "0000000000000000",
-            expect_build_id: "0000000000000000",
+            expect_pub_id: "1010101010101010",
+            expect_build_id: "1010101010101010",
             model: {
               "endpoint": {
                 "connector": {
@@ -274,7 +274,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"table":"anything"},
+                  "resource": {"_meta":{"path":["anything"]},"table":"anything"},
                   "source": "testing/constraints",
                   "fields": {
                     "exclude": [
@@ -282,11 +282,15 @@ Outcome {
                       "naughty_f"
                     ],
                     "recommended": true
-                  }
+                  },
+                  "backfill": 1
                 }
               ]
             },
-            model_fixes: [],
+            model_fixes: [
+              "backfilled binding of reset collection testing/constraints",
+              "removed dropped exclude projection not_found_and_removed of source collection testing/constraints"
+            ],
             validated: Validated {
                 bindings: [
                     Binding {
@@ -592,16 +596,16 @@ Outcome {
                         ),
                         delta_updates: false,
                         deprecated_shuffle: None,
-                        journal_read_suffix: "materialize/testing/db-views/anything",
+                        journal_read_suffix: "materialize/testing/db-views/anything.v1",
                         not_before: None,
                         not_after: None,
-                        backfill: 0,
-                        state_key: "anything",
+                        backfill: 1,
+                        state_key: "anything.v1",
                     },
                 ],
                 shard_template: Some(
                     ShardSpec {
-                        id: "materialize/testing/db-views/2020202020202020",
+                        id: "materialize/testing/db-views/0000000000000001",
                         sources: [],
                         recovery_log_prefix: "recovery",
                         hint_prefix: "/estuary/flow/hints",
@@ -658,7 +662,7 @@ Outcome {
                 ),
                 recovery_log_template: Some(
                     JournalSpec {
-                        name: "recovery/materialize/testing/db-views/2020202020202020",
+                        name: "recovery/materialize/testing/db-views/0000000000000001",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -717,7 +721,83 @@ Outcome {
                 network_ports: [],
                 inactive_bindings: [],
             },
-            previous_spec: NULL,
+            previous_spec: MaterializationSpec {
+                name: "testing/db-views",
+                connector_type: Image,
+                config_json: "",
+                bindings: [
+                    Binding {
+                        resource_config_json: "",
+                        resource_path: [
+                            "anything",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "testing/constraints",
+                                write_schema_json: "",
+                                read_schema_json: "",
+                                key: [],
+                                uuid_ptr: "",
+                                partition_fields: [],
+                                projections: [],
+                                ack_template_json: "",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/constraints/0000000000000001",
+                                        replication: 0,
+                                        labels: None,
+                                        fragment: None,
+                                        flags: 0,
+                                        max_append_rate: 0,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: None,
+                        priority: 0,
+                        field_selection: None,
+                        delta_updates: false,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 0,
+                        state_key: "",
+                    },
+                ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "materialize/testing/db-views/0000000000000001",
+                        sources: [],
+                        recovery_log_prefix: "",
+                        hint_prefix: "",
+                        hint_backups: 0,
+                        max_txn_duration: None,
+                        min_txn_duration: None,
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: None,
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 0,
+                        read_channel_size: 0,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/materialize/testing/db-views/0000000000000001",
+                        replication: 0,
+                        labels: None,
+                        fragment: None,
+                        flags: 0,
+                        max_append_rate: 0,
+                        suspend: None,
+                    },
+                ),
+                network_ports: [],
+                inactive_bindings: [],
+            },
             is_touch: 0,
             dependency_hash: f70cb9d1e746ef16,
         },
@@ -761,12 +841,13 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"table":"anything"},
+                  "resource": {"_meta":{"path":["anything"]},"table":"anything"},
                   "source": "testing/constraints",
                   "fields": {
                     "exclude": [
                       "naughty_u",
-                      "naughty_f"
+                      "naughty_f",
+                      "not_found_and_removed"
                     ],
                     "recommended": true
                   }
@@ -781,7 +862,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/constraints":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"},"naughty_f":{"type":"string"},"naughty_u":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/db-views":{"bindings":[{"fields":{"exclude":["naughty_u","naughty_f"],"recommended":true},"resource":{"table":"anything"},"source":"testing/constraints"}],"endpoint":{"connector":{"config":{},"image":"an/image:test"}}}}},
+            content_dom: {"collections":{"testing/constraints":{"key":["/id"],"schema":{"properties":{"id":{"type":"string"},"naughty_f":{"type":"string"},"naughty_u":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/db-views":{"bindings":[{"fields":{"exclude":["naughty_u","naughty_f","not_found_and_removed"],"recommended":true},"resource":{"_meta":{"path":["anything"]},"table":"anything"},"source":"testing/constraints"}],"endpoint":{"connector":{"config":{},"image":"an/image:test"}}}}},
         },
     ],
     storage_mappings: [
