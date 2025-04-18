@@ -1,5 +1,5 @@
 {
     "imports": {
-        "stripe": "https://esm.sh/v117/stripe@12.2.0?target=deno&no-dts"
+        "stripe": "https://esm.sh/stripe@12.2.0?target=deno&no-dts"
     }
 }
