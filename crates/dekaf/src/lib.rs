@@ -19,6 +19,9 @@ use read::Read;
 
 pub mod utils;
 
+mod spec_cache;
+pub use spec_cache::SpecCache;
+
 mod session;
 pub use session::Session;
 
@@ -51,6 +54,8 @@ pub struct App {
     pub data_plane_fqdn: String,
     /// The key used to sign data-plane access token requests
     pub data_plane_signer: jsonwebtoken::EncodingKey,
+    /// The cache for materialization specs
+    pub spec_cache: SpecCache,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
@@ -74,15 +79,7 @@ pub struct TaskAuth {
     client: flow_client::Client,
     task_name: String,
     config: connector::DekafConfig,
-    built_spec: flow::MaterializationSpec,
-
-    bindings_by_topic: BTreeMap<
-        String,
-        (
-            flow::materialization_spec::Binding,
-            connector::DekafResourceConfig,
-        ),
-    >,
+    spec_cache: SpecCache,
 
     // When access token expires
     exp: time::OffsetDateTime,
@@ -158,40 +155,36 @@ impl TaskAuth {
         client: flow_client::Client,
         task_name: String,
         config: connector::DekafConfig,
-        built_spec: flow::MaterializationSpec,
+        spec_cache: SpecCache,
         exp: time::OffsetDateTime,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             client,
             task_name,
             config,
-            bindings_by_topic: built_spec
-                .bindings
-                .iter()
-                .map(|b| {
-                    serde_json::from_str::<connector::DekafResourceConfig>(&b.resource_config_json)
-                        .map(|parsed| (parsed.topic_name.to_owned(), (b.to_owned(), parsed)))
-                })
-                .collect::<Result<BTreeMap<_, _>, _>>()?,
-            built_spec,
+            spec_cache,
             exp,
-        })
+        }
     }
     pub async fn authenticated_client(
         &mut self,
         app: &App,
     ) -> anyhow::Result<&flow_client::Client> {
         if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
-            let (client, claims, _ops_logs_journal, _ops_stats_journal, _task_spec) =
+            let (token, claims, _ops_logs_journal, _ops_stats_journal, _task_spec) =
                 topology::fetch_dekaf_task_auth(
-                    self.client.clone(),
+                    &self.client,
                     &self.task_name,
                     &app.data_plane_fqdn,
                     &app.data_plane_signer,
                 )
                 .await?;
 
-            self.client = client.with_fresh_gazette_client();
+            self.client = self
+                .client
+                .clone()
+                .with_user_access_token(Some(token))
+                .with_fresh_gazette_client();
             self.exp =
                 time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64);
         }
@@ -230,8 +223,8 @@ impl App {
         {
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
-            let (client, claims, _, _, task_spec) = topology::fetch_dekaf_task_auth(
-                self.client_base.clone(),
+            let (token, claims, _, _, task_spec) = topology::fetch_dekaf_task_auth(
+                &self.client_base,
                 &username,
                 &self.data_plane_fqdn,
                 &self.data_plane_signer,
@@ -268,12 +261,15 @@ impl App {
             logging::set_log_level(labels.log_level());
 
             Ok(SessionAuthentication::Task(TaskAuth::new(
-                client.with_fresh_gazette_client(),
+                self.client_base
+                    .clone()
+                    .with_user_access_token(Some(token))
+                    .with_fresh_gazette_client(),
                 username,
                 config,
-                task_spec,
+                self.spec_cache.clone(),
                 time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
-            )?))
+            )))
         } else if username.contains("{") {
             // Since we don't have a task, we also don't have a logs journal to write to,
             // so we should disable log forwarding for this session.

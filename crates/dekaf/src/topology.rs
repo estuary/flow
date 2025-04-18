@@ -1,11 +1,7 @@
 use crate::{
-    connector::{self, DeletionMode},
-    dekaf_shard_template_id,
-    utils::{self, CustomizableExtractor},
-    App, SessionAuthentication, TaskAuth, UserAuth,
+    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
-use avro::shape_to_avro;
 use futures::{StreamExt, TryStreamExt};
 use gazette::{
     broker::{self, journal_spec},
@@ -40,18 +36,52 @@ impl UserAuth {
 }
 
 impl TaskAuth {
-    pub async fn fetch_all_collection_names(&self) -> Vec<String> {
-        self.bindings_by_topic.keys().cloned().collect()
+    pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
+        match self.spec_cache.get(&self.task_name).await.as_ref() {
+            Ok(spec) => Ok(spec
+                .bindings
+                .iter()
+                .map(|b| {
+                    b.collection
+                        .as_ref()
+                        .expect("MaterializationSpec missing `collection`")
+                        .name
+                        .clone()
+                })
+                .collect_vec()),
+            Err(e) => anyhow::bail!("Failed to fetch task spec: {e:?}"),
+        }
     }
 
-    pub fn get_binding_for_topic(
+    pub async fn get_binding_for_topic(
         &self,
         topic_name: &str,
-    ) -> Option<&(
-        proto_flow::flow::materialization_spec::Binding,
-        connector::DekafResourceConfig,
-    )> {
-        self.bindings_by_topic.get(topic_name)
+    ) -> anyhow::Result<
+        Option<(
+            proto_flow::flow::materialization_spec::Binding,
+            connector::DekafResourceConfig,
+        )>,
+    > {
+        let found = match self.spec_cache.get(&self.task_name).await.as_ref() {
+            Ok(spec) => spec
+                .bindings
+                .iter()
+                .map(|b| {
+                    serde_json::from_str::<connector::DekafResourceConfig>(&b.resource_config_json)
+                        .map(|parsed| (parsed.topic_name.to_owned(), (b.to_owned(), parsed)))
+                })
+                .find(|res| match res {
+                    Ok((found_topic_name, _)) if found_topic_name == topic_name => true,
+                    // Bail early if we get an error parsing the resource config.
+                    Err(_) => true,
+                    _ => false,
+                })
+                .transpose()?
+                .map(|(_, binding)| binding),
+            Err(e) => anyhow::bail!("Failed to fetch task spec: {e:?}"),
+        };
+
+        Ok(found)
     }
 }
 
@@ -59,16 +89,17 @@ impl SessionAuthentication {
     pub async fn fetch_all_collection_names(&mut self) -> anyhow::Result<Vec<String>> {
         match self {
             SessionAuthentication::User(auth) => auth.fetch_all_collection_names().await,
-            SessionAuthentication::Task(auth) => Ok(auth.fetch_all_collection_names().await),
+            SessionAuthentication::Task(auth) => auth.fetch_all_collection_names().await,
         }
     }
 
-    pub fn get_collection_for_topic<'a>(&'a self, topic_name: &'a str) -> anyhow::Result<&'a str> {
+    pub async fn get_collection_for_topic(&self, topic_name: &str) -> anyhow::Result<String> {
         match self {
-            SessionAuthentication::User(_) => Ok(topic_name),
+            SessionAuthentication::User(_) => Ok(topic_name.to_string()),
             SessionAuthentication::Task(auth) => {
                 let (binding, _resource_config) = auth
                     .get_binding_for_topic(topic_name)
+                    .await?
                     .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
 
                 Ok(binding
@@ -76,7 +107,7 @@ impl SessionAuthentication {
                     .as_ref()
                     .context("missing collection in materialization binding")?
                     .name
-                    .as_str())
+                    .clone())
             }
         }
     }
@@ -134,24 +165,8 @@ impl Collection {
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
         let binding = if let SessionAuthentication::Task(task_auth) = auth {
-            if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name) {
+            if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name).await? {
                 Some(binding)
-            } else if let Some(suggested_binding) = task_auth.built_spec.bindings.iter().find(|b| {
-                b.collection
-                    .as_ref()
-                    .expect("missing collection in materialization binding")
-                    .name
-                    == topic_name
-            }) {
-                let correct_topic_name = serde_json::from_str::<
-                    crate::connector::DekafResourceConfig,
-                >(&suggested_binding.resource_config_json)?
-                .topic_name;
-                bail!(
-                    "{topic_name} is not a binding of {}. Did you mean {}?",
-                    task_auth.task_name,
-                    correct_topic_name
-                )
             } else {
                 bail!("{topic_name} is not a binding of {}", task_auth.task_name)
             }
@@ -159,7 +174,7 @@ impl Collection {
             None
         };
 
-        let collection_name = &auth.get_collection_for_topic(topic_name)?;
+        let collection_name = &auth.get_collection_for_topic(topic_name).await?;
 
         let Some(collection_spec) = Self::fetch_spec(&pg_client, collection_name).await? else {
             return Ok(None);
@@ -174,7 +189,7 @@ impl Collection {
             Self::build_journal_client(app, &auth, collection_name, &partition_template_name)
                 .await?;
 
-        let selector = if let Some(binding) = binding {
+        let selector = if let Some(ref binding) = binding {
             binding.partition_selector.clone()
         } else {
             None
@@ -202,7 +217,7 @@ impl Collection {
         let collection_schema_shape =
             doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
-        let (value_schema, extractors) = if let Some(binding) = binding {
+        let (value_schema, extractors) = if let Some(ref binding) = binding {
             let selection = binding
                 .field_selection
                 .clone()
@@ -529,12 +544,12 @@ pub struct AccessTokenClaims {
 }
 #[tracing::instrument(skip(client, data_plane_signer), err)]
 pub async fn fetch_dekaf_task_auth(
-    client: flow_client::Client,
+    client: &flow_client::Client,
     shard_template_id: &str,
     data_plane_fqdn: &str,
     data_plane_signer: &jsonwebtoken::EncodingKey,
 ) -> anyhow::Result<(
-    flow_client::Client,
+    String,
     AccessTokenClaims,
     String,
     String,
@@ -575,7 +590,7 @@ pub async fn fetch_dekaf_task_auth(
     let claims = flow_client::parse_jwt_claims(token.as_str())?;
 
     Ok((
-        client.with_user_access_token(Some(token)),
+        token,
         claims,
         ops_logs_journal,
         ops_stats_journal,
