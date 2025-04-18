@@ -69,7 +69,6 @@ specific to the DynamoDB materialization connector.
 | Property         | Title        | Description                                                               | Type    | Required/Default |
 | ---------------- | ------------ | ------------------------------------------------------------------------- | ------- | ---------------- |
 | **`/table`**     | Table Name   | The name of the table to be materialized to.                              | string  | Required         |
-| `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. Default is false. | boolean | `false`          |
 
 ### Sample
 
