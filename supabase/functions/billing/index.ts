@@ -4,7 +4,7 @@ import { setupIntent } from "./setup_intent.ts";
 import { getTenantPaymentMethods } from "./get_tenant_payment_methods.ts";
 import { deleteTenantPaymentMethod } from "./delete_tenant_payment_method.ts";
 import { setTenantPrimaryPaymentMethod } from "./set_tenant_primary_payment_method.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.0.5";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@^2.0.0?target=deno";
 import { getTenantInvoice } from "./get_tenant_invoice_data.ts";
 
 // Now that the supabase CLI supports multiple edge functions,
@@ -40,9 +40,13 @@ serve(async (req) => {
                 throw new Error("User not found");
             }
 
-            const grants = await supabaseClient.from("combined_grants_ext").select("*").eq("capability", "admin");
+            const grants = await supabaseClient.from("combined_grants_ext").select("*").eq("capability", "admin").eq("object_role", requested_tenant);
 
-            if (!(grants.data ?? []).find((grant) => grant.object_role === requested_tenant)) {
+            if (!grants || !grants.data || grants.data.length === 0) {
+                console.warn('billing:grants:missing', {
+                    grants
+                });
+
                 res = [JSON.stringify({ error: `Not authorized to requested grant` }), {
                     headers: billingResponseHeaders,
                     status: 401,

@@ -216,7 +216,7 @@ local_resource(
 
 local_resource(
     'edge-functions',
-    serve_cmd='cd %s/flow && supabase functions serve --env-file supabase/env.local --import-map supabase/functions/import-map.json' % REPO_BASE,
+    serve_cmd='cd %s/flow && supabase functions serve --env-file supabase/env.local' % REPO_BASE,
     resource_deps=['config-encryption']
 )
 

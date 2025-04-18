@@ -1,4 +1,4 @@
-import Mustache from 'https://esm.sh/mustache';
+import Mustache from 'https://esm.sh/mustache?target=deno';
 import { corsHeaders } from './cors.ts';
 
 export const returnPostgresError = (error: any) => {
