@@ -1,4 +1,4 @@
-import { SupabaseClient, User } from "https://esm.sh/@supabase/supabase-js@2.0.5";
+import { SupabaseClient, User } from "https://esm.sh/@supabase/supabase-js@^2.0.0?target=deno";
 import { billingResponseHeaders, customerQuery, StripeClient, TENANT_METADATA_KEY } from "./shared.ts";
 
 async function findOrCreateCustomer(tenant: string, user: User) {

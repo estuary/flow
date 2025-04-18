@@ -4,7 +4,7 @@ import { setupIntent } from "./setup_intent.ts";
 import { getTenantPaymentMethods } from "./get_tenant_payment_methods.ts";
 import { deleteTenantPaymentMethod } from "./delete_tenant_payment_method.ts";
 import { setTenantPrimaryPaymentMethod } from "./set_tenant_primary_payment_method.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.0.5";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@^2.0.0?target=deno";
 import { getTenantInvoice } from "./get_tenant_invoice_data.ts";
 
 // Now that the supabase CLI supports multiple edge functions,
