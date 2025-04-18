@@ -43,6 +43,10 @@ serve(async (req) => {
             const grants = await supabaseClient.from("combined_grants_ext").select("*").eq("capability", "admin").eq("object_role", requested_tenant);
 
             if (!grants || !grants.data || grants.data.length === 0) {
+                console.warn('billing:grants:missing', {
+                    grants
+                });
+
                 res = [JSON.stringify({ error: `Not authorized to requested grant` }), {
                     headers: billingResponseHeaders,
                     status: 401,
