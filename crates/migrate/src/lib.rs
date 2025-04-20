@@ -4,9 +4,12 @@ use gazette::broker::journal_spec;
 use itertools::Itertools;
 use proto_gazette::{broker, consumer};
 
-#[derive(clap::Parser, Debug, serde::Serialize)]
+#[derive(clap::Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
+    #[clap(subcommand)]
+    command: Command,
+
     /// URL of the postgres database.
     #[clap(
         long = "database",
@@ -17,37 +20,50 @@ pub struct Args {
     /// Path to CA certificate of the database.
     #[clap(long = "database-ca", env = "DATABASE_CA")]
     database_ca: Option<String>,
+}
 
+#[derive(clap::Subcommand, Debug, serde::Serialize)]
+pub enum Command {
+    /// Perform a one-off migration.
+    Migrate {
+        #[clap(flatten)]
+        args: MigrateArgs,
+    },
+    /// Watch for upcoming migrations and perform them.
+    Watch {
+        #[clap(flatten)]
+        args: WatchArgs,
+    },
+}
+
+#[derive(clap::Args, Debug, serde::Serialize)]
+pub struct MigrateArgs {
+    /// Name of source data-plane.
     #[clap(long = "src-data-plane", env = "SRC_DATA_PLANE")]
     src_data_plane: String,
+    /// Name of target data-plane.
     #[clap(long = "tgt-data-plane", env = "TGT_DATA_PLANE")]
     tgt_data_plane: String,
+    /// Catalog name or prefix to migrate.
     #[clap(long = "catalog-prefix", env = "CATALOG_PREFIX")]
     catalog_prefix: String,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
-    let hostname = std::env::var("HOSTNAME").ok();
-    let app_name = if let Some(hostname) = &hostname {
-        hostname.as_str()
-    } else {
-        "migrate-tool"
-    };
-    tracing::info!(args=?ops::DebugJson(&args), app_name, "started!");
+#[derive(clap::Args, Debug, serde::Serialize)]
+pub struct WatchArgs {}
 
+pub async fn run(args: Args) -> anyhow::Result<()> {
     let Args {
-        database_url,
+        command,
         database_ca,
-        src_data_plane,
-        tgt_data_plane,
-        catalog_prefix,
+        database_url,
     } = args;
 
     let mut pg_options = database_url
         .as_str()
         .parse::<sqlx::postgres::PgConnectOptions>()
         .context("parsing database URL")?
-        .application_name(app_name);
+        .application_name("migrate-tool");
 
     // If a database CA was provided, require that we use TLS with full cert verification.
     if let Some(ca) = &database_ca {
@@ -65,8 +81,28 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .await
         .context("connecting to database")?;
 
-    /*
-    let shutdown = async {
+    tracing::info!(args=?ops::DebugJson(&command), "started!");
+
+    match command {
+        Command::Migrate { args } => run_migrate(&pg_pool, args).await,
+        Command::Watch { args } => run_watch(&pg_pool, args).await,
+    }
+}
+
+async fn run_migrate(pg_pool: &sqlx::PgPool, args: MigrateArgs) -> anyhow::Result<()> {
+    let MigrateArgs {
+        src_data_plane,
+        tgt_data_plane,
+        catalog_prefix,
+    } = args;
+
+    migrate_data_planes(&pg_pool, &src_data_plane, &tgt_data_plane, &catalog_prefix).await
+}
+
+async fn run_watch(pg_pool: &sqlx::PgPool, args: WatchArgs) -> anyhow::Result<()> {
+    let WatchArgs {} = args;
+
+    let shutdown = tokio::spawn(async {
         match tokio::signal::ctrl_c().await {
             Ok(()) => {
                 tracing::info!("caught shutdown signal, stopping...");
@@ -75,16 +111,76 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
                 tracing::error!(?err, "error subscribing to shutdown signal");
             }
         }
-    };
-    */
+    });
 
-    let src_data_plane = fetch_data_plane(&pg_pool, &src_data_plane).await?;
-    let tgt_data_plane = fetch_data_plane(&pg_pool, &tgt_data_plane).await?;
+    while !shutdown.is_finished() {
+        let migrations = sqlx::query!(
+            r#"
+            SELECT
+                m.id AS "id: models::Id",
+                m.catalog_name_or_prefix,
+                s.data_plane_name AS "src_plane",
+                t.data_plane_name AS "tgt_plane"
+            FROM data_plane_migrations m, data_planes s, data_planes t
+            WHERE m.active
+            AND m.cordon_at <= NOW()
+            AND m.src_plane_id = s.id
+            AND m.tgt_plane_id = t.id
+            "#
+        )
+        .fetch_all(pg_pool)
+        .await
+        .context("fetching pending migrations")?;
+
+        for migration in migrations {
+            tracing::info!(
+                id = ?migration.id,
+                catalog_name_or_prefix = %migration.catalog_name_or_prefix,
+                src_plane = ?migration.src_plane,
+                tgt_plane = ?migration.tgt_plane,
+                "performing scheduled migration"
+            );
+
+            () = migrate_data_planes(
+                &pg_pool,
+                &migration.src_plane,
+                &migration.tgt_plane,
+                &migration.catalog_name_or_prefix,
+            )
+            .await
+            .with_context(|| format!("failed to perform migration {}", migration.id))?;
+
+            sqlx::query!(
+                r#"
+                UPDATE data_plane_migrations
+                SET active = false
+                WHERE id = $1
+                "#,
+                migration.id as models::Id,
+            )
+            .execute(pg_pool)
+            .await?;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    }
+
+    Ok(())
+}
+
+async fn migrate_data_planes(
+    pg_pool: &sqlx::PgPool,
+    src_data_plane: &str,
+    tgt_data_plane: &str,
+    catalog_prefix: &str,
+) -> anyhow::Result<()> {
+    let src_data_plane = fetch_data_plane(pg_pool, src_data_plane).await?;
+    let tgt_data_plane = fetch_data_plane(pg_pool, tgt_data_plane).await?;
 
     // Phase one: identify covered specs in the source data-plane, cordon them,
     // and migrate them to the target data-plane in a cordoned state.
     let spec_migrations: Vec<SpecMigration> =
-        fetch_spec_migrations(&pg_pool, &catalog_prefix, src_data_plane.row.control_id)
+        fetch_spec_migrations(pg_pool, catalog_prefix, src_data_plane.row.control_id)
             .try_collect()
             .await?;
 
@@ -97,9 +193,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         );
     }
 
-    () = confirm(
-        "Cordon shards and journals, and copy specs to the target data-plane (phase one)?",
-    )?;
     let _: Vec<_> = spec_migrations
         .iter()
         .map(|spec_migration| phase_one(spec_migration, &src_data_plane, &tgt_data_plane))
@@ -108,9 +201,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .await?;
 
     // Phase two: update the data-plane ID of migrated specs to the target.
-    () = confirm(
-        "Switch the data-plane ID of matched live specs to the target data-plane (phase one)?",
-    )?;
     let live_spec_ids: Vec<models::Id> = spec_migrations
         .iter()
         .map(|spec| spec.live_spec_id)
@@ -121,14 +211,14 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         live_spec_ids as Vec<models::Id>,
         tgt_data_plane.row.control_id as models::Id,
     )
-    .execute(&pg_pool)
+    .execute(pg_pool)
     .await?;
 
     // Phase three: re-query for live specs that match the prefix and target
     // data-plane, and un-cordon them. We re-query to pick up any specs which
     // had previously completed phase one and two, but not three.
     let spec_migrations: Vec<SpecMigration> =
-        fetch_spec_migrations(&pg_pool, &catalog_prefix, tgt_data_plane.row.control_id)
+        fetch_spec_migrations(pg_pool, catalog_prefix, tgt_data_plane.row.control_id)
             .try_collect()
             .await?;
 
@@ -140,7 +230,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             "spec to remove cordon"
         );
     }
-    () = confirm("Remove cordon on migrated specs?")?;
 
     let _: Vec<_> = spec_migrations
         .iter()
@@ -663,25 +752,4 @@ fn unpack_templates<'a>(
         }
         proto_flow::AnyBuiltSpec::Test(_spec) => (ops::TaskType::InvalidType, None, None),
     })
-}
-
-fn confirm(prompt: &str) -> anyhow::Result<()> {
-    use std::io::{self, Write};
-
-    loop {
-        // Print the prompt without a newline and flush to ensure it's shown immediately.
-        print!("{} [y/N]: ", prompt);
-        std::io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        if let Err(err) = io::stdin().read_line(&mut input) {
-            anyhow::bail!("failed to read confirmation ({err})");
-        }
-
-        match input.trim().to_lowercase().as_str() {
-            "y" | "yes" => return Ok(()),
-            "n" | "no" | "" => anyhow::bail!("Aborting."),
-            _ => println!("Please enter 'y' or 'n'."),
-        }
-    }
 }
