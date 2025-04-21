@@ -117,6 +117,14 @@ impl ControllerStatus {
         }
     }
 
+    pub fn pending_config_update_status(&self) -> Option<&PendingConfigUpdateStatus> {
+        match self {
+            ControllerStatus::Capture(c) => c.config_updates.as_ref(),
+            ControllerStatus::Materialization(c) => c.config_updates.as_ref(),
+            _ => None,
+        }
+    }
+
     pub fn as_capture_mut(&mut self) -> anyhow::Result<&mut capture::CaptureStatus> {
         if self.is_uninitialized() {
             *self = ControllerStatus::Capture(Default::default());
@@ -209,6 +217,18 @@ pub struct ShardRef {
     pub build: Id,
 }
 
+/// Information on the config updates performed by the controller.
+/// This does not include any information on user-initiated config updates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+pub struct PendingConfigUpdateStatus {
+    // The next time the config update publication should be attempted
+    // if it previously failed.
+    #[schemars(schema_with = "datetime_schema")]
+    pub next_attempt: DateTime<Utc>,
+    /// The id of the build when the associated config update event was generated.
+    pub build: Id,
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::{BTreeSet, VecDeque};
@@ -264,6 +284,7 @@ mod test {
                 recent_failure_count: 3,
                 next_retry: Some("2025-01-02T03:04:05.06Z".parse().unwrap()),
             },
+            config_updates: None,
             source_capture: Some(SourceCaptureStatus {
                 up_to_date: false,
                 add_bindings,
