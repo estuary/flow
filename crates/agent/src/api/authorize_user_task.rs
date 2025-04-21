@@ -19,10 +19,17 @@ pub async fn authorize_user_task(
         email,
         ..
     }): axum::Extension<super::ControlClaims>,
-    super::Request(Request {
-        task: task_name,
-        started_unix,
-    }): super::Request<Request>,
+    super::Request(Request { task, started_unix }): super::Request<Request>,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
+    do_authorize_user_task(&app.snapshot, user_id, email, task, started_unix).await
+}
+
+pub async fn do_authorize_user_task(
+    snapshot: &std::sync::RwLock<Snapshot>,
+    user_id: uuid::Uuid,
+    email: Option<String>,
+    task: models::Name,
+    started_unix: u64,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let (has_started, started) = if started_unix == 0 {
         (false, chrono::Utc::now())
@@ -34,8 +41,8 @@ pub async fn authorize_user_task(
     };
 
     loop {
-        match Snapshot::evaluate(&app.snapshot, started, |snapshot: &Snapshot| {
-            evaluate_authorization(snapshot, user_id, email.as_ref(), &task_name)
+        match Snapshot::evaluate(snapshot, started, |snapshot: &Snapshot| {
+            evaluate_authorization(snapshot, user_id, email.as_ref(), &task)
         }) {
             Ok((
                 exp,
@@ -209,4 +216,202 @@ fn evaluate_authorization(
             task.shard_template_id.clone(),
         ),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_success() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Name::new("bobCo/anvils/materialize-orange"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            "broker.2",
+            {
+              "cap": 10,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "name",
+                      "value": "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00"
+                    },
+                    {
+                      "name": "name",
+                      "value": "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00"
+                    }
+                  ]
+                }
+              },
+              "sub": "20202020-2020-2020-2020-202020202020"
+            },
+            "reactor.2",
+            {
+              "cap": 262154,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "id",
+                      "value": "materialization/bobCo/anvils/materialize-orange/0011223344556677/",
+                      "prefix": true
+                    }
+                  ]
+                }
+              },
+              "sub": "20202020-2020-2020-2020-202020202020"
+            },
+            "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
+            "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
+            "materialization/bobCo/anvils/materialize-orange/0011223344556677/"
+          ]
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_not_authorized() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Name::new("acmeCo/other/thing"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "bob@bob is not authorized to acmeCo/other/thing"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_not_found() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Name::new("bobCo/widgets/not/found"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 404,
+            "error": "task bobCo/widgets/not/found is not known"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_cordon() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Name::new("bobCo/widgets/materialize-mango"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 500,
+            "error": "retry"
+          }
+        }
+        "###);
+    }
+
+    async fn run(
+        user_id: uuid::Uuid,
+        email: Option<String>,
+        task: models::Name,
+    ) -> Result<
+        (
+            String,
+            proto_gazette::Claims,
+            String,
+            proto_gazette::Claims,
+            String,
+            String,
+            String,
+        ),
+        crate::api::ApiError,
+    > {
+        let taken = chrono::Utc::now();
+        let snapshot = Snapshot::build_fixture(Some(taken));
+        let snapshot = std::sync::RwLock::new(snapshot);
+
+        let Response {
+            broker_address,
+            broker_token,
+            reactor_address,
+            reactor_token,
+            ops_logs_journal,
+            ops_stats_journal,
+            shard_id_prefix,
+            retry_millis,
+        } = do_authorize_user_task(
+            &snapshot,
+            user_id,
+            email,
+            task,
+            taken.timestamp() as u64 - 1,
+        )
+        .await?
+        .0;
+
+        if retry_millis != 0 {
+            return Err(anyhow::anyhow!("retry").into());
+        }
+
+        let mut broker_claims = jsonwebtoken::decode::<super::super::DataClaims>(
+            &broker_token,
+            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
+            &jsonwebtoken::Validation::default(),
+        )
+        .expect("failed to decode response token")
+        .claims
+        .inner;
+
+        let mut reactor_claims = jsonwebtoken::decode::<super::super::DataClaims>(
+            &reactor_token,
+            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
+            &jsonwebtoken::Validation::default(),
+        )
+        .expect("failed to decode response token")
+        .claims
+        .inner;
+
+        (broker_claims.iat, broker_claims.exp) = (0, 0);
+        (reactor_claims.iat, reactor_claims.exp) = (0, 0);
+
+        Ok((
+            broker_address,
+            broker_claims,
+            reactor_address,
+            reactor_claims,
+            ops_logs_journal,
+            ops_stats_journal,
+            shard_id_prefix,
+        ))
+    }
 }

@@ -524,30 +524,33 @@ async fn try_fetch(pg_pool: &sqlx::PgPool) -> anyhow::Result<Snapshot> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use models::{CatalogType, Collection, Id, Name, Prefix};
-
-    fn build_snapshot_fixture() -> Snapshot {
-        let taken = chrono::DateTime::from_timestamp(100_000, 0).unwrap();
+impl Snapshot {
+    /// Build a basic Snapshot fixture for testing purposes.
+    pub fn build_fixture(taken: Option<chrono::DateTime<chrono::Utc>>) -> Self {
+        let taken = taken.unwrap_or(chrono::DateTime::from_timestamp(100_000, 0).unwrap());
 
         let collections = [
             ("acmeCo/pineapples", 1),
             ("acmeCo/bananas", 1),
+            ("ops/tasks/public/plane-one/logs", 1),
+            ("ops/tasks/public/plane-one/stats", 1),
             ("bobCo/widgets/mangoes", 2),
             ("bobCo/widgets/squashes", 2),
+            ("bobCo/anvils/peaches", 2),
+            ("ops/tasks/public/plane-two/logs", 2),
+            ("ops/tasks/public/plane-two/stats", 2),
         ]
         .into_iter()
         .map(|(name, data_plane_id)| SnapshotCollection {
             journal_template_name: format!("{name}/1122334455667788"),
-            collection_name: Collection::new(name),
-            data_plane_id: Id::new([data_plane_id as u8; 8]),
+            collection_name: models::Collection::new(name),
+            data_plane_id: models::Id::new([data_plane_id as u8; 8]),
         })
         .collect::<Vec<_>>();
 
         let data_planes = vec![
             tables::DataPlane {
-                control_id: Id::new([1; 8]),
+                control_id: models::Id::new([1; 8]),
                 data_plane_name: "ops/dp/public/plane-one".to_string(),
                 data_plane_fqdn: "fqdn1".to_string(),
                 is_default: false,
@@ -557,19 +560,19 @@ mod tests {
                 ],
                 broker_address: "broker.1".to_string(),
                 reactor_address: "reactor.1".to_string(),
-                ops_logs_name: Collection::new("ops/tasks/public/plane-one/logs"),
-                ops_stats_name: Collection::new("ops/tasks/public/plane-one/stats"),
+                ops_logs_name: models::Collection::new("ops/tasks/public/plane-one/logs"),
+                ops_stats_name: models::Collection::new("ops/tasks/public/plane-one/stats"),
             },
             tables::DataPlane {
-                control_id: Id::new([2; 8]),
+                control_id: models::Id::new([2; 8]),
                 data_plane_name: "ops/dp/public/plane-two".to_string(),
                 data_plane_fqdn: "fqdn2".to_string(),
                 is_default: false,
                 hmac_keys: vec![base64::encode("key3")],
                 broker_address: "broker.2".to_string(),
                 reactor_address: "reactor.2".to_string(),
-                ops_logs_name: Collection::new("ops/tasks/public/plane-two/logs"),
-                ops_stats_name: Collection::new("ops/tasks/public/plane-two/stats"),
+                ops_logs_name: models::Collection::new("ops/tasks/public/plane-two/logs"),
+                ops_stats_name: models::Collection::new("ops/tasks/public/plane-two/stats"),
             },
         ];
 
@@ -577,52 +580,72 @@ mod tests {
             SnapshotMigration {
                 catalog_name_or_prefix: "acmeCo/bananas".to_string(),
                 cordon_at: chrono::DateTime::from_timestamp(200_000, 0).unwrap(),
-                src_plane_id: Id::new([1; 8]),
-                tgt_plane_id: Id::new([2; 8]),
+                src_plane_id: models::Id::new([1; 8]),
+                tgt_plane_id: models::Id::new([2; 8]),
+            },
+            SnapshotMigration {
+                catalog_name_or_prefix: "acmeCo/source-banana".to_string(),
+                cordon_at: chrono::DateTime::from_timestamp(200_000, 0).unwrap(),
+                src_plane_id: models::Id::new([1; 8]),
+                tgt_plane_id: models::Id::new([2; 8]),
             },
             SnapshotMigration {
                 catalog_name_or_prefix: "bobCo/widgets".to_string(),
                 cordon_at: chrono::DateTime::from_timestamp(300_000, 0).unwrap(),
-                src_plane_id: Id::new([2; 8]),
-                tgt_plane_id: Id::new([1; 8]),
+                src_plane_id: models::Id::new([2; 8]),
+                tgt_plane_id: models::Id::new([1; 8]),
             },
         ];
 
         let role_grants = vec![
             tables::RoleGrant {
-                subject_role: Prefix::new("acmeCo/"),
-                object_role: Prefix::new("acmeCo/"),
+                subject_role: models::Prefix::new("acmeCo/"),
+                object_role: models::Prefix::new("acmeCo/"),
                 capability: models::Capability::Write,
             },
             tables::RoleGrant {
-                subject_role: Prefix::new("bobCo/"),
-                object_role: Prefix::new("bobCo/"),
+                subject_role: models::Prefix::new("bobCo/"),
+                object_role: models::Prefix::new("bobCo/"),
                 capability: models::Capability::Write,
             },
         ];
 
         let user_grants = vec![tables::UserGrant {
             user_id: uuid::Uuid::from_bytes([32; 16]),
-            object_role: Prefix::new("bobCo/"),
+            object_role: models::Prefix::new("bobCo/"),
             capability: models::Capability::Write,
         }];
 
         let tasks = [
-            ("acmeCo/source-pineapple", CatalogType::Capture, 1),
-            ("acmeCo/source-banana", CatalogType::Capture, 1),
-            ("bobCo/widgets/source-squash", CatalogType::Capture, 2),
+            ("acmeCo/source-pineapple", models::CatalogType::Capture, 1),
+            ("acmeCo/source-banana", models::CatalogType::Capture, 1),
+            (
+                "acmeCo/materialize-pear",
+                models::CatalogType::Materialization,
+                1,
+            ),
+            (
+                "bobCo/widgets/source-squash",
+                models::CatalogType::Capture,
+                2,
+            ),
             (
                 "bobCo/widgets/materialize-mango",
-                CatalogType::Materialization,
+                models::CatalogType::Materialization,
+                2,
+            ),
+            (
+                "bobCo/anvils/materialize-orange",
+                models::CatalogType::Materialization,
                 2,
             ),
         ]
         .into_iter()
         .map(|(name, spec_type, data_plane_id)| SnapshotTask {
             shard_template_id: format!("{spec_type}/{name}/0011223344556677"),
-            task_name: Name::new(name),
+            task_name: models::Name::new(name),
             spec_type,
-            data_plane_id: Id::new([data_plane_id as u8; 8]),
+            data_plane_id: models::Id::new([data_plane_id as u8; 8]),
         })
         .collect::<Vec<_>>();
 
@@ -636,10 +659,15 @@ mod tests {
             tasks,
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_task_lookups() {
-        let snapshot = build_snapshot_fixture();
+        let snapshot = Snapshot::build_fixture(None);
 
         // Verify exact catalog name lookups.
         assert_eq!(
@@ -696,7 +724,7 @@ mod tests {
 
     #[test]
     fn test_collection_lookups() {
-        let snapshot = build_snapshot_fixture();
+        let snapshot = Snapshot::build_fixture(None);
 
         // Verify exact catalog name lookups.
         assert_eq!(
@@ -751,7 +779,7 @@ mod tests {
 
     #[test]
     fn test_verify_data_plane_token() {
-        let snapshot = build_snapshot_fixture();
+        let snapshot = Snapshot::build_fixture(None);
         let now = jsonwebtoken::get_current_timestamp();
 
         // Create a valid token signed with "key1".
@@ -785,13 +813,13 @@ mod tests {
 
     #[test]
     fn test_cordon_at() {
-        let snapshot = build_snapshot_fixture();
+        let snapshot = Snapshot::build_fixture(None);
 
         // Verify cordon_at for a catalog name covered by a migration in the source data plane.
         let src_data_plane = snapshot
             .data_planes
             .iter()
-            .find(|dp| dp.control_id == Id::new([1; 8]))
+            .find(|dp| dp.control_id == models::Id::new([1; 8]))
             .unwrap();
         let cordon_time = snapshot.cordon_at("acmeCo/bananas", src_data_plane);
         assert!(cordon_time.is_some());
@@ -804,7 +832,7 @@ mod tests {
         let tgt_data_plane = snapshot
             .data_planes
             .iter()
-            .find(|dp| dp.control_id == Id::new([2; 8]))
+            .find(|dp| dp.control_id == models::Id::new([2; 8]))
             .unwrap();
         let cordon_time = snapshot.cordon_at("acmeCo/bananas", tgt_data_plane);
         assert!(cordon_time.is_some());
