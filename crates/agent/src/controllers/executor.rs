@@ -52,6 +52,7 @@ pub enum Event {
         user_id: uuid::Uuid,
     },
     ShardFailed,
+    ConfigUpdated,
 }
 
 pub type Inbox = VecDeque<(Id, Option<Event>)>;
