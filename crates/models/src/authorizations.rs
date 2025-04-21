@@ -2,14 +2,22 @@ use std::cmp::max;
 use validator::Validate;
 
 /// ControlClaims are claims encoded within control-plane access tokens.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ControlClaims {
     // Note that many more fields, such as additional user metadata,
     // are available if we choose to parse them.
-    pub sub: uuid::Uuid,
-    pub email: Option<String>,
+
+    // Unix timestamp, in seconds, at which the token was issued.
     pub iat: u64,
+    // Unix timestamp, in seconds, at which the token expires.
     pub exp: u64,
+    // Authorized User ID.
+    pub sub: uuid::Uuid,
+    // PostgreSQL role to be used for the token.
+    pub role: String,
+    // Authorized user email, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
 }
 
 impl ControlClaims {
