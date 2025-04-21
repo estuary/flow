@@ -2,6 +2,7 @@ pub mod activation;
 pub mod capture;
 pub mod catalog_test;
 pub mod collection;
+pub mod config_updates;
 pub mod connector;
 pub mod materialization;
 pub mod publications;
@@ -105,6 +106,16 @@ impl ControllerStatus {
             ControllerStatus::Materialization(c) => Some(&c.publications),
             ControllerStatus::Test(s) => Some(&s.publications),
             ControllerStatus::Uninitialized => None,
+        }
+    }
+
+    pub fn pending_config_update_status(
+        &self,
+    ) -> Option<&config_updates::PendingConfigUpdateStatus> {
+        match self {
+            ControllerStatus::Capture(c) => Some(&c.config_updates),
+            ControllerStatus::Materialization(c) => Some(&c.config_updates),
+            _ => None,
         }
     }
 
@@ -255,6 +266,7 @@ mod test {
                 recent_failure_count: 3,
                 next_retry: Some("2025-01-02T03:04:05.06Z".parse().unwrap()),
             },
+            config_updates: config_updates::PendingConfigUpdateStatus { next_attempt: None },
             source_capture: Some(SourceCaptureStatus {
                 up_to_date: false,
                 add_bindings,

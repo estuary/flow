@@ -3,15 +3,17 @@ use super::{
     periodic, publication_status::PendingPublication, ControlPlane, ControllerErrorExt,
     ControllerState, Inbox, NextRun,
 };
+use crate::controllers::config_update;
 use crate::publications::{PublicationResult, RejectedField};
 use anyhow::Context;
 use itertools::Itertools;
 use models::{
     status::{
+        connector::ConfigUpdate,
         materialization::{MaterializationStatus, SourceCaptureStatus},
         publications::PublicationStatus,
     },
-    ModelDef, OnIncompatibleSchemaChange, SourceCapture,
+    MaterializationEndpoint, ModelDef, OnIncompatibleSchemaChange, RawValue, SourceCapture,
 };
 use proto_flow::materialize::response::validated::constraint::Type as ConstraintType;
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,62 @@ pub async fn update<C: ControlPlane>(
     control_plane: &C,
     model: &models::MaterializationDef,
 ) -> anyhow::Result<Option<NextRun>> {
+    let updated_config_published = config_update::updated_config_publish(
+        state,
+        &mut status.config_updates,
+        &mut status.publications,
+        events,
+        control_plane,
+        |config_update: &ConfigUpdate| -> anyhow::Result<PendingPublication> {
+            let Some(updated_config) = config_update.fields.get("config") else {
+                anyhow::bail!("expected config to be present in fields");
+            };
+
+            let mut updated_model = model.clone();
+            match &mut updated_model.endpoint {
+                MaterializationEndpoint::Connector(connector) => {
+                    // Overwrite the connector's config with the updated config.
+                    connector.config = RawValue::from_string(updated_config.to_string())?;
+                }
+                _ => {
+                    anyhow::bail!("expected Connector endpoint for config update event");
+                }
+            }
+
+            let materialization_name = models::Materialization::new(&state.catalog_name);
+            let mut pending = PendingPublication::new();
+            let draft = pending.start_spec_update(
+                state,
+                config_update::CONFIG_UPDATE_PUBLICATION_DETAIL,
+            );
+
+            let draft_row =
+                draft
+                    .materializations
+                    .get_or_insert_with(&materialization_name, || tables::DraftMaterialization {
+                        materialization: materialization_name.clone(),
+                        scope: tables::synthetic_scope(
+                            models::CatalogType::Materialization,
+                            &materialization_name,
+                        ),
+                        expect_pub_id: Some(state.last_pub_id),
+                        model: Some(updated_model.clone()),
+                        is_touch: false,
+                    });
+
+            draft_row.is_touch = false;
+            draft_row.model = Some(updated_model);
+
+            return Ok(pending);
+        },
+    )
+    .await;
+
+    if updated_config_published.as_ref().ok() == Some(&true) {
+        return Ok(Some(NextRun::immediately()));
+    }
+    let updated_config_result = updated_config_published.map(|_| None);
+
     let mut dependencies = Dependencies::resolve(state, control_plane).await?;
 
     let dependencies_published =
@@ -63,6 +121,7 @@ pub async fn update<C: ControlPlane>(
     coalesce_results(
         state.failures,
         [
+            updated_config_result,
             dependencies_result,
             source_capture_result,
             periodic_result,

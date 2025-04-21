@@ -455,6 +455,9 @@ async fn test_auto_discovers_no_evolution() {
         "last_activated": "[build_id]",
         "last_activated_at": "[ts]"
       },
+      "config_updates": {
+        "next_attempt": null
+      },
       "auto_discover": {
         "next_at": "[ts]",
         "failure": {
