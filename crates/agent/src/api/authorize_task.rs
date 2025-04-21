@@ -25,6 +25,13 @@ pub async fn authorize_task(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum::Json(Request { token }): axum::Json<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
+    do_authorize_task(&app.snapshot, token).await
+}
+
+async fn do_authorize_task(
+    snapshot: &std::sync::RwLock<Snapshot>,
+    token: String,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let (_header, mut claims) = super::parse_untrusted_data_plane_claims(&token)?;
     let journal_name_or_prefix = labels::expect_one(claims.sel.include(), "name")
         .map_err(|err| anyhow::anyhow!(err).with_status(StatusCode::BAD_REQUEST))?
@@ -71,7 +78,7 @@ pub async fn authorize_task(
     };
 
     match Snapshot::evaluate(
-        &app.snapshot,
+        snapshot,
         chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
         |snapshot: &Snapshot| {
             evaluate_authorization(
@@ -87,10 +94,6 @@ pub async fn authorize_task(
         Ok((exp, (encoding_key, data_plane_fqdn, broker_address, found))) => {
             claims.iss = data_plane_fqdn;
             claims.exp = exp.timestamp() as u64;
-
-            let token =
-                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
-                    .context("failed to encode authorized JWT")?;
 
             // Was the request authorized, but its `journal_name_or_prefix`
             // didn't map to a collection (either because the collection is
@@ -117,6 +120,10 @@ pub async fn authorize_task(
                     "1",
                 ));
             }
+
+            let token =
+                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
+                    .context("failed to encode authorized JWT")?;
 
             Ok(axum::Json(Response {
                 broker_address,
@@ -251,4 +258,269 @@ fn evaluate_authorization(
             found,
         ),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_collection_success() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+            iss: "fqdn1".to_string(),
+            sel: proto_gazette::LabelSelector {
+                include: Some(labels::build_set([(
+                    "name",
+                    "acmeCo/pineapples/1122334455667788/pivot=00",
+                )])),
+                exclude: None,
+            },
+            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            "broker.1",
+            {
+              "cap": 16,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn1",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "name",
+                      "value": "acmeCo/pineapples/1122334455667788/pivot=00"
+                    }
+                  ]
+                }
+              },
+              "sub": "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000"
+            }
+          ]
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_ops_success() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+            iss: "fqdn1".to_string(),
+            sel: proto_gazette::LabelSelector {
+                include: Some(labels::build_set([(
+                    "name",
+                    "ops/tasks/public/plane-one/logs/1122334455667788/kind=capture/name=acmeCo%2Fsource-pineapple/pivot=00",
+                )])),
+                exclude: None,
+            },
+            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            "broker.1",
+            {
+              "cap": 16,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn1",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "name",
+                      "value": "ops/tasks/public/plane-one/logs/1122334455667788/kind=capture/name=acmeCo%2Fsource-pineapple/pivot=00"
+                    }
+                  ]
+                }
+              },
+              "sub": "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000"
+            }
+          ]
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_not_authorized() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+            iss: "fqdn1".to_string(),
+            sel: proto_gazette::LabelSelector {
+                include: Some(labels::build_set([(
+                    "name",
+                    "bobCo/bananas/1122334455667788/pivot=00",
+                )])),
+                exclude: None,
+            },
+            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "task shard capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000 is not authorized to bobCo/bananas/1122334455667788/pivot=00 for Write"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_cordon_collection() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+            iss: "fqdn1".to_string(),
+            sel: proto_gazette::LabelSelector {
+                include: Some(labels::build_set([(
+                    "name",
+                    "acmeCo/bananas/1122334455667788/pivot=00",
+                )])),
+                exclude: None,
+            },
+            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 500,
+            "error": "retry"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_cordon_task() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+            iss: "fqdn1".to_string(),
+            sel: proto_gazette::LabelSelector {
+                include: Some(labels::build_set([(
+                    "name",
+                    "acmeCo/pineapples/1122334455667788/pivot=00",
+                )])),
+                exclude: None,
+            },
+            sub: "capture/acmeCo/source-banana/0011223344556677/00000000-00000000".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 500,
+            "error": "retry"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_black_hole() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
+            iss: "fqdn1".to_string(),
+            sel: proto_gazette::LabelSelector {
+                include: Some(labels::build_set([(
+                    "name",
+                    "acmeCo/pineapples/88667755330099/pivot=00", // Not found.
+                )])),
+                exclude: None,
+            },
+            sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            "broker.1",
+            {
+              "cap": 16,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn1",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "estuary.dev/match-nothing",
+                      "value": "1"
+                    },
+                    {
+                      "name": "name",
+                      "value": "acmeCo/pineapples/88667755330099/pivot=00"
+                    }
+                  ]
+                }
+              },
+              "sub": "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000"
+            }
+          ]
+        }
+        "###);
+    }
+
+    async fn run(
+        mut claims: proto_gazette::Claims,
+    ) -> Result<(String, proto_gazette::Claims), crate::api::ApiError> {
+        let taken = chrono::Utc::now();
+        let snapshot = Snapshot::build_fixture(Some(taken));
+        let snapshot = std::sync::RwLock::new(snapshot);
+
+        claims.iat = taken.timestamp() as u64;
+        claims.exp = taken.timestamp() as u64 + 100;
+
+        let request_token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret("key1".as_bytes()),
+        )
+        .unwrap();
+
+        let Response {
+            token: response_token,
+            broker_address,
+            retry_millis,
+        } = do_authorize_task(&snapshot, request_token).await?.0;
+
+        if retry_millis != 0 {
+            return Err(anyhow::anyhow!("retry").into());
+        }
+
+        // Decode and verify the response token.
+        let mut decoded = jsonwebtoken::decode::<proto_gazette::Claims>(
+            &response_token,
+            &jsonwebtoken::DecodingKey::from_secret("key1".as_bytes()),
+            &jsonwebtoken::Validation::default(),
+        )
+        .expect("failed to decode response token")
+        .claims;
+        (decoded.iat, decoded.exp) = (0, 0);
+
+        Ok((broker_address, decoded))
+    }
 }

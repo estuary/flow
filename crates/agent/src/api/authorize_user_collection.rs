@@ -20,9 +20,19 @@ pub async fn authorize_user_collection(
         ..
     }): axum::Extension<super::ControlClaims>,
     super::Request(Request {
-        collection: collection_name,
+        collection,
         started_unix,
     }): super::Request<Request>,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
+    do_authorize_user_collection(&app.snapshot, user_id, email, collection, started_unix).await
+}
+
+pub async fn do_authorize_user_collection(
+    snapshot: &std::sync::RwLock<Snapshot>,
+    user_id: uuid::Uuid,
+    email: Option<String>,
+    collection: models::Collection,
+    started_unix: u64,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let (has_started, started) = if started_unix == 0 {
         (false, chrono::Utc::now())
@@ -34,8 +44,8 @@ pub async fn authorize_user_collection(
     };
 
     loop {
-        match Snapshot::evaluate(&app.snapshot, started, |snapshot: &Snapshot| {
-            evaluate_authorization(snapshot, user_id, email.as_ref(), &collection_name)
+        match Snapshot::evaluate(snapshot, started, |snapshot: &Snapshot| {
+            evaluate_authorization(snapshot, user_id, email.as_ref(), &collection)
         }) {
             Ok((exp, (encoding_key, mut claims, broker_address, journal_name_prefix))) => {
                 claims.inner.iat = started.timestamp() as u64;
@@ -144,4 +154,150 @@ fn evaluate_authorization(
             collection.journal_template_name.clone(),
         ),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_success() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/anvils/peaches"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            "broker.2",
+            "bobCo/anvils/peaches/1122334455667788/",
+            {
+              "cap": 10,
+              "exp": 0,
+              "iat": 0,
+              "iss": "fqdn2",
+              "sel": {
+                "include": {
+                  "labels": [
+                    {
+                      "name": "estuary.dev/collection",
+                      "value": "bobCo/anvils/peaches"
+                    },
+                    {
+                      "name": "name",
+                      "value": "bobCo/anvils/peaches/1122334455667788/",
+                      "prefix": true
+                    }
+                  ]
+                }
+              },
+              "sub": "20202020-2020-2020-2020-202020202020"
+            }
+          ]
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_not_authorized() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("acmeCo/other/thing"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "bob@bob is not authorized to acmeCo/other/thing"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_not_found() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/widgets/not/found"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 404,
+            "error": "collection bobCo/widgets/not/found is not known"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_cordon() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/widgets/squashes"),
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 500,
+            "error": "retry"
+          }
+        }
+        "###);
+    }
+
+    async fn run(
+        user_id: uuid::Uuid,
+        email: Option<String>,
+        collection: models::Collection,
+    ) -> Result<(String, String, proto_gazette::Claims), crate::api::ApiError> {
+        let taken = chrono::Utc::now();
+        let snapshot = Snapshot::build_fixture(Some(taken));
+        let snapshot = std::sync::RwLock::new(snapshot);
+
+        let Response {
+            broker_address,
+            broker_token,
+            journal_name_prefix,
+            retry_millis,
+        } = do_authorize_user_collection(
+            &snapshot,
+            user_id,
+            email,
+            collection,
+            taken.timestamp() as u64 - 1,
+        )
+        .await?
+        .0;
+
+        if retry_millis != 0 {
+            return Err(anyhow::anyhow!("retry").into());
+        }
+
+        // Decode and verify the response token.
+        let mut decoded = jsonwebtoken::decode::<super::super::DataClaims>(
+            &broker_token,
+            &jsonwebtoken::DecodingKey::from_secret("key3".as_bytes()),
+            &jsonwebtoken::Validation::default(),
+        )
+        .expect("failed to decode response token")
+        .claims
+        .inner;
+
+        (decoded.iat, decoded.exp) = (0, 0);
+
+        Ok((broker_address, journal_name_prefix, decoded))
+    }
 }

@@ -3,18 +3,12 @@ use crate::api::error::ApiErrorExt;
 use crate::api::snapshot::Snapshot;
 use anyhow::Context;
 use axum::http::StatusCode;
+use futures::{FutureExt, TryFutureExt};
 use models::CatalogType;
 use std::sync::Arc;
 
 type Request = models::authorizations::TaskAuthorizationRequest;
 type Response = models::authorizations::DekafAuthResponse;
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct AccessTokenClaims {
-    exp: u64,
-    iat: u64,
-    role: String,
-}
 
 /// Dekaf straddles the control-plane and data-plane:
 ///    * It needs full control over the `registered_avro_schemas` table in the control-plane
@@ -45,6 +39,42 @@ pub async fn authorize_dekaf(
     axum::extract::State(app): axum::extract::State<Arc<App>>,
     axum::Json(Request { token }): axum::Json<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
+    let fetch_spec = |task: String| {
+        sqlx::query!(
+            r#"
+            SELECT
+                spec_type AS "spec_type!: models::CatalogType",
+                built_spec AS "built_spec!: sqlx::types::Json<models::RawValue>"
+            FROM live_specs
+            WHERE live_specs.catalog_name = $1 AND built_spec IS NOT NULL
+            "#,
+            task
+        )
+        .fetch_one(&app.pg_pool)
+        .map_ok(|r| (r.spec_type, r.built_spec.0))
+        .boxed()
+    };
+
+    do_authorize_dekaf(
+        &app.snapshot,
+        token,
+        &app.control_plane_jwt_signer,
+        fetch_spec,
+    )
+    .await
+}
+
+pub async fn do_authorize_dekaf<'a>(
+    snapshot: &'a std::sync::RwLock<Snapshot>,
+    token: String,
+    control_key: &'a jsonwebtoken::EncodingKey,
+    fetch_spec: impl FnOnce(
+        String,
+    ) -> futures::future::BoxFuture<
+        'a,
+        sqlx::Result<(models::CatalogType, models::RawValue)>,
+    >,
+) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let (_header, claims) = super::parse_untrusted_data_plane_claims(&token)?;
 
     let task_name = claims.sub.as_str();
@@ -58,58 +88,38 @@ pub async fn authorize_dekaf(
     }
 
     match Snapshot::evaluate(
-        &app.snapshot,
+        snapshot,
         chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
         |snapshot: &Snapshot| {
             evaluate_authorization(snapshot, task_name, shard_data_plane_fqdn, &token)
         },
     ) {
         Ok((exp, (ops_logs_journal, ops_stats_journal))) => {
-            let materialization_spec = sqlx::query!(
-                r#"
-                SELECT
-                    built_spec AS "spec: sqlx::types::Json<models::RawValue>",
-                    spec_type AS "spec_type: models::CatalogType"
-                FROM live_specs
-                WHERE live_specs.catalog_name = $1
-                "#,
-                task_name
-            )
-            .fetch_one(&app.pg_pool)
-            .await
-            .context("failed to fetch task spec")?;
-
-            let (Some(materialization_spec), Some(spec_type)) =
-                (materialization_spec.spec, materialization_spec.spec_type)
-            else {
-                return Err(anyhow::anyhow!(
-                    "`live_specs` row for {task_name} is missing spec or spec_type"
-                )
-                .with_status(StatusCode::INTERNAL_SERVER_ERROR));
-            };
+            let (spec_type, built_spec) = fetch_spec(task_name.to_string())
+                .await
+                .context("failed to fetch task spec")?;
 
             if !matches!(spec_type, models::CatalogType::Materialization) {
                 return Err(anyhow::anyhow!("Unexpected spec type {:?}", spec_type)
                     .with_status(StatusCode::INTERNAL_SERVER_ERROR));
             }
 
-            let claims = AccessTokenClaims {
+            let claims = models::authorizations::ControlClaims {
                 iat: claims.iat,
                 exp: exp.timestamp() as u64,
+                sub: uuid::Uuid::nil(),
                 role: DEKAF_ROLE.to_string(),
+                email: None,
             };
-            let token = jsonwebtoken::encode(
-                &jsonwebtoken::Header::default(),
-                &claims,
-                &app.control_plane_jwt_signer,
-            )
-            .context("failed to encode authorized JWT")?;
+            let token =
+                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, control_key)
+                    .context("failed to encode authorized JWT")?;
 
             Ok(axum::Json(Response {
                 token,
                 ops_logs_journal,
                 ops_stats_journal,
-                task_spec: Some(materialization_spec.0),
+                task_spec: Some(built_spec),
                 retry_millis: 0,
             }))
         }
@@ -179,3 +189,171 @@ fn evaluate_authorization(
 }
 
 const DEKAF_ROLE: &str = "dekaf";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_success() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE,
+            iss: "fqdn2".to_string(),
+            sel: proto_gazette::LabelSelector::default(),
+            sub: "bobCo/anvils/materialize-orange".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Ok": [
+            {
+              "iat": 0,
+              "exp": 0,
+              "sub": "00000000-0000-0000-0000-000000000000",
+              "role": "dekaf"
+            },
+            "ops/tasks/public/plane-two/logs/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
+            "ops/tasks/public/plane-two/stats/1122334455667788/kind=materialization/name=bobCo%2Fanvils%2Fmaterialize-orange/pivot=00",
+            {
+              "$serde_json::private::RawValue": "{\"spec\":\"fixture\"}"
+            }
+          ]
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_not_materialization() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE,
+            iss: "fqdn2".to_string(),
+            sel: proto_gazette::LabelSelector::default(),
+            sub: "bobCo/widgets/source-squash".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 412,
+            "error": "task bobCo/widgets/source-squash must be a materialization, but is Capture instead"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_not_found() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE,
+            iss: "fqdn2".to_string(),
+            sel: proto_gazette::LabelSelector::default(),
+            sub: "bobCo/bananas".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 412,
+            "error": "task bobCo/bananas within data-plane fqdn2 is not known"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_cordon_task() {
+        let outcome = run(proto_gazette::Claims {
+            iat: 0,
+            exp: 0,
+            cap: proto_flow::capability::AUTHORIZE,
+            iss: "fqdn2".to_string(),
+            sel: proto_gazette::LabelSelector::default(),
+            sub: "bobCo/widgets/materialize-mango".to_string(),
+        })
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 500,
+            "error": "retry"
+          }
+        }
+        "###);
+    }
+
+    async fn run(
+        mut claims: proto_gazette::Claims,
+    ) -> Result<
+        (
+            models::authorizations::ControlClaims,
+            String,
+            String,
+            Option<models::RawValue>,
+        ),
+        crate::api::ApiError,
+    > {
+        let taken = chrono::Utc::now();
+        let snapshot = Snapshot::build_fixture(Some(taken));
+        let snapshot = std::sync::RwLock::new(snapshot);
+
+        claims.iat = taken.timestamp() as u64;
+        claims.exp = taken.timestamp() as u64 + 100;
+
+        let request_token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret("key3".as_bytes()),
+        )
+        .unwrap();
+
+        let Response {
+            token: response_token,
+            ops_logs_journal,
+            ops_stats_journal,
+            task_spec,
+            retry_millis,
+        } = do_authorize_dekaf(
+            &snapshot,
+            request_token,
+            &jsonwebtoken::EncodingKey::from_secret("control-key".as_bytes()),
+            |_task| {
+                async {
+                    Ok((
+                        models::CatalogType::Materialization,
+                        models::RawValue::from_value(&serde_json::json!({"spec": "fixture"})),
+                    ))
+                }
+                .boxed()
+            },
+        )
+        .await?
+        .0;
+
+        if retry_millis != 0 {
+            return Err(anyhow::anyhow!("retry").into());
+        }
+
+        // Decode and verify the response token.
+        let mut decoded = jsonwebtoken::decode::<models::authorizations::ControlClaims>(
+            &response_token,
+            &jsonwebtoken::DecodingKey::from_secret("control-key".as_bytes()),
+            &jsonwebtoken::Validation::default(),
+        )
+        .expect("failed to decode response token")
+        .claims;
+
+        (decoded.iat, decoded.exp) = (0, 0);
+
+        Ok((decoded, ops_logs_journal, ops_stats_journal, task_spec))
+    }
+}
