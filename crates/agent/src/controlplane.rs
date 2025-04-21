@@ -1,7 +1,10 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use gazette::{broker, journal, shard};
-use models::{status::activation::ShardFailure, CatalogType, Id};
+use models::{
+    status::{activation::ShardFailure, connector::ConfigUpdate},
+    CatalogType, Id,
+};
 use proto_flow::AnyBuiltSpec;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -54,6 +57,14 @@ pub trait ControlPlane: Send + Sync {
     /// Returns the current time. Having controllers access the current time through this api
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
+
+    async fn get_config_updates(&self, catalog_name: String, build_id: Id) -> anyhow::Result<Option<ConfigUpdate>>;
+
+    async fn delete_config_updates(
+        &self,
+        catalog_name: String,
+        min_build_id: Id,
+    ) -> anyhow::Result<()>;
 
     async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>>;
 
@@ -262,6 +273,47 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
         agent_sql::controllers::notify_dependents(live_spec_id, &self.pool).await?;
+        Ok(())
+    }
+
+    async fn get_config_updates(&self, catalog_name: String, build_id: Id) -> anyhow::Result<Option<ConfigUpdate>> {
+        sqlx::query_scalar!(
+            r#"
+            select
+                flow_document as "config_update: ConfigUpdate"
+            from config_updates
+            where catalog_name = $1 and build = $2::flowid
+            "#,
+            catalog_name,
+            build_id as Id,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("fetching config updates")
+    }
+
+    async fn delete_config_updates(
+        &self,
+        catalog_name: String,
+        min_build_id: Id,
+    ) -> anyhow::Result<()> {
+        let deleted_count = sqlx::query_scalar!(
+            r#"
+            with del as (
+                delete from config_updates
+                    where catalog_name = $1
+                    and (build <= $2::flowid)
+                    returning ts
+            )
+            select count(*) from del
+            "#,
+            catalog_name,
+            min_build_id as Id,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .context("clearing config updates")?;
+        tracing::info!(%min_build_id, ?deleted_count, "deleted old config updates");
         Ok(())
     }
 

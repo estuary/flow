@@ -2,6 +2,7 @@ pub mod activation;
 pub mod capture;
 pub mod catalog_test;
 pub mod collection;
+pub mod config_updates;
 pub mod connector;
 pub mod materialization;
 pub mod publications;
@@ -107,6 +108,15 @@ impl ControllerStatus {
             ControllerStatus::Uninitialized => None,
         }
     }
+
+    pub fn pending_config_update_status(&self) -> Option<&config_updates::PendingConfigUpdateStatus> {
+        match self {
+            ControllerStatus::Capture(c) => Some(&c.config_updates),
+            // Need to handle this better?
+            _ => None,
+        }
+    }
+
 
     pub fn as_capture_mut(&mut self) -> anyhow::Result<&mut capture::CaptureStatus> {
         if self.is_uninitialized() {

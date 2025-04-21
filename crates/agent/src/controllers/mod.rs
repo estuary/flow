@@ -2,6 +2,7 @@ pub(crate) mod activation;
 pub(crate) mod capture;
 pub(crate) mod catalog_test;
 pub(crate) mod collection;
+pub(crate) mod config_update;
 pub(crate) mod dependencies;
 pub(crate) mod executor;
 pub(crate) mod materialization;
