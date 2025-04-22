@@ -278,6 +278,21 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let connection_limit = Arc::new(tokio::sync::Semaphore::new(cli.max_connections));
+    metrics::gauge!("dekaf_connection_limit").set(cli.max_connections as f64);
+
+    let connection_limit_clone = connection_limit.clone();
+    let connection_pruner_shutdown = cancel_token.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = connection_pruner_shutdown.cancelled() => break,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
+                    let available = connection_limit_clone.available_permits();
+                    metrics::gauge!("dekaf_total_connections").set((cli.max_connections - available) as f64);
+                }
+            }
+        }
+    });
 
     let schema_addr = format!("[::]:{}", cli.schema_registry_port).parse()?;
     let metrics_addr = format!("[::]:{}", cli.metrics_port).parse()?;
@@ -462,8 +477,6 @@ where
     let mut out = bytes::BytesMut::new();
     let mut raw_sasl_auth = false;
 
-    metrics::gauge!("dekaf_total_connections").increment(1);
-
     let result = async {
         loop {
             tokio::select! {
@@ -488,8 +501,6 @@ where
         }
     }
     .await;
-
-    metrics::gauge!("dekaf_total_connections").decrement(1);
 
     w.shutdown().await?;
 
