@@ -76,17 +76,9 @@ pub struct Cli {
     default_broker_msk_region: String,
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
-    /// Brokers to use for connections using the legacy refresh-token based connection mode
-    #[arg(long, env = "LEGACY_MODE_BROKER_URLS", value_delimiter = ',')]
-    legacy_mode_broker_urls: Vec<String>,
-    /// The username for the Kafka broker to use for serving group management APIs for connections
-    /// using the legacy refresh-token based connection mode
-    #[arg(long, env = "LEGACY_MODE_BROKER_USERNAME")]
-    legacy_mode_broker_username: String,
-    /// The password for the Kafka broker to use for serving group management API for connections
-    /// using the legacy refresh-token based connection modes
-    #[arg(long, env = "LEGACY_MODE_BROKER_PASSWORD")]
-    legacy_mode_broker_password: String,
+    // Optional, if omitted then disable legacy connection mode
+    #[command(flatten)]
+    legacy_mode: Option<LegacyModeArgs>,
     // ------------------------------------------------------------------------------------------------
     /// The secret used to encrypt/decrypt potentially sensitive strings when sending them
     /// to the upstream Kafka broker, e.g topic names in group management metadata.
@@ -145,27 +137,55 @@ struct TlsArgs {
     certificate_key_file: Option<PathBuf>,
 }
 
+#[derive(Args, Debug, Clone, serde::Serialize)]
+#[group(
+    multiple = true,
+    requires_all=[
+        "legacy_mode_broker_urls",
+        "legacy_mode_broker_username",
+        "legacy_mode_broker_password"
+        ]
+    )
+] // All members are mutually required
+pub struct LegacyModeArgs {
+    /// Brokers to use for connections using the legacy refresh-token based connection mode
+    #[arg(
+        long,
+        env = "LEGACY_MODE_BROKER_URLS",
+        value_delimiter = ',',
+        required = false
+    )]
+    pub legacy_mode_broker_urls: Vec<String>,
+    /// The username for the Kafka broker to use for serving group management APIs for connections
+    /// using the legacy refresh-token based connection mode
+    #[arg(long, env = "LEGACY_MODE_BROKER_USERNAME", required = false)]
+    pub legacy_mode_broker_username: String,
+    /// The password for the Kafka broker to use for serving group management API for connections
+    /// using the legacy refresh-token based connection modes
+    #[arg(long, env = "LEGACY_MODE_BROKER_PASSWORD", required = false)]
+    pub legacy_mode_broker_password: String,
+}
+
+impl LegacyModeArgs {
+    fn build_broker_urls(&self) -> anyhow::Result<Vec<String>> {
+        return self
+            .legacy_mode_broker_urls
+            .iter()
+            .map(|url| {
+                let parsed = Url::parse(&url).expect("invalid broker URL {url}");
+                Ok::<_, anyhow::Error>(format!(
+                    "tcp://{}:{}",
+                    parsed.host().context(format!("invalid broker URL {url}"))?,
+                    parsed.port().unwrap_or(9092)
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>();
+    }
+}
+
 impl Cli {
     fn build_broker_urls(&self) -> anyhow::Result<Vec<String>> {
         self.default_broker_urls
-            .clone()
-            .into_iter()
-            .map(|url| {
-                {
-                    let parsed = Url::parse(&url).expect("invalid broker URL {url}");
-                    Ok::<_, anyhow::Error>(format!(
-                        "tcp://{}:{}",
-                        parsed.host().context(format!("invalid broker URL {url}"))?,
-                        parsed.port().unwrap_or(9092)
-                    ))
-                }
-                .context(url)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()
-    }
-
-    fn build_LEGACY_broker_urls(&self) -> anyhow::Result<Vec<String>> {
-        self.legacy_mode_broker_urls
             .clone()
             .into_iter()
             .map(|url| {
@@ -198,7 +218,17 @@ async fn main() -> anyhow::Result<()> {
     let upstream_kafka_urls = cli.build_broker_urls()?;
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
-    let legacy_mode_kafka_urls = cli.build_LEGACY_broker_urls()?;
+    let (legacy_mode_kafka_urls, legacy_broker_username, legacy_broker_password) =
+        if let Some(args) = &cli.legacy_mode {
+            tracing::info!("Enabling refresh-token auth mode");
+            (
+                Some(args.build_broker_urls()?),
+                Some(args.legacy_mode_broker_username.clone()),
+                Some(args.legacy_mode_broker_password.clone()),
+            )
+        } else {
+            (None, None, None)
+        };
     // ------------------------------------------------------------------------------------------------
 
     test_kafka(&cli).await?;
@@ -249,8 +279,7 @@ async fn main() -> anyhow::Result<()> {
     let schema_router = dekaf::registry::build_router(app.clone());
 
     let msk_region = cli.default_broker_msk_region.as_str();
-    let legacy_broker_username = cli.legacy_mode_broker_username.as_str();
-    let legacy_broker_password = cli.legacy_mode_broker_password.as_str();
+
     if let Some(tls_cfg) = cli.tls {
         let axum_rustls_config = RustlsConfig::from_pem_file(
             tls_cfg.certificate_file.clone().unwrap(),
@@ -315,8 +344,8 @@ async fn main() -> anyhow::Result<()> {
                                     msk_region.to_string(),
                                     cli.read_buffer_chunk_limit,
                                     legacy_mode_kafka_urls.clone(),
-                                    legacy_broker_username.to_string(),
-                                    legacy_broker_password.to_string()
+                                    legacy_broker_username.as_ref().map(|u| u.to_string()),
+                                    legacy_broker_password.as_ref().map(|p| p.to_string())
                                 ),
                                 socket,
                                 addr,
@@ -360,8 +389,8 @@ async fn main() -> anyhow::Result<()> {
                                     msk_region.to_string(),
                                     cli.read_buffer_chunk_limit,
                                     legacy_mode_kafka_urls.clone(),
-                                    legacy_broker_username.to_string(),
-                                    legacy_broker_password.to_string()
+                                    legacy_broker_username.as_ref().map(|u| u.to_string()),
+                                    legacy_broker_password.as_ref().map(|p| p.to_string())
                                 ),
                                 socket,
                                 addr,
@@ -500,23 +529,21 @@ async fn test_kafka(cli: &Cli) -> anyhow::Result<()> {
             .unwrap(),
         cached: None,
     };
-    let user_pass_creds =
-        KafkaClientAuth::NonRefreshing(rsasl::config::SASLConfig::with_credentials(
-            None,
-            cli.legacy_mode_broker_username.clone(),
-            cli.legacy_mode_broker_password.clone(),
-        )?);
 
     let broker_urls = cli.build_broker_urls()?;
-    let legacy_broker_urls = cli.build_LEGACY_broker_urls()?;
 
-    let (iam_client, legacy_client) = tokio::join!(
-        KafkaApiClient::connect(broker_urls.as_slice(), iam_creds),
-        KafkaApiClient::connect(legacy_broker_urls.as_slice(), user_pass_creds)
-    );
+    KafkaApiClient::connect(broker_urls.as_slice(), iam_creds).await?;
 
-    iam_client?;
-    legacy_client?;
+    if let Some(legacy) = &cli.legacy_mode {
+        let legacy_broker_urls = legacy.build_broker_urls()?;
+        let user_pass_creds =
+            KafkaClientAuth::NonRefreshing(rsasl::config::SASLConfig::with_credentials(
+                None,
+                legacy.legacy_mode_broker_username.clone(),
+                legacy.legacy_mode_broker_password.clone(),
+            )?);
+        KafkaApiClient::connect(legacy_broker_urls.as_slice(), user_pass_creds).await?;
+    }
 
     tracing::info!("Successfully connected to upstream kafka");
 
