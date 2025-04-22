@@ -698,32 +698,34 @@ mod test {
     use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 
     #[test]
-    fn test_encryption_deterministic() {
+    fn test_encryption_deterministic() -> anyhow::Result<()> {
         let enc_1 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
         let enc_2 = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
 
         assert_eq!(enc_1, enc_2);
+        Ok(())
     }
 
     #[test]
-    fn test_encrypt_decrypt() {
+    fn test_encrypt_decrypt() -> anyhow::Result<()> {
         let encrypted = to_upstream_topic_name(
             TopicName::from(StrBytes::from_static_str("Test Topic")),
             "pizza".to_string(),
             "sauce".to_string(),
-        );
+        )?;
 
         let decrypted =
-            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string());
+            from_upstream_topic_name(encrypted, "pizza".to_string(), "sauce".to_string())?;
 
         assert_eq!(decrypted.as_str(), "Test Topic");
+        Ok(())
     }
 }
