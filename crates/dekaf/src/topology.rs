@@ -38,50 +38,37 @@ impl UserAuth {
 impl TaskAuth {
     pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
         match self.spec_cache.get(&self.task_name).await.as_ref() {
-            Ok(spec) => Ok(spec
+            Ok(spec) => spec
                 .bindings
                 .iter()
                 .map(|b| {
                     b.collection
                         .as_ref()
-                        .expect("MaterializationSpec missing `collection`")
-                        .name
-                        .clone()
+                        .context("MaterializationSpec missing `collection`")
+                        .map(|c| c.name.clone())
                 })
-                .collect_vec()),
-            Err(e) => anyhow::bail!("Failed to fetch task spec: {e:?}"),
+                .collect::<Result<Vec<_>, _>>(),
+            Err(e) => anyhow::bail!("failed to fetch task spec: {e:?}"),
         }
     }
 
     pub async fn get_binding_for_topic(
         &self,
         topic_name: &str,
-    ) -> anyhow::Result<
-        Option<(
-            proto_flow::flow::materialization_spec::Binding,
-            connector::DekafResourceConfig,
-        )>,
-    > {
-        let found = match self.spec_cache.get(&self.task_name).await.as_ref() {
+    ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
+        Ok(match self.spec_cache.get(&self.task_name).await.as_ref() {
             Ok(spec) => spec
                 .bindings
                 .iter()
-                .map(|b| {
-                    serde_json::from_str::<connector::DekafResourceConfig>(&b.resource_config_json)
-                        .map(|parsed| (parsed.topic_name.to_owned(), (b.to_owned(), parsed)))
+                .find(|binding| {
+                    binding
+                        .resource_path
+                        .first()
+                        .is_some_and(|path| path == topic_name)
                 })
-                .find(|res| match res {
-                    Ok((found_topic_name, _)) if found_topic_name == topic_name => true,
-                    // Bail early if we get an error parsing the resource config.
-                    Err(_) => true,
-                    _ => false,
-                })
-                .transpose()?
-                .map(|(_, binding)| binding),
-            Err(e) => anyhow::bail!("Failed to fetch task spec: {e:?}"),
-        };
-
-        Ok(found)
+                .map(|b| b.clone()),
+            Err(e) => anyhow::bail!("failed to fetch task spec: {e:?}"),
+        })
     }
 }
 
@@ -97,7 +84,7 @@ impl SessionAuthentication {
         match self {
             SessionAuthentication::User(_) => Ok(topic_name.to_string()),
             SessionAuthentication::Task(auth) => {
-                let (binding, _resource_config) = auth
+                let binding = auth
                     .get_binding_for_topic(topic_name)
                     .await?
                     .ok_or(anyhow::anyhow!("Unrecognized topic {topic_name}"))?;
@@ -165,7 +152,7 @@ impl Collection {
         topic_name: &str,
     ) -> anyhow::Result<Option<Self>> {
         let binding = if let SessionAuthentication::Task(task_auth) = auth {
-            if let Some((binding, _)) = task_auth.get_binding_for_topic(topic_name).await? {
+            if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
                 Some(binding)
             } else {
                 bail!("{topic_name} is not a binding of {}", task_auth.task_name)
