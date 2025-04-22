@@ -38,7 +38,7 @@ use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, time::SystemTime};
+use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 use tracing_record_hierarchical::SpanExt;
 
 pub struct App {
@@ -55,7 +55,7 @@ pub struct App {
     /// The key used to sign data-plane access token requests
     pub data_plane_signer: jsonwebtoken::EncodingKey,
     /// The cache for materialization specs
-    pub spec_cache: SpecCache,
+    pub spec_cache: Arc<SpecCache>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
@@ -79,7 +79,7 @@ pub struct TaskAuth {
     client: flow_client::Client,
     task_name: String,
     config: connector::DekafConfig,
-    spec_cache: SpecCache,
+    spec_cache: Arc<SpecCache>,
 
     // When access token expires
     exp: time::OffsetDateTime,
@@ -155,7 +155,7 @@ impl TaskAuth {
         client: flow_client::Client,
         task_name: String,
         config: connector::DekafConfig,
-        spec_cache: SpecCache,
+        spec_cache: Arc<SpecCache>,
         exp: time::OffsetDateTime,
     ) -> Self {
         Self {
