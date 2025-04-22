@@ -1335,24 +1335,24 @@ impl Session {
     }
 
     fn encrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
-        Ok(to_upstream_topic_name(
+        to_upstream_topic_name(
             name,
             self.secret.to_owned(),
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
             },
-        ))
+        )
     }
     fn decrypt_topic_name(&self, name: TopicName) -> anyhow::Result<TopicName> {
-        Ok(from_upstream_topic_name(
+        from_upstream_topic_name(
             name,
             self.secret.to_owned(),
             match self.auth.as_ref().context("Must be authenticated")? {
                 SessionAuthentication::User(auth) => auth.claims.sub.to_string(),
                 SessionAuthentication::Task(auth) => auth.config.token.to_string(),
             },
-        ))
+        )
     }
 
     fn encode_topic_name(&self, name: String) -> anyhow::Result<TopicName> {
