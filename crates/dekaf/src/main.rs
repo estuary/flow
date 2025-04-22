@@ -218,12 +218,12 @@ async fn main() -> anyhow::Result<()> {
     let client_base = flow_client::Client::new(cli.agent_endpoint, api_key, api_endpoint, None);
     let signing_token = jsonwebtoken::EncodingKey::from_base64_secret(&cli.data_plane_access_key)?;
 
-    let spec_cache = SpecCache::new(
+    let spec_cache = Arc::new(SpecCache::new(
         cli.spec_cache_ttl,
         client_base.clone(),
         cli.data_plane_fqdn.clone(),
         signing_token.clone(),
-    );
+    ));
 
     let app = Arc::new(dekaf::App {
         advertise_host: cli.advertise_host.to_owned(),
@@ -254,7 +254,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::select! {
                 _ = purge_shutdown.cancelled() => break,
                 _ = tokio::time::sleep(cli.spec_cache_ttl) => {
-                    spec_cache.prune_expired().await;
+                    spec_cache.prune_expired();
                 }
             }
         }
