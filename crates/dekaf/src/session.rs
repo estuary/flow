@@ -52,9 +52,9 @@ pub struct Session {
     read_buffer_size: usize,
 
     // ------ This can be cleaned up once everyone is migrated off of the legacy connection mode ------
-    legacy_mode_broker_urls: Vec<String>,
-    legacy_mode_broker_username: String,
-    legacy_mode_broker_password: String,
+    legacy_mode_broker_urls: Option<Vec<String>>,
+    legacy_mode_broker_username: Option<String>,
+    legacy_mode_broker_password: Option<String>,
     // ------------------------------------------------------------------------------------------------
 }
 
@@ -65,9 +65,9 @@ impl Session {
         broker_urls: Vec<String>,
         msk_region: String,
         read_buffer_size: usize,
-        legacy_mode_broker_urls: Vec<String>,
-        legacy_mode_broker_username: String,
-        legacy_mode_broker_password: String,
+        legacy_mode_broker_urls: Option<Vec<String>>,
+        legacy_mode_broker_username: Option<String>,
+        legacy_mode_broker_password: Option<String>,
     ) -> Self {
         Self {
             app,
@@ -103,14 +103,26 @@ impl Session {
                     },
                     self.broker_urls.as_slice(),
                 ),
-                Some(SessionAuthentication::User(_)) => (
-                    KafkaClientAuth::NonRefreshing(rsasl::config::SASLConfig::with_credentials(
-                        None,
-                        self.legacy_mode_broker_username.clone(),
-                        self.legacy_mode_broker_password.clone(),
-                    )?),
-                    self.legacy_mode_broker_urls.as_slice(),
-                ),
+                Some(SessionAuthentication::User(_)) => {
+                    if let (Some(username), Some(password), Some(urls)) = (
+                        &self.legacy_mode_broker_username,
+                        &self.legacy_mode_broker_password,
+                        &self.legacy_mode_broker_urls,
+                    ) {
+                        (
+                            KafkaClientAuth::NonRefreshing(
+                                rsasl::config::SASLConfig::with_credentials(
+                                    None,
+                                    username.clone(),
+                                    password.clone(),
+                                )?,
+                            ),
+                            urls.as_slice(),
+                        )
+                    } else {
+                        anyhow::bail!("This authentication mode is not supported anymore");
+                    }
+                }
                 None => anyhow::bail!("Must be authenticated"),
             };
             self.client.replace(
