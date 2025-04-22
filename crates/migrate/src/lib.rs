@@ -663,11 +663,25 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
         )
         .context("failed to sign claims for data-plane")?;
 
+    // Data-plane gateway doesn't support journal suspension,
+    // nor do we want to update it to do so, so require that
+    // cronut is port-forwarded locally.
+    let broker_address = if row.broker_address.contains("svc.cluster.local:") {
+        "http://localhost:8080".to_string()
+    } else {
+        row.broker_address.clone()
+    };
+    let reactor_address = if row.reactor_address.contains("svc.cluster.local:") {
+        "http://localhost:9000".to_string()
+    } else {
+        row.reactor_address.clone()
+    };
+
     // Create the journal and shard clients that are used for interacting with the data plane
     let router = gazette::Router::new("local");
     let journal_client =
-        gazette::journal::Client::new(row.broker_address.clone(), metadata.clone(), router.clone());
-    let shard_client = gazette::shard::Client::new(row.reactor_address.clone(), metadata, router);
+        gazette::journal::Client::new(broker_address, metadata.clone(), router.clone());
+    let shard_client = gazette::shard::Client::new(reactor_address, metadata, router);
 
     Ok(DataPlane {
         row,
