@@ -1,12 +1,16 @@
 use anyhow::Context;
 use futures::{FutureExt, TryFutureExt};
+use mockall_double::double;
 
 mod controller;
 mod logs;
-mod repo;
+pub mod repo;
 mod stack;
 
 pub use controller::Controller;
+
+#[double]
+use repo::Repo;
 
 #[derive(clap::Parser, Debug, serde::Serialize)]
 #[clap(author, version, about, long_about = None)]
@@ -17,13 +21,13 @@ pub struct Args {
         env = "DPC_DATABASE_URL",
         default_value = "postgres://postgres:postgres@127.0.0.1:5432/postgres"
     )]
-    database_url: url::Url,
+    pub database_url: url::Url,
     /// Path to CA certificate of the database.
     #[clap(long = "database-ca", env = "DPC_DATABASE_CA")]
-    database_ca: Option<String>,
+    pub database_ca: Option<String>,
     /// Number of tasks which may be polled concurrently.
     #[clap(long = "concurrency", env = "DPC_CONCURRENCY", default_value = "1")]
-    concurrency: u32,
+    pub concurrency: u32,
     /// Interval between polls for dequeue-able tasks when otherwise idle.
     #[clap(
         long = "dequeue-interval",
@@ -32,7 +36,7 @@ pub struct Args {
     )]
     #[serde(with = "humantime_serde")]
     #[arg(value_parser = humantime::parse_duration)]
-    dequeue_interval: std::time::Duration,
+    pub dequeue_interval: std::time::Duration,
     /// Interval before a running task poll is presumed to have failed.
     /// Tasks updated their heartbeats every half of this interval.
     #[clap(
@@ -42,33 +46,33 @@ pub struct Args {
     )]
     #[serde(with = "humantime_serde")]
     #[arg(value_parser = humantime::parse_duration)]
-    heartbeat_timeout: std::time::Duration,
+    pub heartbeat_timeout: std::time::Duration,
     /// Repository to clone for Pulumi and Ansible infrastructure.
     #[clap(
         long = "git-repo",
         env = "DPC_GIT_REPO",
         default_value = "git@github.com:estuary/est-dry-dock.git"
     )]
-    git_repo: String,
+    pub git_repo: String,
     /// Pulumi secrets provider for encryption of stack secrets.
     #[clap(
         long = "secrets-provider",
         env = "DPC_SECRETS_PROVIDER",
         default_value = "gcpkms://projects/estuary-control/locations/us-central1/keyRings/pulumi/cryptoKeys/state-secrets"
     )]
-    secrets_provider: String,
+    pub secrets_provider: String,
     /// Pulumi backend for storage of stack states.
     #[clap(
         long = "state-backend",
         env = "DPC_STATE_BACKEND",
         default_value = "gs://estuary-pulumi"
     )]
-    state_backend: url::Url,
+    pub state_backend: url::Url,
     /// When running in dry-run mode, the controller performs git checkouts but
     /// merely simulates Pulumi and Ansible commands without actually running them.
     /// It's not required that the Pulumi stacks of data planes actually exist.
     #[clap(long = "dry-run")]
-    dry_run: bool,
+    pub dry_run: bool,
 }
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
@@ -80,7 +84,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     };
     tracing::info!(args=?ops::DebugJson(&args), app_name, "started!");
 
-    let repo = repo::Repo::new(&args.git_repo);
+    let repo = Repo::new(&args.git_repo);
 
     let mut pg_options = args
         .database_url

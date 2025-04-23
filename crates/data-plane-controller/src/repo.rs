@@ -1,5 +1,6 @@
 use super::{logs, run_cmd};
 use anyhow::Context;
+use mockall::automock;
 use std::sync::Arc;
 
 pub struct Repo {
@@ -16,6 +17,7 @@ pub struct Checkout {
     inner: Arc<Inner>,
 }
 
+#[automock]
 impl Repo {
     pub fn new(repo: &str) -> Self {
         Self {

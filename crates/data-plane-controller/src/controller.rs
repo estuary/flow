@@ -1,15 +1,18 @@
+#[double]
+use super::repo::Repo;
 use super::{
     logs, run_cmd,
     stack::{self, State, Status},
 };
 use crate::repo;
 use anyhow::Context;
+use mockall_double::double;
 use std::collections::VecDeque;
 
 pub struct Controller {
     pub dry_run: bool,
     pub logs_tx: super::logs::Tx,
-    pub repo: super::repo::Repo,
+    pub repo: Repo,
     pub secrets_provider: String,
     pub state_backend: url::Url,
 }
