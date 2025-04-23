@@ -150,6 +150,7 @@ pub enum Role {
     Gazette,
     Reactor,
     Bastion,
+    Dekaf,
 }
 
 /// A Deployment under a rollout will be updated with each data-plane
