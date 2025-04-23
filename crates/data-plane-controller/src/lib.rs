@@ -4,11 +4,14 @@ use mockall_double::double;
 
 mod controller;
 mod logs;
+pub mod pulumi;
 pub mod repo;
 mod stack;
 
 pub use controller::Controller;
 
+#[double]
+use pulumi::Pulumi;
 #[double]
 use repo::Repo;
 
@@ -130,6 +133,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             repo,
             secrets_provider: args.secrets_provider,
             state_backend: args.state_backend,
+            pulumi: Pulumi::default(),
         })
         .serve(
             args.concurrency,

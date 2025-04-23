@@ -2,8 +2,8 @@
 
 begin;
 
-ALTER TABLE public.data_planes ADD config_private_links json[] not null default array[]::json[];
+ALTER TABLE public.data_planes ADD private_links json[] not null default array[]::json[];
 
-GRANT SELECT(config_private_links) ON public.data_planes TO authenticated;
+GRANT SELECT(private_links) ON public.data_planes TO authenticated;
 
 commit;

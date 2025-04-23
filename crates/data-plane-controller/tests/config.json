@@ -1,0 +1,64 @@
+{
+    "builds_root": "gs://estuary-control/builds/",
+    "deployments": [
+        {
+            "role": "etcd",
+            "current": 3,
+            "desired": 3,
+            "template": {
+                "zone": "1",
+                "vm_size": "Standard_D2s_v5",
+                "location": "centralus",
+                "os_image": "ubuntu-2404",
+                "provider": "azure"
+            },
+            "oci_image": "quay.io/coreos/etcd:v3.5.17"
+        },
+        {
+            "role": "gazette",
+            "current": 4,
+            "desired": 4,
+            "template": {
+                "zone": "1",
+                "vm_size": "Standard_E2s_v5",
+                "location": "centralus",
+                "os_image": "ubuntu-2404",
+                "provider": "azure"
+            },
+            "oci_image": "ghcr.io/gazette/broker:v0.100.0-24-g7ffcbe3"
+        },
+        {
+            "role": "reactor",
+            "current": 1,
+            "desired": 1,
+            "template": {
+                "zone": "1",
+                "vm_size": "Standard_E4s_v5",
+                "location": "centralus",
+                "os_image": "ubuntu-2404",
+                "provider": "azure"
+            },
+            "oci_image": "ghcr.io/estuary/flow:v0.5.11-128-g34e4adb1ab"
+        }
+    ],
+    "gcp_project": "helpful-kingdom-273219",
+    "ssh_subnets": [
+        "35.209.143.159/32",
+        "2600:1900:4000:97c7::/128",
+        "34.136.233.238/32"
+    ],
+    "data_buckets": [
+        "gs://estuary-trial",
+        "gs://estuary-flow-poc"
+    ],
+    "private_links": [
+        {
+            "location": "centralus",
+            "service_name": "/subscriptions/59436316-c7f2-4163-86d0-fdf5d1fe5367/resourceGroups/D236RGKDPEA01/providers/Microsoft.Network/privateLinkServices/d236plsestryea01"
+        }
+    ],
+    "builds_kms_keys": [
+        "projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
+    ],
+    "control_plane_api": "https://agent-api-amj6adhsnq-uc.a.run.app/"
+}

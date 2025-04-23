@@ -1,5 +1,8 @@
 use anyhow::Context;
-use mockall_double::double;
+use serde_json::json;
+use sqlx::types::uuid::Uuid;
+use std::fs;
+use std::path::Path;
 use tokio;
 
 use data_plane_controller::{run, Args};
@@ -33,8 +36,8 @@ async fn test_pool(database_url: &url::Url) -> sqlx::PgPool {
         .unwrap()
 }
 
-async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<models::Id> {
-    let base_name = "test-dataplane";
+async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<(models::Id, models::Id, Uuid)> {
+    let base_name = "local-test-dataplane";
     let prefix = "aliceCo/";
 
     let data_plane_name = format!("ops/dp/{base_name}");
@@ -42,6 +45,7 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<models::Id> {
         "{:x}.dp.estuary-data.com",
         xxhash_rust::xxh3::xxh3_64(base_name.as_bytes())
     );
+    let deploy_branch = "main";
     let pulumi_stack = format!("private-{}-{base_name}", prefix.trim_end_matches("/"));
     let ops_l1_inferred_name = format!("ops/rollups/L1/{base_name}/inferred-schemas");
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
@@ -57,6 +61,49 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<models::Id> {
         format!("https://reactor.{data_plane_fqdn}"),
         Vec::new(),
     );
+
+    let existing_data_plane = sqlx::query!(
+        r#"
+        SELECT
+            controller_task_id AS "task_id: models::Id"
+        FROM data_planes
+        WHERE data_plane_name = $1
+        "#,
+        &data_plane_name as &String,
+    )
+    .fetch_optional(pool)
+    .await
+    .context("failed to fetch controller task id")?;
+
+    if let Some(row) = existing_data_plane {
+        sqlx::query!(
+            r#"
+            delete from internal.tasks WHERE task_id=$1
+            "#,
+            row.task_id.unwrap() as models::Id,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query!(
+            r#"
+            delete from data_planes WHERE data_plane_name=$1
+            "#,
+            &data_plane_name as &String,
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    let tests_dir = Path::new(file!())
+        .parent()
+        .unwrap()
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap();
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(format!("{tests_dir}/config.json")).unwrap())
+            .unwrap();
 
     let insert = sqlx::query!(
         r#"
@@ -75,25 +122,13 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<models::Id> {
             reactor_address,
             hmac_keys,
             enable_l2,
-            pulumi_stack
+            pulumi_stack,
+            deploy_branch,
+            config
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
         )
-        on conflict (data_plane_name) do update
-            set ops_logs_name = $3,
-            ops_stats_name = $4,
-            ops_l1_inferred_name = $5,
-            ops_l1_stats_name = $6,
-            ops_l1_events_name = $7,
-            ops_l2_inferred_transform = $8,
-            ops_l2_stats_transform = $9,
-            ops_l2_events_transform = $10,
-            broker_address = $11,
-            reactor_address = $12,
-            hmac_keys = $13,
-            enable_l2 = $14,
-            pulumi_stack = $15
-        returning id AS "id: models::Id", controller_task_id AS "task_id: models::Id"
+        returning id AS "id: models::Id", controller_task_id AS "task_id: models::Id", logs_token
         ;
         "#,
         &data_plane_name as &String,
@@ -111,6 +146,8 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<models::Id> {
         hmac_keys.as_slice(),
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
         pulumi_stack,
+        deploy_branch,
+        config,
     )
     .fetch_one(pool)
     .await?;
@@ -123,31 +160,22 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<models::Id> {
     .await
     .context("failed to fetch controller task id")?;
 
-    return Ok(insert.id);
+    test_send_command(&pool, insert.task_id.unwrap(), json!({"start": insert.id}))
+        .await
+        .unwrap();
+
+    return Ok((insert.id, insert.task_id.unwrap(), insert.logs_token));
 }
 
 async fn test_send_command(
     pool: &sqlx::PgPool,
-    data_plane_id: models::Id,
-    command: &str,
+    task_id: models::Id,
+    command: serde_json::Value,
 ) -> anyhow::Result<()> {
-    let row = sqlx::query!(
-        r#"
-        SELECT
-            controller_task_id AS "task_id: models::Id"
-        FROM data_planes
-        WHERE id = $1
-        "#,
-        data_plane_id as models::Id,
-    )
-    .fetch_one(pool)
-    .await
-    .context("failed to fetch controller task id")?;
-
     sqlx::query!(
         r#"SELECT internal.send_to_task($1, '00:00:00:00:00:00:00:00'::flowid, $2::json)"#,
-        row.task_id.unwrap() as models::Id,
-        serde_json::Value::String(command.to_string()),
+        task_id as models::Id,
+        command,
     )
     .fetch_one(pool)
     .await
@@ -160,15 +188,15 @@ async fn test_send_command(
 async fn basic_run() {
     let args = test_args();
     let pool = test_pool(&args.database_url).await;
-    let data_plane_id = test_data_plane(&pool).await.unwrap();
-    test_send_command(&pool, data_plane_id, "enable")
+    let (data_plane_id, task_id, logs_token) = test_data_plane(&pool).await.unwrap();
+    test_send_command(&pool, task_id, json!("enable"))
         .await
         .unwrap();
-    test_send_command(&pool, data_plane_id, "converge")
+    test_send_command(&pool, task_id, json!("converge"))
         .await
         .unwrap();
 
-    eprintln!("{:?}", data_plane_id);
+    eprintln!("logs: {}", logs_token);
 
     let result = run(args).await;
 

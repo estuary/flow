@@ -102,6 +102,7 @@ pub async fn serve(
                 if let Err(err) = executors::poll_task(ready, heartbeat_timeout).await {
                     // Ensure that we render the cause of the error.
                     let error = format!("{err:#}");
+                    eprintln!("err {0}", error);
                     tracing::warn!(
                         ?task_id,
                         ?task_type,
