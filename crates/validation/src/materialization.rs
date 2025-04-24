@@ -106,7 +106,7 @@ async fn walk_materialization<C: Connectors>(
         on_incompatible_schema_change,
         endpoint,
         bindings: bindings_model,
-        shards,
+        mut shards,
         expect_pub_id: _,
         delete: _,
     } = model;
@@ -138,7 +138,78 @@ async fn walk_materialization<C: Connectors>(
     let data_plane =
         reference::walk_data_plane(scope, materialization, data_plane_id, data_planes, errors)?;
 
-    // Start an RPC with the task's connector.
+    // Index live binding models on their (non-empty) resource /_meta/path .
+    let live_bindings_model: BTreeMap<Vec<String>, &models::MaterializationBinding> = live_model
+        .iter()
+        .flat_map(|model| model.bindings.iter())
+        .filter_map(|model| {
+            let model_path = super::load_resource_meta_path(&model.resource);
+            (!model_path.is_empty()).then_some((model_path, model))
+        })
+        .collect();
+
+    // Index live binding specs, both active and inactive, on their declared resource paths.
+    let mut live_bindings_spec: BTreeMap<&[String], &flow::materialization_spec::Binding> =
+        live_spec
+            .iter()
+            .flat_map(|spec| spec.inactive_bindings.iter().chain(spec.bindings.iter()))
+            .map(|binding| (binding.resource_path.as_slice(), binding))
+            .collect();
+
+    let scope_bindings = scope.push_prop("bindings");
+
+    // Map enumerated binding models into paired validation requests.
+    let bindings_model_len = bindings_model.len();
+    let mut bindings: Vec<(
+        models::ResourcePath,
+        models::MaterializationBinding,
+        Option<materialize::request::validate::Binding>,
+        Option<models::OnIncompatibleSchemaChange>,
+    )> = bindings_model
+        .into_iter()
+        .enumerate()
+        .map(|(index, model)| {
+            walk_materialization_binding(
+                scope_bindings.push_item(index),
+                on_incompatible_schema_change,
+                model,
+                built_collections,
+                materialization,
+                data_plane_id,
+                noop_materializations || shards.disable,
+                &live_bindings_model,
+                &mut live_bindings_spec,
+                &mut model_fixes,
+                errors,
+            )
+        })
+        .collect();
+
+    // Determine storage mappings for task recovery logs.
+    let recovery_stores = storage_mapping::mapped_stores(
+        scope,
+        "materialization",
+        &format!("recovery/{materialization}"),
+        storage_mappings,
+        errors,
+    );
+
+    if let Some((_, model_binding, _, _)) = bindings.iter().find(|(_, _, _, on_incompatible)| {
+        on_incompatible == &Some(models::OnIncompatibleSchemaChange::DisableTask)
+    }) {
+        model_fixes.push(format!("disabling materialization due to reset of collection {} and `onIncompatibleSchemaChange: disableTask`", model_binding.source.collection()));
+        shards.disable = true;
+    }
+
+    // We've completed all cheap validation checks.
+    // If we've already encountered errors then stop now.
+    if !errors.is_empty() {
+        return None;
+    }
+
+    // Start an RPC with the task's connector. It's important that we do this after
+    // walking bindings, in case we needed to disable the materialization as a result
+    // of a collection reset.
     let (mut request_tx, request_rx) = futures::channel::mpsc::channel(1);
     let response_rx = if noop_materializations || shards.disable {
         futures::future::Either::Left(NoOpConnectors.materialize(
@@ -186,71 +257,21 @@ async fn walk_materialization<C: Connectors>(
     )
     .await?;
 
-    // Index live binding models on their (non-empty) resource /_meta/path .
-    let live_bindings_model: BTreeMap<Vec<String>, &models::MaterializationBinding> = live_model
-        .iter()
-        .flat_map(|model| model.bindings.iter())
-        .filter_map(|model| {
-            let model_path = super::load_resource_meta_path(&model.resource);
-            (!model_path.is_empty()).then_some((model_path, model))
-        })
-        .collect();
-
-    // Index live binding specs, both active and inactive, on their declared resource paths.
-    let mut live_bindings_spec: BTreeMap<&[String], &flow::materialization_spec::Binding> =
-        live_spec
-            .iter()
-            .flat_map(|spec| spec.inactive_bindings.iter().chain(spec.bindings.iter()))
-            .map(|binding| (binding.resource_path.as_slice(), binding))
-            .collect();
-
-    let scope_bindings = scope.push_prop("bindings");
-
-    // Map enumerated binding models into paired validation requests.
-    let bindings_model_len = bindings_model.len();
-    let bindings: Vec<(
-        models::ResourcePath,
-        models::MaterializationBinding,
-        Option<materialize::request::validate::Binding>,
-    )> = bindings_model
-        .into_iter()
-        .enumerate()
-        .map(|(index, model)| {
-            walk_materialization_binding(
-                scope_bindings.push_item(index),
-                model,
-                built_collections,
-                materialization,
-                data_plane_id,
-                noop_materializations || shards.disable,
-                &live_bindings_model,
-                &mut live_bindings_spec,
-                &mut model_fixes,
-                errors,
-            )
-        })
-        .collect();
-
-    // Determine storage mappings for task recovery logs.
-    let recovery_stores = storage_mapping::mapped_stores(
-        scope,
-        "materialization",
-        &format!("recovery/{materialization}"),
-        storage_mappings,
-        errors,
-    );
-
-    // We've completed all cheap validation checks.
-    // If we've already encountered errors then stop now.
-    if !errors.is_empty() {
-        return None;
+    // Filter to validation requests of active bindings. We need to re-check whether the task
+    // is enabled, since that may have changed in response to a collection reset.
+    if shards.disable {
+        for binding in bindings.iter_mut() {
+            binding.2.take();
+        }
     }
-
-    // Filter to validation requests of active bindings.
-    let bindings_validate: Vec<materialize::request::validate::Binding> = bindings
-        .iter()
-        .filter_map(|(_model, _resource_path, validate)| validate.clone())
-        .collect();
+    let bindings_validate: Vec<materialize::request::validate::Binding> = if shards.disable {
+        Vec::new()
+    } else {
+        bindings
+            .iter()
+            .filter_map(|(_model, _resource_path, validate, _)| validate.clone())
+            .collect()
+    };
     let bindings_validate_len = bindings_validate.len();
 
     let validate_request = materialize::request::Validate {
@@ -310,7 +331,7 @@ async fn walk_materialization<C: Connectors>(
     // Join binding models and their Validate requests with their Validated responses.
     let bindings = bindings.into_iter().scan(
         bindings_validated.into_iter(),
-        |validated, (model, resource_path, validate)| {
+        |validated, (model, resource_path, validate, _)| {
             if let Some(validate) = validate {
                 validated
                     .next()
@@ -507,6 +528,7 @@ async fn walk_materialization<C: Connectors>(
 
 fn walk_materialization_binding<'a>(
     scope: Scope<'a>,
+    default_on_incompatible_schema_change: models::OnIncompatibleSchemaChange,
     mut model: models::MaterializationBinding,
     built_collections: &'a tables::BuiltCollections,
     catalog_name: &models::Materialization,
@@ -520,11 +542,12 @@ fn walk_materialization_binding<'a>(
     models::ResourcePath,
     models::MaterializationBinding,
     Option<materialize::request::validate::Binding>,
+    Option<models::OnIncompatibleSchemaChange>,
 ) {
     let model_path = super::load_resource_meta_path(&model.resource);
 
     if disable || model.disable {
-        return (model_path, model, None);
+        return (model_path, model, None, None);
     }
     let live_model = live_bindings_model.get(&model_path);
     let modified = Some(&&model) != live_model;
@@ -555,18 +578,49 @@ fn walk_materialization_binding<'a>(
     ) else {
         model_fixes.push(format!("disabled binding of deleted collection {source}"));
         model.disable = true;
-        return (model_path, model, None);
+        return (model_path, model, None, None);
     };
 
     // Removal from `live_bindings_spec` is how we know to not include it in `inactive_bindings`.
-    if let Some(live_spec) = live_bindings_spec.remove(model_path.as_slice()) {
-        if model.backfill == live_spec.backfill
-            && super::collection_was_reset(&source_spec, &live_spec.collection)
-        {
-            model_fixes.push(format!("backfilled binding of reset collection {source}"));
-            model.backfill += 1;
-        }
-    }
+    let reset_binding = live_bindings_spec
+        .remove(model_path.as_slice())
+        .is_some_and(|live_spec| {
+            live_spec.backfill == model.backfill
+                && super::collection_was_reset(&source_spec, &live_spec.collection)
+        });
+    // Have we identified a need to modify this binding? If so, then this will be
+    // the applicable `OnIncompatibleSchemaChange` action.
+    let change_action = if reset_binding {
+        // The binding's `onIncompatibleSchemaChange` takes precedence, if specified.
+        let on_incompatible_schema_change = model
+            .on_incompatible_schema_change
+            .unwrap_or(default_on_incompatible_schema_change);
+        match on_incompatible_schema_change {
+            models::OnIncompatibleSchemaChange::Abort => {
+                Error::AbortOnIncompatibleSchemaChange {
+                    this_entity: catalog_name.to_string(),
+                    source_collection: source.to_string(),
+                }
+                .push(scope, errors);
+            }
+            models::OnIncompatibleSchemaChange::Backfill => {
+                model_fixes.push(format!("backfilled binding of reset collection {source}"));
+                model.backfill += 1;
+            }
+            models::OnIncompatibleSchemaChange::DisableBinding => {
+                model_fixes.push(format!("disabling binding of reset collection {source}"));
+                model.disable = true;
+                return (model_path, model, None, Some(on_incompatible_schema_change));
+            }
+            models::OnIncompatibleSchemaChange::DisableTask => {
+                // This will be handled by the caller.
+                return (model_path, model, None, Some(on_incompatible_schema_change));
+            }
+        };
+        Some(on_incompatible_schema_change)
+    } else {
+        None
+    };
 
     if let Some(selector) = source_partitions {
         collection::walk_selector(scope, &source_spec, &selector, errors);
@@ -611,7 +665,7 @@ fn walk_materialization_binding<'a>(
         source: source_model,
     };
 
-    (model_path, model, Some(validate))
+    (model_path, model, Some(validate), change_action)
 }
 
 fn walk_materialization_fields<'a>(

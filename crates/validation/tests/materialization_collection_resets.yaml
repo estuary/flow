@@ -1,0 +1,63 @@
+test://example/catalog.yaml:
+  collections:
+    testing/reset/a:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+      reset: true
+    testing/reset/b:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+      reset: true
+
+  materializations:
+    testing/materialize:
+      endpoint:
+        connector:
+          image: an/image:test
+          config: {}
+      bindings: &the_bindings
+        - source: testing/reset/a
+          resource:
+            _meta: { path: [a] }
+            table: a
+        - source: testing/reset/b
+          onIncompatibleSchemaChange: disableBinding
+          resource:
+            _meta: { path: [b] }
+            table: b
+
+driver:
+  dataPlanes:
+    "1d:1d:1d:1d:1d:1d:1d:1d":
+      default: true
+
+  liveMaterializations:
+    testing/materialize:
+      controlId: "11:11:11:11:11:11:11:04"
+      dataPlaneId: "1d:1d:1d:1d:1d:1d:1d:1d"
+      lastPubId: "10:10:10:10:10:10:10:10"
+      bindings: *the_bindings
+
+  materializations:
+    testing/materialize:
+      connectorType: IMAGE
+      config:
+        image: an/image:test
+        config: {}
+      bindings:
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            id: { type: 1, reason: "location required" }
+          resourcePath: [a]
+        - constraints:
+            flow_document: { type: 1, reason: "location required" }
+            id: { type: 1, reason: "location required" }
+          resourcePath: [b]
