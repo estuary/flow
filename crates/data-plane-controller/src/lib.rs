@@ -84,7 +84,10 @@ pub struct Args {
     pub dry_run: bool,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
+async fn run_internal(
+    args: Args,
+    shutdown: impl std::future::Future<Output = ()>,
+) -> anyhow::Result<()> {
     let hostname = std::env::var("HOSTNAME").ok();
     let app_name = if let Some(hostname) = &hostname {
         hostname.as_str()
@@ -93,9 +96,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     };
     tracing::info!(args=?ops::DebugJson(&args), app_name, "started!");
 
-    eprintln!("repo::new");
     let repo = Repo::new(&args.git_repo);
-    eprintln!("repo::new done");
 
     let mut pg_options = args
         .database_url
@@ -119,17 +120,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .connect_with(pg_options)
         .await
         .context("connecting to database")?;
-
-    let shutdown = async {
-        match tokio::signal::ctrl_c().await {
-            Ok(()) => {
-                tracing::info!("caught shutdown signal, stopping...");
-            }
-            Err(err) => {
-                tracing::error!(?err, "error subscribing to shutdown signal");
-            }
-        }
-    };
 
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(120);
     let logs_sink = logs::serve_sink(pg_pool.clone(), logs_rx).map_err(|err| anyhow::anyhow!(err));
@@ -156,6 +146,21 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let ((), ()) = futures::try_join!(logs_sink, server)?;
 
     Ok(())
+}
+
+pub async fn run(args: Args) -> anyhow::Result<()> {
+    let shutdown = async {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {
+                tracing::info!("caught shutdown signal, stopping...");
+            }
+            Err(err) => {
+                tracing::error!(?err, "error subscribing to shutdown signal");
+            }
+        }
+    };
+
+    run_internal(args, shutdown).await
 }
 
 #[derive(Debug)]

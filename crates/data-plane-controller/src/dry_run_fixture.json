@@ -29,6 +29,7 @@
       }
     ],
     "azure_application_name": "data-plane-123.dp.estuary-data.com",
+    "azure_application_client_id": "azure-client-id",
     "bastion_tunnel_private_key": "bastion_tunnel_private_key fixture",
     "cidr_blocks": [
       "2600:1234:567:8900::/56",

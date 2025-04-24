@@ -99,7 +99,6 @@ impl automations::Executor for Controller {
             });
         }
 
-        eprintln!("status {0:?}", state.status);
         let sleep = match state.status {
             Status::Idle => self.on_idle(pool, task_id, state, inbox).await?,
             Status::SetEncryption => self.on_set_encryption(state).await?,

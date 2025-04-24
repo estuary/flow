@@ -1,3 +1,4 @@
+use futures::future::FutureExt;
 use std::sync::{Arc, Mutex};
 
 #[double]
@@ -13,11 +14,8 @@ use anyhow::Context;
 use mockall_double::double;
 use serde_json::json;
 use sqlx::types::uuid::Uuid;
-use std::fs;
-use std::path::Path;
-use tokio;
 
-use crate::{run, Args};
+use crate::{run_internal, Args};
 
 const PULUMI_STACK: &str = "local-test-pulumi-stack";
 const SECRETS_PROVIDER: &str = "gcpkms://projects/estuary-control/locations/us-central1/keyRings/pulumi/cryptoKeys/state-secrets";
@@ -198,12 +196,11 @@ struct TestCase {
     pulumi_up_1_history: stack::PulumiStackHistory,
     pulumi_up_2_history: stack::PulumiStackHistory,
     pulumi_up_1_output: stack::PulumiExports,
-    pulumi_up_2_output: stack::PulumiExports,
 }
 
 async fn dpc_test(
-    args: &Args,
     pool: &sqlx::PgPool,
+    shutdown_send: futures::channel::oneshot::Sender<()>,
     case: TestCase,
 ) -> (
     super::repo::__mock_MockRepo::__new::Context,
@@ -245,7 +242,6 @@ async fn dpc_test(
     let pulumi_up_1_history = case.pulumi_up_1_history;
     let pulumi_up_2_history = case.pulumi_up_2_history;
     let pulumi_up_1_output = case.pulumi_up_1_output;
-    let pulumi_up_2_output = case.pulumi_up_2_output;
     ctx_pulumi.expect().return_once(move || {
         let mut mock_pulumi = Pulumi::default();
         let stack_copy = stack.clone();
@@ -263,31 +259,43 @@ async fn dpc_test(
                 anyhow::Ok(())
             });
 
+        // Pulumi Refresh
         mock_pulumi
             .expect_refresh()
+            .times(1)
             .returning(move |_, _, _, _, _, _, _, _, _| anyhow::Ok(()));
 
+        // Pulumi Up 1
         mock_pulumi
             .expect_up()
+            .times(1)
             .returning(move |_, _, _, _, _, _, _, _| anyhow::Ok(()));
 
         mock_pulumi
             .expect_last_run()
             .times(1)
             .returning(move |_, _, _, _| anyhow::Ok(pulumi_up_1_history.clone()));
+
+        // Pulumi Up 2
+        mock_pulumi
+            .expect_up()
+            .times(1)
+            .returning(move |_, _, _, _, _, _, _, _| anyhow::Ok(()));
+
         mock_pulumi
             .expect_last_run()
             .times(1)
-            .returning(move |_, _, _, _| anyhow::Ok(pulumi_up_2_history.clone()));
+            .return_once(move |_, _, _, _| {
+                // shutdown task after pulumi up 2 is done
+                shutdown_send.send(()).unwrap();
+                anyhow::Ok(pulumi_up_2_history.clone())
+            });
 
+        // Ansible and Pulumi Output
         mock_pulumi
             .expect_output()
             .times(1)
             .returning(move |_, _, _, _, _| anyhow::Ok(pulumi_up_1_output.clone()));
-        mock_pulumi
-            .expect_output()
-            .times(1)
-            .returning(move |_, _, _, _, _| anyhow::Ok(pulumi_up_2_output.clone()));
 
         mock_pulumi
     });
@@ -297,9 +305,11 @@ async fn dpc_test(
         let mut mock_ansible = Ansible::default();
         mock_ansible
             .expect_install()
+            .times(1)
             .returning(move |_, _, _, _| anyhow::Ok(()));
         mock_ansible
             .expect_run_playbook()
+            .times(1)
             .returning(move |_, _, _, _, _| anyhow::Ok(()));
 
         mock_ansible
@@ -321,42 +331,36 @@ async fn dpc_test(
 async fn basic_run() {
     let args = test_args();
     let pool = test_pool(&args.database_url).await;
+    let (shutdown_send, shutdown_recv) = futures::channel::oneshot::channel::<()>();
 
     let config: serde_json::Value =
         serde_json::from_slice(&include_bytes!("config_fixture.json").to_vec()).unwrap();
 
-    let pulumi_output: stack::PulumiExports =
+    let pulumi_up_1_output: stack::PulumiExports =
         serde_json::from_slice(&include_bytes!("dry_run_fixture.json").to_vec()).unwrap();
-    let pulumi_output_2 = pulumi_output.clone();
+    let pulumi_up_1_history = stack::PulumiStackHistory {
+        resource_changes: stack::PulumiStackResourceChanges {
+            same: 1,
+            update: 0,
+            delete: 0,
+            create: 0,
+        },
+    };
+    let pulumi_up_2_history = pulumi_up_1_history.clone();
 
     let (ctx_repo, ctx_pulumi, ctx_ansible) = dpc_test(
-        &args,
         &pool,
+        shutdown_send,
         TestCase {
             config,
-            pulumi_up_1_history: stack::PulumiStackHistory {
-                resource_changes: stack::PulumiStackResourceChanges {
-                    same: 1,
-                    update: 0,
-                    delete: 0,
-                    create: 0,
-                },
-            },
-            pulumi_up_2_history: stack::PulumiStackHistory {
-                resource_changes: stack::PulumiStackResourceChanges {
-                    same: 1,
-                    update: 0,
-                    delete: 0,
-                    create: 0,
-                },
-            },
-            pulumi_up_1_output: pulumi_output,
-            pulumi_up_2_output: pulumi_output_2,
+            pulumi_up_1_history,
+            pulumi_up_2_history,
+            pulumi_up_1_output,
         },
     )
     .await;
 
-    let result = run(args).await;
+    let result = run_internal(args, shutdown_recv.map(|_| ())).await;
 
     assert!(result.is_ok());
 }
