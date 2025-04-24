@@ -1,5 +1,5 @@
 use super::logs;
-use crate::repo;
+use crate::repo::Checkout;
 use crate::run_cmd;
 use crate::stack;
 use anyhow::Context;
@@ -10,11 +10,16 @@ pub struct Pulumi {}
 
 #[automock]
 impl Pulumi {
+    // This allows mocking the constructor
+    pub fn new() -> Self {
+        Self {}
+    }
+
     pub async fn set_encryption(
         &self,
         stack_name: &str,
         secrets_provider: &str,
-        checkout: &repo::Checkout,
+        checkout: &Checkout,
         state_backend: &url::Url,
         logs_tx: &logs::Tx,
         logs_token: sqlx::types::Uuid,
@@ -45,7 +50,7 @@ impl Pulumi {
     pub async fn preview(
         &self,
         stack_name: &str,
-        checkout: &repo::Checkout,
+        checkout: &Checkout,
         pulumi_secret_envs: Vec<(String, String)>,
         state_backend: &url::Url,
         logs_tx: &logs::Tx,
@@ -76,7 +81,7 @@ impl Pulumi {
     pub async fn refresh(
         &self,
         stack_name: &str,
-        checkout: &repo::Checkout,
+        checkout: &Checkout,
         pulumi_secret_envs: Vec<(String, String)>,
         state_backend: &url::Url,
         logs_tx: &logs::Tx,
@@ -109,7 +114,7 @@ impl Pulumi {
     pub async fn up(
         &self,
         stack_name: &str,
-        checkout: &repo::Checkout,
+        checkout: &Checkout,
         pulumi_secret_envs: Vec<(String, String)>,
         state_backend: &url::Url,
         logs_tx: &logs::Tx,
@@ -142,7 +147,7 @@ impl Pulumi {
     pub async fn last_run(
         &self,
         stack_name: &str,
-        checkout: &repo::Checkout,
+        checkout: &Checkout,
         pulumi_secret_envs: Vec<(String, String)>,
         state_backend: &url::Url,
     ) -> anyhow::Result<stack::PulumiStackHistory> {

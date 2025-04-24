@@ -1,3 +1,4 @@
+use super::repo::Checkout;
 #[double]
 use super::repo::Repo;
 use super::{
@@ -6,7 +7,6 @@ use super::{
 };
 #[double]
 use crate::pulumi::Pulumi;
-use crate::repo;
 use anyhow::Context;
 use mockall_double::double;
 use std::collections::VecDeque;
@@ -748,7 +748,7 @@ impl Controller {
         Ok(rows)
     }
 
-    async fn checkout(&self, state: &mut State) -> anyhow::Result<repo::Checkout> {
+    async fn checkout(&self, state: &mut State) -> anyhow::Result<Checkout> {
         let checkout = self
             .repo
             .checkout(&self.logs_tx, state.logs_token, &state.deploy_branch)
@@ -769,7 +769,7 @@ impl Controller {
     async fn last_pulumi_run(
         &self,
         state: &State,
-        checkout: &repo::Checkout,
+        checkout: &Checkout,
     ) -> anyhow::Result<stack::PulumiStackHistory> {
         if self.dry_run {
             // Return a fixture which "detects changes" roughly half the time,

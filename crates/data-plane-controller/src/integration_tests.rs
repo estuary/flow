@@ -1,21 +1,36 @@
+use std::sync::{Arc, Mutex};
+
+#[double]
+use super::pulumi::Pulumi;
+use super::repo::Checkout;
+#[double]
+use super::repo::Repo;
+use super::stack;
+
 use anyhow::Context;
+use mockall_double::double;
 use serde_json::json;
 use sqlx::types::uuid::Uuid;
 use std::fs;
 use std::path::Path;
 use tokio;
 
-use data_plane_controller::{run, Args};
+use crate::{run, Args};
+
+const PULUMI_STACK: &str = "local-test-pulumi-stack";
+const SECRETS_PROVIDER: &str = "gcpkms://projects/estuary-control/locations/us-central1/keyRings/pulumi/cryptoKeys/state-secrets";
 
 fn test_args() -> Args {
-    data_plane_controller::Args {
-        database_url: "postgres://postgres:postgres@127.0.0.1:5432/postgres".parse().unwrap(),
+    Args {
+        database_url: "postgres://postgres:postgres@127.0.0.1:5432/postgres"
+            .parse()
+            .unwrap(),
         database_ca: None,
         concurrency: 1,
         dequeue_interval: std::time::Duration::from_secs(1),
         heartbeat_timeout: std::time::Duration::from_secs(60),
         git_repo: "git@github.com:estuary/est-dry-dock.git".to_string(),
-        secrets_provider: "gcpkms://projects/estuary-control/locations/us-central1/keyRings/pulumi/cryptoKeys/state-secrets".to_string(),
+        secrets_provider: SECRETS_PROVIDER.to_string(),
         state_backend: "gs://estuary-pulumi".parse().unwrap(),
         dry_run: false,
     }
@@ -36,7 +51,9 @@ async fn test_pool(database_url: &url::Url) -> sqlx::PgPool {
         .unwrap()
 }
 
-async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<(models::Id, models::Id, Uuid)> {
+async fn test_data_plane(
+    pool: &sqlx::PgPool,
+) -> anyhow::Result<(models::Id, models::Id, Uuid, serde_json::Value)> {
     let base_name = "local-test-dataplane";
     let prefix = "aliceCo/";
 
@@ -46,7 +63,6 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<(models::Id, mod
         xxhash_rust::xxh3::xxh3_64(base_name.as_bytes())
     );
     let deploy_branch = "main";
-    let pulumi_stack = format!("private-{}-{base_name}", prefix.trim_end_matches("/"));
     let ops_l1_inferred_name = format!("ops/rollups/L1/{base_name}/inferred-schemas");
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
     let ops_l1_events_name = format!("ops/rollups/L1/{base_name}/events");
@@ -95,15 +111,12 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<(models::Id, mod
         .await?;
     }
 
-    let tests_dir = Path::new(file!())
-        .parent()
-        .unwrap()
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap();
-    let config: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(format!("{tests_dir}/config.json")).unwrap())
-            .unwrap();
+    let tests_dir_path = Path::new(file!()).parent().unwrap();
+    let tests_dir = tests_dir_path.file_name().and_then(|s| s.to_str()).unwrap();
+    let config: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(format!("{tests_dir}/config_fixture.json")).unwrap(),
+    )
+    .unwrap();
 
     let insert = sqlx::query!(
         r#"
@@ -145,7 +158,7 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<(models::Id, mod
         reactor_address,
         hmac_keys.as_slice(),
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
-        pulumi_stack,
+        PULUMI_STACK,
         deploy_branch,
         config,
     )
@@ -164,7 +177,12 @@ async fn test_data_plane(pool: &sqlx::PgPool) -> anyhow::Result<(models::Id, mod
         .await
         .unwrap();
 
-    return Ok((insert.id, insert.task_id.unwrap(), insert.logs_token));
+    return Ok((
+        insert.id,
+        insert.task_id.unwrap(),
+        insert.logs_token,
+        config,
+    ));
 }
 
 async fn test_send_command(
@@ -188,7 +206,76 @@ async fn test_send_command(
 async fn basic_run() {
     let args = test_args();
     let pool = test_pool(&args.database_url).await;
-    let (data_plane_id, task_id, logs_token) = test_data_plane(&pool).await.unwrap();
+
+    let (data_plane_id, task_id, logs_token, config) = test_data_plane(&pool).await.unwrap();
+
+    let ctx_repo = Repo::new_context();
+    let path = Arc::new(Mutex::new("".to_string()));
+    let repo_path = path.clone();
+    ctx_repo.expect().returning(move |_| {
+        let mut mock_repo = Repo::default();
+        let repo_path = repo_path.clone();
+        mock_repo.expect_checkout().returning(move |_, _, _| {
+            let dir = tempfile::TempDir::with_prefix(format!("dpc_checkout_"))
+                .context("failed to create temp directory")?;
+            let checkout = Checkout::test_instance(dir);
+            let mut p = repo_path.lock().unwrap();
+            *p = checkout.path().to_str().unwrap().to_string();
+
+            anyhow::Ok(checkout)
+        });
+
+        mock_repo
+    });
+
+    let stack = stack::PulumiStack {
+        config: stack::PulumiStackConfig {
+            model: serde_json::from_value(config).unwrap(),
+        },
+        secrets_provider: SECRETS_PROVIDER.to_string(),
+        encrypted_key: "test_key".to_string(),
+    };
+
+    let ctx_pulumi = Pulumi::new_context();
+    ctx_pulumi.expect().return_once(move || {
+        let mut mock_pulumi = Pulumi::default();
+        let stack_copy = stack.clone();
+
+        mock_pulumi
+            .expect_set_encryption()
+            .returning(move |_, _, _, _, _, _, _, _| {
+                let p = path.lock().unwrap();
+                std::fs::write(
+                    format!("{p}/Pulumi.{PULUMI_STACK}.yaml"),
+                    serde_json::to_string(&stack_copy).unwrap(),
+                )
+                .unwrap();
+
+                anyhow::Ok(())
+            });
+
+        mock_pulumi
+            .expect_refresh()
+            .returning(move |_, _, _, _, _, _, _, _, _| anyhow::Ok(()));
+
+        mock_pulumi
+            .expect_up()
+            .returning(move |_, _, _, _, _, _, _, _| anyhow::Ok(()));
+
+        mock_pulumi.expect_last_run().returning(move |_, _, _, _| {
+            anyhow::Ok(stack::PulumiStackHistory {
+                resource_changes: stack::PulumiStackResourceChanges {
+                    same: 1,
+                    update: 0,
+                    delete: 0,
+                    create: 0,
+                },
+            })
+        });
+
+        mock_pulumi
+    });
+
     test_send_command(&pool, task_id, json!("enable"))
         .await
         .unwrap();

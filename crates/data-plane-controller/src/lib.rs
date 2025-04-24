@@ -6,7 +6,7 @@ mod controller;
 mod logs;
 pub mod pulumi;
 pub mod repo;
-mod stack;
+pub mod stack;
 
 pub use controller::Controller;
 
@@ -14,6 +14,9 @@ pub use controller::Controller;
 use pulumi::Pulumi;
 #[double]
 use repo::Repo;
+
+#[cfg(test)]
+mod integration_tests;
 
 #[derive(clap::Parser, Debug, serde::Serialize)]
 #[clap(author, version, about, long_about = None)]
@@ -87,7 +90,9 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     };
     tracing::info!(args=?ops::DebugJson(&args), app_name, "started!");
 
+    eprintln!("repo::new");
     let repo = Repo::new(&args.git_repo);
+    eprintln!("repo::new done");
 
     let mut pg_options = args
         .database_url
@@ -133,7 +138,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             repo,
             secrets_provider: args.secrets_provider,
             state_backend: args.state_backend,
-            pulumi: Pulumi::default(),
+            pulumi: Pulumi::new(),
         })
         .serve(
             args.concurrency,
