@@ -173,6 +173,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - OracleDB Batch
   - [Configuration](./OracleDB/oracle-batch.md)
   - Package - ghcr.io/estuary/source-oracle-batch:dev
+- Outreach
+  - [Configuration](./outreach.md)
+  - Package - ghcr.io/estuary/source-outreach:dev
 - Pendo
   - [Configuration](./pendo.md)
   - Package - ghcr.io/estuary/source-pendo:dev
