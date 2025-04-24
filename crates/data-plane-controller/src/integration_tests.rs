@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 #[double]
+use super::ansible::Ansible;
+#[double]
 use super::pulumi::Pulumi;
 use super::repo::Checkout;
 #[double]
@@ -53,7 +55,8 @@ async fn test_pool(database_url: &url::Url) -> sqlx::PgPool {
 
 async fn test_data_plane(
     pool: &sqlx::PgPool,
-) -> anyhow::Result<(models::Id, models::Id, Uuid, serde_json::Value)> {
+    config: &serde_json::Value,
+) -> anyhow::Result<(models::Id, models::Id, Uuid)> {
     let base_name = "local-test-dataplane";
     let prefix = "aliceCo/";
 
@@ -110,13 +113,6 @@ async fn test_data_plane(
         .execute(pool)
         .await?;
     }
-
-    let tests_dir_path = Path::new(file!()).parent().unwrap();
-    let tests_dir = tests_dir_path.file_name().and_then(|s| s.to_str()).unwrap();
-    let config: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(format!("{tests_dir}/config_fixture.json")).unwrap(),
-    )
-    .unwrap();
 
     let insert = sqlx::query!(
         r#"
@@ -177,12 +173,7 @@ async fn test_data_plane(
         .await
         .unwrap();
 
-    return Ok((
-        insert.id,
-        insert.task_id.unwrap(),
-        insert.logs_token,
-        config,
-    ));
+    return Ok((insert.id, insert.task_id.unwrap(), insert.logs_token));
 }
 
 async fn test_send_command(
@@ -202,12 +193,26 @@ async fn test_send_command(
     return Ok(());
 }
 
-#[tokio::test]
-async fn basic_run() {
-    let args = test_args();
-    let pool = test_pool(&args.database_url).await;
+struct TestCase {
+    config: serde_json::Value,
+    pulumi_up_1_history: stack::PulumiStackHistory,
+    pulumi_up_2_history: stack::PulumiStackHistory,
+    pulumi_up_1_output: stack::PulumiExports,
+    pulumi_up_2_output: stack::PulumiExports,
+}
 
-    let (data_plane_id, task_id, logs_token, config) = test_data_plane(&pool).await.unwrap();
+async fn dpc_test(
+    args: &Args,
+    pool: &sqlx::PgPool,
+    case: TestCase,
+) -> (
+    super::repo::__mock_MockRepo::__new::Context,
+    super::pulumi::__mock_MockPulumi::__new::Context,
+    super::ansible::__mock_MockAnsible::__new::Context,
+) {
+    let config = case.config;
+
+    let (data_plane_id, task_id, logs_token) = test_data_plane(&pool, &config).await.unwrap();
 
     let ctx_repo = Repo::new_context();
     let path = Arc::new(Mutex::new("".to_string()));
@@ -237,6 +242,10 @@ async fn basic_run() {
     };
 
     let ctx_pulumi = Pulumi::new_context();
+    let pulumi_up_1_history = case.pulumi_up_1_history;
+    let pulumi_up_2_history = case.pulumi_up_2_history;
+    let pulumi_up_1_output = case.pulumi_up_1_output;
+    let pulumi_up_2_output = case.pulumi_up_2_output;
     ctx_pulumi.expect().return_once(move || {
         let mut mock_pulumi = Pulumi::default();
         let stack_copy = stack.clone();
@@ -262,18 +271,38 @@ async fn basic_run() {
             .expect_up()
             .returning(move |_, _, _, _, _, _, _, _| anyhow::Ok(()));
 
-        mock_pulumi.expect_last_run().returning(move |_, _, _, _| {
-            anyhow::Ok(stack::PulumiStackHistory {
-                resource_changes: stack::PulumiStackResourceChanges {
-                    same: 1,
-                    update: 0,
-                    delete: 0,
-                    create: 0,
-                },
-            })
-        });
+        mock_pulumi
+            .expect_last_run()
+            .times(1)
+            .returning(move |_, _, _, _| anyhow::Ok(pulumi_up_1_history.clone()));
+        mock_pulumi
+            .expect_last_run()
+            .times(1)
+            .returning(move |_, _, _, _| anyhow::Ok(pulumi_up_2_history.clone()));
 
         mock_pulumi
+            .expect_output()
+            .times(1)
+            .returning(move |_, _, _, _, _| anyhow::Ok(pulumi_up_1_output.clone()));
+        mock_pulumi
+            .expect_output()
+            .times(1)
+            .returning(move |_, _, _, _, _| anyhow::Ok(pulumi_up_2_output.clone()));
+
+        mock_pulumi
+    });
+
+    let ctx_ansible = Ansible::new_context();
+    ctx_ansible.expect().return_once(move || {
+        let mut mock_ansible = Ansible::default();
+        mock_ansible
+            .expect_install()
+            .returning(move |_, _, _, _| anyhow::Ok(()));
+        mock_ansible
+            .expect_run_playbook()
+            .returning(move |_, _, _, _, _| anyhow::Ok(()));
+
+        mock_ansible
     });
 
     test_send_command(&pool, task_id, json!("enable"))
@@ -284,6 +313,48 @@ async fn basic_run() {
         .unwrap();
 
     eprintln!("logs: {}", logs_token);
+
+    (ctx_repo, ctx_pulumi, ctx_ansible)
+}
+
+#[tokio::test]
+async fn basic_run() {
+    let args = test_args();
+    let pool = test_pool(&args.database_url).await;
+
+    let config: serde_json::Value =
+        serde_json::from_slice(&include_bytes!("config_fixture.json").to_vec()).unwrap();
+
+    let pulumi_output: stack::PulumiExports =
+        serde_json::from_slice(&include_bytes!("dry_run_fixture.json").to_vec()).unwrap();
+    let pulumi_output_2 = pulumi_output.clone();
+
+    let (ctx_repo, ctx_pulumi, ctx_ansible) = dpc_test(
+        &args,
+        &pool,
+        TestCase {
+            config,
+            pulumi_up_1_history: stack::PulumiStackHistory {
+                resource_changes: stack::PulumiStackResourceChanges {
+                    same: 1,
+                    update: 0,
+                    delete: 0,
+                    create: 0,
+                },
+            },
+            pulumi_up_2_history: stack::PulumiStackHistory {
+                resource_changes: stack::PulumiStackResourceChanges {
+                    same: 1,
+                    update: 0,
+                    delete: 0,
+                    create: 0,
+                },
+            },
+            pulumi_up_1_output: pulumi_output,
+            pulumi_up_2_output: pulumi_output_2,
+        },
+    )
+    .await;
 
     let result = run(args).await;
 

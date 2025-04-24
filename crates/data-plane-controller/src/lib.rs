@@ -2,6 +2,7 @@ use anyhow::Context;
 use futures::{FutureExt, TryFutureExt};
 use mockall_double::double;
 
+pub mod ansible;
 mod controller;
 mod logs;
 pub mod pulumi;
@@ -10,6 +11,8 @@ pub mod stack;
 
 pub use controller::Controller;
 
+#[double]
+use ansible::Ansible;
 #[double]
 use pulumi::Pulumi;
 #[double]
@@ -139,6 +142,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             secrets_provider: args.secrets_provider,
             state_backend: args.state_backend,
             pulumi: Pulumi::new(),
+            ansible: Ansible::new(),
         })
         .serve(
             args.concurrency,

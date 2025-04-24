@@ -6,6 +6,8 @@ use super::{
     stack::{self, State, Status},
 };
 #[double]
+use crate::ansible::Ansible;
+#[double]
 use crate::pulumi::Pulumi;
 use anyhow::Context;
 use mockall_double::double;
@@ -18,6 +20,7 @@ pub struct Controller {
     pub secrets_provider: String,
     pub state_backend: url::Url,
     pub pulumi: Pulumi,
+    pub ansible: Ansible,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -482,53 +485,30 @@ impl Controller {
         let checkout = self.checkout(state).await?;
 
         // Load exported Pulumi state.
-        let output = if self.dry_run {
-            include_bytes!("dry_run_fixture.json").to_vec()
-        } else {
-            let output = async_process::output(
-                async_process::Command::new("pulumi")
-                    .arg("stack")
-                    .arg("output")
-                    .arg("--stack")
-                    .arg(&state.stack_name)
-                    .arg("--json")
-                    .arg("--non-interactive")
-                    .arg("--show-secrets")
-                    .arg("--cwd")
-                    .arg(&checkout.path())
-                    .envs(self.pulumi_secret_envs())
-                    .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
-            )
-            .await?;
-
-            if !output.status.success() {
-                anyhow::bail!(
-                    "pulumi stack output failed: {}",
-                    String::from_utf8_lossy(&output.stderr),
-                );
-            }
-            output.stdout
-        };
-
         let stack::PulumiExports {
             ansible,
             mut control,
-        } = serde_json::from_slice(&output).context("failed to parse pulumi output")?;
+        } = self
+            .pulumi
+            .output(
+                &state.stack_name,
+                &checkout,
+                self.pulumi_secret_envs(),
+                &self.state_backend,
+                self.dry_run,
+            )
+            .await?;
 
         // Install Ansible requirements.
-        () = run_cmd(
-            async_process::Command::new(checkout.path().join("venv/bin/ansible-galaxy"))
-                .arg("install")
-                .arg("--role-file")
-                .arg("requirements.yml")
-                .current_dir(checkout.path()),
-            false, // This can be run in --dry-run.
-            "ansible-install",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .ansible
+            .install(
+                &checkout,
+                &self.logs_tx,
+                state.logs_token,
+                "ansible-install",
+            )
+            .await?;
 
         // Write out Ansible inventory.
         std::fs::write(
@@ -554,17 +534,16 @@ impl Controller {
         .context("failed to set permissions of ansible SSH key")?;
 
         // Run the Ansible playbook.
-        () = run_cmd(
-            async_process::Command::new(checkout.path().join("venv/bin/ansible-playbook"))
-                .arg("data-plane.ansible.yaml")
-                .current_dir(checkout.path())
-                .env("ANSIBLE_FORCE_COLOR", "1"),
-            self.dry_run,
-            "ansible-playbook",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .ansible
+            .run_playbook(
+                &checkout,
+                &self.logs_tx,
+                state.logs_token,
+                "ansible-playbook",
+                self.dry_run,
+            )
+            .await?;
 
         // Now that we've completed Ansible, all deployments are current and we
         // can prune empty deployments.

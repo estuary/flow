@@ -184,4 +184,44 @@ impl Pulumi {
 
         Ok(result)
     }
+
+    pub async fn output(
+        &self,
+        stack_name: &str,
+        checkout: &Checkout,
+        pulumi_secret_envs: Vec<(String, String)>,
+        state_backend: &url::Url,
+        dry_run: bool,
+    ) -> anyhow::Result<stack::PulumiExports> {
+        let output = if dry_run {
+            include_bytes!("dry_run_fixture.json").to_vec()
+        } else {
+            let output = async_process::output(
+                async_process::Command::new("pulumi")
+                    .arg("stack")
+                    .arg("output")
+                    .arg("--stack")
+                    .arg(&stack_name)
+                    .arg("--json")
+                    .arg("--non-interactive")
+                    .arg("--show-secrets")
+                    .arg("--cwd")
+                    .arg(&checkout.path())
+                    .envs(pulumi_secret_envs)
+                    .env("PULUMI_BACKEND_URL", state_backend.as_str())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+            )
+            .await?;
+
+            if !output.status.success() {
+                anyhow::bail!(
+                    "pulumi stack output failed: {}",
+                    String::from_utf8_lossy(&output.stderr),
+                );
+            }
+            output.stdout
+        };
+
+        serde_json::from_slice(&output).context("failed to parse pulumi output")
+    }
 }

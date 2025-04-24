@@ -195,30 +195,30 @@ pub struct Deployment {
     pub rollout: Option<Rollout>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Clone)]
 pub struct PulumiExports {
     pub ansible: AnsibleInventory,
     pub control: ControlExports,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AnsibleInventory {
     pub all: AnsibleInventoryAll,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AnsibleInventoryAll {
     pub children: std::collections::BTreeMap<String, AnsibleRole>,
     pub vars: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AnsibleRole {
     pub hosts: std::collections::BTreeMap<String, AnsibleHost>,
     pub vars: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AnsibleHost {
     pub ansible_host: std::net::IpAddr,
     pub ansible_user: String,
@@ -252,7 +252,7 @@ pub struct ControlExports {
     pub azure_application_client_id: String,
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct PulumiStackResourceChanges {
     #[serde(default)]
     pub same: usize,
@@ -270,7 +270,7 @@ impl PulumiStackResourceChanges {
     }
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PulumiStackHistory {
     pub resource_changes: PulumiStackResourceChanges,
