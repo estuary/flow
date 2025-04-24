@@ -56,7 +56,6 @@ async fn test_data_plane(
     config: &serde_json::Value,
 ) -> anyhow::Result<(models::Id, models::Id, Uuid)> {
     let base_name = "local-test-dataplane";
-    let prefix = "aliceCo/";
 
     let data_plane_name = format!("ops/dp/{base_name}");
     let data_plane_fqdn = format!(
@@ -206,10 +205,11 @@ async fn dpc_test(
     super::repo::__mock_MockRepo::__new::Context,
     super::pulumi::__mock_MockPulumi::__new::Context,
     super::ansible::__mock_MockAnsible::__new::Context,
+    models::Id,
 ) {
     let config = case.config;
 
-    let (data_plane_id, task_id, logs_token) = test_data_plane(&pool, &config).await.unwrap();
+    let (_data_plane_id, task_id, logs_token) = test_data_plane(&pool, &config).await.unwrap();
 
     let ctx_repo = Repo::new_context();
     let path = Arc::new(Mutex::new("".to_string()));
@@ -324,7 +324,26 @@ async fn dpc_test(
 
     eprintln!("logs: {}", logs_token);
 
-    (ctx_repo, ctx_pulumi, ctx_ansible)
+    // These contexts have a significance and must be kept around until the end of the test
+    // On Drop their effect on new constructions is reversed
+    (ctx_repo, ctx_pulumi, ctx_ansible, task_id)
+}
+
+async fn get_state(pool: &sqlx::PgPool, task_id: &models::Id) -> anyhow::Result<stack::State> {
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            inner_state AS "state: sqlx::types::Json<stack::State>"
+        FROM internal.tasks
+        WHERE task_id = $1
+        "#,
+        task_id as &models::Id,
+    )
+    .fetch_one(pool)
+    .await
+    .context("failed to fetch controller task id")?;
+
+    Ok(row.state.unwrap().0)
 }
 
 #[tokio::test]
@@ -348,11 +367,11 @@ async fn basic_run() {
     };
     let pulumi_up_2_history = pulumi_up_1_history.clone();
 
-    let (ctx_repo, ctx_pulumi, ctx_ansible) = dpc_test(
+    let (_ctx_repo, _ctx_pulumi, _ctx_ansible, task_id) = dpc_test(
         &pool,
         shutdown_send,
         TestCase {
-            config,
+            config: config.clone(),
             pulumi_up_1_history,
             pulumi_up_2_history,
             pulumi_up_1_output,
@@ -363,4 +382,22 @@ async fn basic_run() {
     let result = run_internal(args, shutdown_recv.map(|_| ())).await;
 
     assert!(result.is_ok());
+
+    let state = get_state(&pool, &task_id).await.unwrap();
+
+    assert_eq!(state.status, stack::Status::Idle);
+    assert_eq!(state.stack.encrypted_key, "test_key".to_string());
+    assert_eq!(
+        state.stack.config.model.name,
+        Some("ops/dp/local-test-dataplane".to_string())
+    );
+    assert_eq!(
+        state.stack.config.model.fqdn,
+        Some("7d009eabe12bc504.dp.estuary-data.com".to_string())
+    );
+
+    assert_eq!(
+        state.stack.config.model.deployments,
+        serde_json::from_value::<Vec<stack::Deployment>>(config["deployments"].clone()).unwrap()
+    );
 }

@@ -1,6 +1,6 @@
 use itertools::{EitherOrBoth, Itertools};
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum Status {
     Idle,
     /// Controller is setting the encryption key for Pulumi stack secrets.

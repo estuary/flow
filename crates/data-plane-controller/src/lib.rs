@@ -141,7 +141,7 @@ async fn run_internal(
             args.heartbeat_timeout,
             shutdown,
         )
-        .map(|()| anyhow::Result::<()>::Ok(()));
+        .map(|()| anyhow::Ok(()));
 
     let ((), ()) = futures::try_join!(logs_sink, server)?;
 
