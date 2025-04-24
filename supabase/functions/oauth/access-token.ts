@@ -1,4 +1,4 @@
-import jsonpointer from "https://esm.sh/jsonpointer.js";
+import jsonpointer from "https://esm.sh/jsonpointer.js?target=deno";
 import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";

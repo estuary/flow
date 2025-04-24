@@ -1,4 +1,4 @@
-import Stripe from "stripe";
+import Stripe from "https://esm.sh/stripe@12.2.0?target=deno&no-dts";
 import { corsHeaders } from '../_shared/cors.ts';
 
 const STRIPE_API = Deno.env.get("STRIPE_API_KEY");

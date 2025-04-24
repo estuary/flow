@@ -31,7 +31,6 @@
     },
     "deno.enablePaths": ["./supabase/functions"],
     "deno.config": "./deno.jsonc",
-    "deno.importMap": "./supabase/functions/import-map.json",
     "deno.lint": true,
     "deno.path": ".build/package/bin/deno",
     "rust-analyzer.imports.group.enable": false

@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.131.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.184.0/http/server.ts";
 
 import { accessToken } from "./access-token.ts";
 import { authURL } from "./auth-url.ts";
