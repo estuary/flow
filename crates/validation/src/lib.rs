@@ -192,11 +192,12 @@ pub async fn validate<C: Connectors>(
         built_derivations
     {
         let row = &mut built_collections[built_index];
-        row.model.as_mut().unwrap().derive = Some(model);
-        row.validated = Some(validated);
-        row.spec.as_mut().unwrap().derivation = Some(derivation);
         row.dependency_hash = dependency_hash;
+        row.is_touch = row.is_touch && model_fixes.is_empty();
+        row.model.as_mut().unwrap().derive = Some(model);
         row.model_fixes.extend(model_fixes.into_iter());
+        row.spec.as_mut().unwrap().derivation = Some(derivation);
+        row.validated = Some(validated);
     }
 
     // Look for name collisions among all top-level catalog entities.

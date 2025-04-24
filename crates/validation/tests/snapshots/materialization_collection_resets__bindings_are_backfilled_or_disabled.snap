@@ -1,0 +1,1035 @@
+---
+source: crates/validation/tests/materialization_collection_resets.rs
+expression: outcome
+---
+Outcome {
+    built_captures: [],
+    built_collections: [
+        BuiltCollection {
+            collection: testing/reset/a,
+            scope: test://example/catalog.yaml#/collections/testing~1reset~1a,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/reset/a",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/reset/a/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/reset/a",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+        BuiltCollection {
+            collection: testing/reset/b,
+            scope: test://example/catalog.yaml#/collections/testing~1reset~1b,
+            control_id: "0000000000000000",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "0000000000000000",
+            expect_build_id: "0000000000000000",
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1reset~1b/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ]
+            },
+            model_fixes: [],
+            validated: NULL,
+            spec: CollectionSpec {
+                name: "testing/reset/b",
+                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1b/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                read_schema_json: "",
+                key: [
+                    "/id",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [],
+                projections: [
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "_meta/flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/id",
+                        field: "id",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                                numeric: None,
+                                array: None,
+                            },
+                        ),
+                    },
+                ],
+                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/reset/b/2020202020202020",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/reset/b",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 86400,
+                                        nanos: 0,
+                                    },
+                                ),
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                derivation: None,
+            },
+            previous_spec: NULL,
+            is_touch: 0,
+            dependency_hash: NULL,
+        },
+    ],
+    built_materializations: [
+        BuiltMaterialization {
+            materialization: testing/materialize,
+            scope: test://example/catalog.yaml#/materializations/testing~1materialize,
+            control_id: "1111111111111104",
+            data_plane_id: "1d1d1d1d1d1d1d1d",
+            expect_pub_id: "1010101010101010",
+            expect_build_id: "1010101010101010",
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image:test",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"_meta":{"path":["a"]},"table":"a"},
+                  "source": "testing/reset/a",
+                  "fields": {
+                    "recommended": true
+                  },
+                  "backfill": 1
+                },
+                {
+                  "resource": {"_meta":{"path":["b"]},"table":"b"},
+                  "source": "testing/reset/b",
+                  "disable": true,
+                  "fields": {
+                    "recommended": true
+                  },
+                  "onIncompatibleSchemaChange": "disableBinding"
+                }
+              ]
+            },
+            model_fixes: [
+              "backfilled binding of reset collection testing/reset/a",
+              "disabling binding of reset collection testing/reset/b"
+            ],
+            validated: Validated {
+                bindings: [
+                    Binding {
+                        constraints: {
+                            "flow_document": Constraint {
+                                r#type: FieldRequired,
+                                reason: "location required",
+                            },
+                            "id": Constraint {
+                                r#type: FieldRequired,
+                                reason: "location required",
+                            },
+                        },
+                        resource_path: [
+                            "a",
+                        ],
+                        delta_updates: false,
+                    },
+                    Binding {
+                        constraints: {
+                            "flow_document": Constraint {
+                                r#type: FieldRequired,
+                                reason: "location required",
+                            },
+                            "id": Constraint {
+                                r#type: FieldRequired,
+                                reason: "location required",
+                            },
+                        },
+                        resource_path: [
+                            "b",
+                        ],
+                        delta_updates: false,
+                    },
+                ],
+            },
+            spec: MaterializationSpec {
+                name: "testing/materialize",
+                connector_type: Image,
+                config_json: "{\"image\":\"an/image:test\",\"config\":{}}",
+                bindings: [
+                    Binding {
+                        resource_config_json: "{\"table\":\"a\"}",
+                        resource_path: [
+                            "a",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "testing/reset/a",
+                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema\",\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}",
+                                read_schema_json: "",
+                                key: [
+                                    "/id",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [],
+                                projections: [
+                                    Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "_meta/flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/id",
+                                        field: "id",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/reset/a/2020202020202020",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                        prefix: false,
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                        prefix: false,
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "2121212121212121",
+                                                        prefix: false,
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/reset/a",
+                                                        prefix: false,
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://a-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 86400,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "testing/reset/a",
+                                                prefix: false,
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                        priority: 0,
+                        field_selection: Some(
+                            FieldSelection {
+                                keys: [
+                                    "id",
+                                ],
+                                values: [],
+                                document: "flow_document",
+                                field_config_json_map: {},
+                            },
+                        ),
+                        delta_updates: false,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "materialize/testing/materialize/a.v1",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 1,
+                        state_key: "a.v1",
+                    },
+                ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "materialize/testing/materialize/0000000000000001",
+                        sources: [],
+                        recovery_log_prefix: "recovery",
+                        hint_prefix: "/estuary/flow/hints",
+                        hint_backups: 2,
+                        max_txn_duration: Some(
+                            Duration {
+                                seconds: 300,
+                                nanos: 0,
+                            },
+                        ),
+                        min_txn_duration: Some(
+                            Duration {
+                                seconds: 0,
+                                nanos: 0,
+                            },
+                        ),
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/log-level",
+                                        value: "info",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/materialize",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 65536,
+                        read_channel_size: 4096,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/materialize/testing/materialize/0000000000000001",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-gazette-recoverylog",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "2121212121212121",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-name",
+                                        value: "testing/materialize",
+                                        prefix: false,
+                                    },
+                                    Label {
+                                        name: "estuary.dev/task-type",
+                                        value: "materialization",
+                                        prefix: false,
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 268435456,
+                                compression_codec: Snappy,
+                                stores: [
+                                    "s3://a-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                        suspend: None,
+                    },
+                ),
+                network_ports: [],
+                inactive_bindings: [],
+            },
+            previous_spec: MaterializationSpec {
+                name: "testing/materialize",
+                connector_type: Image,
+                config_json: "",
+                bindings: [
+                    Binding {
+                        resource_config_json: "",
+                        resource_path: [
+                            "a",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "testing/reset/a",
+                                write_schema_json: "",
+                                read_schema_json: "",
+                                key: [],
+                                uuid_ptr: "",
+                                partition_fields: [],
+                                projections: [],
+                                ack_template_json: "",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/reset/a/0000000000000001",
+                                        replication: 0,
+                                        labels: None,
+                                        fragment: None,
+                                        flags: 0,
+                                        max_append_rate: 0,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: None,
+                        priority: 0,
+                        field_selection: None,
+                        delta_updates: false,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 0,
+                        state_key: "",
+                    },
+                    Binding {
+                        resource_config_json: "",
+                        resource_path: [
+                            "b",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "testing/reset/b",
+                                write_schema_json: "",
+                                read_schema_json: "",
+                                key: [],
+                                uuid_ptr: "",
+                                partition_fields: [],
+                                projections: [],
+                                ack_template_json: "",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/reset/b/0000000000000001",
+                                        replication: 0,
+                                        labels: None,
+                                        fragment: None,
+                                        flags: 0,
+                                        max_append_rate: 0,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: None,
+                        priority: 0,
+                        field_selection: None,
+                        delta_updates: false,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 0,
+                        state_key: "",
+                    },
+                ],
+                shard_template: Some(
+                    ShardSpec {
+                        id: "materialize/testing/materialize/0000000000000001",
+                        sources: [],
+                        recovery_log_prefix: "",
+                        hint_prefix: "",
+                        hint_backups: 0,
+                        max_txn_duration: None,
+                        min_txn_duration: None,
+                        disable: false,
+                        hot_standbys: 0,
+                        labels: None,
+                        disable_wait_for_ack: false,
+                        ring_buffer_size: 0,
+                        read_channel_size: 0,
+                    },
+                ),
+                recovery_log_template: Some(
+                    JournalSpec {
+                        name: "recovery/materialize/testing/materialize/0000000000000001",
+                        replication: 0,
+                        labels: None,
+                        fragment: None,
+                        flags: 0,
+                        max_append_rate: 0,
+                        suspend: None,
+                    },
+                ),
+                network_ports: [],
+                inactive_bindings: [],
+            },
+            is_touch: 0,
+            dependency_hash: eea0c2493934ba84,
+        },
+    ],
+    built_tests: [],
+    captures: [],
+    collections: [
+        DraftCollection {
+            collection: testing/reset/a,
+            scope: test://example/catalog.yaml#/collections/testing~1reset~1a,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1reset~1a/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ],
+              "reset": true
+            },
+            is_touch: 0,
+        },
+        DraftCollection {
+            collection: testing/reset/b,
+            scope: test://example/catalog.yaml#/collections/testing~1reset~1b,
+            expect_pub_id: NULL,
+            model: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/testing~1reset~1b/schema","properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+              "key": [
+                "/id"
+              ],
+              "reset": true
+            },
+            is_touch: 0,
+        },
+    ],
+    errors: [
+        Error {
+            scope: test://example/catalog.yaml#/materializations/testing~1materialize,
+            error: connector returned wrong number of bindings (expected 1, got 2),
+        },
+    ],
+    errors_draft: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+    ],
+    imports: [],
+    materializations: [
+        DraftMaterialization {
+            materialization: testing/materialize,
+            scope: test://example/catalog.yaml#/materializations/testing~1materialize,
+            expect_pub_id: NULL,
+            model: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image:test",
+                  "config": {}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"_meta":{"path":["a"]},"table":"a"},
+                  "source": "testing/reset/a",
+                  "fields": {
+                    "recommended": true
+                  }
+                },
+                {
+                  "resource": {"_meta":{"path":["b"]},"table":"b"},
+                  "source": "testing/reset/b",
+                  "fields": {
+                    "recommended": true
+                  },
+                  "onIncompatibleSchemaChange": "disableBinding"
+                }
+              ]
+            },
+            is_touch: 0,
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"collections":{"testing/reset/a":{"key":["/id"],"reset":true,"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}},"testing/reset/b":{"key":["/id"],"reset":true,"schema":{"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"}}},"materializations":{"testing/materialize":{"bindings":[{"resource":{"_meta":{"path":["a"]},"table":"a"},"source":"testing/reset/a"},{"onIncompatibleSchemaChange":"disableBinding","resource":{"_meta":{"path":["b"]},"table":"b"},"source":"testing/reset/b"}],"endpoint":{"connector":{"config":{},"image":"an/image:test"}}}}},
+        },
+    ],
+    storage_mappings: [
+        StorageMapping {
+            catalog_prefix: ,
+            control_id: "0000000000000000",
+            stores: [
+              {
+                "provider": "S3",
+                "bucket": "a-bucket",
+                "prefix": null,
+                "region": null
+              }
+            ],
+        },
+    ],
+    tests: [],
+}
