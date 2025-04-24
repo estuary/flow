@@ -38,3 +38,4 @@ mockall_double = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 xxhash-rust = { workspace = true }
+serial_test = { workspace = true }

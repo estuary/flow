@@ -31,7 +31,8 @@ impl Server {
         dequeue_interval: std::time::Duration,
         heartbeat_timeout: std::time::Duration,
         shutdown: impl std::future::Future<Output = ()>,
-    ) {
+        fail_on_error: bool,
+    ) -> anyhow::Result<()> {
         serve(
             self,
             permits,
@@ -39,6 +40,7 @@ impl Server {
             dequeue_interval,
             heartbeat_timeout,
             shutdown,
+            fail_on_error,
         )
         .await
     }
@@ -67,7 +69,8 @@ pub async fn serve(
     dequeue_interval: std::time::Duration,
     heartbeat_timeout: std::time::Duration,
     shutdown: impl std::future::Future<Output = ()>,
-) {
+    fail_on_error: bool,
+) -> anyhow::Result<()> {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(permits as usize));
 
     // Use Box::pin to ensure we can fullly drop `ready_tasks` later,
@@ -95,14 +98,13 @@ pub async fn serve(
         };
 
         for ready in ready_tasks {
-            tokio::spawn(async move {
+            let result = tokio::spawn(async move {
                 let (task_id, task_type, parent_id) =
                     (ready.task.id, ready.task.type_, ready.task.parent_id);
 
                 if let Err(err) = executors::poll_task(ready, heartbeat_timeout).await {
                     // Ensure that we render the cause of the error.
                     let error = format!("{err:#}");
-                    eprintln!("err {0}", error);
                     tracing::warn!(
                         ?task_id,
                         ?task_type,
@@ -110,9 +112,17 @@ pub async fn serve(
                         %error,
                         "task executor failed and will be retried after heartbeat timeout"
                     );
-                    // The task will be retried once it's heartbeat times out.
+                    return Err(err);
                 }
+
+                Ok(())
             });
+
+            if fail_on_error {
+                if let Err(e) = result.await? {
+                    return Err(e.into());
+                }
+            }
         }
     }
     tracing::info!("task polling loop signaled to stop and is awaiting running tasks");
@@ -120,6 +130,8 @@ pub async fn serve(
 
     // Acquire all permits, when only happens after all running tasks have finished.
     let _ = semaphore.acquire_many_owned(permits).await.unwrap();
+
+    Ok(())
 }
 
 pub fn ready_tasks(

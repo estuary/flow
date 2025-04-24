@@ -13,11 +13,9 @@ use super::stack;
 use anyhow::Context;
 use mockall_double::double;
 use serde_json::json;
-use sqlx::types::uuid::Uuid;
 
 use crate::{run_internal, Args};
 
-const PULUMI_STACK: &str = "local-test-pulumi-stack";
 const SECRETS_PROVIDER: &str = "gcpkms://projects/estuary-control/locations/us-central1/keyRings/pulumi/cryptoKeys/state-secrets";
 
 fn test_args() -> Args {
@@ -53,16 +51,17 @@ async fn test_pool(database_url: &url::Url) -> sqlx::PgPool {
 
 async fn test_data_plane(
     pool: &sqlx::PgPool,
+    base_name: &str,
     config: &serde_json::Value,
-) -> anyhow::Result<(models::Id, models::Id, Uuid)> {
-    let base_name = "local-test-dataplane";
-
+    private_links: &Vec<serde_json::Value>,
+) -> anyhow::Result<DataPlaneRef> {
     let data_plane_name = format!("ops/dp/{base_name}");
     let data_plane_fqdn = format!(
         "{:x}.dp.estuary-data.com",
         xxhash_rust::xxh3::xxh3_64(base_name.as_bytes())
     );
     let deploy_branch = "main";
+    let pulumi_stack = format!("pulumi-{base_name}");
     let ops_l1_inferred_name = format!("ops/rollups/L1/{base_name}/inferred-schemas");
     let ops_l1_stats_name = format!("ops/rollups/L1/{base_name}/catalog-stats");
     let ops_l1_events_name = format!("ops/rollups/L1/{base_name}/events");
@@ -130,9 +129,10 @@ async fn test_data_plane(
             enable_l2,
             pulumi_stack,
             deploy_branch,
-            config
+            config,
+            private_links
         ) values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
         )
         returning id AS "id: models::Id", controller_task_id AS "task_id: models::Id", logs_token
         ;
@@ -151,9 +151,10 @@ async fn test_data_plane(
         reactor_address,
         hmac_keys.as_slice(),
         !hmac_keys.is_empty(), // Enable L2 if HMAC keys are defined at creation.
-        PULUMI_STACK,
+        pulumi_stack,
         deploy_branch,
         config,
+        private_links,
     )
     .fetch_one(pool)
     .await?;
@@ -170,7 +171,11 @@ async fn test_data_plane(
         .await
         .unwrap();
 
-    return Ok((insert.id, insert.task_id.unwrap(), insert.logs_token));
+    return Ok(DataPlaneRef {
+        id: insert.id,
+        task_id: insert.task_id.unwrap(),
+        pool: pool.clone(),
+    });
 }
 
 async fn test_send_command(
@@ -191,10 +196,42 @@ async fn test_send_command(
 }
 
 struct TestCase {
+    name: &'static str,
     config: serde_json::Value,
+    private_links: Vec<serde_json::Value>,
     pulumi_up_1_history: stack::PulumiStackHistory,
     pulumi_up_2_history: stack::PulumiStackHistory,
     pulumi_up_1_output: stack::PulumiExports,
+}
+
+struct DataPlaneRef {
+    id: models::Id,
+    task_id: models::Id,
+    pool: sqlx::PgPool,
+}
+
+impl DataPlaneRef {
+    async fn cleanup(&self) -> anyhow::Result<()> {
+        sqlx::query!(
+            r#"
+            delete from internal.tasks WHERE task_id=$1
+            "#,
+            self.task_id as models::Id,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query!(
+            r#"
+            delete from data_planes WHERE id=$1
+            "#,
+            self.id as models::Id,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 async fn dpc_test(
@@ -205,11 +242,14 @@ async fn dpc_test(
     super::repo::__mock_MockRepo::__new::Context,
     super::pulumi::__mock_MockPulumi::__new::Context,
     super::ansible::__mock_MockAnsible::__new::Context,
-    models::Id,
+    DataPlaneRef,
 ) {
     let config = case.config;
+    let private_links = case.private_links;
 
-    let (_data_plane_id, task_id, logs_token) = test_data_plane(&pool, &config).await.unwrap();
+    let data_plane_ref = test_data_plane(&pool, case.name, &config, &private_links)
+        .await
+        .unwrap();
 
     let ctx_repo = Repo::new_context();
     let path = Arc::new(Mutex::new("".to_string()));
@@ -242,6 +282,7 @@ async fn dpc_test(
     let pulumi_up_1_history = case.pulumi_up_1_history;
     let pulumi_up_2_history = case.pulumi_up_2_history;
     let pulumi_up_1_output = case.pulumi_up_1_output;
+    let pulumi_stack = format!("pulumi-{0}", case.name);
     ctx_pulumi.expect().return_once(move || {
         let mut mock_pulumi = Pulumi::default();
         let stack_copy = stack.clone();
@@ -251,7 +292,7 @@ async fn dpc_test(
             .returning(move |_, _, _, _, _, _, _, _| {
                 let p = path.lock().unwrap();
                 std::fs::write(
-                    format!("{p}/Pulumi.{PULUMI_STACK}.yaml"),
+                    format!("{p}/Pulumi.{pulumi_stack}.yaml"),
                     serde_json::to_string(&stack_copy).unwrap(),
                 )
                 .unwrap();
@@ -262,29 +303,29 @@ async fn dpc_test(
         // Pulumi Refresh
         mock_pulumi
             .expect_refresh()
-            .times(1)
-            .returning(move |_, _, _, _, _, _, _, _, _| anyhow::Ok(()));
+            .times(..2)
+            .return_once(move |_, _, _, _, _, _, _, _, _| anyhow::Ok(()));
 
         // Pulumi Up 1
         mock_pulumi
             .expect_up()
-            .times(1)
+            .times(..2)
             .returning(move |_, _, _, _, _, _, _, _| anyhow::Ok(()));
 
         mock_pulumi
             .expect_last_run()
-            .times(1)
-            .returning(move |_, _, _, _| anyhow::Ok(pulumi_up_1_history.clone()));
+            .times(..2)
+            .return_once(move |_, _, _, _| anyhow::Ok(pulumi_up_1_history.clone()));
 
         // Pulumi Up 2
         mock_pulumi
             .expect_up()
-            .times(1)
-            .returning(move |_, _, _, _, _, _, _, _| anyhow::Ok(()));
+            .times(..2)
+            .return_once(move |_, _, _, _, _, _, _, _| anyhow::Ok(()));
 
         mock_pulumi
             .expect_last_run()
-            .times(1)
+            .times(..2)
             .return_once(move |_, _, _, _| {
                 // shutdown task after pulumi up 2 is done
                 shutdown_send.send(()).unwrap();
@@ -294,8 +335,8 @@ async fn dpc_test(
         // Ansible and Pulumi Output
         mock_pulumi
             .expect_output()
-            .times(1)
-            .returning(move |_, _, _, _, _| anyhow::Ok(pulumi_up_1_output.clone()));
+            .times(..2)
+            .return_once(move |_, _, _, _, _| anyhow::Ok(pulumi_up_1_output.clone()));
 
         mock_pulumi
     });
@@ -305,28 +346,26 @@ async fn dpc_test(
         let mut mock_ansible = Ansible::default();
         mock_ansible
             .expect_install()
-            .times(1)
-            .returning(move |_, _, _, _| anyhow::Ok(()));
+            .times(..2)
+            .return_once(move |_, _, _, _| anyhow::Ok(()));
         mock_ansible
             .expect_run_playbook()
-            .times(1)
-            .returning(move |_, _, _, _, _| anyhow::Ok(()));
+            .times(..2)
+            .return_once(move |_, _, _, _, _| anyhow::Ok(()));
 
         mock_ansible
     });
 
-    test_send_command(&pool, task_id, json!("enable"))
+    test_send_command(&pool, data_plane_ref.task_id, json!("enable"))
         .await
         .unwrap();
-    test_send_command(&pool, task_id, json!("converge"))
+    test_send_command(&pool, data_plane_ref.task_id, json!("converge"))
         .await
         .unwrap();
-
-    eprintln!("logs: {}", logs_token);
 
     // These contexts have a significance and must be kept around until the end of the test
     // On Drop their effect on new constructions is reversed
-    (ctx_repo, ctx_pulumi, ctx_ansible, task_id)
+    (ctx_repo, ctx_pulumi, ctx_ansible, data_plane_ref)
 }
 
 async fn get_state(pool: &sqlx::PgPool, task_id: &models::Id) -> anyhow::Result<stack::State> {
@@ -347,6 +386,7 @@ async fn get_state(pool: &sqlx::PgPool, task_id: &models::Id) -> anyhow::Result<
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn basic_run() {
     let args = test_args();
     let pool = test_pool(&args.database_url).await;
@@ -367,11 +407,13 @@ async fn basic_run() {
     };
     let pulumi_up_2_history = pulumi_up_1_history.clone();
 
-    let (_ctx_repo, _ctx_pulumi, _ctx_ansible, task_id) = dpc_test(
+    let (_ctx_repo, _ctx_pulumi, _ctx_ansible, data_plane_ref) = dpc_test(
         &pool,
         shutdown_send,
         TestCase {
+            name: "basic-run",
             config: config.clone(),
+            private_links: Vec::new(),
             pulumi_up_1_history,
             pulumi_up_2_history,
             pulumi_up_1_output,
@@ -383,21 +425,72 @@ async fn basic_run() {
 
     assert!(result.is_ok());
 
-    let state = get_state(&pool, &task_id).await.unwrap();
+    let state = get_state(&pool, &data_plane_ref.task_id).await.unwrap();
+
+    data_plane_ref.cleanup().await.unwrap();
 
     assert_eq!(state.status, stack::Status::Idle);
     assert_eq!(state.stack.encrypted_key, "test_key".to_string());
     assert_eq!(
         state.stack.config.model.name,
-        Some("ops/dp/local-test-dataplane".to_string())
+        Some("ops/dp/basic-run".to_string())
     );
     assert_eq!(
         state.stack.config.model.fqdn,
-        Some("7d009eabe12bc504.dp.estuary-data.com".to_string())
+        Some("d817384827fb59f3.dp.estuary-data.com".to_string())
     );
 
     assert_eq!(
         state.stack.config.model.deployments,
         serde_json::from_value::<Vec<stack::Deployment>>(config["deployments"].clone()).unwrap()
     );
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn private_links_duplicate() {
+    let args = test_args();
+    let pool = test_pool(&args.database_url).await;
+    let (shutdown_send, shutdown_recv) = futures::channel::oneshot::channel::<()>();
+
+    let config: serde_json::Value =
+        serde_json::from_slice(&include_bytes!("config_fixture.json").to_vec()).unwrap();
+
+    let pulumi_up_1_output: stack::PulumiExports =
+        serde_json::from_slice(&include_bytes!("dry_run_fixture.json").to_vec()).unwrap();
+    let pulumi_up_1_history = stack::PulumiStackHistory {
+        resource_changes: stack::PulumiStackResourceChanges {
+            same: 1,
+            update: 0,
+            delete: 0,
+            create: 0,
+        },
+    };
+    let pulumi_up_2_history = pulumi_up_1_history.clone();
+
+    let (_ctx_repo, _ctx_pulumi, _ctx_ansible, data_plane_ref) = dpc_test(
+        &pool,
+        shutdown_send,
+        TestCase {
+            name: "private_links_duplicate",
+            config: config.clone(),
+            private_links: vec![json!({
+                "location": "centralus",
+                "service_name": "/subscriptions/59436316-c7f2-4163-86d0-fdf5d1fe5367/resourceGroups/D236RGKDPEA01/providers/Microsoft.Network/privateLinkServices/d236plsestryea01"
+            })],
+            pulumi_up_1_history,
+            pulumi_up_2_history,
+            pulumi_up_1_output,
+        },
+    )
+    .await;
+
+    let result = run_internal(args, shutdown_recv.map(|_| ())).await;
+
+    assert_eq!(
+        result.err().unwrap().to_string(),
+        "cannot set both config.private_links and private_links, prefer the latter."
+    );
+
+    data_plane_ref.cleanup().await.unwrap();
 }

@@ -2,7 +2,7 @@ use super::repo::Checkout;
 #[double]
 use super::repo::Repo;
 use super::{
-    logs, run_cmd,
+    logs,
     stack::{self, State, Status},
 };
 #[double]

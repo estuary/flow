@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
 use mockall_double::double;
 
 pub mod ansible;
@@ -140,8 +140,8 @@ async fn run_internal(
             args.dequeue_interval,
             args.heartbeat_timeout,
             shutdown,
-        )
-        .map(|()| anyhow::Ok(()));
+            if cfg!(test) { true } else { false },
+        );
 
     let ((), ()) = futures::try_join!(logs_sink, server)?;
 
