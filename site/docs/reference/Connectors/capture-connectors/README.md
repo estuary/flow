@@ -161,6 +161,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - NetSuite
   - [Configuration](./netsuite-suiteanalytics.md)
   - Package - ghcr.io/estuary/source-netsuite:dev
+- Outreach
+  - [Configuration](./outreach.md)
+  - Package - ghcr.io/estuary/source-outreach:dev
 - Pendo
   - [Configuration](./pendo.md)
   - Package - ghcr.io/estuary/source-pendo:dev
