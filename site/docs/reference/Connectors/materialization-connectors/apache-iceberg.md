@@ -233,6 +233,14 @@ if your S3 tables are integrated with the Glue data catalog, or directly using
 the [S3 Tables Iceberg REST
 Endpoint](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-integrating-open-source.html).
 
+:::important
+If you plan to query your S3 table buckets using AWS analytics services such as
+Amazon Athena, all table column names must be lowercase. You should enable the
+advanced option "Lowercase Column Names" in the materialization configuration if
+your source collection has fields with capital letters in their names to ensure
+all columns are created as lowercase.
+:::
+
 To configure the materialization to connect directly to the S3 Tables Iceberg REST Endpoint:
 - The **Base URL** for the catalog should be
   `https://s3tables.<region>.amazonaws.com/iceberg`, where `<region>` is the AWS
@@ -622,13 +630,14 @@ See below for a full list of configuration options.
 | **`/compute/bucket`**                               | Bucket                 | Bucket to store staged data files.                                                                                                   | string  | Required                        |
 | `/compute/bucket_path`                              | Bucket Path            | Optional prefix used to store staged data files.                                                                                     | string  |                                 |
 | `/compute/systems_manager_prefix`                   | System Manager Prefix  | Prefix for parameters in Systems Manager as an absolute directory path (must start and end with `/`).                                | string  | `/estuary/`                     |
+| `/advanced/lowercase_column_names`                  | Lowercase Column Names | Create all columns with lowercase names.                                                                                             | boolean |                                 |
 
 #### Bindings
 
-| Property     | Title            | Description                          | Type   | Required/Default |
-|--------------|------------------|--------------------------------------|--------|------------------|
-| **`/table`** | Table            | Table name                           | string | Required         |
-| `/namespace` | Alternative name | Alternative namespace for this table | string |                  |
+| Property     | Title                 | Description                          | Type   | Required/Default |
+|--------------|-----------------------|--------------------------------------|--------|------------------|
+| **`/table`** | Table                 | Table name                           | string | Required         |
+| `/namespace` | Alternative Namespace | Alternative namespace for this table | string |                  |
 
 ## Sync Schedule
 
