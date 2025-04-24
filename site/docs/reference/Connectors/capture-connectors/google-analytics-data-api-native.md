@@ -71,6 +71,8 @@ The following properties reflect the manual authentication method. If you authen
 You can include data beyond the [default data resources](#supported-data-resources) with Custom Reports.
 These replicate the functionality of [Custom Reports](https://support.google.com/analytics/answer/10445879?hl=en) in the Google Analytics Web console.
 
+Custom reports must have between 1 - 9 dimensions and 1 - 10 metrics.
+
 Fill out the Custom Reports property with a JSON array as a string with the following schema:
 
 ```json
