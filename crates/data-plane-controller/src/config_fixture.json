@@ -51,12 +51,6 @@
         "gs://estuary-trial",
         "gs://estuary-flow-poc"
     ],
-    "private_links": [
-        {
-            "location": "centralus",
-            "service_name": "/subscriptions/59436316-c7f2-4163-86d0-fdf5d1fe5367/resourceGroups/D236RGKDPEA01/providers/Microsoft.Network/privateLinkServices/d236plsestryea01"
-        }
-    ],
     "builds_kms_keys": [
         "projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor"
     ],

@@ -2,12 +2,12 @@ use anyhow::Context;
 use futures::TryFutureExt;
 use mockall_double::double;
 
-pub mod ansible;
+mod ansible;
 mod controller;
 mod logs;
-pub mod pulumi;
-pub mod repo;
-pub mod stack;
+mod pulumi;
+mod repo;
+mod stack;
 
 pub use controller::Controller;
 
@@ -30,13 +30,13 @@ pub struct Args {
         env = "DPC_DATABASE_URL",
         default_value = "postgres://postgres:postgres@127.0.0.1:5432/postgres"
     )]
-    pub database_url: url::Url,
+    database_url: url::Url,
     /// Path to CA certificate of the database.
     #[clap(long = "database-ca", env = "DPC_DATABASE_CA")]
-    pub database_ca: Option<String>,
+    database_ca: Option<String>,
     /// Number of tasks which may be polled concurrently.
     #[clap(long = "concurrency", env = "DPC_CONCURRENCY", default_value = "1")]
-    pub concurrency: u32,
+    concurrency: u32,
     /// Interval between polls for dequeue-able tasks when otherwise idle.
     #[clap(
         long = "dequeue-interval",
@@ -45,7 +45,7 @@ pub struct Args {
     )]
     #[serde(with = "humantime_serde")]
     #[arg(value_parser = humantime::parse_duration)]
-    pub dequeue_interval: std::time::Duration,
+    dequeue_interval: std::time::Duration,
     /// Interval before a running task poll is presumed to have failed.
     /// Tasks updated their heartbeats every half of this interval.
     #[clap(
@@ -55,33 +55,33 @@ pub struct Args {
     )]
     #[serde(with = "humantime_serde")]
     #[arg(value_parser = humantime::parse_duration)]
-    pub heartbeat_timeout: std::time::Duration,
+    heartbeat_timeout: std::time::Duration,
     /// Repository to clone for Pulumi and Ansible infrastructure.
     #[clap(
         long = "git-repo",
         env = "DPC_GIT_REPO",
         default_value = "git@github.com:estuary/est-dry-dock.git"
     )]
-    pub git_repo: String,
+    git_repo: String,
     /// Pulumi secrets provider for encryption of stack secrets.
     #[clap(
         long = "secrets-provider",
         env = "DPC_SECRETS_PROVIDER",
         default_value = "gcpkms://projects/estuary-control/locations/us-central1/keyRings/pulumi/cryptoKeys/state-secrets"
     )]
-    pub secrets_provider: String,
+    secrets_provider: String,
     /// Pulumi backend for storage of stack states.
     #[clap(
         long = "state-backend",
         env = "DPC_STATE_BACKEND",
         default_value = "gs://estuary-pulumi"
     )]
-    pub state_backend: url::Url,
+    state_backend: url::Url,
     /// When running in dry-run mode, the controller performs git checkouts but
     /// merely simulates Pulumi and Ansible commands without actually running them.
     /// It's not required that the Pulumi stacks of data planes actually exist.
     #[clap(long = "dry-run")]
-    pub dry_run: bool,
+    dry_run: bool,
 }
 
 async fn run_internal(

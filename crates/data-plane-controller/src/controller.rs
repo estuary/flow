@@ -656,17 +656,20 @@ impl Controller {
         let mut config = stack::PulumiStackConfig {
             model: row.config.0,
         };
+
         config.model.name = Some(row.data_plane_name);
         config.model.fqdn = Some(row.data_plane_fqdn);
 
         if !row.private_links.is_empty() {
-            if !config.model.private_links.is_empty() {
+            let private_links = row.private_links.iter().map(|p| p.0.clone()).collect();
+            if !config.model.private_links.is_empty() && config.model.private_links != private_links
+            {
                 anyhow::bail!(
                     "cannot set both config.private_links and private_links, prefer the latter."
                 );
             }
 
-            config.model.private_links = row.private_links.iter().map(|p| p.0.clone()).collect();
+            config.model.private_links = private_links;
         }
 
         let stack = if let Some(key) = row.pulumi_key {

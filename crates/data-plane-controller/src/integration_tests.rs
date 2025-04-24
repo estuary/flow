@@ -453,8 +453,15 @@ async fn private_links_duplicate() {
     let pool = test_pool(&args.database_url).await;
     let (shutdown_send, shutdown_recv) = futures::channel::oneshot::channel::<()>();
 
-    let config: serde_json::Value =
+    let mut config: serde_json::Value =
         serde_json::from_slice(&include_bytes!("config_fixture.json").to_vec()).unwrap();
+
+    config["private_links"] = json!([
+        {
+            "location": "centralus",
+            "service_name": "/subscriptions/59436316-4163-c7f2-86d0-fdf5d1fe5367/resourceGroups/D236RGKDPEA01/providers/Microsoft.Network/privateLinkServices/d236plsestryea01"
+        }
+    ]);
 
     let pulumi_up_1_output: stack::PulumiExports =
         serde_json::from_slice(&include_bytes!("dry_run_fixture.json").to_vec()).unwrap();
@@ -493,4 +500,61 @@ async fn private_links_duplicate() {
     );
 
     data_plane_ref.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn private_links_column_to_config() {
+    let args = test_args();
+    let pool = test_pool(&args.database_url).await;
+    let (shutdown_send, shutdown_recv) = futures::channel::oneshot::channel::<()>();
+
+    let config: serde_json::Value =
+        serde_json::from_slice(&include_bytes!("config_fixture.json").to_vec()).unwrap();
+
+    let pulumi_up_1_output: stack::PulumiExports =
+        serde_json::from_slice(&include_bytes!("dry_run_fixture.json").to_vec()).unwrap();
+    let pulumi_up_1_history = stack::PulumiStackHistory {
+        resource_changes: stack::PulumiStackResourceChanges {
+            same: 1,
+            update: 0,
+            delete: 0,
+            create: 0,
+        },
+    };
+    let pulumi_up_2_history = pulumi_up_1_history.clone();
+
+    let private_links = vec![json!({
+        "location": "centralus",
+        "service_name": "/subscriptions/59436316-c7f2-4163-86d0-fdf5d1fe5367/resourceGroups/D236RGKDPEA01/providers/Microsoft.Network/privateLinkServices/d236plsestryea01"
+    })];
+
+    let (_ctx_repo, _ctx_pulumi, _ctx_ansible, data_plane_ref) = dpc_test(
+        &pool,
+        shutdown_send,
+        TestCase {
+            name: "private_links_column_to_config",
+            config: config.clone(),
+            private_links: private_links.clone(),
+            pulumi_up_1_history,
+            pulumi_up_2_history,
+            pulumi_up_1_output,
+        },
+    )
+    .await;
+
+    let result = run_internal(args, shutdown_recv.map(|_| ())).await;
+
+    assert!(result.is_ok());
+
+    let state = get_state(&pool, &data_plane_ref.task_id).await.unwrap();
+
+    data_plane_ref.cleanup().await.unwrap();
+
+    assert_eq!(state.status, stack::Status::Idle);
+
+    assert_eq!(
+        state.stack.config.model.private_links,
+        serde_json::from_value::<Vec<stack::PrivateLink>>(json!(private_links)).unwrap()
+    );
 }
