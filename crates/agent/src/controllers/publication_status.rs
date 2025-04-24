@@ -8,21 +8,36 @@ use models::{
 
 use super::ControllerState;
 
-fn is_touch_pub(draft: &tables::DraftCatalog) -> bool {
-    draft.tests.iter().all(|r| r.is_touch)
-        && draft.collections.iter().all(|r| r.is_touch)
-        && draft.captures.iter().all(|r| r.is_touch)
-        && draft.materializations.iter().all(|r| r.is_touch)
-}
-
 pub fn pub_info(publication: &PublicationResult) -> PublicationInfo {
-    let is_touch = is_touch_pub(&publication.draft);
+    // The publication is considered a touch only if _both_ the draft and built catalogs
+    // have only touches. We need to check the draft here because the built specs may
+    // not all be present at all if the build errored. And we need to check the built
+    // catalog because validation might have changed an initial touch into a non-touch
+    // due to applying model fixes.
+    let is_touch = is_touch_draft(&publication.draft) && is_touch_pub(&publication.built);
+
+    let mut detail = publication.detail.clone().unwrap_or_default();
+    // if there's more than one drafted spec, then include the spec names when
+    // adding model fixes to the detail message.
+    let include_names = publication.draft.spec_count() > 1;
+    for built in publication.built.built_captures.iter() {
+        describe_model_fixes(&mut detail, include_names, built);
+    }
+    for built in publication.built.built_collections.iter() {
+        describe_model_fixes(&mut detail, include_names, built);
+    }
+    for built in publication.built.built_materializations.iter() {
+        describe_model_fixes(&mut detail, include_names, built);
+    }
+    for built in publication.built.built_tests.iter() {
+        describe_model_fixes(&mut detail, include_names, built);
+    }
     PublicationInfo {
         id: publication.pub_id,
         created: Some(publication.started_at),
         completed: Some(publication.completed_at),
         result: Some(publication.status.clone()),
-        detail: publication.detail.clone(),
+        detail: Some(detail).filter(|s| !s.is_empty()),
         errors: publication.draft_errors(),
         count: 1,
         is_touch,
@@ -139,7 +154,10 @@ impl PendingPublication {
         status: &mut PublicationStatus,
         control_plane: &C,
     ) -> anyhow::Result<PublicationResult> {
-        let is_touch = is_touch_pub(&self.draft);
+        // Whether the draft was intended as a touch. This is used
+        // only to set is_touch in cases where the publication failed
+        // due to an error.
+        let draft_is_touch = is_touch_draft(&self.draft);
         let PendingPublication { draft, details } =
             std::mem::replace(self, PendingPublication::new());
 
@@ -175,7 +193,7 @@ impl PendingPublication {
                     created: None,
                     result: None,
                     count: 1,
-                    is_touch,
+                    is_touch: draft_is_touch,
                 };
                 record_result(status, info);
             }
@@ -214,4 +232,53 @@ pub fn record_result(status: &mut PublicationStatus, publication: PublicationInf
             status.history.pop_back();
         }
     }
+}
+
+fn is_touch_draft(draft: &tables::DraftCatalog) -> bool {
+    draft.tests.iter().all(|r| r.is_touch)
+        && draft.collections.iter().all(|r| r.is_touch)
+        && draft.captures.iter().all(|r| r.is_touch)
+        && draft.materializations.iter().all(|r| r.is_touch)
+}
+
+fn is_touch_pub(draft: &tables::Validations) -> bool {
+    draft
+        .built_tests
+        .iter()
+        .all(|r| r.is_touch || r.is_passthrough())
+        && draft
+            .built_collections
+            .iter()
+            .all(|r| r.is_touch || r.is_passthrough())
+        && draft
+            .built_captures
+            .iter()
+            .all(|r| r.is_touch || r.is_passthrough())
+        && draft
+            .built_materializations
+            .iter()
+            .all(|r| r.is_touch || r.is_passthrough())
+}
+
+fn describe_model_fixes<R: tables::BuiltRow>(
+    detail: &mut String,
+    prefix_spec_name: bool,
+    built_row: &R,
+) where
+    <R as tables::Row>::Key: std::fmt::Display,
+{
+    use itertools::Itertools;
+    use std::fmt::Write;
+
+    if built_row.model_fixes().is_empty() {
+        return;
+    }
+    if prefix_spec_name {
+        let _ = write!(detail, "\nUpdated '{}':", built_row.catalog_name());
+    }
+    let _ = write!(
+        detail,
+        "\n{}",
+        built_row.model_fixes().iter().format("\n- ")
+    );
 }
