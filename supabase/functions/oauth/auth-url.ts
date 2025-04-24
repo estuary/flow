@@ -1,5 +1,5 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js";
-import Mustache from "https://esm.sh/mustache";
+import { createClient } from "https://esm.sh/@supabase/supabase-js?target=deno";
+import Mustache from "https://esm.sh/mustache?target=deno";
 import { corsHeaders } from "../_shared/cors.ts";
 import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
