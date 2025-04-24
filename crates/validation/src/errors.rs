@@ -258,6 +258,15 @@ pub enum Error {
     TouchModelIsCreate,
     #[error("draft model is a 'touch' operation but also a deletion , which is invalid")]
     TouchModelIsDelete,
+
+    // In the context of validation, collection resets are the only thing we
+    // currently respond to, though onIncompatibleSchemaChange applies in other
+    // scenarios outside of validation. This is why "was reset" is hard coded here.
+    #[error("{this_entity} specifies `onIncompatibleSchemaChange: abort` and the collection {source_collection} was reset")]
+    AbortOnIncompatibleSchemaChange {
+        this_entity: String,
+        source_collection: String,
+    },
 }
 
 impl Error {
