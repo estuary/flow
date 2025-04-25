@@ -9,7 +9,7 @@ use gazette::{
 };
 use itertools::Itertools;
 use models::RawValue;
-use proto_flow::flow;
+use proto_flow::flow::{self, materialization_spec::binding};
 
 impl UserAuth {
     /// Fetch the names of all collections which the current user may read.
@@ -163,9 +163,21 @@ impl Collection {
 
         let collection_name = &auth.get_collection_for_topic(topic_name).await?;
 
-        let Some(collection_spec) = Self::fetch_spec(&pg_client, collection_name).await? else {
-            return Ok(None);
+        let collection_spec = if let Some(binding) = &binding {
+            if let Some(collection) = binding.collection.as_ref() {
+                collection.clone()
+            } else {
+                anyhow::bail!("missing collection in materialization binding")
+            }
+        } else {
+            let fetched_spec = Self::fetch_spec(&pg_client, collection_name).await?;
+            if let Some(fetched_spec) = fetched_spec {
+                fetched_spec
+            } else {
+                return Ok(None);
+            }
         };
+
         let partition_template_name = collection_spec
             .partition_template
             .as_ref()
