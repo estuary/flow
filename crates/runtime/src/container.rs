@@ -121,8 +121,10 @@ pub async fn start(
         "--env=LOG_FORMAT=json".to_string(),
         format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
         // Cgroup memory / CPU resource limits.
-        "--memory=1g".to_string(),
-        "--cpus=2".to_string(),
+        "--memory".to_string(),
+        connector_memory_limit(),
+        "--cpus".to_string(),
+        connector_cpu_limit(),
         // For now, we support only Linux amd64 connectors.
         "--platform=linux/amd64".to_string(),
         // Attach labels that let us group connector resource usage under a few dimensions.
@@ -336,6 +338,18 @@ fn docker_cli() -> String {
     std::env::var("DOCKER_CLI")
         .ok()
         .unwrap_or_else(|| "docker".to_string())
+}
+
+fn connector_memory_limit() -> String {
+    std::env::var("CONNECTOR_MEMORY_LIMIT")
+        .ok()
+        .unwrap_or_else(|| "1g".to_string())
+}
+
+fn connector_cpu_limit() -> String {
+    std::env::var("CONNECTOR_CPU_LIMIT")
+        .ok()
+        .unwrap_or_else(|| "2".to_string())
 }
 
 async fn docker_cmd<S>(args: &[S]) -> anyhow::Result<Vec<u8>>
