@@ -145,6 +145,7 @@ impl Default for PartitionOffset {
 
 impl Collection {
     /// Build a Collection by fetching its spec, an authenticated data-plane access token, and its partitions.
+    #[tracing::instrument(skip(app, auth, pg_client))]
     pub async fn new(
         app: &App,
         auth: &SessionAuthentication,
@@ -160,8 +161,11 @@ impl Collection {
         } else {
             None
         };
+        tracing::debug!("Got binding");
 
         let collection_name = &auth.get_collection_for_topic(topic_name).await?;
+
+        tracing::debug!("Got collection_name");
 
         let collection_spec = if let Some(binding) = &binding {
             if let Some(collection) = binding.collection.as_ref() {
@@ -178,6 +182,8 @@ impl Collection {
             }
         };
 
+        tracing::debug!("Got collection_spec");
+
         let partition_template_name = collection_spec
             .partition_template
             .as_ref()
@@ -187,6 +193,8 @@ impl Collection {
         let journal_client =
             Self::build_journal_client(app, &auth, collection_name, &partition_template_name)
                 .await?;
+
+        tracing::debug!("Got journal_client");
 
         let selector = if let Some(ref binding) = binding {
             binding.partition_selector.clone()

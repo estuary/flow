@@ -226,6 +226,7 @@ impl Session {
     }
 
     // Lists all read-able collections as Kafka topics. Omits partition metadata.
+    #[instrument(skip_all)]
     async fn metadata_all_topics(&mut self) -> anyhow::Result<Vec<MetadataResponseTopic>> {
         let collections = self
             .auth
@@ -252,6 +253,7 @@ impl Session {
     }
 
     // Lists partitions of specific, requested collections.
+    #[instrument(skip_all)]
     async fn metadata_select_topics(
         &mut self,
         requests: Vec<messages::metadata_request::MetadataRequestTopic>,
@@ -267,6 +269,7 @@ impl Session {
         // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
 
+        tracing::debug!(topics=?requests.iter().map(|t| t.name.clone()).collect::<Vec<_>>(), "fetching requested collections");
         // Concurrently fetch Collection instances for all requested topics.
         let collections: anyhow::Result<Vec<(TopicName, Option<Collection>)>> =
             futures::future::try_join_all(requests.into_iter().map(|topic| async move {
@@ -280,6 +283,8 @@ impl Session {
                 Ok((topic.name.unwrap_or_default(), maybe_collection))
             }))
             .await;
+
+        tracing::debug!("fetched requested collections");
 
         let mut topics = vec![];
 
