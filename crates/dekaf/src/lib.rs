@@ -38,7 +38,11 @@ use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use proto_flow::flow;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
+use std::{
+    collections::BTreeMap,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tracing_record_hierarchical::SpanExt;
 
 pub struct App {
@@ -371,6 +375,7 @@ async fn handle_api(
 ) -> anyhow::Result<()> {
     let start_time = SystemTime::now();
     use messages::*;
+    tracing::debug!(?api_key, v = version, "handling API request");
     let ret = match api_key {
         ApiKey::ApiVersionsKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2823
@@ -413,7 +418,11 @@ async fn handle_api(
         ApiKey::MetadataKey => {
             // https://github.com/confluentinc/librdkafka/blob/e03d3bb91ed92a38f38d9806b8d8deffe78a1de5/src/rdkafka_request.c#L2417
             let (header, request) = dec_request(frame, version)?;
-            Ok(enc_resp(out, &header, session.metadata(request).await?))
+            let metadata_response =
+                tokio::time::timeout(Duration::from_secs(30), session.metadata(request))
+                    .await
+                    .context("metadata request timed out")??;
+            Ok(enc_resp(out, &header, metadata_response))
         }
         ApiKey::FindCoordinatorKey => {
             let (header, request) = dec_request(frame, version)?;

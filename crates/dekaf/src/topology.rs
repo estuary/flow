@@ -542,6 +542,8 @@ pub async fn fetch_dekaf_task_auth(
     String,
     proto_flow::flow::MaterializationSpec,
 )> {
+    let start = std::time::Instant::now();
+
     let request_token = flow_client::client::build_task_authorization_request_token(
         shard_template_id,
         data_plane_fqdn,
@@ -575,6 +577,11 @@ pub async fn fetch_dekaf_task_auth(
         break response;
     };
     let claims = flow_client::parse_jwt_claims(token.as_str())?;
+
+    tracing::info!(
+        runtime_ms = start.elapsed().as_millis(),
+        "fetched dekaf task auth",
+    );
 
     Ok((
         token,
