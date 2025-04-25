@@ -47,8 +47,13 @@ impl SpecCache {
         }) = store_guard.get(task_name)
         {
             if time::OffsetDateTime::now_utc() - *insert_time < self.ttl {
-                tracing::debug!(task_name, "Cache hit");
-                return shared_spec.clone(); // Return cloned future on fresh hit
+                tracing::debug!(
+                    task_name,
+                    resolved = shared_spec.peek().is_some(),
+                    resolved_ok = shared_spec.peek().is_some_and(|res| res.is_ok()),
+                    "Cache hit"
+                );
+                return shared_spec.clone();
             } else {
                 tracing::debug!(task_name, "Cache stale");
                 store_guard.remove(task_name);
@@ -61,14 +66,17 @@ impl SpecCache {
         let cache = self.clone();
 
         let shared_fetch_future = async move {
-            fetch_dekaf_task_auth(
+            tracing::debug!(fetch_task_name, "Fetching task spec for");
+            let resp = fetch_dekaf_task_auth(
                 &cache.client,
                 &fetch_task_name,
                 &cache.data_plane_fqdn,
                 &cache.data_plane_signer,
             )
             .map(|res| Arc::new(res.map(|(_, _, _, _, spec)| spec)))
-            .await
+            .await;
+            tracing::debug!(?resp, fetch_task_name, "Fetched task spec");
+            resp
         }
         .boxed()
         .shared();
