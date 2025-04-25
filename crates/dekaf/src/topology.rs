@@ -338,7 +338,9 @@ impl Collection {
             ..Default::default()
         };
 
+        tracing::debug!(?request, "fetching partitions");
         let response = journal_client.list(request).await?;
+        tracing::debug!("fetched partitions");
 
         let mut partitions = Vec::with_capacity(response.journals.len());
 
