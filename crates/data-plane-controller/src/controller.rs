@@ -4,12 +4,14 @@ use super::{
 };
 use crate::repo;
 use anyhow::Context;
+use serde_json::json;
 use std::collections::VecDeque;
 
 pub struct Controller {
     pub dry_run: bool,
     pub logs_tx: super::logs::Tx,
-    pub repo: super::repo::Repo,
+    pub infra_repo: super::repo::Repo,
+    pub ops_repo: super::repo::Repo,
     pub secrets_provider: String,
     pub state_backend: url::Url,
 }
@@ -265,6 +267,8 @@ impl Controller {
         state.publish_stack = Some(state.stack.clone());
         state.status = Status::Idle;
 
+        self.validate_state(&state).await?;
+
         Ok(POLL_AGAIN)
     }
 
@@ -362,6 +366,8 @@ impl Controller {
         state.status = Status::Idle;
         state.last_refresh = chrono::Utc::now();
 
+        self.validate_state(&state).await?;
+
         Ok(POLL_AGAIN)
     }
 
@@ -415,6 +421,8 @@ impl Controller {
             })
             .await
             .context("failed to send to logs sink")?;
+
+        self.validate_state(&state).await?;
 
         Ok(POLL_AGAIN)
     }
@@ -543,6 +551,8 @@ impl Controller {
         state.publish_exports = Some(control);
         state.publish_stack = Some(state.stack.clone());
 
+        self.validate_state(&state).await?;
+
         Ok(POLL_AGAIN)
     }
 
@@ -596,6 +606,8 @@ impl Controller {
             })
             .await
             .context("failed to send to logs sink")?;
+
+        self.validate_state(&state).await?;
 
         Ok(POLL_AGAIN)
     }
@@ -665,7 +677,7 @@ impl Controller {
             }
         };
 
-        Ok(State {
+        let state = State {
             data_plane_id,
             deploy_branch: row.deploy_branch,
             last_pulumi_up: chrono::DateTime::default(),
@@ -681,7 +693,34 @@ impl Controller {
             pending_converge: false,
             publish_exports: None,
             publish_stack: None,
-        })
+        };
+
+        self.validate_state(&state).await?;
+
+        Ok(state)
+    }
+
+    async fn validate_state(&self, state: &State) -> anyhow::Result<()> {
+        let ops_checkout = self
+            .ops_repo
+            .checkout(
+                &self.logs_tx,
+                state.logs_token,
+                "mahdi/data-plane-jsonschema",
+            )
+            .await?;
+
+        // Read jsonschema validation schema for data planes
+        let schema = serde_yaml::from_slice(
+            &std::fs::read(&ops_checkout.path().join("data-planes-schema.yaml"))
+                .context("failed to read data-planes-schema.yaml")?,
+        )
+        .context("failed to parse data-planes-schema.yaml")?;
+
+        if let Err(e) = jsonschema::validate(&schema, &json!(state)) {
+            anyhow::bail!("failed to validate data-plane state: {e}");
+        }
+        Ok(())
     }
 
     async fn fetch_releases(
@@ -709,8 +748,12 @@ impl Controller {
 
     async fn checkout(&self, state: &State) -> anyhow::Result<repo::Checkout> {
         let checkout = self
-            .repo
+            .infra_repo
             .checkout(&self.logs_tx, state.logs_token, &state.deploy_branch)
+            .await?;
+
+        self.infra_repo
+            .poetry_install(&checkout.path(), &self.logs_tx, state.logs_token)
             .await?;
 
         // Write out stack YAML file for Pulumi CLI.

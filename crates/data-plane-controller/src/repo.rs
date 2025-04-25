@@ -78,25 +78,32 @@ impl Repo {
         )
         .await?;
 
-        () = run_cmd(
-            async_process::Command::new("poetry")
-                .arg("install")
-                .current_dir(dir.path())
-                .env("VIRTUAL_ENV", dir.path().join("venv"))
-                .env("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring"),
-            false,
-            "poetry-install",
-            &logs_tx,
-            logs_token,
-        )
-        .await?;
-
         tracing::info!(branch, dir=?dir.path(), "prepared checkout");
 
         Ok(Checkout {
             inner: self.inner.clone(),
             dir: Some(dir),
         })
+    }
+
+    pub async fn poetry_install(
+        &self,
+        path: &std::path::Path,
+        logs_tx: &logs::Tx,
+        logs_token: sqlx::types::Uuid,
+    ) -> anyhow::Result<()> {
+        run_cmd(
+            async_process::Command::new("poetry")
+                .arg("install")
+                .current_dir(path)
+                .env("VIRTUAL_ENV", path.join("venv"))
+                .env("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring"),
+            false,
+            "poetry-install",
+            &logs_tx,
+            logs_token,
+        )
+        .await
     }
 
     async fn create_clone(

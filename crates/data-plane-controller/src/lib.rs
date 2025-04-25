@@ -50,6 +50,13 @@ pub struct Args {
         default_value = "git@github.com:estuary/est-dry-dock.git"
     )]
     git_repo: String,
+    /// Repository to clone for ops validation
+    #[clap(
+        long = "ops-git-repo",
+        env = "DPC_OPS_GIT_REPO",
+        default_value = "git@github.com:estuary/ops.git"
+    )]
+    ops_git_repo: String,
     /// Pulumi secrets provider for encryption of stack secrets.
     #[clap(
         long = "secrets-provider",
@@ -80,7 +87,8 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     };
     tracing::info!(args=?ops::DebugJson(&args), app_name, "started!");
 
-    let repo = repo::Repo::new(&args.git_repo);
+    let infra_repo = repo::Repo::new(&args.git_repo);
+    let ops_repo = repo::Repo::new(&args.ops_git_repo);
 
     let mut pg_options = args
         .database_url
@@ -123,7 +131,8 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .register(controller::Controller {
             dry_run: args.dry_run,
             logs_tx,
-            repo,
+            infra_repo,
+            ops_repo,
             secrets_provider: args.secrets_provider,
             state_backend: args.state_backend,
         })
