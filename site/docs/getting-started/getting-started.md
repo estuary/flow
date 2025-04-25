@@ -14,7 +14,7 @@ Flow synchronizes your systems – SaaS, databases, streaming, and more – arou
 cloud and updates in milliseconds. It combines the easy cross-system integration of an ELT tool and a flexible streaming
 backbone, all while remaining aware of your data's complete history.
 
-<ReactPlayer controls url="https://www.youtube.com/watch?v=hlCh81ZbBik" />
+<ReactPlayer controls url="https://www.youtube.com/watch?v=uOj77vFrx3U" />
 <br />
 
 A few examples of what you can do with Flow:
