@@ -163,12 +163,20 @@ You'll also need to provide some identifying information.
    You'll grant Flow access to your storage resources by connecting to Estuary's
    [Azure application](https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/what-is-application-management).
 
-3. Add Estuary's Azure application to your tenant.
+3. Add Estuary's Azure application to your tenant. When you finish, you will be redirected back to these docs.
 
 import { AzureAuthorizeComponent } from "./azureAuthorize";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 
 <BrowserOnly>{() => <AzureAuthorizeComponent />}</BrowserOnly>
+<br />
+
+If you're having trouble using the input field above, you may also modify this OAuth link
+with your Azure tenant ID and paste it directly into your browser:
+
+```
+https://login.microsoftonline.com/<YOUR_AZURE_TENANT>/oauth2/authorize?client_id=42cb0c6c-dab0-411f-9c21-16d5a2b1b025&response_type=code&redirect_uri=https://docs.estuary.dev/getting-started/installation/#azure-blob-storage&resource_id=https://storage.azure.com
+```
 
 4. Grant the application access to your storage account via the
    [
