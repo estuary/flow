@@ -894,6 +894,11 @@ Outcome {
                                                 value: "acmeCo/foo",
                                                 prefix: false,
                                             },
+                                            Label {
+                                                name: "name",
+                                                value: "acmeCo/foo/2020202020202020/",
+                                                prefix: true,
+                                            },
                                         ],
                                     },
                                 ),
