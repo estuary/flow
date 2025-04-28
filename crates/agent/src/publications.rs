@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use crate::proxy_connectors::MakeConnectors;
+
 use super::logs;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -138,13 +140,14 @@ impl PublicationResult {
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
 #[derive(Debug, Clone)]
-pub struct Publisher {
+pub struct Publisher<MC: MakeConnectors> {
     bindir: String,
     builds_root: url::Url,
     connector_network: String,
     logs_tx: logs::Tx,
     id_gen: std::sync::Arc<std::sync::Mutex<models::IdGenerator>>,
     db: sqlx::PgPool,
+    make_connectors: MC,
 }
 
 pub struct UncommittedBuild {
@@ -225,7 +228,7 @@ impl Into<build::Output> for UncommittedBuild {
     }
 }
 
-impl Publisher {
+impl<MC: MakeConnectors> Publisher<MC> {
     pub fn new(
         bindir: &str,
         builds_root: &url::Url,
@@ -233,6 +236,7 @@ impl Publisher {
         logs_tx: &logs::Tx,
         pool: sqlx::PgPool,
         build_id_gen: models::IdGenerator,
+        make_connectors: MC,
     ) -> Self {
         Self {
             bindir: bindir.to_string(),
@@ -241,6 +245,7 @@ impl Publisher {
             logs_tx: logs_tx.clone(),
             id_gen: std::sync::Mutex::new(build_id_gen.into()).into(),
             db: pool,
+            make_connectors,
         }
     }
 
@@ -440,6 +445,8 @@ impl Publisher {
             "resolved publication specs"
         );
 
+        let connectors = self.make_connectors.make_connectors(logs_token);
+
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
         let tmpdir = tmpdir_handle.path();
         let built = builds::build_catalog(
@@ -451,6 +458,7 @@ impl Publisher {
             tmpdir,
             self.logs_tx.clone(),
             logs_token,
+            &connectors,
         )
         .await?;
 

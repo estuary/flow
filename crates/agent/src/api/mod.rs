@@ -16,6 +16,8 @@ use snapshot::Snapshot;
 
 pub use error::ApiError;
 
+use crate::DataPlaneConnectors;
+
 /// Request wraps a JSON-deserialized request type T which
 /// also implements the validator::Validate trait.
 #[derive(Debug, Clone, Copy, Default)]
@@ -51,7 +53,7 @@ struct App {
     control_plane_jwt_signer: jsonwebtoken::EncodingKey,
     jwt_validation: jsonwebtoken::Validation,
     pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher,
+    publisher: crate::publications::Publisher<DataPlaneConnectors>,
     snapshot: std::sync::RwLock<Snapshot>,
 }
 
@@ -102,7 +104,7 @@ pub fn build_router(
     id_generator: models::IdGenerator,
     jwt_secret: Vec<u8>,
     pg_pool: sqlx::PgPool,
-    publisher: crate::publications::Publisher,
+    publisher: crate::publications::Publisher<DataPlaneConnectors>,
     allow_origin: &[String],
 ) -> anyhow::Result<axum::Router<()>> {
     let mut jwt_validation = jsonwebtoken::Validation::default();

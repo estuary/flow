@@ -4,8 +4,9 @@ use models::Id;
 use sqlx::types::Uuid;
 use std::path;
 use tables::BuiltRow;
+use validation::Connectors;
 
-pub async fn build_catalog(
+pub async fn build_catalog<Conn: Connectors>(
     builds_root: &url::Url,
     draft: tables::DraftCatalog,
     live: tables::LiveCatalog,
@@ -14,9 +15,8 @@ pub async fn build_catalog(
     tmpdir: &path::Path,
     logs_tx: logs::Tx,
     logs_token: sqlx::types::Uuid,
+    connectors: &Conn,
 ) -> anyhow::Result<build::Output> {
-    let log_handler = logs::ops_handler(logs_tx.clone(), "build".to_string(), logs_token);
-
     // We perform the build under a ./builds/ subdirectory, which is a
     // specific sub-path expected by temp-data-plane underneath its
     // working temporary directory. This lets temp-data-plane use the
@@ -30,21 +30,19 @@ pub async fn build_catalog(
     let project_root = url::Url::parse("file:///").unwrap();
     let source = url::Url::parse("file:///flow.json").unwrap();
 
-    let connectors = crate::ProxyConnectors::new(log_handler);
-
     let built = validation::validate(
         pub_id,
         build_id,
         &project_root,
-        &connectors,
+        connectors,
         &draft,
         &live,
         true, // fail_fast
         // These are a hack to allow us to test publications without actually
         // needing to dial connectors for validate RPCs:
-        cfg!(test), // No-op captures.
-        cfg!(test), // No-op derivations.
-        cfg!(test), // No-op materializations.
+        false,
+        false,
+        false,
     )
     .await;
     let output = build::Output { draft, live, built };
