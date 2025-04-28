@@ -26,27 +26,36 @@ export const AzureAuthorizeComponent = () => {
         return (
             <>
                 <span>
-                    Input your <b>Tenant ID</b> and follow the prompts to add
-                    our application to your tenant:
+                    Input your <b>Tenant ID</b> into the field below. Then click the <b>Authorize</b> button
+                    to begin the OAuth process that will add our application to your tenant:
                 </span>
                 <br />
                 <br />
-                <input
-                    placeholder="Tenant ID"
-                    value={tenant}
-                    onChange={(e) => setTenant(e.target.value)}
-                />
-                <a
-                    style={{
-                        marginLeft: 8,
-                        color: tenant.length < 1 ? "inherit" : undefined,
-                    }}
-                    href={
-                        tenant.length > 0 ? generateAuthorizeUrl(tenant) : null
-                    }
-                >
-                    Authorize
-                </a>
+                <center>
+                    <input
+                        placeholder="Your Azure Tenant ID"
+                        value={tenant}
+                        onChange={(e) => setTenant(e.target.value)}
+                        style={{
+                            padding: 8
+                        }}
+                    />
+                    <a
+                        style={{
+                            marginLeft: 8,
+                            padding: 10,
+                            color: "white",
+                            backgroundColor: tenant.length < 1 ? "lightgray" : "#3B43FE",
+                            fontWeight: tenant.length < 1 ? "inherit" : "bold",
+                            borderRadius: 20
+                        }}
+                        href={
+                            tenant.length > 0 ? generateAuthorizeUrl(tenant) : null
+                        }
+                    >
+                        Authorize
+                    </a>
+                </center>
             </>
         );
     }
