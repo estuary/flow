@@ -590,6 +590,12 @@ struct MockDriverBinding {
     type_override: i32,
 }
 
+impl std::fmt::Debug for MockDriverCalls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MockDriverCalls")
+    }
+}
+
 impl validation::Connectors for MockDriverCalls {
     fn capture<'a, R>(
         &'a self,

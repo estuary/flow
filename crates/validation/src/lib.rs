@@ -15,7 +15,7 @@ mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
-use noop::NoOpConnectors;
+pub use noop::NoOpConnectors;
 
 /// Connectors is a delegated trait -- provided to validate -- through which
 /// connector validation RPCs are dispatched. Request and Response must always

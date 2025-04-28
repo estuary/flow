@@ -11,7 +11,9 @@ use crate::{
     },
 };
 
-impl automations::Executor for Publisher {
+use super::MakeConnectors;
+
+impl<MC: MakeConnectors> automations::Executor for Publisher<MC> {
     const TASK_TYPE: automations::TaskType = automations::task_types::PUBLICATIONS;
 
     /// We don't do anything with the inbox except log it, so this is just a
@@ -40,7 +42,7 @@ impl automations::Executor for Publisher {
     }
 }
 
-impl Publisher {
+impl<MC: MakeConnectors> Publisher<MC> {
     async fn handle_task(&self, row: Row) -> anyhow::Result<()> {
         let id = row.id;
 

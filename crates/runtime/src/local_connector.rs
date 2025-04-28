@@ -30,7 +30,7 @@ where
         connector,
         codec,
         request_rx.map(Result::Ok),
-        log_handler.clone(),
+        log_handler.clone().as_fn(),
     )?;
     let container_rx = crate::stream_status_to_error(container_rx);
 

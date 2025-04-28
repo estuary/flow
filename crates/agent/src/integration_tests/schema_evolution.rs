@@ -342,7 +342,7 @@ async fn test_schema_evolution() {
         .error
         .as_ref()
         .expect("expected error to be Some");
-    assert!(error.contains("incompatible schema changes observed for binding [] and onIncompatibleSchemaChange is 'abort'"));
+    assert!(error.contains("incompatible schema changes observed for binding [totes] and onIncompatibleSchemaChange is 'abort'"), "unexpected error: {error}");
     // should have scheduled a re-try
     harness
         .assert_controller_pending("goats/materializeMixed")

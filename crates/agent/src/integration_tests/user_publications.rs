@@ -61,7 +61,11 @@ async fn test_user_publications() {
     let first_pub_result = harness
         .user_publication(cats_user, format!("initial publication"), draft)
         .await;
-    assert!(first_pub_result.status.is_success());
+    assert!(
+        first_pub_result.status.is_success(),
+        "pub failed: {:?}",
+        first_pub_result.errors
+    );
 
     // Verify that reads_from and writes_to are set appropriately
     let capture = first_pub_result

@@ -115,7 +115,7 @@ pub struct TestHarness {
     pub control_plane: TestControlPlane,
     pub test_name: String,
     pub pool: sqlx::PgPool,
-    pub publisher: Publisher,
+    pub publisher: Publisher<MockDiscoverConnectors>,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
@@ -155,7 +155,7 @@ impl TestHarness {
 
         let id_gen = models::IdGenerator::new(1);
         let mock_connectors = connectors::MockDiscoverConnectors::default();
-        let discover_handler = DiscoverHandler::new(mock_connectors);
+        let discover_handler = DiscoverHandler::new(mock_connectors.clone());
 
         let publisher = Publisher::new(
             "/not/a/real/bin/dir",
@@ -164,6 +164,7 @@ impl TestHarness {
             &logs_tx,
             pool.clone(),
             id_gen.clone(),
+            mock_connectors,
         );
 
         let control_plane = TestControlPlane::new(PGControlPlane::new(
@@ -172,6 +173,7 @@ impl TestHarness {
             publisher.clone(),
             id_gen.clone(),
             discover_handler.clone(),
+            logs_tx.clone(),
         ));
 
         let controller_exec =
