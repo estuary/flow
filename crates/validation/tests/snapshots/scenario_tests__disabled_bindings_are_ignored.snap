@@ -1480,6 +1480,11 @@ Outcome {
                                                         value: "testing/collection",
                                                         prefix: false,
                                                     },
+                                                    Label {
+                                                        name: "name",
+                                                        value: "testing/collection/2020202020202020/",
+                                                        prefix: true,
+                                                    },
                                                 ],
                                             },
                                         ),
@@ -2049,6 +2054,11 @@ Outcome {
                                                 name: "estuary.dev/collection",
                                                 value: "testing/collection",
                                                 prefix: false,
+                                            },
+                                            Label {
+                                                name: "name",
+                                                value: "testing/collection/2020202020202020/",
+                                                prefix: true,
                                             },
                                         ],
                                     },

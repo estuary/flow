@@ -428,8 +428,265 @@ Outcome {
             spec: MaterializationSpec {
                 name: "acmeCo/testMaterialization",
                 connector_type: Image,
-                config_json: b"{\"image\":\"someMaterializationImage\",\"config\":{\"any\":\"thing\"}}",
-                bindings: [],
+                config_json: "{\"image\":\"someMaterializationImage\",\"config\":{\"any\":\"thing\"}}",
+                bindings: [
+                    Binding {
+                        resource_config_json: "{\"whatever\":\"and ever\"}",
+                        resource_path: [
+                            "binding-0",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "acmeCo/foo",
+                                write_schema_json: "{\"$id\":\"test://example/catalog.yaml?ptr=/collections/acmeCo~1foo/schema\",\"properties\":{\"id\":{\"type\":\"integer\"},\"val\":{\"type\":\"string\"}},\"required\":[\"id\",\"val\"],\"type\":\"object\"}",
+                                read_schema_json: "",
+                                key: [
+                                    "/id",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [],
+                                projections: [
+                                    Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "_meta/flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/id",
+                                        field: "id",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: Some(
+                                                    Numeric {
+                                                        has_minimum: false,
+                                                        minimum: 0.0,
+                                                        has_maximum: false,
+                                                        maximum: 0.0,
+                                                    },
+                                                ),
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/val",
+                                        field: "val",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                                numeric: None,
+                                                array: None,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "acmeCo/foo/2020202020202020",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                        prefix: false,
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                        prefix: false,
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "2121212121212121",
+                                                        prefix: false,
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "acmeCo/foo",
+                                                        prefix: false,
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://a-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 86400,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: Some(
+                            LabelSelector {
+                                include: Some(
+                                    LabelSet {
+                                        labels: [
+                                            Label {
+                                                name: "estuary.dev/collection",
+                                                value: "acmeCo/foo",
+                                                prefix: false,
+                                            },
+                                            Label {
+                                                name: "name",
+                                                value: "acmeCo/foo/2020202020202020/",
+                                                prefix: true,
+                                            },
+                                        ],
+                                    },
+                                ),
+                                exclude: Some(
+                                    LabelSet {
+                                        labels: [],
+                                    },
+                                ),
+                            },
+                        ),
+                        priority: 0,
+                        field_selection: Some(
+                            FieldSelection {
+                                keys: [],
+                                values: [
+                                    "val",
+                                ],
+                                document: "",
+                                field_config_json_map: {
+                                    "val": "{}",
+                                },
+                            },
+                        ),
+                        delta_updates: true,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "materialize/acmeCo/testMaterialization/binding-0",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 0,
+                        state_key: "binding-0",
+                    },
+                ],
                 shard_template: Some(
                     ShardSpec {
                         id: "materialize/acmeCo/testMaterialization/2020202020202020",
