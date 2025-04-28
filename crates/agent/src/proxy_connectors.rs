@@ -18,6 +18,12 @@ pub trait DiscoverConnectors: Clone + Send + Sync + 'static {
            + Send;
 }
 
+pub trait MakeConnectors: std::fmt::Debug + Sync + Send + 'static {
+    type Connectors: validation::Connectors;
+
+    fn make_connectors(&self, logs_token: Uuid) -> Self::Connectors;
+}
+
 #[derive(Debug, Clone)]
 pub struct DataPlaneConnectors {
     logs_tx: logs::Tx,
@@ -25,6 +31,14 @@ pub struct DataPlaneConnectors {
 impl DataPlaneConnectors {
     pub fn new(logs_tx: logs::Tx) -> DataPlaneConnectors {
         Self { logs_tx }
+    }
+}
+
+impl MakeConnectors for DataPlaneConnectors {
+    type Connectors = ProxyConnectors<logs::OpsHandler>;
+    fn make_connectors(&self, logs_token: uuid::Uuid) -> Self::Connectors {
+        let log_handler = logs::ops_handler(self.logs_tx.clone(), "build".to_string(), logs_token);
+        ProxyConnectors::new(log_handler)
     }
 }
 
@@ -248,7 +262,7 @@ impl<L: runtime::LogHandler> ProxyConnectors<L> {
                 .context("failed to read proxy response stream")?
             {
                 if let Some(log) = log.log.as_ref() {
-                    (self.log_handler)(log);
+                    self.log_handler.log(log);
                 }
             }
             Result::<(), anyhow::Error>::Ok(())

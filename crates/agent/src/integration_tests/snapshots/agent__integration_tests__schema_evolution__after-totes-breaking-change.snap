@@ -10,13 +10,13 @@ goats/materializeBackfill:
         "$serde_json::private::RawValue": "{}"
   bindings:
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"pasture\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"pasture\"]},\"table\":\"pasture\"}"
       source: goats/pasture
       fields:
         recommended: true
       backfill: 1
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"totes\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"totes\"]},\"table\":\"totes\"}"
       source: goats/totes
       fields:
         recommended: true
@@ -30,13 +30,13 @@ goats/materializeDisableBinding:
         "$serde_json::private::RawValue": "{}"
   bindings:
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"pasture\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"pasture\"]},\"table\":\"pasture\"}"
       source: goats/pasture
       disable: true
       fields:
         recommended: true
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"totes\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"totes\"]},\"table\":\"totes\"}"
       source: goats/totes
       disable: true
       fields:
@@ -50,14 +50,14 @@ goats/materializeMixed:
         "$serde_json::private::RawValue": "{}"
   bindings:
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"pasture\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"pasture\"]},\"table\":\"pasture\"}"
       source: goats/pasture
       disable: true
       fields:
         recommended: true
       onIncompatibleSchemaChange: disableBinding
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"totes\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"totes\"]},\"table\":\"totes\"}"
       source: goats/totes
       fields:
         recommended: true

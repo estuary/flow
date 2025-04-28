@@ -352,6 +352,12 @@ pub struct RuntimeConnectors<L: runtime::LogHandler> {
     runtime: runtime::Runtime<L>,
 }
 
+impl<L: runtime::LogHandler> std::fmt::Debug for RuntimeConnectors<L> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RuntimeConnectors")
+    }
+}
+
 impl<L: runtime::LogHandler> validation::Connectors for RuntimeConnectors<L> {
     fn capture<'a, R>(
         &'a self,

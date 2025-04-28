@@ -11,14 +11,14 @@ materialization:
         "$serde_json::private::RawValue": "{}"
   bindings:
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"pasture\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"pasture\"]},\"table\":\"pasture\"}"
       source: goats/pasture
       disable: true
       fields:
         recommended: true
       onIncompatibleSchemaChange: disableBinding
     - resource:
-        "$serde_json::private::RawValue": "{\"table\":\"totes\"}"
+        "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"totes\"]},\"table\":\"totes\"}"
       source: goats/totes
       fields:
         recommended: true

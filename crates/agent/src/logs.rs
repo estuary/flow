@@ -145,17 +145,18 @@ pub async fn serve_sink(
     }
 }
 
-/// ops_handler returns an ops::Log handler that dispatches to `tx`
-/// using the given `stream` and `token`.
-pub fn ops_handler(
+#[derive(Debug, Clone)]
+pub struct OpsHandler {
     tx: Tx,
     stream: String,
     token: Uuid,
-) -> impl Fn(&ops::Log) + Clone + Send + Sync + 'static {
-    let log_handler = move |log: &ops::Log| {
-        let Err(tokio::sync::mpsc::error::TrySendError::Full(line)) = tx.try_send(Line {
-            token: token.clone(),
-            stream: stream.clone(),
+}
+
+impl runtime::LogHandler for OpsHandler {
+    fn log(&self, log: &ops::Log) {
+        let Err(tokio::sync::mpsc::error::TrySendError::Full(line)) = self.tx.try_send(Line {
+            token: self.token.clone(),
+            stream: self.stream.clone(),
             line: render_ops_log_for_ui(log),
         }) else {
             return;
@@ -163,12 +164,17 @@ pub fn ops_handler(
 
         // Perform an expensive "move" of all other tasks scheduled on the
         // current async executor thread, so that we can block until there's capacity.
-        let tx_clone = tx.clone();
+        let tx_clone = self.tx.clone();
         _ = tokio::task::block_in_place(move || {
             tokio::runtime::Handle::current().block_on(tx_clone.send(line))
         });
-    };
-    log_handler
+    }
+}
+
+/// ops_handler returns an ops::Log handler that dispatches to `tx`
+/// using the given `stream` and `token`.
+pub fn ops_handler(tx: Tx, stream: String, token: Uuid) -> OpsHandler {
+    OpsHandler { tx, stream, token }
 }
 
 // TODO(johnny): This is a placeholder until all `internal.log_lines` can be JSON.

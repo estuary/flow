@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use models::Capability;
-use std::{collections::BTreeMap, future::Future};
+use std::future::Future;
 use uuid::Uuid;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.

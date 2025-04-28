@@ -211,7 +211,7 @@ pub async fn start(
             match serde_json::from_str(&line) {
                 Ok(log) => {
                     let sanitized = sanitize_event_type(&quoted_task_name, log);
-                    log_handler(&sanitized)
+                    log_handler.log(&sanitized)
                 }
                 Err(error) => {
                     tracing::error!(?error, %line, "failed to parse ops::Log from container");

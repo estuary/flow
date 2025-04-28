@@ -4,6 +4,7 @@ use proto_flow::{capture, derive, materialize};
 
 /// NoOpConnectors are permissive placeholders for interactions with connectors,
 /// that never fail and return the right shape of response.
+#[derive(Clone, Debug)]
 pub struct NoOpConnectors;
 
 impl Connectors for NoOpConnectors {

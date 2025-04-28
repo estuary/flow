@@ -5,6 +5,7 @@ use models::{
     status::publications::{PublicationInfo, PublicationStatus},
     Id,
 };
+use tables::BuiltRow;
 
 use super::ControllerState;
 
