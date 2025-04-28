@@ -195,7 +195,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let logs_sink = agent::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors);
+    let discover_handler = DiscoverHandler::new(connectors.clone());
 
     // Generate a random shard ID to use for generating unique IDs.
     // Range starts at 1 because 0 is always used for ids generated in postgres.
@@ -208,6 +208,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         &logs_tx,
         pg_pool.clone(),
         id_gen.clone(),
+        connectors,
     );
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
@@ -215,6 +216,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         publisher.clone(),
         id_gen.clone(),
         discover_handler.clone(),
+        logs_tx.clone(),
     );
     let connector_tags_executor =
         agent::TagExecutor::new(&args.connector_network, &logs_tx, args.allow_local);

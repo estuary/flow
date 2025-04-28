@@ -832,6 +832,8 @@ async fn test_dependencies_and_controllers() {
             .last_activated,
         "expect hoots last_activated to be unchanged"
     );
+
+    // Now re-try the hoots controller, and expect it to have recovered from the error
     harness.control_plane().reset_activations();
 
     // Now re-try the controller, and expect it to have recovered from the error

@@ -10,6 +10,8 @@ use std::collections::BTreeSet;
 use crate::{
     discovers::{Discover, DiscoverOutput},
     evolution::{self, EvolutionOutput},
+    logs,
+    proxy_connectors::MakeConnectors,
     publications::{
         DefaultRetryPolicy, DraftPublication, NoopFinalize, NoopInitialize, NoopWithCommit,
         PublicationResult, Publisher,
@@ -170,21 +172,23 @@ fn set_of<T: Into<String>>(s: T) -> BTreeSet<String> {
 
 /// Implementation of `ControlPlane` that connects directly to postgres.
 #[derive(Clone)]
-pub struct PGControlPlane<C: DiscoverConnectors> {
+pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub pool: sqlx::PgPool,
     pub system_user_id: Uuid,
-    pub publications_handler: Publisher,
+    pub publications_handler: Publisher<C>,
     pub id_generator: models::IdGenerator,
     pub discovers_handler: DiscoverHandler<C>,
+    pub logs_tx: logs::Tx,
 }
 
-impl<C: DiscoverConnectors> PGControlPlane<C> {
+impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
     pub fn new(
         pool: sqlx::PgPool,
         system_user_id: Uuid,
-        publications_handler: Publisher,
+        publications_handler: Publisher<C>,
         id_generator: models::IdGenerator,
         discovers_handler: DiscoverHandler<C>,
+        logs_tx: logs::Tx,
     ) -> Self {
         Self {
             pool,
@@ -192,6 +196,7 @@ impl<C: DiscoverConnectors> PGControlPlane<C> {
             publications_handler,
             id_generator,
             discovers_handler,
+            logs_tx,
         }
     }
 
@@ -258,7 +263,7 @@ impl<C: DiscoverConnectors> PGControlPlane<C> {
 }
 
 #[async_trait::async_trait]
-impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
+impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
     #[tracing::instrument(level = "debug", err, skip(self))]
     async fn notify_dependents(&self, live_spec_id: models::Id) -> anyhow::Result<()> {
         agent_sql::controllers::notify_dependents(live_spec_id, &self.pool).await?;
