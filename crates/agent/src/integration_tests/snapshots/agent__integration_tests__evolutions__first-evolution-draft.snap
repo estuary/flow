@@ -23,7 +23,7 @@ EvolutionOutput {
                     },
                     {
                       "resource": {"id":"B"},
-                      "target": "moths/new-collectionB",
+                      "target": "moths/collectionB",
                       "backfill": 1
                     }
                   ]
@@ -70,6 +70,19 @@ EvolutionOutput {
                 is_touch: 1,
             },
             DraftCollection {
+                collection: moths/collectionB,
+                scope: flow://collection/moths/collectionB,
+                expect_pub_id: NULL,
+                model: {
+                  "schema": {"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+                  "key": [
+                    "/id"
+                  ],
+                  "reset": true
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
                 collection: moths/collectionC,
                 scope: flow://collection/moths/collectionC,
                 expect_pub_id: NULL,
@@ -80,18 +93,6 @@ EvolutionOutput {
                   ]
                 },
                 is_touch: 1,
-            },
-            DraftCollection {
-                collection: moths/new-collectionB,
-                scope: flow://collection/moths/collectionB,
-                expect_pub_id: "0000000000000000",
-                model: {
-                  "schema": {"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
-                  "key": [
-                    "/id"
-                  ]
-                },
-                is_touch: 0,
             },
             DraftCollection {
                 collection: moths/new-collectionD,
@@ -129,7 +130,7 @@ EvolutionOutput {
                     },
                     {
                       "resource": {"id":"B"},
-                      "source": "moths/new-collectionB",
+                      "source": "moths/collectionB",
                       "fields": {
                         "recommended": true
                       },
@@ -161,7 +162,7 @@ EvolutionOutput {
                   "bindings": [
                     {
                       "resource": {"id":"B"},
-                      "source": "moths/new-collectionB",
+                      "source": "moths/collectionB",
                       "fields": {
                         "recommended": true
                       },
@@ -200,7 +201,7 @@ EvolutionOutput {
         },
         EvolvedCollection {
             old_name: "moths/collectionB",
-            new_name: "moths/new-collectionB",
+            new_name: "moths/collectionB",
             updated_materializations: [
                 "moths/materializationA",
                 "moths/materializationB",
