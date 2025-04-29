@@ -595,10 +595,11 @@ pub fn partitions(projections: &BTreeMap<models::Field, models::Projection>) -> 
         .collect::<Vec<_>>()
 }
 
-/// Validates that collection keys have not changed. This check lives here and
-/// not in `validation` because we're hesitant to commit to it, and may want to
-/// allow collection keys to change in the future. So this is easy and lets us
-/// continue to return the same structured errors as before.
+/// Validates that collection keys have not changed. This check is now also performed
+/// as part of the `validation` crate, but it's duplicated here so that we can return
+/// structured `IncompatibleCollection` errors. We should probably consider moving
+/// `IncompatibleCollection` into `tables`, and generating these structured errors
+/// as part of `validation`. But not today.
 pub fn validate_collection_transitions(
     draft: &tables::DraftCatalog,
     live: &tables::LiveCatalog,
@@ -611,6 +612,10 @@ pub fn validate_collection_transitions(
                 let Some(draft_model) = draft_row.model.as_ref() else {
                     return None;
                 };
+                // Resetting a collection allows the key and partitions to change.
+                if draft_model.reset || draft_model.delete {
+                    return None;
+                }
                 let live_model = &live_row.model;
 
                 let mut requires_recreation = Vec::new();
