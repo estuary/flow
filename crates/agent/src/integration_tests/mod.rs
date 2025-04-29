@@ -3,6 +3,7 @@
 //! These tests cover end-to-end scenarios involving the control plane. The data plane and
 //! connectors are not exercised as part of these.
 mod auto_discovers;
+mod collection_resets;
 mod dependencies_and_activations;
 mod evolutions;
 pub mod harness;
