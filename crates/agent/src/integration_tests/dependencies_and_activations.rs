@@ -1,9 +1,10 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, panic::set_hook};
 
 use crate::{
     controllers::ControllerState,
     integration_tests::harness::{
-        draft_catalog, mock_inferred_schema, InjectBuildError, TestHarness,
+        draft_catalog, get_collection_generation_id, mock_inferred_schema, InjectBuildError,
+        TestHarness,
     },
     ControlPlane,
 };
@@ -952,8 +953,9 @@ async fn test_dependencies_and_controllers() {
     );
 
     // Insert an inferred schema so that we can assert it gets deleted along with the collection
+    let hoots_generation_id = get_collection_generation_id(&hoots_state);
     harness
-        .upsert_inferred_schema(mock_inferred_schema("owls/hoots", 3))
+        .upsert_inferred_schema(mock_inferred_schema("owls/hoots", hoots_generation_id, 3))
         .await;
 
     // Publish a deletion of the collection, and then assert that the dependents can still be
