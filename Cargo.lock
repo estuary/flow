@@ -104,6 +104,7 @@ dependencies = [
  "aide",
  "allocator",
  "anyhow",
+ "assemble",
  "async-process",
  "async-trait",
  "automations",

@@ -1148,11 +1148,40 @@ impl TestHarness {
         .await
         .expect("failed to update inferred schema");
     }
+
+    pub async fn get_publication_specs(&mut self, catalog_name: &str) -> Vec<PublicationSpec> {
+        sqlx::query_as!(
+            PublicationSpec,
+            r#"select
+              ps.spec as "spec!: agent_sql::TextJson<models::RawValue>",
+              ps.pub_id as "pub_id: Id",
+              coalesce(ps.detail, '') as "detail!: String",
+              ps.published_at as "published_at: DateTime<Utc>"
+            from live_specs ls
+            join publication_specs ps on ls.id = ps.live_spec_id
+            where ls.catalog_name::text = $1
+            order by ps.published_at;"#,
+            catalog_name,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("failed to get publication specs")
+    }
+}
+
+#[allow(unused)]
+#[derive(Debug)]
+pub struct PublicationSpec {
+    pub pub_id: Id,
+    pub published_at: DateTime<Utc>,
+    pub detail: String,
+    pub spec: agent_sql::TextJson<models::RawValue>,
 }
 
 /// Returns a simple json schema with properties named `p1,p2,pn`, up to `num_properties`.
 pub fn mock_inferred_schema(
     collection_name: &str,
+    generation_id: Id,
     num_properties: usize,
 ) -> tables::InferredSchema {
     let properties = (0..num_properties)
@@ -1162,6 +1191,7 @@ pub fn mock_inferred_schema(
     let schema: models::Schema = serde_json::from_value(serde_json::json!({
         "type": "object",
         "properties": properties,
+        "x-collection-generation-id": generation_id.to_string(),
     }))
     .unwrap();
     let md5 = md5_hash(&schema);
@@ -1322,6 +1352,23 @@ impl TestControlPlane {
         let modifications = build_failures.entry(catalog_name.to_string()).or_default();
         modifications.push_back(Box::new(modify));
     }
+}
+
+/// Returns the collection generation id, or panics if the spec is not for a
+/// collection, or otherwise doesn't have a generation id.
+pub fn get_collection_generation_id(state: &ControllerState) -> models::Id {
+    let Some(proto_flow::AnyBuiltSpec::Collection(collection_spec)) = state.built_spec.as_ref()
+    else {
+        panic!("expected a collection spec, got: {:?}", state.built_spec);
+    };
+    let Some(template) = &collection_spec.partition_template else {
+        panic!("missing collection partition template");
+    };
+    let id = assemble::extract_generation_id_suffix(&template.name);
+    if id.is_zero() {
+        panic!("expected a non-zero generation id");
+    }
+    id
 }
 
 #[async_trait::async_trait]

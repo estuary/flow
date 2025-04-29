@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::harness::{draft_catalog, mock_inferred_schema, FailBuild, TestHarness};
-use crate::{controllers::ControllerState, publications::UncommittedBuild, ControlPlane};
+use crate::{
+    controllers::ControllerState, integration_tests::harness::get_collection_generation_id,
+    publications::UncommittedBuild, ControlPlane,
+};
 use models::CatalogType;
 use proto_flow::materialize::response::validated::{
     constraint::Type as ConstraintType, Constraint,
@@ -174,10 +177,14 @@ async fn test_schema_evolution() {
             .matches(models::Schema::REF_WRITE_SCHEMA_URL)
             .count()
     );
-
+    let pasture_generation_id = get_collection_generation_id(&pasture_state);
     harness.control_plane().reset_activations();
     harness
-        .upsert_inferred_schema(mock_inferred_schema("goats/pasture", 1))
+        .upsert_inferred_schema(mock_inferred_schema(
+            "goats/pasture",
+            pasture_generation_id,
+            1,
+        ))
         .await;
 
     harness.run_pending_controller("goats/pasture").await;
@@ -208,7 +215,11 @@ async fn test_schema_evolution() {
 
     // Update the inferred schema again and trigger the controller to publish
     harness
-        .upsert_inferred_schema(mock_inferred_schema("goats/pasture", 2))
+        .upsert_inferred_schema(mock_inferred_schema(
+            "goats/pasture",
+            pasture_generation_id,
+            2,
+        ))
         .await;
     harness.run_pending_controller("goats/pasture").await;
 
@@ -264,8 +275,9 @@ async fn test_schema_evolution() {
 
     // Next simulate an update the totes inferred schema, and expect that all materializations are
     // published successfully.
+    let totes_generation_id = get_collection_generation_id(&totes_state);
     harness
-        .upsert_inferred_schema(mock_inferred_schema("goats/totes", 1))
+        .upsert_inferred_schema(mock_inferred_schema("goats/totes", totes_generation_id, 1))
         .await;
     harness.run_pending_controller("goats/totes").await;
     harness.run_pending_controllers(None).await;
@@ -312,7 +324,7 @@ async fn test_schema_evolution() {
         },
     );
     harness
-        .upsert_inferred_schema(mock_inferred_schema("goats/totes", 2))
+        .upsert_inferred_schema(mock_inferred_schema("goats/totes", totes_generation_id, 2))
         .await;
     harness.run_pending_controller("goats/totes").await;
     harness.run_pending_controllers(None).await;
