@@ -27,7 +27,7 @@ async fn test_collection_evolution() {
     // First test an evolution that affects only drafted specs, before any live specs exist
     let req = vec![
         EvolveRequest::of("moths/collectionA"),
-        EvolveRequest::of("moths/collectionB").with_new_name("moths/new-collectionB"),
+        EvolveRequest::reset("moths/collectionB"),
         EvolveRequest::of("moths/collectionC"),
         EvolveRequest::of("moths/collectionD").with_new_name("moths/new-collectionD"),
     ];

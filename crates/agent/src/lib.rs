@@ -143,6 +143,7 @@ mod test {
             EvolveRequest {
                 current_name: "acmeCo/collectionA",
                 new_name: None,
+                reset: false,
                 materializations: [
                     "acmeCo/bar",
                 ],
@@ -152,6 +153,7 @@ mod test {
                 new_name: Some(
                     "acmeCo/collectionB_v3",
                 ),
+                reset: false,
                 materializations: [
                     "acmeCo/baz",
                 ],
@@ -159,6 +161,7 @@ mod test {
             EvolveRequest {
                 current_name: "acmeCo/collectionC",
                 new_name: None,
+                reset: false,
                 materializations: [],
             },
             EvolveRequest {
@@ -166,6 +169,7 @@ mod test {
                 new_name: Some(
                     "acmeCo/collectionD_v2",
                 ),
+                reset: false,
                 materializations: [],
             },
         ]

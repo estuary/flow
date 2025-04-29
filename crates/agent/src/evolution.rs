@@ -53,6 +53,12 @@ pub struct EvolveRequest {
     /// Otherwise, only materialization bindings will be updated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_name: Option<String>,
+
+    /// Whether to reset the collection. If `reset` is true, then `new_name`
+    /// must _not_ be provided. When true, the collection will be reset, and
+    /// will begin again with no data and no inferred schema.
+    #[serde(default)]
+    pub reset: bool,
     /// Optionally restrict updates to only the provided materializations. This conflicts with
     /// `new_name`, and at most one of the two may be provided.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -63,6 +69,16 @@ impl EvolveRequest {
     pub fn of(collection_name: impl Into<String>) -> EvolveRequest {
         EvolveRequest {
             current_name: collection_name.into(),
+            new_name: None,
+            materializations: Vec::new(),
+            reset: false,
+        }
+    }
+
+    pub fn reset(collection_name: impl Into<String>) -> EvolveRequest {
+        EvolveRequest {
+            current_name: collection_name.into(),
+            reset: true,
             new_name: None,
             materializations: Vec::new(),
         }
@@ -101,6 +117,7 @@ impl EvolveRequest {
                 models::Collection::regex().is_match(new_name),
                 "requested collection name '{new_name}' is invalid"
             );
+            anyhow::ensure!(!self.reset, "reset must be false if new_name is provided");
         }
         Ok(())
     }
@@ -192,12 +209,16 @@ fn evolve_collection(
         current_name,
         new_name,
         materializations,
+        reset,
     } = req;
 
     // We only re-create collections if explicitly requested.
     let (re_create_collection, new_name) = match new_name.as_ref() {
-        Some(n) => (true, n.to_owned()),
-        None => (false, current_name.clone()),
+        Some(n) => {
+            anyhow::ensure!(!reset, "cannot reset collection if new name is provided");
+            (true, n.to_owned())
+        }
+        None => (*reset, current_name.clone()),
     };
     let old_collection = models::Collection::new(current_name);
     let new_collection = models::Collection::new(new_name);
@@ -205,7 +226,7 @@ fn evolve_collection(
     // Add the new collection to the draft if needed. It's possible for the draft to already contain
     // a collection with this name, and we'll skip adding a new one in that case, in order to preserve
     // any changes that the user has potentially made in the draft.
-    if re_create_collection && draft.collections.get_by_key(&new_collection).is_none() {
+    if re_create_collection && (*reset || draft.collections.get_by_key(&new_collection).is_none()) {
         anyhow::ensure!(
             materializations.is_empty(),
             "specific_materializations argument must be empty if collection is being re-created"
@@ -213,23 +234,29 @@ fn evolve_collection(
         let Some(drafted) = draft.collections.get_by_key(&old_collection) else {
             anyhow::bail!("missing spec for collection '{current_name}'");
         };
-        anyhow::ensure!(
-            drafted.model.is_some(),
-            "draft catalog contained a deletion for collection '{current_name}'"
-        );
 
+        let Some(mut model) = drafted.model.clone() else {
+            anyhow::bail!("draft catalog contained a deletion for collection '{current_name}'");
+        };
+        model.reset = *reset;
+
+        let expect_pub_id = if *reset {
+            drafted.expect_pub_id
+        } else {
+            Some(models::Id::zero())
+        };
         let new_row = tables::DraftCollection {
             scope: drafted.scope.clone(),
             collection: new_collection.clone(),
-            model: drafted.model.clone(),
-            expect_pub_id: Some(models::Id::zero()), // brand new collection
+            model: Some(model),
+            expect_pub_id,
             is_touch: false,
         };
-        draft.collections.insert(new_row);
+        draft.collections.upsert_overwrite(new_row);
     }
 
     // If re-creating the collection, remove the old one from the draft.
-    if re_create_collection {
+    if re_create_collection && !reset {
         let _ = draft.collections.remove_by_key(&old_collection);
     }
 
