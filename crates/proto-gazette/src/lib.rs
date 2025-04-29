@@ -51,7 +51,7 @@ pub mod capability {
 // Claims reflect the scope of an authorization. They grant the client the
 // indicated Capability against resources matched by the corresponding
 // Selector.
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Claims {
     pub cap: u32,
     pub exp: u64,
