@@ -19,8 +19,8 @@ use read::Read;
 
 pub mod utils;
 
-mod spec_cache;
-pub use spec_cache::SpecCache;
+mod task_manager;
+pub use task_manager::{TaskManager, TaskManagerResult, TaskState};
 
 mod session;
 pub use session::Session;
@@ -36,10 +36,8 @@ use aes_siv::{aead::Aead, Aes256SivAead, KeyInit, KeySizeUser};
 use flow_client::client::{refresh_authorizations, RefreshToken};
 use log_appender::SESSION_CLIENT_ID_FIELD_MARKER;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
-use proto_flow::flow;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -58,8 +56,8 @@ pub struct App {
     pub data_plane_fqdn: String,
     /// The key used to sign data-plane access token requests
     pub data_plane_signer: jsonwebtoken::EncodingKey,
-    /// The cache for materialization specs
-    pub spec_cache: Arc<SpecCache>,
+    /// The manager responsible for maintaining fresh task metadata
+    pub task_manager: Arc<TaskManager>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
@@ -83,7 +81,7 @@ pub struct TaskAuth {
     client: flow_client::Client,
     task_name: String,
     config: connector::DekafConfig,
-    spec_cache: Arc<SpecCache>,
+    task_state_listener: task_manager::TaskStateListener,
 
     // When access token expires
     exp: time::OffsetDateTime,
@@ -159,14 +157,14 @@ impl TaskAuth {
         client: flow_client::Client,
         task_name: String,
         config: connector::DekafConfig,
-        spec_cache: Arc<SpecCache>,
+        task_state_listener: task_manager::TaskStateListener,
         exp: time::OffsetDateTime,
     ) -> Self {
         Self {
             client,
             task_name,
             config,
-            spec_cache,
+            task_state_listener,
             exp,
         }
     }
@@ -225,20 +223,20 @@ impl App {
         if models::Materialization::regex().is_match(username.as_ref())
             && !username.starts_with("{")
         {
+            let listener = self.task_manager.get_listener(&username).await;
             // Ask the agent for information about this task, as well as a short-lived
             // control-plane access token authorized to interact with the avro schemas table
-            let (token, claims, _, _, task_spec) = topology::fetch_dekaf_task_auth(
-                &self.client_base,
-                &username,
-                &self.data_plane_fqdn,
-                &self.data_plane_signer,
-            )
-            .await?;
+            let TaskState {
+                access_token: token,
+                access_token_claims: claims,
+                spec,
+                ..
+            } = listener.get().await?;
 
             // Decrypt this materialization's endpoint config
-            let config = topology::extract_dekaf_config(&task_spec).await?;
+            let config = topology::extract_dekaf_config(&spec).await?;
 
-            let labels = task_spec
+            let labels = spec
                 .shard_template
                 .as_ref()
                 .context("missing shard template")?
@@ -271,7 +269,7 @@ impl App {
                     .with_fresh_gazette_client(),
                 username,
                 config,
-                self.spec_cache.clone(),
+                listener,
                 time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64),
             )))
         } else if username.contains("{") {

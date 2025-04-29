@@ -1,5 +1,6 @@
 use crate::{
-    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, UserAuth,
+    connector, dekaf_shard_template_id, utils, App, SessionAuthentication, TaskAuth, TaskState,
+    UserAuth,
 };
 use anyhow::{anyhow, bail, Context};
 use futures::{StreamExt, TryStreamExt};
@@ -37,38 +38,43 @@ impl UserAuth {
 
 impl TaskAuth {
     pub async fn fetch_all_collection_names(&self) -> anyhow::Result<Vec<String>> {
-        match self.spec_cache.get(&self.task_name).await.as_ref() {
-            Ok(spec) => spec
-                .bindings
-                .iter()
-                .map(|b| {
-                    b.resource_path
-                        .first()
-                        .cloned()
-                        .ok_or(anyhow::anyhow!("missing resource path"))
-                })
-                .collect::<Result<Vec<_>, _>>(),
-            Err(e) => anyhow::bail!("failed to fetch task spec: {e:?}"),
-        }
+        let TaskState { spec, .. } = self
+            .task_state_listener
+            .get()
+            .await
+            .context("failed to fetch task spec")?;
+
+        spec.bindings
+            .iter()
+            .map(|b| {
+                b.resource_path
+                    .first()
+                    .cloned()
+                    .ok_or(anyhow::anyhow!("missing resource path"))
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn get_binding_for_topic(
         &self,
         topic_name: &str,
     ) -> anyhow::Result<Option<proto_flow::flow::materialization_spec::Binding>> {
-        Ok(match self.spec_cache.get(&self.task_name).await.as_ref() {
-            Ok(spec) => spec
-                .bindings
-                .iter()
-                .find(|binding| {
-                    binding
-                        .resource_path
-                        .first()
-                        .is_some_and(|path| path == topic_name)
-                })
-                .map(|b| b.clone()),
-            Err(e) => anyhow::bail!("failed to fetch task spec: {e:?}"),
-        })
+        let TaskState { spec, .. } = self
+            .task_state_listener
+            .get()
+            .await
+            .context("failed to fetch task spec")?;
+
+        Ok(spec
+            .bindings
+            .iter()
+            .find(|binding| {
+                binding
+                    .resource_path
+                    .first()
+                    .is_some_and(|path| path == topic_name)
+            })
+            .map(|b| b.clone()))
     }
 }
 
@@ -116,7 +122,7 @@ pub struct Collection {
 }
 
 /// Partition is a collection journal which is mapped into a stable Kafka partition order.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Partition {
     pub create_revision: i64,
     pub spec: broker::JournalSpec,
@@ -188,15 +194,22 @@ impl Collection {
             Self::build_journal_client(app, &auth, collection_name, &partition_template_name)
                 .await?;
 
-        let selector = if let Some(ref binding) = binding {
-            binding.partition_selector.clone()
-        } else {
-            None
-        };
+        let partitions = match auth {
+            SessionAuthentication::User(_) => {
+                crate::task_manager::fetch_partitions(&journal_client, collection_name, None)
+                    .await?
+            }
+            SessionAuthentication::Task(task_auth) => {
+                let state = task_auth.task_state_listener.get().await?;
+                let (_, parts) = state
+                    .partitions
+                    .into_iter()
+                    .find(|(name, _)| name == &partition_template_name)
+                    .context("missing partition template")?;
 
-        let partitions =
-            Self::fetch_partitions(&journal_client, partition_template_name.as_str(), selector)
-                .await?;
+                parts.map_err(|e| anyhow::Error::from(e))?
+            }
+        };
 
         tracing::debug!(?partitions, "Got partitions");
 
@@ -315,43 +328,6 @@ impl Collection {
         } else {
             Ok(None)
         }
-    }
-
-    /// Fetch the journals of a collection and map into stable-order partitions.
-    #[tracing::instrument(skip(journal_client))]
-    async fn fetch_partitions(
-        journal_client: &journal::Client,
-        name_prefix: &str,
-        partition_selector: Option<broker::LabelSelector>,
-    ) -> anyhow::Result<Vec<Partition>> {
-        let request = broker::ListRequest {
-            selector: Some(partition_selector.unwrap_or(broker::LabelSelector {
-                include: Some(labels::build_set([("name:prefix", name_prefix)])),
-                exclude: None,
-            })),
-            ..Default::default()
-        };
-
-        let response = journal_client.list(request).await?;
-
-        let mut partitions = Vec::with_capacity(response.journals.len());
-
-        for journal in response.journals {
-            partitions.push(Partition {
-                create_revision: journal.create_revision,
-                spec: journal.spec.context("expected journal Spec")?,
-                mod_revision: journal.mod_revision,
-                route: journal.route.context("expected journal Route")?,
-            })
-        }
-
-        // Establish stability of exposed partition indices by ordering journals
-        // by their created revision, and _then_ by their name.
-        partitions.sort_by(|l, r| {
-            (l.create_revision, &l.spec.name).cmp(&(r.create_revision, &r.spec.name))
-        });
-
-        Ok(partitions)
     }
 
     /// Map a partition and timestamp into the newest covering fragment offset.
