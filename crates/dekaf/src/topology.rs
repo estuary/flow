@@ -42,10 +42,10 @@ impl TaskAuth {
                 .bindings
                 .iter()
                 .map(|b| {
-                    b.collection
-                        .as_ref()
-                        .context("MaterializationSpec missing `collection`")
-                        .map(|c| c.name.clone())
+                    b.resource_path
+                        .first()
+                        .cloned()
+                        .ok_or(anyhow::anyhow!("missing resource path"))
                 })
                 .collect::<Result<Vec<_>, _>>(),
             Err(e) => anyhow::bail!("failed to fetch task spec: {e:?}"),
