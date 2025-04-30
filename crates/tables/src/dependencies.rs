@@ -35,25 +35,65 @@ impl<'a> Dependencies<'a> {
         }
     }
 
+    /// Returns a `Dependencies` for computing hashes for specs that are
+    /// included in the current publication. Note that this function assumes
+    /// that any drafted specs with `is_touch: true` will not have their
+    /// `last_pub_id` changed by this publication, which is not always true.
+    /// Validations may change a drafted touch to a non-touch if any model fixes
+    /// are applied, and this will cause the dependency hash to be incorrect for
+    /// any specs that depend on the now non-touched spec. This is unfortunate,
+    /// but not necessarily a problem we need to worry about, since controllers
+    /// will simply re-publish the affected specs, which corrects the dependency
+    /// hash.
     pub fn of_publication(
         pub_id: models::Id,
         draft: &'a DraftCatalog,
         live: &'a LiveCatalog,
     ) -> Dependencies<'a> {
         let mut deps = Dependencies::from_live(live);
-        // Use the current pub_id as the default, and remove any specs that are being modified by the current publication.
-        deps.default_pub_id = pub_id;
-        for r in draft.captures.iter().filter(|r| !r.is_touch) {
-            deps.by_catalog_name.remove(r.catalog_name().as_str());
-        }
-        for r in draft.collections.iter().filter(|r| !r.is_touch) {
-            deps.by_catalog_name.remove(r.catalog_name().as_str());
-        }
-        for r in draft.materializations.iter().filter(|r| !r.is_touch) {
-            deps.by_catalog_name.remove(r.catalog_name().as_str());
-        }
-        for r in draft.tests.iter().filter(|r| !r.is_touch) {
-            deps.by_catalog_name.remove(r.catalog_name().as_str());
+        // When publishing, use a max valued id as the placeholder for
+        // dependencies that don't exist. The specific value is not significant.
+        // The important thing is that this placeholder is different than the
+        // placeholder that's used when computing hashes in other contexts. This
+        // ensures that the dependency hash that's computed by controllers will
+        // differ from the hash computed during the publication process in one
+        // specific case: when a materialization depends on a source capture
+        // that has been deleted. In this case, we want controllers to see a
+        // change in the dependency hash, which will cause them to re-publish
+        // the materialization and remove the source capture.
+        deps.default_pub_id = models::Id::new([255u8; 8]);
+        let drafted_specs = draft
+            .captures
+            .iter()
+            .filter(|r| !r.is_touch)
+            .map(|r| r.catalog_name().as_str())
+            .chain(
+                draft
+                    .collections
+                    .iter()
+                    .filter(|r| !r.is_touch)
+                    .map(|r| r.catalog_name().as_str()),
+            )
+            .chain(
+                draft
+                    .materializations
+                    .iter()
+                    .filter(|r| !r.is_touch)
+                    .map(|r| r.catalog_name().as_str()),
+            )
+            .chain(
+                draft
+                    .tests
+                    .iter()
+                    .filter(|r| !r.is_touch)
+                    .map(|r| r.catalog_name().as_str()),
+            );
+        for name in drafted_specs {
+            if let Some(id) = deps.by_catalog_name.get_mut(name) {
+                *id = pub_id;
+            } else {
+                deps.by_catalog_name.insert(name, pub_id);
+            }
         }
         deps
     }
@@ -301,7 +341,11 @@ mod test {
 
         // Simulate publishing at id 3, which should result in a different hash
         let subject = Dependencies::of_publication(id(3), &draft, &live);
-        assert_eq!(id(3), subject.get_pub_id("test/d2"));
+        assert_eq!(id(3), subject.get_pub_id("test/c2"));
+        assert_eq!(
+            models::Id::new([255u8; 8]),
+            subject.get_pub_id("test/not-in-publication")
+        );
         assert_eq!(id(1), subject.get_pub_id("test/c1"));
         assert_hash::<models::MaterializationDef>(
             Some("e94b0ce2e25aa96a"),

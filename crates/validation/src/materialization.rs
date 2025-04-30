@@ -100,7 +100,6 @@ async fn walk_materialization<C: Connectors>(
     let scope = Scope::new(scope);
     let mut model_fixes = Vec::new();
 
-    let dependency_hash = dependencies.compute_hash(&model);
     let models::MaterializationDef {
         source_capture,
         on_incompatible_schema_change,
@@ -509,6 +508,10 @@ async fn walk_materialization<C: Connectors>(
         expect_pub_id: None,
         delete: false,
     };
+
+    // Compute the dependency hash after we're done with any potential modifications of the model,
+    // since disabling a binding would change the hash.
+    let dependency_hash = dependencies.compute_hash(&model);
     Some(tables::BuiltMaterialization {
         materialization: materialization.clone(),
         scope: scope.flatten(),
