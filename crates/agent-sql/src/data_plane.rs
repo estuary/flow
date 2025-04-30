@@ -6,7 +6,7 @@ use sqlx::types::Uuid;
 pub async fn fetch_ops_journal_template(
     pool: &sqlx::PgPool,
     collection: &models::Collection,
-) -> anyhow::Result<proto_gazette::broker::JournalSpec> {
+) -> anyhow::Result<Option<proto_gazette::broker::JournalSpec>> {
     let r = sqlx::query!(
         r#"
         select
@@ -21,13 +21,12 @@ pub async fn fetch_ops_journal_template(
     .await?;
 
     let Some(built) = r.and_then(|r| r.built_spec) else {
-        anyhow::bail!("collection {collection} is required to exist and does not");
+        return Ok(None);
     };
-    Ok(
-        serde_json::from_str::<proto_flow::flow::CollectionSpec>(built.get())?
-            .partition_template
-            .context("partition_template must exist")?,
-    )
+    let journal_spec = serde_json::from_str::<proto_flow::flow::CollectionSpec>(built.get())?
+        .partition_template
+        .context("partition_template must exist")?;
+    Ok(Some(journal_spec))
 }
 
 pub async fn fetch_data_planes<'a, 'b>(

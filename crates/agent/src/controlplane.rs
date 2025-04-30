@@ -201,8 +201,8 @@ impl<C: DiscoverConnectors> PGControlPlane<C> {
     ) -> anyhow::Result<(
         shard::Client,
         journal::Client,
-        broker::JournalSpec, // ops logs template.
-        broker::JournalSpec, // ops stats template.
+        Option<broker::JournalSpec>, // ops logs template.
+        Option<broker::JournalSpec>, // ops stats template.
     )> {
         let mut fetched = agent_sql::data_plane::fetch_data_planes(
             &self.pool,
@@ -477,6 +477,14 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
             .build_data_plane_context(data_plane_id)
             .await
             .context("failed to create data plane clients")?;
+        anyhow::ensure!(
+            ops_logs_template.is_some(),
+            "ops_logs_template is missing, and required for data plane activation"
+        );
+        anyhow::ensure!(
+            ops_stats_template.is_some(),
+            "ops_stats_template is missing, and required for data plane activation"
+        );
 
         match spec {
             AnyBuiltSpec::Capture(s) => {
@@ -486,8 +494,8 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
                     &shard_client,
                     &name,
                     Some(s),
-                    Some(&ops_logs_template),
-                    Some(&ops_stats_template),
+                    ops_logs_template.as_ref(),
+                    ops_stats_template.as_ref(),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -499,8 +507,8 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
                     &shard_client,
                     &name,
                     Some(s),
-                    Some(&ops_logs_template),
-                    Some(&ops_stats_template),
+                    ops_logs_template.as_ref(),
+                    ops_stats_template.as_ref(),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -521,8 +529,8 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
                     &shard_client,
                     &name,
                     Some(s),
-                    Some(&ops_logs_template),
-                    Some(&ops_stats_template),
+                    ops_logs_template.as_ref(),
+                    ops_stats_template.as_ref(),
                     initial_splits,
                 )
                 .await
@@ -552,8 +560,8 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
                     &shard_client,
                     &name,
                     None,
-                    Some(&ops_logs_template),
-                    Some(&ops_stats_template),
+                    ops_logs_template.as_ref(),
+                    ops_stats_template.as_ref(),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -565,8 +573,8 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
                     &shard_client,
                     &name,
                     None,
-                    Some(&ops_logs_template),
-                    Some(&ops_stats_template),
+                    ops_logs_template.as_ref(),
+                    ops_stats_template.as_ref(),
                     INITIAL_SPLITS,
                 )
                 .await
@@ -578,8 +586,8 @@ impl<C: DiscoverConnectors> ControlPlane for PGControlPlane<C> {
                     &shard_client,
                     &name,
                     None,
-                    Some(&ops_logs_template),
-                    Some(&ops_stats_template),
+                    ops_logs_template.as_ref(),
+                    ops_stats_template.as_ref(),
                     INITIAL_SPLITS,
                 )
                 .await
