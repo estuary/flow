@@ -272,32 +272,20 @@ fn handle_deleted_dependencies(
     deleted: &BTreeSet<String>,
     mut model: models::MaterializationDef,
 ) -> (String, models::MaterializationDef) {
-    let mut descriptions = Vec::new();
-    let mut deleted_collections = BTreeSet::new();
-    let mut disable_count = 0;
-    for binding in model.bindings.iter_mut() {
-        if deleted.contains(binding.source.collection().as_str()) && !binding.disable {
-            disable_count += 1;
-            deleted_collections.insert(binding.source.collection().as_str());
-            binding.disable = true;
-        }
-    }
-    if disable_count > 0 {
-        descriptions.push(format!(
-            "disabled {disable_count} binding(s) in response to deleted collections: [{}]",
-            deleted_collections.iter().format(", ")
-        ));
-    }
     if let Some(source_capture) = model
         .source_capture
         .take_if(|sc| deleted.contains(sc.capture_name().as_str()))
     {
-        descriptions.push(format!(
-            r#"removed sourceCapture: "{}" because the capture was deleted"#,
-            source_capture.capture_name()
-        ))
-    };
-    (descriptions.iter().join(", "), model)
+        (
+            format!(
+                r#"removed sourceCapture: "{}" because the capture was deleted"#,
+                source_capture.capture_name()
+            ),
+            model,
+        )
+    } else {
+        (String::new(), model)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

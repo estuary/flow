@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, panic::set_hook};
+use std::collections::BTreeSet;
 
 use crate::{
     controllers::ControllerState,
@@ -1058,7 +1058,7 @@ async fn test_dependencies_and_controllers() {
     // deleted, again in response to the publication of the source capture, and again in response
     // to the publication of the derivation (both of which also published in response to the hoots
     // deletion).
-    let expected = "in response to deletion one or more depencencies, disabled 1 binding(s) in response to deleted collections: [owls/hoots]";
+    let expected = "in response to deletion one or more depencencies, \ndisabled binding of deleted collection owls/hoots";
     let history = &materialization_state
         .current_status
         .unwrap_materialization()
