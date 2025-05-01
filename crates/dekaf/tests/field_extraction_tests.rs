@@ -14,11 +14,16 @@ async fn get_extraction_components(
     let source = build::arg_source_to_url(fixture_path.as_ref(), false)
         .context("Failed to create source URL")?;
 
-    let build::Output { built, .. } = managed_build(source).await;
+    let build::Output { built, draft, .. } = managed_build(source).await;
 
-    if !built.errors.is_empty() {
+    if !built.errors.is_empty() || !draft.errors.is_empty() {
         // Remove the error scope to avoid including file path components that break the snapshot
-        let errors = built.errors.into_iter().map(|err| err.error).join(", ");
+        let errors = built
+            .errors
+            .into_iter()
+            .chain(draft.errors.into_iter())
+            .map(|err| format!("{:?}", err.error))
+            .join(", ");
         anyhow::bail!(errors);
     }
 
@@ -344,6 +349,21 @@ async fn test_longs() -> anyhow::Result<()> {
 "#;
 
     insta::assert_debug_snapshot!(roundtrip(fixture_path, raw_input.as_bytes()).await);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_number_or_string_format_number() -> anyhow::Result<()> {
+    let fixture_path = "tests/fixtures/number_or_string_format_number.yaml".to_string();
+    let raw_input = r#"{"key": 1234, "my_weird_field": 1.0}
+    {"key": 1234, "my_weird_field": 1}
+    {"key": 1234, "my_weird_field": "1.0"}
+    {"key": 1234, "my_weird_field": "1.1"}
+    {"key": 1234, "my_weird_field": "1"}
+    "#;
+
+    insta::assert_debug_snapshot!(roundtrip(fixture_path.clone(), raw_input.as_bytes()).await?);
 
     Ok(())
 }

@@ -1,0 +1,33 @@
+collections:
+  test/collection:
+    key:
+      - /key
+    schema:
+      properties:
+        key:
+          type: string
+        my_weird_field:
+          format: number
+          maximum: 10
+          minimum: 1
+          type: ["integer", "string"]
+      type: object
+      required:
+        - key
+        - my_weird_field
+materializations:
+  test/materialization:
+    endpoint:
+      dekaf:
+        variant: foo
+        config:
+          deletions: kafka
+          token: "1234"
+          strict_topic_names: false
+    bindings:
+      - source: test/collection
+        resource:
+          topic_name: foo
+        fields:
+          recommended: true
+
