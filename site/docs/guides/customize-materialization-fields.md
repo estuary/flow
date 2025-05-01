@@ -97,7 +97,6 @@ flowctl catalog pull-specs --name <yourOrg/full/collectionName>
 
 ```
 flowctl preview --infer-schema --source <full\path\to\flow.yaml> --collection <yourOrg/full/collectionName>
-
 ```
 
 5. Review the updated schema. Manually change the names of projected fields. These names will be used by the materialization and shown in the endpoint system as column names or the equivalent.
@@ -117,24 +116,35 @@ Every included field will be mapped to a table column or equivalent in the endpo
 
 2. In the Collection Selector, choose the collection whose output fields you want to change. Click its **Collection** tab.
 
-3. Review the listed field.
+3. Review the listed fields.
 
    In most cases, Flow automatically detects all fields to materialize, projected or otherwise. However, a projected field may still be missing, or you may want to exclude other fields.
 
-4. If you want to make changes, click **Edit**.
+   By default, Estuary's recommended field selection generally includes:
+      * **Scalars** (simple data types including strings, numbers, booleans, nulls), and
+      * **Natively supported types** for the destination (e.g. arrays in the case of SQL destinations)
 
-5. Use the editor to add the `fields` stanza to the collection's binding specification.
+   When dealing with objects in your data, Estuary:
+      * **Flattens objects:** Estuary flattens nested structures and includes the scalar fields within them by default.
+      * **Excludes top-level objects:** Top-level objects need to be explicitly selected to be included in the materialization.
 
-   [Learn more about configuring `fields` and view a sample specification](../concepts/materialization.md#projected-fields).
+   Complex data structures like nested objects and maps are excluded by default.
 
-6. Choose whether to start with Flow's recommended fields. Under `fields`, set `recommended` to `true` or `false`. If you choose `true`, you can exclude fields later.
+4. Choose whether to start with one of Flow's field selection **modes**. You can customize individual fields later. Available modes include:
 
-7. Use `include` to add missing projections, or `exclude` to remove fields.
+   * **Select Scalars:** Include all scalar fields using the default setting
+   * **Exclude All:** Only required fields
 
-8. Click **Close**.
+5. For each individual field, you can choose one of these options:
 
-9. Repeat steps 2 through 8 with other collections, if necessary.
+   * **Select:** The field is included based on the chosen mode; if the field becomes unavailable, it may be dropped silently.
+   * **Require:** Ensure the field is materialized; Flow will raise an error if the field cannot be materialized.
+   * **Exclude:** Prevent the field from being materialized to the destination.
 
-10. Click **Save and Publish**.
+   ![Field selection modes and individual options](./guide-images/field-selection.png)
+
+6. Repeat steps 2 through 5 with other collections, if necessary.
+
+7. Click **Save and Publish**.
 
 The named, included fields will be reflected in the endpoint system.
