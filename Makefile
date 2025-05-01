@@ -309,7 +309,8 @@ install-tools: ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 .PHONY: rust-gnu-test
 rust-gnu-test:
 	PATH=${PKGDIR}/bin:$$PATH ;\
-	cargo test --release --locked --workspace --exclude parser --exclude schemalate --exclude connector-init
+	RUST_LOG=debug; \
+	cargo test --release --locked --workspace --exclude parser --exclude schemalate --exclude connector-init -- --nocapture
 
 .PHONY: rust-musl-test
 rust-musl-test:
