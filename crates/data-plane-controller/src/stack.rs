@@ -168,6 +168,7 @@ pub struct Rollout {
 /// A Release is matched against a current Deployment of a data-plane.
 /// When matched, it begins a new rollout which swaps the current
 /// Deployment for a new one.
+#[derive(Clone, Debug)]
 pub struct Release {
     /// Previous OCI image which is matched to a Deployment.
     pub prev_image: String,
@@ -241,14 +242,14 @@ pub struct AnsibleHost {
 pub struct ControlExports {
     pub aws_iam_user_arn: String,
     pub aws_link_endpoints: Vec<serde_json::Value>,
+    pub azure_application_client_id: String,
+    pub azure_application_name: String,
     pub azure_link_endpoints: Vec<serde_json::Value>,
+    pub bastion_tunnel_private_key: Option<String>,
     pub cidr_blocks: Vec<ipnetwork::IpNetwork>,
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
-    pub bastion_tunnel_private_key: Option<String>,
-    pub azure_application_name: String,
-    pub azure_application_client_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]

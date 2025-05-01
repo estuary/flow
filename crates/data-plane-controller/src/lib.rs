@@ -1,12 +1,13 @@
 use anyhow::Context;
 use futures::{FutureExt, TryFutureExt};
 
-mod controller;
-mod logs;
-mod repo;
-mod stack;
+pub mod commands;
+pub mod controller;
+pub mod logs;
+pub mod stack;
 
 pub use controller::Controller;
+use sqlx::types::uuid;
 
 #[derive(clap::Parser, Debug, serde::Serialize)]
 #[clap(author, version, about, long_about = None)]
@@ -80,8 +81,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     };
     tracing::info!(args=?ops::DebugJson(&args), app_name, "started!");
 
-    let repo = repo::Repo::new(&args.git_repo);
-
     let mut pg_options = args
         .database_url
         .as_str()
@@ -119,14 +118,60 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(120);
     let logs_sink = logs::serve_sink(pg_pool.clone(), logs_rx).map_err(|err| anyhow::anyhow!(err));
 
-    let server = automations::Server::new()
-        .register(controller::Controller {
-            dry_run: args.dry_run,
-            logs_tx,
-            repo,
-            secrets_provider: args.secrets_provider,
-            state_backend: args.state_backend,
+    let dns_ttl = if args.dry_run {
+        DNS_TTL_DRY_RUN
+    } else {
+        DNS_TTL_ACTUAL
+    };
+
+    // Build a type-erased EmitLogFn which forwards to the logs sink.
+    let emit_log_fn: controller::EmitLogFn = {
+        let logs_tx = logs_tx.clone();
+
+        Box::new(
+            move |token: uuid::Uuid, stream: &'static str, line: String| {
+                let logs_tx = logs_tx.clone();
+                async move {
+                    logs_tx
+                        .send(logs::Line {
+                            token,
+                            stream: stream.to_string(),
+                            line,
+                        })
+                        .await
+                        .context("failed to send to logs sink")
+                }
+                .boxed()
+            },
+        )
+    };
+
+    // Build a type-erased RunCmdFn which dispatches to commands::dry_run()
+    // when running in dry-run mode, or commands::run() otherwise, and forwards
+    // to the logs sink.
+    let run_cmd_fn: controller::RunCmdFn = if args.dry_run {
+        let logs_tx = logs_tx.clone();
+        Box::new(move |cmd, capture_stdout, stream, logs_token| {
+            commands::dry_run(cmd, capture_stdout, stream, logs_tx.clone(), logs_token).boxed()
         })
+    } else {
+        let logs_tx = logs_tx.clone();
+        Box::new(move |cmd, capture_stdout, stream, logs_token| {
+            commands::run(cmd, capture_stdout, stream, logs_tx.clone(), logs_token).boxed()
+        })
+    };
+
+    let controller = controller::Controller {
+        dns_ttl,
+        git_remote: args.git_repo,
+        secrets_provider: args.secrets_provider,
+        state_backend: args.state_backend,
+        emit_log_fn,
+        run_cmd_fn,
+    };
+
+    let server = automations::Server::new()
+        .register(controller::Executor::new(controller))
         .serve(
             args.concurrency,
             pg_pool,
@@ -141,90 +186,5 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug)]
-struct NonZeroExit {
-    status: std::process::ExitStatus,
-    cmd: String,
-    logs_token: sqlx::types::Uuid,
-}
-
-impl std::fmt::Display for NonZeroExit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "command {} exited with status {:?} (logs token {})",
-            self.cmd, self.status, self.logs_token
-        )
-    }
-}
-
-async fn run_cmd(
-    cmd: &mut async_process::Command,
-    dry_run: bool,
-    stream: &str,
-    logs_tx: &logs::Tx,
-    logs_token: sqlx::types::Uuid,
-) -> anyhow::Result<()> {
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stderr(std::process::Stdio::piped());
-    cmd.stdout(std::process::Stdio::piped());
-
-    let args: Vec<_> = std::iter::once(cmd.get_program())
-        .chain(cmd.get_args())
-        .map(|s| s.to_os_string())
-        .collect();
-
-    logs_tx
-        .send(logs::Line {
-            token: logs_token,
-            stream: "controller".to_string(),
-            line: format!("Starting {stream}: {args:?}"),
-        })
-        .await
-        .context("failed to send to logs sink")?;
-
-    tracing::info!(?args, "starting command");
-
-    let status = if dry_run {
-        std::process::ExitStatus::default()
-    } else {
-        let mut child: async_process::Child = cmd.spawn()?.into();
-
-        let stdout = logs::capture_lines(
-            logs_tx,
-            format!("{stream}:0"),
-            logs_token,
-            child.stdout.take().unwrap(),
-        );
-        let stderr = logs::capture_lines(
-            logs_tx,
-            format!("{stream}:1"),
-            logs_token,
-            child.stderr.take().unwrap(),
-        );
-
-        let ((), (), status) = futures::try_join!(stdout, stderr, child.wait())?;
-        status
-    };
-    tracing::info!(?args, %status, "command completed");
-
-    logs_tx
-        .send(logs::Line {
-            token: logs_token,
-            stream: "controller".to_string(),
-            line: format!("Completed {stream} ({status}): {args:?}"),
-        })
-        .await
-        .context("failed to send to logs sink")?;
-
-    if !status.success() {
-        let err = NonZeroExit {
-            cmd: format!("{cmd:?}"),
-            logs_token,
-            status,
-        };
-        Err(anyhow::anyhow!(err))
-    } else {
-        Ok(())
-    }
-}
+const DNS_TTL_ACTUAL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const DNS_TTL_DRY_RUN: std::time::Duration = std::time::Duration::from_secs(10);

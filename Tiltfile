@@ -227,6 +227,22 @@ local_resource(
     links='http://localhost:3000'
 )
 
+local_resource(
+    'data-plane-controller',
+    serve_cmd='cargo run -p data-plane-controller -- \
+    --secrets-provider gcpkms://not/a/real/kms \
+    --state-backend gs://not-a-real-bucket \
+    --dry-run \
+    ',
+    serve_env={
+        "DPC_DATABASE_URL": DATABASE_URL,
+        "RUST_LOG": "info",
+    },
+    resource_deps=['agent'],
+    auto_init=False,
+    trigger_mode=TRIGGER_MODE_MANUAL,
+)
+
 
 # Uncomment the below sections to enable a second data-plane cluster.
 
