@@ -139,6 +139,15 @@ fn maybe_encode<'s, 'n, N: AsNode>(
             b.extend(v.as_bytes());
             Ok(true)
         }
+        // Floats with zero fractional part are essentially integers,
+        // so we need to handle them when matching nodes that contain ints
+        // or else JSON containing a value like `1.0` will fail to encode properly.
+        (Schema::String, Node::Float(v)) if v.fract() == 0.0 => {
+            let v = format!("{:.0}", v);
+            zig_zag(b, v.len() as i64);
+            b.extend(v.as_bytes());
+            Ok(true)
+        }
 
         (Schema::Date, Node::String(s)) => {
             let Ok(date) = time::Date::parse(s, &TIME_FORMAT_DATE) else {
@@ -359,7 +368,16 @@ mod test {
             "m1_with_addl": {"type": "array", "items": {"type": "object", "properties": {"d": {"type": "boolean"}, "f": {"type": "boolean"}}}},
             "m2_no_addl": {"type": "object", "properties": {"d": {"type": "boolean"}}, "additionalProperties": false},
             "m2_disallowed_field": {"type": "object", "properties": {"not valid": {"type": "boolean"}}, "additionalProperties": false},
-            "int_with_zero_frac": {"type": "integer"}
+            "int_with_zero_frac": {"type": "integer"},
+            "string_or_number_int_with_zero_frac": {
+                    "format": "number",
+                    "maximum": 10,
+                    "minimum": 1,
+                    "type": [
+                        "integer",
+                        "string"
+                    ]
+                }
           },
           "required": ["b", "c2_pos", "e1_str", "j", "m1_with_addl"],
         });
@@ -403,6 +421,7 @@ mod test {
             "m2_disallowed_field": {"not valid": true},
             "zz - ex": ["extra", 3],
             "int_with_zero_frac": 1.0,
+            "string_or_number_int_with_zero_frac": 1.0
         });
 
         let mut b = Vec::new();
