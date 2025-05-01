@@ -1,17 +1,46 @@
-use super::{
-    logs, run_cmd,
-    stack::{self, State, Status},
-};
-use crate::repo;
+use super::stack::{self, State, Status};
 use anyhow::Context;
+use futures::future::BoxFuture;
+use sqlx::types::uuid;
 use std::collections::VecDeque;
+use std::sync::Arc;
+
+/// EmitLogFn is a function type that emits a log message to a logs sink.
+pub type EmitLogFn = Box<
+    dyn Fn(
+            uuid::Uuid,   // Logs token.
+            &'static str, // Stream name.
+            String,       // Log message
+        ) -> BoxFuture<'static, anyhow::Result<()>>
+        + Send
+        + Sync,
+>;
+
+/// RunCmdFn is a function type that runs a command and optionally returns its stdout.
+pub type RunCmdFn = Box<
+    dyn Fn(
+            async_process::Command,
+            bool,         // Capture stdout?
+            &'static str, // Stream name.
+            uuid::Uuid,   // Logs token.
+        ) -> BoxFuture<'static, anyhow::Result<Vec<u8>>>
+        + Send
+        + Sync,
+>;
 
 pub struct Controller {
-    pub dry_run: bool,
-    pub logs_tx: super::logs::Tx,
-    pub repo: super::repo::Repo,
+    // How long to wait for DNS propagation.
+    pub dns_ttl: std::time::Duration,
+    // Remote git repository to clone.
+    pub git_remote: String,
+    // Secrets provider to use for Pulumi.
     pub secrets_provider: String,
+    // State backend URL for Pulumi.
     pub state_backend: url::Url,
+    // Type-erased closure to emit logs.
+    pub emit_log_fn: EmitLogFn,
+    // Type-erased closure to run subcommands.
+    pub run_cmd_fn: RunCmdFn,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -27,18 +56,32 @@ pub enum Message {
 
 #[derive(Debug)]
 pub struct Outcome {
-    data_plane_id: models::Id,
-    task_id: models::Id,
-    sleep: std::time::Duration,
+    pub data_plane_id: models::Id,
+    pub task_id: models::Id,
+    pub sleep: std::time::Duration,
     // Status to publish into data_planes row.
-    status: Status,
+    pub status: Status,
     // When Some, stack exports to publish into data_planes row.
-    publish_exports: Option<stack::ControlExports>,
+    pub publish_exports: Option<stack::ControlExports>,
     // When Some, updated configuration to publish into data_planes row.
-    publish_stack: Option<stack::PulumiStack>,
+    pub publish_stack: Option<stack::PulumiStack>,
 }
 
-impl automations::Executor for Controller {
+pub struct Executor {
+    controller: Controller,
+    idle_dirs: Arc<std::sync::Mutex<Vec<tempfile::TempDir>>>,
+}
+
+impl Executor {
+    pub fn new(controller: Controller) -> Self {
+        Self {
+            controller,
+            idle_dirs: Default::default(),
+        }
+    }
+}
+
+impl automations::Executor for Executor {
     const TASK_TYPE: automations::TaskType = automations::task_types::DATA_PLANE_CONTROLLER;
 
     type Receive = Message;
@@ -59,20 +102,56 @@ impl automations::Executor for Controller {
         state: &'s mut Self::State,
         inbox: &'s mut VecDeque<(models::Id, Option<Message>)>,
     ) -> anyhow::Result<Self::Outcome> {
+        let mut maybe_checkout = self.idle_dirs.lock().unwrap().pop();
+        let row_state = fetch_row_state(pool, task_id, &self.controller.secrets_provider).await?;
+        let releases = fetch_releases(pool, row_state.data_plane_id).await?;
+
+        let result = self
+            .controller
+            .on_poll(
+                task_id,
+                state,
+                inbox,
+                &mut maybe_checkout,
+                releases,
+                row_state,
+            )
+            .await;
+
+        if let Some(checkout) = maybe_checkout {
+            self.idle_dirs.lock().unwrap().push(checkout);
+        }
+        result
+    }
+}
+
+impl Controller {
+    pub async fn on_poll(
+        &self,
+        task_id: models::Id,
+        state: &mut Option<State>,
+        inbox: &mut VecDeque<(models::Id, Option<Message>)>,
+        maybe_checkout: &mut Option<tempfile::TempDir>,
+        releases: Vec<stack::Release>,
+        row_state: State,
+    ) -> anyhow::Result<Outcome> {
         if state.is_none() {
-            self.on_start(pool, task_id, state, inbox).await?;
+            () = self.on_start(state, inbox, &row_state)?;
         };
         let state = state.as_mut().unwrap();
 
+        // TODO(johnny): Unconditionally overwrite
+        // `state.stack.config.model.private_links` with that of `row_state`.
+
         let sleep = match state.status {
-            Status::Idle => self.on_idle(pool, task_id, state, inbox).await?,
-            Status::SetEncryption => self.on_set_encryption(state).await?,
-            Status::PulumiPreview => self.on_pulumi_preview(state).await?,
-            Status::PulumiRefresh => self.on_pulumi_refresh(state).await?,
-            Status::PulumiUp1 => self.on_pulumi_up_1(state).await?,
+            Status::Idle => self.on_idle(state, inbox, releases, row_state).await?,
+            Status::SetEncryption => self.on_set_encryption(state, maybe_checkout).await?,
+            Status::PulumiPreview => self.on_pulumi_preview(state, maybe_checkout).await?,
+            Status::PulumiRefresh => self.on_pulumi_refresh(state, maybe_checkout).await?,
+            Status::PulumiUp1 => self.on_pulumi_up_1(state, maybe_checkout).await?,
             Status::AwaitDNS1 => self.on_await_dns_1(state).await?,
-            Status::Ansible => self.on_ansible(state).await?,
-            Status::PulumiUp2 => self.on_pulumi_up_2(state).await?,
+            Status::Ansible => self.on_ansible(state, maybe_checkout).await?,
+            Status::PulumiUp2 => self.on_pulumi_up_2(state, maybe_checkout).await?,
             Status::AwaitDNS2 => self.on_await_dns_2(state).await?,
         };
 
@@ -92,41 +171,27 @@ impl automations::Executor for Controller {
             publish_stack,
         })
     }
-}
 
-impl Controller {
-    fn pulumi_secret_envs(&self) -> Vec<(&str, String)> {
-        [
-            "ARM_CLIENT_ID",
-            "ARM_CLIENT_SECRET",
-            "ARM_TENANT_ID",
-            "ARM_SUBSCRIPTION_ID",
-            "VULTR_API_KEY",
-        ]
-        .iter()
-        .map(|key| {
-            (
-                *key,
-                std::env::var(format!("DPC_{key}")).unwrap_or_default(),
-            )
-        })
-        .collect()
-    }
-
-    async fn on_start(
+    fn on_start(
         &self,
-        pool: &sqlx::PgPool,
-        task_id: models::Id,
         state: &mut Option<State>,
         inbox: &mut VecDeque<(models::Id, Option<Message>)>,
+        row_state: &State,
     ) -> anyhow::Result<()> {
-        let data_plane_id = match inbox.pop_front() {
-            Some((_from_id, Some(Message::Start(data_plane_id)))) => data_plane_id,
+        match inbox.pop_front() {
+            Some((_from_id, Some(Message::Start(data_plane_id)))) => {
+                if data_plane_id != row_state.data_plane_id {
+                    anyhow::bail!(
+                        "unexpected data_plane_id {data_plane_id} in start message (row is {})",
+                        row_state.data_plane_id
+                    );
+                }
+                *state = Some(row_state.clone());
+            }
             message => {
                 anyhow::bail!("expected 'start' message, not {message:?}");
             }
         };
-        *state = Some(self.fetch_row_state(pool, task_id, data_plane_id).await?);
 
         Ok(())
     }
@@ -137,10 +202,10 @@ impl Controller {
     )]
     async fn on_idle(
         &self,
-        pool: &sqlx::PgPool,
-        task_id: models::Id,
         state: &mut State,
         inbox: &mut VecDeque<(models::Id, Option<Message>)>,
+        releases: Vec<stack::Release>,
+        row_state: State,
     ) -> anyhow::Result<std::time::Duration> {
         while let Some((from_id, message)) = inbox.pop_front() {
             match message {
@@ -150,16 +215,16 @@ impl Controller {
                 Some(Message::Refresh) => state.pending_refresh = true,
                 Some(Message::Converge) => state.pending_converge = true,
 
-                message => anyhow::bail!(
-                    "received unexpected message from {from_id} while idle: {message:?}"
-                ),
+                message => {
+                    anyhow::bail!(
+                        "received unexpected message from {from_id} while idle: {message:?}"
+                    )
+                }
             }
         }
 
         // Refresh configuration from the current data_planes row.
-        let next = self
-            .fetch_row_state(pool, task_id, state.data_plane_id)
-            .await?;
+        let next = row_state;
 
         // Sanity check that variables which should not change, haven't.
         () = State::verify_transition(&state, &next)?;
@@ -196,8 +261,7 @@ impl Controller {
             state.pending_refresh = false;
             Ok(POLL_AGAIN)
         } else if !state.pending_converge
-            && (state.stack.config.model)
-                .evaluate_release_steps(&Self::fetch_releases(pool, state.data_plane_id).await?)
+            && (state.stack.config.model).evaluate_release_steps(&releases)
         {
             // We intended to converge, but will first write back the updated config.
             state.status = Status::Idle;
@@ -219,28 +283,30 @@ impl Controller {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id, logs = ?state.logs_token),
     )]
-    async fn on_set_encryption(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state).await?;
+    async fn on_set_encryption(
+        &self,
+        state: &mut State,
+        maybe_checkout: &mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<std::time::Duration> {
+        let checkout = self.checkout(state, maybe_checkout).await?;
 
-        () = run_cmd(
-            async_process::Command::new("pulumi")
-                .arg("stack")
-                .arg("init")
-                .arg(&state.stack_name)
-                .arg("--secrets-provider")
-                .arg(&self.secrets_provider)
-                .arg("--non-interactive")
-                .arg("--cwd")
-                .arg(&checkout.path())
-                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                .env("PULUMI_CONFIG_PASSPHRASE", "")
-                .env("VIRTUAL_ENV", checkout.path().join("venv")),
-            self.dry_run,
-            "pulumi-change-secrets-provider",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .run_cmd(
+                async_process::Command::new("pulumi")
+                    .arg("stack")
+                    .arg("init")
+                    .arg(&state.stack_name)
+                    .arg("--secrets-provider")
+                    .arg(&self.secrets_provider)
+                    .arg("--non-interactive")
+                    .current_dir(checkout.path())
+                    .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                    .env("PULUMI_CONFIG_PASSPHRASE", "")
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                "pulumi-change-secrets-provider",
+                state.logs_token,
+            )
+            .await?;
 
         // Pulumi wrote an updated stack YAML.
         // Parse it to extract the encryption key.
@@ -251,15 +317,10 @@ impl Controller {
         )
         .context("failed to read stack YAML")?;
 
-        let mut updated: stack::PulumiStack =
+        let updated: stack::PulumiStack =
             serde_yaml::from_slice(&updated).context("failed to parse stack from YAML")?;
 
-        if self.dry_run {
-            // We didn't actually run Pulumi, so it didn't set an encrypted key.
-            updated.encrypted_key = "dry-run-fixture".to_string()
-        }
-
-        state.stack.secrets_provider = self.secrets_provider.clone();
+        state.stack.secrets_provider = self.secrets_provider.to_string();
         state.stack.encrypted_key = updated.encrypted_key;
         state.pending_converge = true;
         state.publish_stack = Some(state.stack.clone());
@@ -272,27 +333,28 @@ impl Controller {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id, logs = ?state.logs_token),
     )]
-    async fn on_pulumi_preview(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state).await?;
+    async fn on_pulumi_preview(
+        &self,
+        state: &mut State,
+        maybe_checkout: &mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<std::time::Duration> {
+        let checkout = self.checkout(state, maybe_checkout).await?;
 
-        () = run_cmd(
-            async_process::Command::new("pulumi")
-                .arg("preview")
-                .arg("--stack")
-                .arg(&state.stack_name)
-                .arg("--diff")
-                .arg("--non-interactive")
-                .arg("--cwd")
-                .arg(&checkout.path())
-                .envs(self.pulumi_secret_envs())
-                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                .env("VIRTUAL_ENV", checkout.path().join("venv")),
-            self.dry_run,
-            "pulumi-preview",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .run_cmd(
+                async_process::Command::new("pulumi")
+                    .arg("preview")
+                    .arg("--stack")
+                    .arg(&state.stack_name)
+                    .arg("--diff")
+                    .arg("--non-interactive")
+                    .current_dir(checkout.path())
+                    .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                "pulumi-preview",
+                state.logs_token,
+            )
+            .await?;
 
         state.status = Status::Idle;
 
@@ -303,35 +365,16 @@ impl Controller {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id, logs = ?state.logs_token),
     )]
-    async fn on_pulumi_refresh(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state).await?;
+    async fn on_pulumi_refresh(
+        &self,
+        state: &mut State,
+        maybe_checkout: &mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<std::time::Duration> {
+        let checkout = self.checkout(state, maybe_checkout).await?;
 
-        // Refresh expecting to see no changes. We'll check exit status to see if there were.
-        let result = run_cmd(
-            async_process::Command::new("pulumi")
-                .arg("refresh")
-                .arg("--stack")
-                .arg(&state.stack_name)
-                .arg("--diff")
-                .arg("--non-interactive")
-                .arg("--skip-preview")
-                .arg("--cwd")
-                .arg(&checkout.path())
-                .arg("--yes")
-                .arg("--expect-no-changes")
-                .envs(self.pulumi_secret_envs())
-                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                .env("VIRTUAL_ENV", checkout.path().join("venv")),
-            self.dry_run,
-            "pulumi-refresh",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await;
-
-        if matches!(&result, Err(err) if err.downcast_ref::<super::NonZeroExit>().is_some()) {
-            // Run again, but this time allowing changes.
-            () = run_cmd(
+        // Refresh, expecting to see no changes. We'll check exit status to see if there were.
+        let result = self
+            .run_cmd(
                 async_process::Command::new("pulumi")
                     .arg("refresh")
                     .arg("--stack")
@@ -339,24 +382,23 @@ impl Controller {
                     .arg("--diff")
                     .arg("--non-interactive")
                     .arg("--skip-preview")
-                    .arg("--cwd")
-                    .arg(&checkout.path())
                     .arg("--yes")
-                    .envs(self.pulumi_secret_envs())
+                    .arg("--expect-no-changes")
+                    .current_dir(checkout.path())
                     .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                     .env("VIRTUAL_ENV", checkout.path().join("venv")),
-                self.dry_run,
-                "pulumi-refresh-changed",
-                &self.logs_tx,
+                "pulumi-refresh",
                 state.logs_token,
             )
-            .await?;
+            .await;
 
+        if matches!(&result, Err(err) if err.downcast_ref::<crate::commands::NonZeroExit>().is_some())
+        {
             // We refreshed some changes, and must converge to (for example)
             // provision a replaced EC2 instance.
             state.pending_converge = true;
         } else {
-            () = result?;
+            result?;
         }
 
         state.status = Status::Idle;
@@ -369,52 +411,45 @@ impl Controller {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id, logs = ?state.logs_token),
     )]
-    async fn on_pulumi_up_1(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state).await?;
+    async fn on_pulumi_up_1(
+        &self,
+        state: &mut State,
+        maybe_checkout: &mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<std::time::Duration> {
+        let checkout = self.checkout(state, maybe_checkout).await?;
 
-        () = run_cmd(
-            async_process::Command::new("pulumi")
-                .arg("up")
-                .arg("--stack")
-                .arg(&state.stack_name)
-                .arg("--diff")
-                .arg("--non-interactive")
-                .arg("--skip-preview")
-                .arg("--cwd")
-                .arg(&checkout.path())
-                .arg("--yes")
-                .envs(self.pulumi_secret_envs())
-                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                .env("VIRTUAL_ENV", checkout.path().join("venv")),
-            self.dry_run,
-            "pulumi-up-one",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .run_cmd(
+                async_process::Command::new("pulumi")
+                    .arg("up")
+                    .arg("--stack")
+                    .arg(&state.stack_name)
+                    .arg("--diff")
+                    .arg("--non-interactive")
+                    .arg("--skip-preview")
+                    .arg("--yes")
+                    .current_dir(checkout.path())
+                    .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                "pulumi-up-one",
+                state.logs_token,
+            )
+            .await?;
 
         // DNS propagation backoff is relative to this moment.
         state.last_pulumi_up = chrono::Utc::now();
 
         let stack::PulumiStackHistory { resource_changes } =
-            self.last_pulumi_run(&state, &checkout).await?;
+            self.last_pulumi_run(state, checkout).await?;
 
         let log_line = if resource_changes.changed() {
             state.status = Status::AwaitDNS1;
-            format!("Waiting {:?} for DNS propagation.", self.dns_ttl())
+            format!("Waiting {:?} for DNS propagation.", self.dns_ttl)
         } else {
             state.status = Status::Ansible;
             "No changes detected, continuing to Ansible.".to_string()
         };
-
-        self.logs_tx
-            .send(logs::Line {
-                token: state.logs_token,
-                stream: "controller".to_string(),
-                line: log_line,
-            })
-            .await
-            .context("failed to send to logs sink")?;
+        (self.emit_log_fn)(state.logs_token, "controller", log_line).await?;
 
         Ok(POLL_AGAIN)
     }
@@ -424,7 +459,7 @@ impl Controller {
         fields(data_plane_id = ?state.data_plane_id),
     )]
     async fn on_await_dns_1(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let remainder = (state.last_pulumi_up + self.dns_ttl()) - chrono::Utc::now();
+        let remainder = (state.last_pulumi_up + self.dns_ttl) - chrono::Utc::now();
 
         if remainder > chrono::TimeDelta::zero() {
             // PostgreSQL doesn't support nanosecond precision, so we must strip them.
@@ -442,14 +477,16 @@ impl Controller {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id, logs = ?state.logs_token),
     )]
-    async fn on_ansible(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state).await?;
+    async fn on_ansible(
+        &self,
+        state: &mut State,
+        maybe_checkout: &mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<std::time::Duration> {
+        let checkout = self.checkout(state, maybe_checkout).await?;
 
         // Load exported Pulumi state.
-        let output = if self.dry_run {
-            include_bytes!("dry_run_fixture.json").to_vec()
-        } else {
-            let output = async_process::output(
+        let output = self
+            .run_captured_cmd(
                 async_process::Command::new("pulumi")
                     .arg("stack")
                     .arg("output")
@@ -458,22 +495,13 @@ impl Controller {
                     .arg("--json")
                     .arg("--non-interactive")
                     .arg("--show-secrets")
-                    .arg("--cwd")
-                    .arg(&checkout.path())
-                    .envs(self.pulumi_secret_envs())
+                    .current_dir(checkout.path())
                     .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
                     .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                "pulumi-stack-output",
+                state.logs_token,
             )
             .await?;
-
-            if !output.status.success() {
-                anyhow::bail!(
-                    "pulumi stack output failed: {}",
-                    String::from_utf8_lossy(&output.stderr),
-                );
-            }
-            output.stdout
-        };
 
         let stack::PulumiExports {
             ansible,
@@ -481,18 +509,17 @@ impl Controller {
         } = serde_json::from_slice(&output).context("failed to parse pulumi output")?;
 
         // Install Ansible requirements.
-        () = run_cmd(
-            async_process::Command::new(checkout.path().join("venv/bin/ansible-galaxy"))
-                .arg("install")
-                .arg("--role-file")
-                .arg("requirements.yml")
-                .current_dir(checkout.path()),
-            false, // This can be run in --dry-run.
-            "ansible-install",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .run_cmd(
+                async_process::Command::new("./venv/bin/ansible-galaxy")
+                    .arg("install")
+                    .arg("--role-file")
+                    .arg("requirements.yml")
+                    .current_dir(checkout.path()),
+                "ansible-install",
+                state.logs_token,
+            )
+            .await?;
 
         // Write out Ansible inventory.
         std::fs::write(
@@ -518,17 +545,16 @@ impl Controller {
         .context("failed to set permissions of ansible SSH key")?;
 
         // Run the Ansible playbook.
-        () = run_cmd(
-            async_process::Command::new(checkout.path().join("venv/bin/ansible-playbook"))
-                .arg("data-plane.ansible.yaml")
-                .current_dir(checkout.path())
-                .env("ANSIBLE_FORCE_COLOR", "1"),
-            self.dry_run,
-            "ansible-playbook",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .run_cmd(
+                async_process::Command::new("./venv/bin/ansible-playbook")
+                    .arg("data-plane.ansible.yaml")
+                    .current_dir(checkout.path())
+                    .env("ANSIBLE_FORCE_COLOR", "1"),
+                "ansible-playbook",
+                state.logs_token,
+            )
+            .await?;
 
         // Now that we've completed Ansible, all deployments are current and we
         // can prune empty deployments.
@@ -550,52 +576,45 @@ impl Controller {
         skip_all,
         fields(data_plane_id = ?state.data_plane_id, logs = ?state.logs_token),
     )]
-    async fn on_pulumi_up_2(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state).await?;
+    async fn on_pulumi_up_2(
+        &self,
+        state: &mut State,
+        maybe_checkout: &mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<std::time::Duration> {
+        let checkout = self.checkout(state, maybe_checkout).await?;
 
-        () = run_cmd(
-            async_process::Command::new("pulumi")
-                .arg("up")
-                .arg("--stack")
-                .arg(&state.stack_name)
-                .arg("--diff")
-                .arg("--non-interactive")
-                .arg("--skip-preview")
-                .arg("--cwd")
-                .arg(&checkout.path())
-                .arg("--yes")
-                .envs(self.pulumi_secret_envs())
-                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                .env("VIRTUAL_ENV", checkout.path().join("venv")),
-            self.dry_run,
-            "pulumi-up-two",
-            &self.logs_tx,
-            state.logs_token,
-        )
-        .await?;
+        () = self
+            .run_cmd(
+                async_process::Command::new("pulumi")
+                    .arg("up")
+                    .arg("--stack")
+                    .arg(&state.stack_name)
+                    .arg("--diff")
+                    .arg("--non-interactive")
+                    .arg("--skip-preview")
+                    .arg("--yes")
+                    .current_dir(checkout.path())
+                    .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                "pulumi-up-two",
+                state.logs_token,
+            )
+            .await?;
 
         // DNS propagation backoff is relative to this moment.
         state.last_pulumi_up = chrono::Utc::now();
 
         let stack::PulumiStackHistory { resource_changes } =
-            self.last_pulumi_run(&state, &checkout).await?;
+            self.last_pulumi_run(state, checkout).await?;
 
         let log_line = if resource_changes.changed() {
             state.status = Status::AwaitDNS2;
-            format!("Waiting {:?} for DNS propagation.", self.dns_ttl())
+            format!("Waiting {:?} for DNS propagation.", self.dns_ttl)
         } else {
             state.status = Status::Idle;
             "No changes detected, done.".to_string()
         };
-
-        self.logs_tx
-            .send(logs::Line {
-                token: state.logs_token,
-                stream: "controller".to_string(),
-                line: log_line,
-            })
-            .await
-            .context("failed to send to logs sink")?;
+        (self.emit_log_fn)(state.logs_token, "controller", log_line).await?;
 
         Ok(POLL_AGAIN)
     }
@@ -605,7 +624,7 @@ impl Controller {
         fields(data_plane_id = ?state.data_plane_id),
     )]
     async fn on_await_dns_2(&self, state: &mut State) -> anyhow::Result<std::time::Duration> {
-        let remainder = (state.last_pulumi_up + self.dns_ttl()) - chrono::Utc::now();
+        let remainder = (state.last_pulumi_up + self.dns_ttl) - chrono::Utc::now();
 
         if remainder > chrono::TimeDelta::zero() {
             // PostgreSQL doesn't support nanosecond precision, so we must strip them.
@@ -619,99 +638,66 @@ impl Controller {
         }
     }
 
-    async fn fetch_row_state(
+    async fn checkout<'c>(
         &self,
-        pool: &sqlx::PgPool,
-        task_id: models::Id,
-        data_plane_id: models::Id,
-    ) -> anyhow::Result<State> {
-        let row = sqlx::query!(
-            r#"
-            SELECT
-                config AS "config: sqlx::types::Json<stack::DataPlane>",
-                deploy_branch AS "deploy_branch!",
-                logs_token,
-                data_plane_name,
-                data_plane_fqdn,
-                pulumi_key AS "pulumi_key",
-                pulumi_stack AS "pulumi_stack!"
-            FROM data_planes
-            WHERE id = $1 and controller_task_id = $2
-            "#,
-            data_plane_id as models::Id,
-            task_id as models::Id,
-        )
-        .fetch_one(pool)
-        .await
-        .context("failed to fetch data-plane row")?;
+        state: &State,
+        maybe_checkout: &'c mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<&'c tempfile::TempDir> {
+        let checkout = if let Some(checkout) = maybe_checkout {
+            () = self
+                .run_cmd(
+                    async_process::Command::new("git")
+                        .arg("clean")
+                        .arg("--force")
+                        .current_dir(checkout.path()),
+                    "git-clean",
+                    state.logs_token,
+                )
+                .await?;
 
-        let mut config = stack::PulumiStackConfig {
-            model: row.config.0,
-        };
-        config.model.name = Some(row.data_plane_name);
-        config.model.fqdn = Some(row.data_plane_fqdn);
-
-        let stack = if let Some(key) = row.pulumi_key {
-            stack::PulumiStack {
-                config,
-                secrets_provider: self.secrets_provider.clone(),
-                encrypted_key: key,
-            }
+            checkout
         } else {
-            stack::PulumiStack {
-                config,
-                secrets_provider: "passphrase".to_string(),
-                encrypted_key: String::new(),
-            }
+            *maybe_checkout = Some(self.create_clone(state.logs_token).await?);
+            maybe_checkout.as_mut().unwrap()
         };
 
-        Ok(State {
-            data_plane_id,
-            deploy_branch: row.deploy_branch,
-            last_pulumi_up: chrono::DateTime::default(),
-            last_refresh: chrono::DateTime::default(),
-            logs_token: row.logs_token,
-            stack,
-            stack_name: row.pulumi_stack,
-            status: Status::Idle,
-
-            disabled: true,
-            pending_preview: false,
-            pending_refresh: false,
-            pending_converge: false,
-            publish_exports: None,
-            publish_stack: None,
-        })
-    }
-
-    async fn fetch_releases(
-        pool: &sqlx::PgPool,
-        data_plane_id: models::Id,
-    ) -> anyhow::Result<Vec<stack::Release>> {
-        let rows = sqlx::query_as!(
-            stack::Release,
-            r#"
-            SELECT
-                prev_image,
-                next_image,
-                step
-            FROM data_plane_releases
-            WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')
-            "#,
-            data_plane_id as models::Id,
-        )
-        .fetch_all(pool)
-        .await
-        .context("failed to fetch data-plane releases")?;
-
-        Ok(rows)
-    }
-
-    async fn checkout(&self, state: &State) -> anyhow::Result<repo::Checkout> {
-        let checkout = self
-            .repo
-            .checkout(&self.logs_tx, state.logs_token, &state.deploy_branch)
+        () = self
+            .run_cmd(
+                async_process::Command::new("git")
+                    .arg("fetch")
+                    .current_dir(checkout.path()),
+                "git-fetch",
+                state.logs_token,
+            )
             .await?;
+
+        () = self
+            .run_cmd(
+                async_process::Command::new("git")
+                    .arg("checkout")
+                    .arg("--detach")
+                    .arg("--force")
+                    .arg("--quiet")
+                    .arg(format!("origin/{}", state.deploy_branch))
+                    .current_dir(checkout.path()),
+                "git-checkout",
+                state.logs_token,
+            )
+            .await?;
+
+        () = self
+            .run_cmd(
+                async_process::Command::new("poetry")
+                    .arg("install")
+                    .current_dir(checkout.path())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv"))
+                    .env("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring"),
+                "poetry-install",
+                state.logs_token,
+            )
+            .await?;
+
+        tracing::info!(branch=state.deploy_branch, dir=?checkout.path(), "prepared checkout");
 
         // Write out stack YAML file for Pulumi CLI.
         std::fs::write(
@@ -725,66 +711,180 @@ impl Controller {
         Ok(checkout)
     }
 
+    async fn create_clone(&self, logs_token: uuid::Uuid) -> anyhow::Result<tempfile::TempDir> {
+        let dir = tempfile::TempDir::with_prefix(format!("dpc_checkout_"))
+            .context("failed to create temp directory")?;
+
+        () = self
+            .run_cmd(
+                async_process::Command::new("git")
+                    .arg("clone")
+                    .arg(&self.git_remote)
+                    .arg(".")
+                    .current_dir(dir.path()),
+                "git-clone",
+                logs_token,
+            )
+            .await?;
+
+        () = self
+            .run_cmd(
+                async_process::Command::new("python3.12")
+                    .arg("-m")
+                    .arg("venv")
+                    .arg("./venv")
+                    .current_dir(dir.path()),
+                "python-venv",
+                logs_token,
+            )
+            .await?;
+
+        tracing::info!(repo=self.git_remote, dir=?dir.path(), "created repo clone");
+
+        Ok(dir)
+    }
+
     async fn last_pulumi_run(
         &self,
         state: &State,
-        checkout: &repo::Checkout,
+        checkout: &tempfile::TempDir,
     ) -> anyhow::Result<stack::PulumiStackHistory> {
-        if self.dry_run {
-            // Return a fixture which "detects changes" roughly half the time,
-            // so that dry runs exercise both awaiting and skipping DNS.
-            return Ok(stack::PulumiStackHistory {
-                resource_changes: stack::PulumiStackResourceChanges {
-                    create: (state.last_pulumi_up.timestamp() % 2) as usize,
-                    delete: 0,
-                    same: 0,
-                    update: 0,
-                },
-            });
-        }
+        let output = self
+            .run_captured_cmd(
+                async_process::Command::new("pulumi")
+                    .arg("stack")
+                    .arg("history")
+                    .arg("--stack")
+                    .arg(&state.stack_name)
+                    .arg("--json")
+                    .arg("--page-size")
+                    .arg("1")
+                    .current_dir(checkout.path())
+                    .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
+                    .env("VIRTUAL_ENV", checkout.path().join("venv")),
+                "pulumi-stack-history",
+                state.logs_token,
+            )
+            .await?;
 
-        // Check last run of pulumi
-        let output = async_process::output(
-            async_process::Command::new("pulumi")
-                .arg("stack")
-                .arg("history")
-                .arg("--stack")
-                .arg(&state.stack_name)
-                .arg("--json")
-                .arg("--page-size")
-                .arg("1")
-                .arg("--cwd")
-                .arg(&checkout.path())
-                .envs(self.pulumi_secret_envs())
-                .env("PULUMI_BACKEND_URL", self.state_backend.as_str())
-                .env("VIRTUAL_ENV", checkout.path().join("venv")),
-        )
-        .await?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "pulumi stack history output failed: {}",
-                String::from_utf8_lossy(&output.stderr),
-            );
-        }
-
-        let mut out: Vec<stack::PulumiStackHistory> = serde_json::from_slice(&output.stdout)
+        let mut history: Vec<stack::PulumiStackHistory> = serde_json::from_slice(&output)
             .context("failed to parse pulumi stack history output")?;
 
-        let Some(result) = out.pop() else {
-            anyhow::bail!("failed to parse pulumi stack history output: empty array");
-        };
-
-        return Ok(result);
+        history.pop().context("pulumi stack history is empty")
     }
 
-    fn dns_ttl(&self) -> std::time::Duration {
-        if self.dry_run {
-            DNS_TTL_DRY_RUN
-        } else {
-            DNS_TTL_ACTUAL
+    async fn run_cmd(
+        &self,
+        cmd: &mut async_process::Command,
+        stream: &'static str,
+        logs_token: sqlx::types::Uuid,
+    ) -> anyhow::Result<()> {
+        let mut owned = async_process::Command::new("false");
+        std::mem::swap(cmd, &mut owned);
+
+        let output = (self.run_cmd_fn)(owned, false, stream, logs_token).await?;
+        assert!(output.is_empty(), "unexpected output from command");
+        Ok(())
+    }
+
+    async fn run_captured_cmd(
+        &self,
+        cmd: &mut async_process::Command,
+        stream: &'static str,
+        logs_token: sqlx::types::Uuid,
+    ) -> anyhow::Result<Vec<u8>> {
+        let mut owned = async_process::Command::new("false");
+        std::mem::swap(cmd, &mut owned);
+
+        (self.run_cmd_fn)(owned, true, stream, logs_token).await
+    }
+}
+
+async fn fetch_row_state(
+    pool: &sqlx::PgPool,
+    task_id: models::Id,
+    secrets_provider: &str,
+) -> anyhow::Result<State> {
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            id as "data_plane_id: models::Id",
+            config AS "config: sqlx::types::Json<stack::DataPlane>",
+            deploy_branch AS "deploy_branch!",
+            logs_token,
+            data_plane_name,
+            data_plane_fqdn,
+            pulumi_key AS "pulumi_key",
+            pulumi_stack AS "pulumi_stack!"
+        FROM data_planes
+        WHERE controller_task_id = $1
+        "#,
+        task_id as models::Id,
+    )
+    .fetch_one(pool)
+    .await
+    .context("failed to fetch data-plane row")?;
+
+    let mut config = stack::PulumiStackConfig {
+        model: row.config.0,
+    };
+    config.model.name = Some(row.data_plane_name);
+    config.model.fqdn = Some(row.data_plane_fqdn);
+
+    let stack = if let Some(key) = row.pulumi_key {
+        stack::PulumiStack {
+            config,
+            secrets_provider: secrets_provider.to_string(),
+            encrypted_key: key,
         }
-    }
+    } else {
+        stack::PulumiStack {
+            config,
+            secrets_provider: "passphrase".to_string(),
+            encrypted_key: String::new(),
+        }
+    };
+
+    Ok(State {
+        data_plane_id: row.data_plane_id,
+        deploy_branch: row.deploy_branch,
+        last_pulumi_up: chrono::DateTime::default(),
+        last_refresh: chrono::DateTime::default(),
+        logs_token: row.logs_token,
+        stack,
+        stack_name: row.pulumi_stack,
+        status: Status::Idle,
+
+        disabled: true,
+        pending_preview: false,
+        pending_refresh: false,
+        pending_converge: false,
+        publish_exports: None,
+        publish_stack: None,
+    })
+}
+
+async fn fetch_releases(
+    pool: &sqlx::PgPool,
+    data_plane_id: models::Id,
+) -> anyhow::Result<Vec<stack::Release>> {
+    let rows = sqlx::query_as!(
+        stack::Release,
+        r#"
+        SELECT
+            prev_image,
+            next_image,
+            step
+        FROM data_plane_releases
+        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')
+        "#,
+        data_plane_id as models::Id,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to fetch data-plane releases")?;
+
+    Ok(rows)
 }
 
 impl automations::Outcome for Outcome {
@@ -883,8 +983,6 @@ impl automations::Outcome for Outcome {
     }
 }
 
-const DNS_TTL_ACTUAL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
-const DNS_TTL_DRY_RUN: std::time::Duration = std::time::Duration::from_secs(10);
 const IDLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const POLL_AGAIN: std::time::Duration = std::time::Duration::ZERO;
 const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
