@@ -22,13 +22,14 @@
         "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-foo"
       }
     ],
+    "azure_application_client_id": "12345678-1234-1234-1234-123456789abc",
+    "azure_application_name": "data-plane-123.dp.estuary-data.com",
     "azure_link_endpoints": [
       {
         "ip": "10.0.0.2",
         "service_name": "/subscriptions/subscriptionId/resourceGroups/rg/providers/Microsoft.Network/privateLinkServices/svc-bar"
       }
     ],
-    "azure_application_name": "data-plane-123.dp.estuary-data.com",
     "bastion_tunnel_private_key": "bastion_tunnel_private_key fixture",
     "cidr_blocks": [
       "2600:1234:567:8900::/56",
