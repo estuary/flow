@@ -23,7 +23,21 @@ concurrency:
 
 jobs:
   gnu-binaries:
-    runs-on: ubuntu-2404-large
+    strategy:
+      max-parallel: 2
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-2404-large
+            target: x86_64-unknown-linux-gnu
+            package_arch: x86-linux
+          - arch: arm64
+            runner: ubuntu-2404-arm-large
+            target: aarch64-unknown-linux-gnu
+            package_arch: arm-linux
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - uses: actions/checkout@v2
@@ -52,15 +66,15 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
+      - run: make extra-ci-runner-setup
+      - run: make print-versions
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest
       - run: supabase start
       - name: SQL tests
         run: ./supabase/run_sql_tests.sh
-
-      - run: make extra-ci-runner-setup
-      - run: make print-versions
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -86,9 +100,9 @@ jobs:
           name: linux-gnu-binaries
           path: |
             .build/package/bin/*
-            target/x86_64-unknown-linux-gnu/release/libbindings.a
+            target/${{ matrix.target }}/release/libbindings.a
             crates/bindings/flow_bindings.h
-            target/x86_64-unknown-linux-gnu/release/librocksdb-exp/
+            target/${{ matrix.target }}/release/librocksdb-exp/
 
   musl-binaries:
     runs-on: ubuntu-2404-large
@@ -126,7 +140,21 @@ jobs:
             .build/package/bin/*
 
   assembly:
-    runs-on: ubuntu-2404-large
+    strategy:
+      max-parallel: 2
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-2404-large
+            target: x86_64-unknown-linux-gnu
+            package_arch: x86-linux
+          - arch: arm64
+            runner: ubuntu-2404-arm-large
+            target: aarch64-unknown-linux-gnu
+            package_arch: arm-linux
+
+    runs-on: ${{ matrix.runner }}
     needs: [gnu-binaries, musl-binaries]
 
     services:
@@ -194,8 +222,8 @@ jobs:
         run: |
           mkdir -p .build/package/bin && \
           mv linux-gnu-binaries/.build/package/bin/* .build/package/bin && \
-          mkdir -p target/x86_64-unknown-linux-gnu/release && \
-          mv -f linux-gnu-binaries/target/x86_64-unknown-linux-gnu/release/* target/x86_64-unknown-linux-gnu/release/ && \
+          mkdir -p target/${{ matrix.target }}/release && \
+          mv -f linux-gnu-binaries/target/${{ matrix.target }}/release/* target/${{ matrix.target }}/release/ && \
           mv -f linux-gnu-binaries/crates/bindings/flow_bindings.h crates/bindings/
 
       - name: Download linux-musl-binaries
@@ -231,7 +259,7 @@ jobs:
 
       - name: make package (tar only)
         run: |
-          make /home/runner/work/flow/flow/.build/package/flow-x86-linux.tar.gz
+          make /home/runner/work/flow/flow/.build/package/flow-${{ matrix.package_arch }}.tar.gz
 
       - name: Ensure that we didn't dirty the tree.
         run: git clean --force -d && git diff --exit-code || exit 1
@@ -253,4 +281,4 @@ jobs:
           prerelease: true
           tag_name: dev
           generate_release_notes: false
-          files: .build/package/flow-x86-linux.tar.gz
+          files: .build/package/flow-${{ matrix.package_arch }}.tar.gz

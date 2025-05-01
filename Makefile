@@ -10,6 +10,8 @@ DATE    = $(shell date +%F-%T-%Z)
 CARGO_TARGET_DIR ?= target
 UNAME := $(shell uname -sp)
 
+DOCKER_PLATFORM=linux/amd64
+
 # Unfortunately, cargo's build cache get's completely invalidated when you switch between the
 # default target and an explicit --target argument. We work around this by setting an explicit
 # target. Thus, when running `cargo build` (without an
@@ -31,6 +33,13 @@ ETCD_ARCH=darwin-amd64
 ETCD_SHASUM=8bd279948877cfb730345ecff2478f69eaaa02513c2a43384ba182c9985267bd
 ETCD_EXT=zip
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
+else ifeq ($(UNAME),Linux aarch64)
+export CARGO_BUILD_TARGET=aarch64-unknown-linux-gnu
+PACKAGE_ARCH=arm-linux
+ETCD_ARCH=linux-arm64
+ETCD_SHASUM=a8d177ae8ecfd1ef025c35ac8c444041d14e67028c1a7b4eda3a69a8dee5f9c3
+ETCD_EXT=tar.gz
+DOCKER_PLATFORM=linux/arm64
 else
 export CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu
 PACKAGE_ARCH=x86-linux
@@ -49,7 +58,7 @@ WORKDIR  = $(realpath .)/.build
 PKGDIR = ${WORKDIR}/package
 
 # Deno and Etcd release we pin within Flow distributions.
-DENO_VERSION = v1.32.1
+DENO_VERSION = v1.40.5
 ETCD_VERSION = v3.5.5
 
 # PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
@@ -279,7 +288,8 @@ extra-ci-runner-setup:
 		musl-dev \
 		musl-tools \
 		python3-poetry \
-		python3-venv
+		python3-venv \
+		postgresql-client
 
 .PHONY: print-versions
 print-versions:
@@ -355,6 +365,7 @@ docker-image:
 		--file .devcontainer/release.Dockerfile \
 		--tag ghcr.io/estuary/flow:${FLOW_VERSION} \
 		--tag ghcr.io/estuary/flow:dev \
+		--platform ${DOCKER_PLATFORM} \
 		${PKGDIR}/
 
 .PHONY: docker-push
