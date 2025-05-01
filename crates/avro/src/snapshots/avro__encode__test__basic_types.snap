@@ -313,6 +313,13 @@ expression: "json!({ \"key\": &key, \"value\": &value, })"
         ]
       },
       {
+        "name": "string_or_number_int_with_zero_frac",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      {
         "name": "_flow_extra",
         "type": {
           "type": "map",
