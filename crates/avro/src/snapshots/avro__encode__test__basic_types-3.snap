@@ -412,6 +412,15 @@ Record(
             ),
         ),
         (
+            "string_or_number_int_with_zero_frac",
+            Union(
+                0,
+                String(
+                    "1",
+                ),
+            ),
+        ),
+        (
             "_flow_extra",
             Map(
                 {
