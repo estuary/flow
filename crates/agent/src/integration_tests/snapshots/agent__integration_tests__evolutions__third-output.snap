@@ -18,11 +18,11 @@ EvolutionOutput {
                   },
                   "bindings": [
                     {
-                      "resource": {"id":"A"},
+                      "resource": {"_meta":{"path":["A"]},"id":"A"},
                       "target": "moths/collectionA"
                     },
                     {
-                      "resource": {"id":"B"},
+                      "resource": {"_meta":{"path":["B"]},"id":"B"},
                       "target": "moths/new-collectionB",
                       "backfill": 1
                     }
@@ -120,7 +120,7 @@ EvolutionOutput {
                   },
                   "bindings": [
                     {
-                      "resource": {"id":"A"},
+                      "resource": {"_meta":{"path":["A"]},"id":"A"},
                       "source": "moths/collectionA",
                       "fields": {
                         "recommended": true
@@ -128,7 +128,7 @@ EvolutionOutput {
                       "backfill": 1
                     },
                     {
-                      "resource": {"id":"B"},
+                      "resource": {"_meta":{"path":["B"]},"id":"B"},
                       "source": "moths/new-collectionB",
                       "fields": {
                         "recommended": true
@@ -136,7 +136,7 @@ EvolutionOutput {
                       "backfill": 1
                     },
                     {
-                      "resource": {"id":"C"},
+                      "resource": {"_meta":{"path":["C"]},"id":"C"},
                       "source": "moths/collectionC",
                       "fields": {
                         "recommended": true
