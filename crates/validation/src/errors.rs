@@ -206,6 +206,13 @@ pub enum Error {
         lhs_index: usize,
         rhs_index: usize,
     },
+    #[error("{task_type} {task_name} connector validate response omitted resource path for {missing_count} of {total_bindings} bindings")]
+    MissingResourcePath {
+        task_name: String,
+        task_type: &'static str,
+        missing_count: usize,
+        total_bindings: usize,
+    },
     #[error(transparent)]
     SchemaBuild(#[from] json::schema::build::Error),
     #[error(transparent)]

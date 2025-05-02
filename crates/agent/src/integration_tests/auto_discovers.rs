@@ -123,7 +123,7 @@ async fn test_auto_discovers_add_new_bindings() {
     [
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"extra\":\"grass\",\"id\":\"grass\"}"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"grass\"]},\"extra\":\"grass\",\"id\":\"grass\"}"
         },
         "target": "marmots/grass"
       },
@@ -262,13 +262,13 @@ async fn test_auto_discovers_add_new_bindings() {
     [
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"extra\":\"flowers\",\"id\":\"flowers\"}"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"flowers\"]},\"extra\":\"flowers\",\"id\":\"flowers\"}"
         },
         "target": "marmots/flowers"
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"extra\":\"grass\",\"id\":\"grass\"}"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"grass\"]},\"extra\":\"grass\",\"id\":\"grass\"}"
         },
         "target": "marmots/grass"
       }
@@ -283,7 +283,7 @@ async fn test_auto_discovers_add_new_bindings() {
     [
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"marmots_flowers\"}"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"marmots_flowers\"]},\"id\":\"marmots_flowers\"}"
         },
         "source": "marmots/flowers",
         "fields": {
@@ -292,7 +292,7 @@ async fn test_auto_discovers_add_new_bindings() {
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"marmots_grass\"}"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"marmots_grass\"]},\"id\":\"marmots_grass\"}"
         },
         "source": "marmots/grass",
         "fields": {
@@ -314,13 +314,13 @@ async fn test_auto_discovers_add_new_bindings() {
     insta::assert_json_snapshot!(pub_history, @r###"
     [
       [
-        "auto-discover changes (1 added, 0 modified, 1 removed)",
+        "auto-discover changes (1 added, 0 modified, 1 removed)\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
         {
           "type": "success"
         }
       ],
       [
-        "auto-discover changes (2 added, 0 modified, 0 removed)",
+        "auto-discover changes (2 added, 0 modified, 0 removed)\nUpdated 'marmots/capture':\nupdated resource /_meta of 1 bindings",
         {
           "type": "success"
         }
@@ -926,7 +926,7 @@ async fn test_auto_discovers_update_only() {
     [
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"pikas_alpine-grass\"}"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"pikas_alpine-grass\"]},\"id\":\"pikas_alpine-grass\"}"
         },
         "source": "pikas/alpine-grass_v2",
         "fields": {
@@ -936,7 +936,7 @@ async fn test_auto_discovers_update_only() {
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"id\":\"pikas_moss\"}"
+          "$serde_json::private::RawValue": "{\"_meta\":{\"path\":[\"pikas_moss\"]},\"id\":\"pikas_moss\"}"
         },
         "source": "pikas/moss",
         "fields": {

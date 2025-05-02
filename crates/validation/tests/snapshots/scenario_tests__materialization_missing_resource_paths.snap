@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views,
+        error: materialization testing/db-views connector validate response omitted resource path for 1 of 2 bindings,
+    },
+]
