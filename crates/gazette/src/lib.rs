@@ -81,15 +81,15 @@ impl Error {
             // At this level, we do not consider BrokerStatus or ConsumerStatus
             // to be transient. Callers may want to special-case certain values
             // as fits their circumstances however.
+            Error::AppendRead(_) => false,
             Error::BearerToken(_) => false,
             Error::BrokerStatus(_) => false,
             Error::ConsumerStatus(_) => false,
             Error::InvalidEndpoint(_) => false,
+            Error::JWT(_) => false,
             Error::Parsing { .. } => false,
             Error::Protocol(_) => false,
             Error::UUID(_) => false,
-            Error::JWT(_) => false,
-            Error::AppendRead(_) => false,
         }
     }
 }
