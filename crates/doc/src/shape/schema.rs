@@ -169,16 +169,10 @@ fn to_sub_schema(shape: Shape) -> Schema {
         }
 
         match reduction {
-            Reduction::Unset => {}
+            Reduction::Unset | Reduction::Multiple => {}
             Reduction::Strategy(strategy) => {
                 out.extensions
                     .insert("reduce".to_string(), serde_json::json!(strategy));
-            }
-            Reduction::Multiple => {
-                out.extensions.insert(
-                    "reduce".to_string(),
-                    serde_json::json!("multiple-strategies"),
-                );
             }
         }
 
@@ -282,6 +276,9 @@ mod tests {
                     "minimum": 20,
                     "maximum": 30.0,
                     "default": 25.4,
+                    "reduce": {
+                        "strategy": "sum",
+                    }
                 },
                 "tuple": {
                     "type": "array",
@@ -311,6 +308,9 @@ mod tests {
                 "emptyObj",
                 "str",
             ],
+            "reduce": {
+                "strategy": "merge",
+            }
         });
 
         let curi = url::Url::parse("flow://fixture").unwrap();

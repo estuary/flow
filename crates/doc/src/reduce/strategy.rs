@@ -126,13 +126,13 @@ pub struct Merge {
     /// Relative JSON Pointer(s) which form the key by which the items of merged
     /// Arrays are ordered. `key` is ignored in Object merge contexts, where the
     /// object property is used instead.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub key: Vec<Pointer>,
     /// Delete marks that this location should be removed from the document.
     /// Deletion is effected only when a document is fully reduced, so partial
     /// reductions of the document will continue to have deleted locations
     /// up until the point where they're reduced into a base document.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub delete: bool,
 }
 
