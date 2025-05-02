@@ -327,7 +327,7 @@ async fn walk_derivation<C: Connectors>(
                 data_plane_id,
                 noop_derivations || shards.disable,
                 &live_transforms_model,
-                &mut live_transforms_spec,
+                &live_transforms_spec,
                 &mut model_fixes,
                 errors,
             )
@@ -626,7 +626,10 @@ async fn walk_derivation<C: Connectors>(
         assemble::shard_id_prefix(pub_id, collection, labels::TASK_TYPE_DERIVATION)
     };
 
-    // Any remaining live transform specs were not removed while walking transforms, and must be inactive.
+    // Remove built transforms from `live_transforms_spec`. The remainder must be inactive.
+    for transform in &transforms_spec {
+        live_transforms_spec.remove(transform.name.as_str());
+    }
     let inactive_transforms = live_transforms_spec
         .values()
         .map(|v| (*v).clone())
@@ -691,7 +694,7 @@ fn walk_derive_transform<'a>(
     data_plane_id: models::Id,
     disable: bool,
     live_transforms_model: &BTreeMap<&models::Transform, &models::TransformDef>,
-    live_transforms_spec: &mut BTreeMap<&str, &flow::collection_spec::derivation::Transform>,
+    live_transforms_spec: &BTreeMap<&str, &flow::collection_spec::derivation::Transform>,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (models::TransformDef, Option<ValidateContext>) {
@@ -743,17 +746,20 @@ fn walk_derive_transform<'a>(
         return (model, None);
     };
 
-    // Removal from `live_transforms_spec` is how we know to not include it in `inactive_transforms`.
-    if let Some(live_spec) = live_transforms_spec.remove(model.name.as_str()) {
-        if model.backfill == live_spec.backfill
-            && super::collection_was_reset(&source_spec, &live_spec.collection)
-        {
-            model_fixes.push(format!(
-                "backfilled transform {} of reset collection {source_name}",
-                model.name
-            ));
-            model.backfill += 1;
-        }
+    // Was this transform's source collection reset under its current backfill count?
+    let was_reset = live_transforms_spec
+        .get(model.name.as_str())
+        .is_some_and(|live_spec| {
+            live_spec.backfill == model.backfill
+                && super::collection_was_reset(&source_spec, &live_spec.collection)
+        });
+
+    if was_reset {
+        model_fixes.push(format!(
+            "backfilled transform {} of reset collection {source_name}",
+            model.name
+        ));
+        model.backfill += 1;
     }
 
     let source_schema = schema::Schema::new(if source_spec.read_schema_json.is_empty() {
