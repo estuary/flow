@@ -1,12 +1,25 @@
 use anyhow::Context;
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
+use mockall_double::double;
 
+mod ansible;
 mod controller;
 mod logs;
+mod pulumi;
 mod repo;
 mod stack;
 
 pub use controller::Controller;
+
+#[double]
+use ansible::Ansible;
+#[double]
+use pulumi::Pulumi;
+#[double]
+use repo::Repo;
+
+#[cfg(test)]
+mod integration_tests;
 
 #[derive(clap::Parser, Debug, serde::Serialize)]
 #[clap(author, version, about, long_about = None)]
@@ -71,7 +84,10 @@ pub struct Args {
     dry_run: bool,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
+async fn run_internal(
+    args: Args,
+    shutdown: impl std::future::Future<Output = ()>,
+) -> anyhow::Result<()> {
     let hostname = std::env::var("HOSTNAME").ok();
     let app_name = if let Some(hostname) = &hostname {
         hostname.as_str()
@@ -80,7 +96,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     };
     tracing::info!(args=?ops::DebugJson(&args), app_name, "started!");
 
-    let repo = repo::Repo::new(&args.git_repo);
+    let repo = Repo::new(&args.git_repo);
 
     let mut pg_options = args
         .database_url
@@ -105,6 +121,34 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .await
         .context("connecting to database")?;
 
+    let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(120);
+    let logs_sink = logs::serve_sink(pg_pool.clone(), logs_rx).map_err(|err| anyhow::anyhow!(err));
+
+    let server = automations::Server::new()
+        .register(controller::Controller {
+            dry_run: args.dry_run,
+            logs_tx,
+            repo,
+            secrets_provider: args.secrets_provider,
+            state_backend: args.state_backend,
+            pulumi: Pulumi::new(),
+            ansible: Ansible::new(),
+        })
+        .serve(
+            args.concurrency,
+            pg_pool,
+            args.dequeue_interval,
+            args.heartbeat_timeout,
+            shutdown,
+            if cfg!(test) { true } else { false },
+        );
+
+    let ((), ()) = futures::try_join!(logs_sink, server)?;
+
+    Ok(())
+}
+
+pub async fn run(args: Args) -> anyhow::Result<()> {
     let shutdown = async {
         match tokio::signal::ctrl_c().await {
             Ok(()) => {
@@ -116,29 +160,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         }
     };
 
-    let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(120);
-    let logs_sink = logs::serve_sink(pg_pool.clone(), logs_rx).map_err(|err| anyhow::anyhow!(err));
-
-    let server = automations::Server::new()
-        .register(controller::Controller {
-            dry_run: args.dry_run,
-            logs_tx,
-            repo,
-            secrets_provider: args.secrets_provider,
-            state_backend: args.state_backend,
-        })
-        .serve(
-            args.concurrency,
-            pg_pool,
-            args.dequeue_interval,
-            args.heartbeat_timeout,
-            shutdown,
-        )
-        .map(|()| anyhow::Result::<()>::Ok(()));
-
-    let ((), ()) = futures::try_join!(logs_sink, server)?;
-
-    Ok(())
+    run_internal(args, shutdown).await
 }
 
 #[derive(Debug)]

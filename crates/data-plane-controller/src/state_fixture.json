@@ -75,5 +75,6 @@
   "last_refresh": "2025-02-26T15:23:07.693050947Z",
   "data_plane_id": "1122334455667788",
   "deploy_branch": "main",
-  "last_pulumi_up": "2025-02-26T15:46:19.720962982Z"
+  "last_pulumi_up": "2025-02-26T15:46:19.720962982Z",
+  "private_links": []
 }

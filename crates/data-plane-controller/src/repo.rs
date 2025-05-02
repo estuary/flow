@@ -1,5 +1,6 @@
 use super::{logs, run_cmd};
 use anyhow::Context;
+use mockall::automock;
 use std::sync::Arc;
 
 pub struct Repo {
@@ -16,6 +17,7 @@ pub struct Checkout {
     inner: Arc<Inner>,
 }
 
+#[automock]
 impl Repo {
     pub fn new(repo: &str) -> Self {
         Self {
@@ -140,6 +142,17 @@ impl Repo {
 impl Checkout {
     pub fn path(&self) -> &std::path::Path {
         self.dir.as_ref().unwrap().path()
+    }
+
+    #[cfg(test)]
+    pub fn test_instance(dir: tempfile::TempDir) -> Self {
+        Self {
+            dir: Some(dir),
+            inner: std::sync::Arc::new(Inner {
+                repo: String::new(),
+                idle: Default::default(),
+            }),
+        }
     }
 }
 

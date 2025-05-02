@@ -32,6 +32,10 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
+mockall = { workspace = true }
+mockall_double = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+xxhash-rust = { workspace = true }
+serial_test = { workspace = true }
