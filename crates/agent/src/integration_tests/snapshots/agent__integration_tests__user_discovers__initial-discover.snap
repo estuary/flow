@@ -21,16 +21,16 @@ DraftCatalog {
               },
               "bindings": [
                 {
-                  "resource": {"id":"acorns"},
+                  "resource": {"id": "acorns"},
                   "target": "squirrels/acorns"
                 },
                 {
-                  "resource": {"id":"crab apples"},
+                  "resource": {"id": "crab apples"},
                   "disable": true,
                   "target": "squirrels/crab_apples"
                 },
                 {
-                  "resource": {"id":"walnuts"},
+                  "resource": {"id": "walnuts"},
                   "target": "squirrels/walnuts"
                 }
               ]

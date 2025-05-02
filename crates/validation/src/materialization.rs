@@ -190,7 +190,7 @@ async fn walk_materialization<C: Connectors>(
         .iter()
         .flat_map(|model| model.bindings.iter())
         .filter_map(|model| {
-            let model_path = super::load_resource_meta_path(&model.resource);
+            let model_path = super::load_resource_meta_path(model.resource.get());
             (!model_path.is_empty()).then_some((model_path, model))
         })
         .collect();
@@ -548,7 +548,7 @@ fn walk_materialization_binding<'a>(
     bool,
     Option<materialize::request::validate::Binding>,
 ) {
-    let model_path = super::load_resource_meta_path(&model.resource);
+    let model_path = super::load_resource_meta_path(model.resource.get());
 
     if disable || model.disable {
         return (model_path, model, false, None);
