@@ -429,7 +429,7 @@ where
 
 // Load the resource path encoded in /_meta/path, or return an empty Vec
 // if there is no such location, or it's not an array of strings.
-pub fn load_resource_meta_path(resource: &models::RawValue) -> Vec<String> {
+pub fn load_resource_meta_path(resource_config_json: &str) -> Vec<String> {
     #[derive(serde::Deserialize)]
     struct Meta {
         path: Vec<String>,
@@ -442,7 +442,7 @@ pub fn load_resource_meta_path(resource: &models::RawValue) -> Vec<String> {
 
     if let Ok(Skim {
         meta: Some(Meta { path }),
-    }) = serde_json::from_str::<Skim>(resource.get())
+    }) = serde_json::from_str::<Skim>(resource_config_json)
     {
         path
     } else {

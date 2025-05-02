@@ -94,8 +94,7 @@ impl Connectors for TestConnectors {
                     let bindings = validate
                         .bindings
                         .iter()
-                        .enumerate()
-                        .map(|(index, binding)| {
+                        .map(|binding| {
                             let resource_config =
                                 serde_json::from_str(&binding.resource_config_json).unwrap();
                             let resource_path = mock_resource_path(&resource_config);
