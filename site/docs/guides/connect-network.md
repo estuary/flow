@@ -6,7 +6,7 @@ sidebar_position: 8
 
 There are various options for more securely connecting to your endpoints depending on your environment and needs.
 
-# Configure connections with SSH tunneling
+## Configure connections with SSH tunneling
 
 Flow connects to certain types of endpoints — generally databases — using their IP address and port.
 For added security, you can configure [SSH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), also known as port forwarding.
@@ -26,7 +26,7 @@ as well as generalized setup that provides a basic roadmap for on-premise server
 After completing the appropriate setup requirements, proceed to the [configuration](#configuration) section
 to add your SSH server to your capture or materialization definition.
 
-## General setup
+### General setup
 
 1. Activate an [SSH implementation on a server](https://www.ssh.com/academy/ssh/server#availability-of-ssh-servers), if you don't have one already.
    Consult the documentation for your server's operating system and/or cloud service provider, as the steps will vary.
@@ -67,7 +67,7 @@ to add your SSH server to your capture or materialization definition.
 
 5. To grant external access to the SSH server, it's essential to configure your network settings accordingly. The approach you take will be dictated by your organization's IT policies. One recommended step is to [allowlist the Estuary IP addresses](/reference/allow-ip-addresses). This ensures that connections from this specific IP are permitted through your network's firewall or security measures.
 
-## Setup for AWS
+### Setup for AWS
 
 To allow SSH tunneling to a database instance hosted on AWS, you'll need to create a virtual computing environment, or _instance_, in Amazon EC2.
 
@@ -100,7 +100,7 @@ To allow SSH tunneling to a database instance hosted on AWS, you'll need to crea
 
 5. Find and note the [instance's public DNS](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-dns.html#vpc-dns-viewing). This will be formatted like: `ec2-198-21-98-1.compute-1.amazonaws.com`.
 
-## Setup for Google Cloud
+### Setup for Google Cloud
 
 To allow SSH tunneling to a database instance hosted on Google Cloud, you must set up a virtual machine (VM).
 
@@ -134,7 +134,7 @@ To allow SSH tunneling to a database instance hosted on Google Cloud, you must s
 4. [Reserve an external IP address](https://cloud.google.com/compute/docs/ip-addresses/reserve-static-external-ip-address) and connect it to the VM during setup.
    Note the generated address.
 
-## Setup for Azure
+### Setup for Azure
 
 To allow SSH tunneling to a database instance hosted on Azure, you'll need to create a virtual machine (VM) in the same virtual network as your endpoint database.
 
@@ -168,7 +168,7 @@ To allow SSH tunneling to a database instance hosted on Azure, you'll need to cr
    Instructions for Azure Database For PostgreSQL can be found [here](https://docs.microsoft.com/en-us/azure/postgresql/howto-manage-vnet-using-portal);
    note that instructions for other database engines may be different.
 
-## Configuration
+### Configuration
 
 After you've completed the prerequisites, you should have the following parameters:
 
@@ -183,7 +183,7 @@ After you've completed the prerequisites, you should have the following paramete
 Use these to add SSH tunneling to your capture or materialization definition, either by filling in the corresponding fields
 in the web app, or by working with the YAML directly. Reference the [Connectors](../../concepts/connectors/#connecting-to-endpoints-on-secure-networks) page for a YAML sample.
 
-# Expose ports on a Reverse SSH Tunnel Bastion
+## Expose ports on a Reverse SSH Tunnel Bastion
 
 If you are a customer of our [Private Deployment](/getting-started/deployment-options/#private-deployment) or [BYOC](/getting-started/deployment-options/#byoc-bring-your-own-cloud), we can deploy a bastion server for you which can be used to expose specific ports on. We will provide you with the bastion server address, port and key.
 
@@ -201,15 +201,67 @@ ssh -o 'ConnectTimeout=5s' \\
 
 Once the port is exposed, you can establish a tunnel to the same bastion when setting up your task on the Estuary Flow web app, specifying the bastion's connection string and key, and using `localhost:8080` as the address of your endpoint (since the port will be opened on the `localhost` of the bastion).
 
-# Azure Private Link
+## Configure connections with PrivateLink
 
-For customers of Azure [Private Deployment](/getting-started/deployment-options/#private-deployment) or [BYOC](/getting-started/deployment-options/#byoc-bring-your-own-cloud), we can establish connections to your endpoints using Azure Private Link.
+If you use Estuary in a [private deployment](../getting-started/deployment-options.md#private-deployment) or [Bring Your Own Cloud](../getting-started/deployment-options.md#byoc-bring-your-own-cloud) setup, you can securely connect services using PrivateLink.
+This lets you transfer data between your private or BYOC deployment and external services without exposing it to the public internet.
 
-You will need to create an [Azure Private Link Service](https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview) which also requires having an [Azure Load Balancer](https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview) in front of the services you intend to expose. After creating these resources make sure your LoadBalancer is able to route traffic correctly to your instances, you can check this by looking at the Monitoring -> Metrics page of your LoadBalancer and checking for its Health Probe Status.
+Different cloud providers have different setup steps to start using PrivateLink.
 
-Once you have your Private Link Service set up, we need these details from you to establish the connection, send them to your Estuary point of contact:
+### AWS PrivateLink
 
- - The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`, this can be found by navigating to the private link service's details page on Azure Portal and copying the URL
- - Location for private endpoint, like `westus`
+For AWS private or BYOC deployments, we can establish connections to your endpoints using [AWS PrivateLink](https://docs.aws.amazon.com/vpc/latest/privatelink/what-is-privatelink.html).
+
+To do so, you will first need to create a Virtual Private Cloud (VPC) endpoint service. You can create or manage your endpoint services on the [AWS VPC dashboard](https://console.aws.amazon.com/vpc/). Make sure the endpoint service is in the same region as your private deployment.
+
+We will then need the following information to establish the connection. Send these details to your Estuary point of contact:
+
+- The endpoint service name, such as `com.amazonaws.vpce.us-east-1.vpce-svc-0123456789abcdef`
+- The Availability Zone IDs it offers, such as `[use1-az4, use1-az6]`
+
+After establishing the connection, we will provide a DNS name which you can use as the hostname when connecting to the database.
+
+#### Variations
+
+Certain services may use AWS PrivateLink in unique ways. More detailed instructions for these services are provided below.
+
+**MongoDB**
+
+A MongoDB connection will use an altered endpoint ID to retrieve the hostname.
+
+Create the endpoint service in AWS and receive back the DNS name from Estuary as for a standard AWS PrivateLink connection. To finish setup:
+
+1. Take the first 22 characters of the DNS name, such as `vpce-0123456789abcdefg`.
+
+2. In your MongoDB dashboard, navigate to the **Network Access** section.
+
+3. On the **Private Endpoint** page in this section, add a new private endpoint.
+
+4. In the setup modal, choose your cloud provider and Atlas region. You may skip the "Interface Endpoint" step.
+
+5. As part of the **Finalize Endpoint Connection** step, add the 22-character DNS string as **Your VPC Endpoint ID**.
+
+6. Click **Create** and wait until the Endpoint Status is `Available`.
+
+MongoDB will create a URL for this endpoint. You can use this as the hostname in Estuary to connect with your database.
+
+You can find this URL as you would any other Atlas hostname:
+
+1. Bring up the **Connect** modal for your MongoDB cluster.
+
+2. Make sure to choose **Private Endpoint** as your Connection Type and select the endpoint you created.
+
+3. Choose the **Shell** connection method. The shell command will display your MongoDB URL (for example, `mongodb+srv://abc-123.mongodb.net/`).
+
+### Azure Private Link
+
+For Azure private or BYOC deployments, we can establish connections to your endpoints using Azure Private Link.
+
+You will need to create an [Azure Private Link Service](https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview) which also requires having an [Azure Load Balancer](https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview) in front of the services you intend to expose. After creating these resources, make sure your LoadBalancer is able to route traffic correctly to your instances. You can check this by looking at the Monitoring -> Metrics page of your LoadBalancer and checking for its Health Probe Status.
+
+Once you have your Private Link Service set up, we need these details from you to establish the connection. Send them to your Estuary point of contact:
+
+ - The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`; this can be found by navigating to the private link service's details page in your Azure Portal and copying the URL
+ - Location for the private endpoint, like `westus`
 
 After establishing the connection we will give you a private IP address which you can use to connect to your endpoint when setting up your task on the Estuary Flow web app.
