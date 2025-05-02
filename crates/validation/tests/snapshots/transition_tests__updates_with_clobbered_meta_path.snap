@@ -21,13 +21,12 @@ Outcome {
               "bindings": [
                 {
                   "resource": {"_meta":{"path":["capture","path"]},"table":"foo"},
-                  "target": "the/collection",
-                  "backfill": 1
+                  "target": "the/collection"
                 }
               ]
             },
             model_fixes: [
-              "backfilled binding of reset collection the/collection"
+              "updated resource /_meta of 1 bindings"
             ],
             validated: Validated {
                 bindings: [
@@ -294,7 +293,7 @@ Outcome {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "the/collection/2020202020202020",
+                                        name: "the/collection/0000000000000001",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -353,8 +352,8 @@ Outcome {
                                 derivation: None,
                             },
                         ),
-                        backfill: 1,
-                        state_key: "capture%2Fpath.v1",
+                        backfill: 0,
+                        state_key: "capture%2Fpath",
                     },
                 ],
                 interval_seconds: 300,
@@ -571,7 +570,6 @@ Outcome {
               }
             },
             model_fixes: [
-              "reset collection to new generation 2020202020202020",
               "removed projection FY: /f_y, which is no longer in the schema"
             ],
             validated: NULL,
@@ -818,7 +816,7 @@ Outcome {
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
                     JournalSpec {
-                        name: "the/collection/2020202020202020",
+                        name: "the/collection/0000000000000001",
                         replication: 3,
                         labels: Some(
                             LabelSet {
@@ -930,15 +928,12 @@ Outcome {
                         "/f_two"
                       ]
                     },
-                    "lambda": "select 123 as d_one, 'hello' as d_two;\n",
-                    "backfill": 1
+                    "lambda": "select 123 as d_one, 'hello' as d_two;\n"
                   }
                 ]
               }
             },
-            model_fixes: [
-              "backfilled transform fromCollection of reset collection the/collection"
-            ],
+            model_fixes: [],
             validated: Validated {
                 transforms: [
                     Transform {
@@ -1399,7 +1394,7 @@ Outcome {
                                         ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                         partition_template: Some(
                                             JournalSpec {
-                                                name: "the/collection/2020202020202020",
+                                                name: "the/collection/0000000000000001",
                                                 replication: 3,
                                                 labels: Some(
                                                     LabelSet {
@@ -1486,10 +1481,10 @@ Outcome {
                                 shuffle_lambda_config_json: "",
                                 lambda_config_json: "\"select 123 as d_one, 'hello' as d_two;\\n\"",
                                 read_only: true,
-                                journal_read_suffix: "derive/the/derivation/fromCollection.v1",
+                                journal_read_suffix: "derive/the/derivation/fromCollection",
                                 not_before: None,
                                 not_after: None,
-                                backfill: 1,
+                                backfill: 0,
                             },
                         ],
                         shuffle_key_types: [
@@ -1739,23 +1734,13 @@ Outcome {
                   "resource": {"_meta":{"path":["table","path"]},"table":"bar"},
                   "source": "the/collection",
                   "fields": {
-                    "include": {
-                      "F1": {},
-                      "f_two": {}
-                    },
-                    "exclude": [
-                      "F2"
-                    ],
                     "recommended": true
-                  },
-                  "backfill": 1
+                  }
                 }
               ]
             },
             model_fixes: [
-              "removed dropped exclude projection FY of source collection the/collection",
-              "removed dropped exclude projection does/not/exist of source collection the/collection",
-              "backfilled binding of reset collection the/collection"
+              "updated resource /_meta of 1 bindings"
             ],
             validated: Validated {
                 bindings: [
@@ -2041,7 +2026,7 @@ Outcome {
                                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                                 partition_template: Some(
                                     JournalSpec {
-                                        name: "the/collection/2020202020202020",
+                                        name: "the/collection/0000000000000001",
                                         replication: 3,
                                         labels: Some(
                                             LabelSet {
@@ -2124,25 +2109,22 @@ Outcome {
                         field_selection: Some(
                             FieldSelection {
                                 keys: [
-                                    "F1",
+                                    "f_one",
                                 ],
                                 values: [
                                     "f_two",
                                 ],
                                 document: "flow_document",
-                                field_config_json_map: {
-                                    "F1": "{}",
-                                    "f_two": "{}",
-                                },
+                                field_config_json_map: {},
                             },
                         ),
                         delta_updates: false,
                         deprecated_shuffle: None,
-                        journal_read_suffix: "materialize/the/materialization/table%2Fpath.v1",
+                        journal_read_suffix: "materialize/the/materialization/table%2Fpath",
                         not_before: None,
                         not_after: None,
-                        backfill: 1,
-                        state_key: "table%2Fpath.v1",
+                        backfill: 0,
+                        state_key: "table%2Fpath",
                     },
                 ],
                 shard_template: Some(
@@ -2420,7 +2402,7 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"_meta":{"path":["capture","path"]},"table":"foo"},
+                  "resource": {"table":"foo"},
                   "target": "the/collection"
                 }
               ]
@@ -2443,8 +2425,7 @@ Outcome {
                 "F2": "/f_two",
                 "FX": "/f_x",
                 "FY": "/f_y"
-              },
-              "reset": true
+              }
             },
             is_touch: 0,
         },
@@ -2503,18 +2484,9 @@ Outcome {
               },
               "bindings": [
                 {
-                  "resource": {"_meta":{"path":["table","path"]},"table":"bar"},
+                  "resource": {"table":"bar"},
                   "source": "the/collection",
                   "fields": {
-                    "include": {
-                      "F1": {},
-                      "f_two": {}
-                    },
-                    "exclude": [
-                      "F2",
-                      "FY",
-                      "does/not/exist"
-                    ],
                     "recommended": true
                   }
                 }
@@ -2528,7 +2500,7 @@ Outcome {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"_meta":{"path":["capture","path"]},"table":"foo"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"reset":true,"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"fields":{"exclude":["F2","FY","does/not/exist"],"include":{"F1":{},"f_two":{}},"recommended":true},"resource":{"_meta":{"path":["table","path"]},"table":"bar"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"tests":{"the/test":{"expectPubId":"10:10:10:10:10:10:10:10","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
+            content_dom: {"captures":{"the/capture":{"bindings":[{"resource":{"table":"foo"},"target":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"an/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"collections":{"the/collection":{"expectPubId":"10:10:10:10:10:10:10:10","key":["/f_one"],"projections":{"F1":"/f_one","F2":"/f_two","FX":"/f_x","FY":"/f_y"},"schema":{"properties":{"f_one":{"type":"integer"},"f_two":{"type":"string"},"f_x":false},"required":["f_one","f_two"],"type":"object"}},"the/derivation":{"derive":{"transforms":[{"lambda":"select 123 as d_one, 'hello' as d_two;\n","name":"fromCollection","shuffle":{"key":["/f_two"]},"source":{"name":"the/collection"}}],"using":{"sqlite":{}}},"expectPubId":"10:10:10:10:10:10:10:10","key":["/d_one"],"schema":{"properties":{"d_one":{"type":"integer"},"d_two":{"type":"string"}},"required":["d_one","d_two"],"type":"object"}}},"materializations":{"the/materialization":{"bindings":[{"resource":{"table":"bar"},"source":"the/collection"}],"endpoint":{"connector":{"config":{"a":"config"},"image":"other/image"}},"expectPubId":"10:10:10:10:10:10:10:10"}},"tests":{"the/test":{"expectPubId":"10:10:10:10:10:10:10:10","steps":[{"ingest":{"collection":"the/collection","documents":[{"f_one":42,"f_two":"a string"}]}}]}}},
         },
     ],
     storage_mappings: [

@@ -9,6 +9,30 @@ fn test_updates() {
 }
 
 #[test]
+fn test_updates_with_clobbered_meta_path() {
+    let outcome = common::run(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  captures:
+    the/capture:
+      bindings:
+        - target: the/collection
+          # Omit /_meta/path. Expect inactive bindings are still correct.
+          resource: { table: foo }
+
+  materializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          # Omit /_meta/path. Expect inactive bindings are still correct.
+          resource: { table: bar }
+    "#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
 fn test_change_collection_key_and_partitions() {
     let errors = common::run_errors(
         MODEL_YAML,
