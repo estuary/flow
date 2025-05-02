@@ -151,7 +151,7 @@ async fn test_source_captures() {
         .add_bindings
         .is_empty());
     assert_eq!(
-        Some("adding binding(s) to match the sourceCapture: [ducks/pond/quacks]"),
+        Some("adding binding(s) to match the sourceCapture: [ducks/pond/quacks]\nupdated resource /_meta of 1 bindings"),
         a_status.publications.history[0].detail.as_deref()
     );
 
@@ -297,7 +297,7 @@ async fn test_source_captures_collection_name() {
         .add_bindings
         .is_empty());
     assert_eq!(
-        Some("adding binding(s) to match the sourceCapture: [ducks/pond/quacks]"),
+        Some("adding binding(s) to match the sourceCapture: [ducks/pond/quacks]\nupdated resource /_meta of 1 bindings"),
         a_status.publications.history[0].detail.as_deref()
     );
 

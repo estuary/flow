@@ -37,7 +37,7 @@ async fn test_specs_with_null_bytes() {
                 },
                 "bindings": [
                     {
-                        "resource": { "a": "thing" },
+                        "resource": { "name": "thing" },
                         "target": "possums/bugs"
                     }
                 ]

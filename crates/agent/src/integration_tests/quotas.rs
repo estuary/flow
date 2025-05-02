@@ -208,7 +208,9 @@ async fn test_disable_when_over_quota() {
                     Object {
                         "bindings": Array [
                             Object {
-                                "resource": Object {},
+                                "resource": Object {
+                                    "id": String("albatrosses/CollectionA"),
+                                },
                                 "target": String("albatrosses/CollectionA"),
                             },
                         ],
@@ -237,7 +239,7 @@ fn minimal_capture(disable: bool, targets: &[&str]) -> serde_json::Value {
         .iter()
         .map(|collection| {
             serde_json::json!({
-                "resource": {},
+                "resource": { "id": collection },
                 "target": collection,
             })
         })

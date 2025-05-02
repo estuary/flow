@@ -94,8 +94,12 @@ impl Connectors for TestConnectors {
                     let bindings = validate
                         .bindings
                         .iter()
-                        .map(|_| response::validated::Binding {
-                            resource_path: Vec::new(),
+                        .enumerate()
+                        .map(|(index, binding)| {
+                            let resource_config =
+                                serde_json::from_str(&binding.resource_config_json).unwrap();
+                            let resource_path = mock_resource_path(&resource_config);
+                            response::validated::Binding { resource_path }
                         })
                         .collect();
                     let response = Response {
@@ -202,9 +206,9 @@ impl Connectors for TestConnectors {
                         .bindings
                         .iter()
                         .map(|binding| {
+                            let collection = binding.collection.as_ref().unwrap();
                             let resource_config: serde_json::Value =
                                 serde_json::from_str(&binding.resource_config_json).unwrap();
-                            let collection = binding.collection.as_ref().unwrap();
                             let delta_updates = resource_config
                                 .get("deltaUpdates")
                                 .and_then(|d| d.as_bool())
@@ -223,13 +227,7 @@ impl Connectors for TestConnectors {
                                     )
                                 })
                                 .collect();
-                            let resource_path = if let Some(table) =
-                                resource_config.get("table").and_then(|t| t.as_str())
-                            {
-                                vec![table.to_string()]
-                            } else {
-                                Vec::new()
-                            };
+                            let resource_path = mock_resource_path(&resource_config);
                             materialize::response::validated::Binding {
                                 constraints,
                                 resource_path,
@@ -252,4 +250,12 @@ impl Connectors for TestConnectors {
             Ok(())
         })
     }
+}
+
+fn mock_resource_path(resource_config: &serde_json::Value) -> Vec<String> {
+    ["id", "table", "name"]
+        .iter()
+        .flat_map(|key| resource_config.get(*key).and_then(|v| v.as_str()))
+        .map(|v| v.to_owned())
+        .collect()
 }

@@ -320,7 +320,7 @@ fn minimal_capture(expect_pub_id: Option<Id>, targets: &[&str]) -> serde_json::V
         .iter()
         .map(|collection| {
             serde_json::json!({
-                "resource": {},
+                "resource": { "id": collection },
                 "target": collection,
             })
         })
