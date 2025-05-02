@@ -80,7 +80,7 @@ impl Client {
         // Can we directly read the fragment from cloud storage?
         if let (broker::Status::Ok, false, Some(fragment)) = (
             metadata.status(),
-            metadata.fragment_url.is_empty(),
+            metadata.fragment_url.is_empty() || metadata.fragment_url.starts_with("file://"),
             &metadata.fragment,
         ) {
             if req.offset != metadata.offset {
