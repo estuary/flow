@@ -437,6 +437,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
     }
 }
 
+#[allow(dead_code)]
 pub fn run_errors(fixture_yaml: &str, patch_yaml: &str) -> tables::Errors {
     let outcome = run(fixture_yaml, patch_yaml);
     outcome.errors
@@ -671,6 +672,7 @@ impl validation::Connectors for MockDriverCalls {
                 let bindings = call
                     .bindings
                     .iter()
+                    .take(validate.bindings.len())
                     .map(|b| capture::response::validated::Binding {
                         resource_path: b.resource_path.clone(),
                     })
@@ -772,6 +774,7 @@ impl validation::Connectors for MockDriverCalls {
                 let transforms = call
                     .transforms
                     .iter()
+                    .take(validate.transforms.len())
                     .map(|b| derive::response::validated::Transform {
                         read_only: b.read_only,
                     })
@@ -874,6 +877,7 @@ impl validation::Connectors for MockDriverCalls {
                 let bindings = call
                     .bindings
                     .iter()
+                    .take(validate.bindings.len())
                     .map(|b| {
                         let mut out = materialize::response::validated::Binding {
                             constraints: b.constraints.clone(),
