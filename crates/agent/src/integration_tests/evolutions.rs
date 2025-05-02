@@ -177,15 +177,16 @@ where
     R: tables::DraftRow,
     R::Key: std::fmt::Debug,
 {
+    use models::ModelDef;
     assert_eq!(
         l.catalog_name(),
         r.catalog_name(),
         "name mismatch\nleft: {l:?}\nright: {r:?}"
     );
     assert_eq!(
-        l.model(),
-        r.model(),
-        "model mismatch\nleft: {l:?}\nright: {r:?}"
+        l.model().map(|m| m.all_dependencies()),
+        r.model().map(|m| m.all_dependencies()),
+        "model dependencies mismatch\nleft: {l:?}\nright: {r:?}"
     );
     assert_eq!(
         l.is_touch(),
@@ -205,8 +206,8 @@ fn test_catalog() -> tables::DraftCatalog {
                     }
                 },
                 "bindings": [
-                    { "target": "moths/collectionA", "resource": { "id": "A" }},
-                    { "target": "moths/collectionB", "resource": { "id": "B" }},
+                    { "target": "moths/collectionA", "resource": { "id": "A"}},
+                    { "target": "moths/collectionB", "resource": { "id": "B"}},
                 ]
             },
             "moths/captureB": {

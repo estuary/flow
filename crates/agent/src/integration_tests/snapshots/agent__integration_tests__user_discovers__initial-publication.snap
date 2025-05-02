@@ -45,6 +45,11 @@ expression: published_specs
                 "bindings": Array [
                     Object {
                         "resource": Object {
+                            "_meta": Object {
+                                "path": Array [
+                                    String("acorns"),
+                                ],
+                            },
                             "id": String("acorns"),
                         },
                         "target": String("squirrels/acorns"),
@@ -58,6 +63,11 @@ expression: published_specs
                     },
                     Object {
                         "resource": Object {
+                            "_meta": Object {
+                                "path": Array [
+                                    String("walnuts"),
+                                ],
+                            },
                             "id": String("walnuts"),
                         },
                         "target": String("squirrels/walnuts"),

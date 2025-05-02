@@ -97,7 +97,6 @@ async fn walk_capture<C: Connectors>(
     let scope = Scope::new(scope);
     let mut model_fixes = Vec::new();
 
-    let dependency_hash = dependencies.compute_hash(&model);
     let models::CaptureDef {
         auto_discover,
         endpoint,
@@ -284,6 +283,22 @@ async fn walk_capture<C: Connectors>(
         }
         .push(scope, errors);
     }
+    let missing_resource_path = bindings_validated
+        .iter()
+        .filter(|b| b.resource_path.is_empty())
+        .count();
+    if missing_resource_path > 0 {
+        Error::MissingResourcePath {
+            task_name: capture.to_string(),
+            task_type: "capture",
+            missing_count: missing_resource_path,
+            total_bindings: bindings_validated.len(),
+        }
+        .push(scope, errors);
+        // Skip further validations, because the missing resource paths prevent
+        // us from being able to properly validate bindings.
+        return None;
+    }
 
     // Join binding models and their Validate requests with their Validated responses.
     let bindings = bindings.into_iter().scan(
@@ -408,6 +423,8 @@ async fn walk_capture<C: Connectors>(
         delete: false,
     };
 
+    // Compute the dependency hash, now that we're done with any modifications of the model
+    let dependency_hash = dependencies.compute_hash(&model);
     Some(tables::BuiltCapture {
         capture: capture.clone(),
         scope: scope.flatten(),

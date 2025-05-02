@@ -441,6 +441,32 @@ test://example/int-string-captures:
 }
 
 #[test]
+fn test_capture_missing_resource_path() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/int-string-captures:
+  captures:
+    testing/s3-source:
+      bindings:
+        - target: testing/int-string
+          resource: {}
+
+        - target: testing/int-string.v2
+          resource: {}
+
+driver:
+  captures:
+    testing/s3-source:
+      bindings:
+        - resourcePath: []
+        - resourcePath: [target, one]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_capture_duplicates() {
     let errors = common::run_errors(
         MODEL_YAML,
@@ -472,6 +498,33 @@ driver:
         - resourcePath: [target, one]
         - resourcePath: [target, one]
         - resourcePath: [target, two]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_materialization_missing_resource_paths() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      bindings:
+        - source: testing/int-string
+          resource: {}
+        - source: testing/int-string.v2
+          resource: {}
+
+driver:
+  materializations:
+    testing/db-views:
+      bindings:
+        - constraints: {}
+          resourcePath: [target, one]
+        - constraints: {}
+          resourcePath: []
 "#,
     );
     insta::assert_debug_snapshot!(errors);
