@@ -170,7 +170,7 @@ async fn walk_capture<C: Connectors>(
         .iter()
         .flat_map(|model| model.bindings.iter())
         .filter_map(|model| {
-            let model_path = super::load_resource_meta_path(&model.resource);
+            let model_path = super::load_resource_meta_path(model.resource.get());
             (!model_path.is_empty()).then_some((model_path, model))
         })
         .collect();
@@ -448,7 +448,7 @@ fn walk_capture_binding<'a>(
     models::CaptureBinding,
     Option<capture::request::validate::Binding>,
 ) {
-    let model_path = super::load_resource_meta_path(&model.resource);
+    let model_path = super::load_resource_meta_path(model.resource.get());
 
     if disable || model.disable {
         return (model_path, model, None);

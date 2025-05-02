@@ -4,10 +4,7 @@ use anyhow::Context;
 use itertools::Itertools;
 use models::{discovers::Changes, ResourcePath};
 use proto_flow::capture::{self, response::discovered};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt;
 use tables::DraftCollection;
 
 pub fn parse_response(
@@ -31,62 +28,49 @@ pub fn parse_response(
         binding.recommended_name = normalize_recommended_name(&binding.recommended_name);
     }
     // Log this only once instead of for each binding
-    if bindings.iter().any(|b| !b.resource_path.is_empty()) {
-        tracing::warn!("connector discovered response includes deprecated field 'resource_path'");
+    if bindings.iter().any(|b| b.resource_path.is_empty()) {
+        tracing::warn!("connector discovered response omits field 'resource_path', which will soon be required");
     }
 
     Ok(bindings)
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub enum BindingType {
-    Existing,
-    Discovered,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct InvalidResource {
-    pub binding_type: BindingType,
-    pub resource_path_pointer: String,
-    pub resource_json: String,
-}
-
-impl std::error::Error for InvalidResource {}
-
-impl fmt::Display for InvalidResource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let ty = match self.binding_type {
-            BindingType::Existing => "existing",
-            BindingType::Discovered => "discovered",
-        };
-        write!(
-            f,
-            "expected {ty} resource value at '{}' to be a string value, in resource: {}",
-            self.resource_path_pointer, self.resource_json
-        )
-    }
-}
-
-/// Extracts the value of each of the given `resource_path_pointers` and encodes
-/// them into a `ResourcePath`. Each pointed-to location must be either a string
-/// value, null, or undefined. Null and undefined values are _not_ included in
-/// the resulting path, and are thus treated as equivalent. Resource path values
-/// other than strings will result in an error.
+/// Determines the resource path for a given resource configuration. First
+/// attempts to extract an embedded resource path from `/_meta/path`, which is
+/// the new (2025-05-02) way of doing it. If no embedded path is found, it
+/// temporarily falls back to extracting the resource path from the given
+/// `resource_path_pointers`. The intent is to remove `resource_path_pointers`
+/// altogether once all of our connectors have been updated to return resource
+/// paths as part of discovered responses again.
+///
+/// The return value is a tuple containing the resource path and a boolean
+/// indicating whether the path was extracted using `resource_path_pointers`.
+/// If true, then we had to fall back to `resource_path_pointers`.
+///
+/// When using `resource_path_pointers`, each pointed-to location must be either
+/// a string value, null, or undefined. Null and undefined values are _not_
+/// included in the resulting path, and are thus treated as equivalent. Resource
+/// path values other than strings will result in an error.
 fn resource_path(
     resource_path_pointers: &[doc::Pointer],
-    resource: &serde_json::Value,
-) -> Result<ResourcePath, String> {
-    let mut path = Vec::new();
+    resource_config_json: &str,
+) -> anyhow::Result<(ResourcePath, bool)> {
+    let mut path = validation::load_resource_meta_path(resource_config_json);
+    if !path.is_empty() {
+        return Ok((path, false));
+    }
+    let resource: serde_json::Value =
+        serde_json::from_str(resource_config_json).context("parsing resource config JSON")?;
     for pointer in resource_path_pointers {
-        match pointer.query(resource) {
+        match pointer.query(&resource) {
             None | Some(serde_json::Value::Null) => {
                 continue;
             }
             Some(serde_json::Value::String(s)) => path.push(s.clone()),
-            Some(_) => return Err(pointer.to_string()),
+            Some(_) => anyhow::bail!("resource config includes non-string value at resource path pointer location '{pointer}'"),
         }
     }
-    Ok(path)
+    Ok((path, true))
 }
 
 fn index_fetched_bindings<'a>(
@@ -94,17 +78,14 @@ fn index_fetched_bindings<'a>(
     bindings: &'a [models::CaptureBinding],
 ) -> anyhow::Result<HashMap<ResourcePath, &'a models::CaptureBinding>> {
     let mut map = HashMap::new();
-    for binding in bindings.iter() {
-        let resource = serde_json::from_str(binding.resource.get())
-            .expect("parsing resource config json cannot fail");
-        let path =
-            resource_path(resource_path_pointers, &resource).map_err(|resource_path_pointer| {
-                InvalidResource {
-                    binding_type: BindingType::Existing,
-                    resource_path_pointer,
-                    resource_json: binding.resource.clone().into(),
-                }
-            })?;
+    let mut fallback_pointers_used = false;
+    for (idx, binding) in bindings.iter().enumerate() {
+        let (path, used_pointers) = resource_path(resource_path_pointers, binding.resource.get())
+            .context(format!(
+            "extracting resource path from existing binding at index {idx}"
+        ))?;
+        fallback_pointers_used |= used_pointers;
+        // TODO(phil): this check is already done as part of validation, and can be removed when we remove resource path pointers.
         if map.contains_key(&path) {
             anyhow::bail!(
                 "existing capture model contains multiple bindings with the same resource path ({})",
@@ -112,6 +93,10 @@ fn index_fetched_bindings<'a>(
             );
         }
         map.insert(path, binding);
+    }
+    // Log this so we can identify affected specs before making this an error.
+    if fallback_pointers_used {
+        tracing::warn!("live spec was missing embedded resource path for one or more bindings, this will soon become an error");
     }
     Ok(map)
 }
@@ -158,20 +143,17 @@ pub fn update_capture_bindings(
             resource_config_json,
             document_schema_json,
             key,
-            ..
+            resource_path: discovered_path,
+            disable: _,
         } = discovered_binding;
-        // Don't use the deprecated `resource_path` on the `proto_flow::...::Binding` struct.
-        // Instead extract the resource path from the `resource_config_json` using the
-        // `resource_path_pointers` from the `connector_tags` row.
-        let discovered_resource: Value =
-            serde_json::from_str(&resource_config_json).context("parsing resource config")?;
-        let resource_path = resource_path(resource_path_pointers, &discovered_resource).map_err(
-            |resource_path_pointer| InvalidResource {
-                binding_type: BindingType::Discovered,
-                resource_path_pointer,
-                resource_json: resource_config_json.clone(),
-            },
-        )?;
+
+        let resource_path = if discovered_path.is_empty() {
+            resource_path(resource_path_pointers, &resource_config_json)
+                .context("extracting resource path from discovered binding")?
+                .0
+        } else {
+            discovered_path
+        };
         if !discovered_resource_paths.insert(resource_path.clone()) {
             anyhow::bail!(
                 "connector discover response includes multiple bindings with the same resource path ({})",
@@ -193,10 +175,11 @@ pub fn update_capture_bindings(
                     disable,
                 },
             );
+            let resource = models::RawValue::from_string(resource_config_json)?;
             models::CaptureBinding {
                 target,
                 disable,
-                resource: models::RawValue::from_value(&discovered_resource),
+                resource,
                 backfill: 0,
             }
         };
@@ -881,9 +864,7 @@ mod tests {
             &pointers,
         )
         .expect_err("should fail because stream is not a string");
-        let err = err.downcast::<InvalidResource>().unwrap();
-        assert_eq!(BindingType::Discovered, err.binding_type);
-        assert_eq!("/stream", err.resource_path_pointer);
+        insta::assert_snapshot!(format!("{err:#}"), @"extracting resource path from discovered binding: resource config includes non-string value at resource path pointer location '/stream'");
 
         // now assert that an existing invalid binding also results in an error
         let err = super::update_capture_bindings(
@@ -894,9 +875,7 @@ mod tests {
             &pointers,
         )
         .expect_err("should fail because stream is not a string");
-        let err = err.downcast::<InvalidResource>().unwrap();
-        assert_eq!(BindingType::Existing, err.binding_type);
-        assert_eq!("/stream", err.resource_path_pointer);
+        insta::assert_snapshot!(format!("{err:#}"), @"extracting resource path from existing binding at index 0: resource config includes non-string value at resource path pointer location '/stream'");
     }
 
     #[test]

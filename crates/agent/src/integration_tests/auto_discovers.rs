@@ -129,7 +129,7 @@ async fn test_auto_discovers_add_new_bindings() {
       },
       {
         "resource": {
-          "$serde_json::private::RawValue": "{\"extra\":\"stuff\",\"id\":\"moss\"}"
+          "$serde_json::private::RawValue": "{\"id\": \"moss\", \"extra\": \"stuff\" }"
         },
         "disable": true,
         "target": "marmots/moss"
