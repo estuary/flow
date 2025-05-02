@@ -197,8 +197,12 @@ impl TagExecutor {
             resource_path_pointers,
         } = spec;
 
-        if proto_type == RuntimeProtocol::Capture && resource_path_pointers.is_empty() {
-            tracing::warn!(image = %image_composed, "capture connector spec omits resource_path_pointers");
+        if proto_type == RuntimeProtocol::Capture {
+            tracing::info!(
+                image = %image_composed,
+                included = %!resource_path_pointers.is_empty(),
+                "does capture spec response include resource_path_pointers"
+            );
         }
 
         // Validate that there is an x-collection-name annotation in the resource config schema

@@ -121,10 +121,13 @@ pub async fn update_tag_fields(
             endpoint_spec_schema = $3,
             protocol = $4,
             resource_spec_schema = $5,
-            resource_path_pointers = $6,
+            resource_path_pointers = case when array_length($6::text[], 1) = 0 then resource_path_pointers else $6 end,
             job_status = '{"type": "updating"}'
         where id = $1
-          and (resource_path_pointers is null or resource_path_pointers::text[] = $6)
+          and (
+            resource_path_pointers is null
+            or ( array_length($6::text[], 1) = 0 or resource_path_pointers::text[] = $6 )
+          )
         returning true as "updated";
         "#,
         tag_id as Id,
