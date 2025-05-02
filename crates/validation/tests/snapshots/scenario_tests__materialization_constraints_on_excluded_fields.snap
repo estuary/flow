@@ -288,8 +288,8 @@ Outcome {
               ]
             },
             model_fixes: [
-              "backfilled binding of reset collection testing/constraints",
-              "removed dropped exclude projection not_found_and_removed of source collection testing/constraints"
+              "removed dropped exclude projection not_found_and_removed of source collection testing/constraints",
+              "backfilled binding of reset collection testing/constraints"
             ],
             validated: Validated {
                 bindings: [

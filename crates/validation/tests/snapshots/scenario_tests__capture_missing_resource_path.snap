@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-captures#/captures/testing~1s3-source,
-        error: capture testing/s3-source connector validate response omitted resource path for 1 of 2 bindings,
+        scope: test://example/int-string-captures#/captures/testing~1s3-source/bindings/0,
+        error: connector returned an invalid empty resource path for this capture binding,
     },
 ]

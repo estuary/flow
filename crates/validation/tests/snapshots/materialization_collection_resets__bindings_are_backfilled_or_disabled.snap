@@ -449,22 +449,6 @@ Outcome {
                         ],
                         delta_updates: false,
                     },
-                    Binding {
-                        constraints: {
-                            "flow_document": Constraint {
-                                r#type: FieldRequired,
-                                reason: "location required",
-                            },
-                            "id": Constraint {
-                                r#type: FieldRequired,
-                                reason: "location required",
-                            },
-                        },
-                        resource_path: [
-                            "b",
-                        ],
-                        delta_updates: false,
-                    },
                 ],
             },
             spec: MaterializationSpec {
@@ -809,7 +793,48 @@ Outcome {
                     },
                 ),
                 network_ports: [],
-                inactive_bindings: [],
+                inactive_bindings: [
+                    Binding {
+                        resource_config_json: "",
+                        resource_path: [
+                            "b",
+                        ],
+                        collection: Some(
+                            CollectionSpec {
+                                name: "testing/reset/b",
+                                write_schema_json: "",
+                                read_schema_json: "",
+                                key: [],
+                                uuid_ptr: "",
+                                partition_fields: [],
+                                projections: [],
+                                ack_template_json: "",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/reset/b/0000000000000001",
+                                        replication: 0,
+                                        labels: None,
+                                        fragment: None,
+                                        flags: 0,
+                                        max_append_rate: 0,
+                                        suspend: None,
+                                    },
+                                ),
+                                derivation: None,
+                            },
+                        ),
+                        partition_selector: None,
+                        priority: 0,
+                        field_selection: None,
+                        delta_updates: false,
+                        deprecated_shuffle: None,
+                        journal_read_suffix: "",
+                        not_before: None,
+                        not_after: None,
+                        backfill: 0,
+                        state_key: "",
+                    },
+                ],
             },
             previous_spec: MaterializationSpec {
                 name: "testing/materialize",
@@ -962,12 +987,7 @@ Outcome {
             is_touch: 0,
         },
     ],
-    errors: [
-        Error {
-            scope: test://example/catalog.yaml#/materializations/testing~1materialize,
-            error: connector returned wrong number of bindings (expected 1, got 2),
-        },
-    ],
+    errors: [],
     errors_draft: [],
     fetches: [
         Fetch {

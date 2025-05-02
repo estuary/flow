@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views,
-        error: materialization testing/db-views connector validate response omitted resource path for 1 of 2 bindings,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/1,
+        error: connector returned an invalid empty resource path for this materialization binding,
     },
 ]
