@@ -265,17 +265,20 @@ pub struct StorageDef {
     /// This can be helpful in performing bucket migrations: adding a new store
     /// to the front of the list causes ongoing data to be written to that location,
     /// while historical data continues to be read and served from the prior stores.
-    ///
-    /// When running `flowctl test`, stores are ignored and a local temporary
-    /// directory is used instead.
     #[validate]
     pub stores: Vec<Store>,
+    /// # Data planes which may be used by tasks or collections under this mapping.
+    ///
+    /// The first data-plane in this list used by default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub data_planes: Vec<String>,
 }
 
 impl StorageDef {
     pub fn example() -> Self {
         Self {
             stores: vec![Store::example()],
+            data_planes: vec!["ops/dp/public/gcp-us-central1-c2".to_string()],
         }
     }
 }
