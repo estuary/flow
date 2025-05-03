@@ -33,6 +33,47 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_updates_with_clobbered_backfill_counter() {
+    let outcome = common::run_errors(
+        MODEL_YAML,
+        r#"
+
+test://example/catalog.yaml:
+  materializations:
+    the/materialization:
+      bindings:
+        # Simplify to remove spurious additional errors.
+        - source: the/collection
+          resource: { _meta: { path: [table, path] } }
+
+driver:
+  liveCaptures:
+    the/capture:
+      bindings:
+        - target: the/collection
+          resource: { _meta: { path: [capture, path] } }
+          backfill: 123
+
+  liveCollections:
+    the/derivation:
+      derive:
+        transforms:
+          - name: fromCollection
+            source: the/collection
+            backfill: 456
+
+  liveMaterializations:
+    the/materialization:
+      bindings:
+        - source: the/collection
+          resource: { _meta: { path: [table, path] } }
+          backfill: 789
+    "#,
+    );
+    insta::assert_debug_snapshot!(outcome);
+}
+
+#[test]
 fn test_change_collection_key_and_partitions() {
     let errors = common::run_errors(
         MODEL_YAML,

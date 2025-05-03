@@ -1,0 +1,18 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: outcome
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/captures/the~1capture/bindings/0,
+        error: `backfill` counters may only increase, but the draft capture binding for "capture.path" has a value of 0, which is less than the last value 123,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/the~1derivation/derive/transforms/0,
+        error: `backfill` counters may only increase, but the draft derivation transform for "fromCollection" has a value of 0, which is less than the last value 456,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
+        error: `backfill` counters may only increase, but the draft materialization binding for "table.path" has a value of 0, which is less than the last value 789,
+    },
+]
