@@ -11,9 +11,17 @@ expression: schema
     "stores"
   ],
   "properties": {
+    "data_planes": {
+      "title": "Data planes which may be used by tasks or collections under this mapping.",
+      "description": "The first data-plane in this list used by default.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "stores": {
       "title": "Stores for journal fragments under this prefix.",
-      "description": "Multiple stores may be specified, and all stores are periodically scanned to index applicable journal fragments. New fragments are always persisted to the first store in the list.\n\nThis can be helpful in performing bucket migrations: adding a new store to the front of the list causes ongoing data to be written to that location, while historical data continues to be read and served from the prior stores.\n\nWhen running `flowctl test`, stores are ignored and a local temporary directory is used instead.",
+      "description": "Multiple stores may be specified, and all stores are periodically scanned to index applicable journal fragments. New fragments are always persisted to the first store in the list.\n\nThis can be helpful in performing bucket migrations: adding a new store to the front of the list causes ongoing data to be written to that location, while historical data continues to be read and served from the prior stores.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Store"
