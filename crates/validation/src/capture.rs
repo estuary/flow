@@ -2,6 +2,7 @@ use super::{
     indexed, reference, storage_mapping, walk_transition, Connectors, Error, NoOpConnectors, Scope,
 };
 use futures::SinkExt;
+use itertools::Itertools;
 use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
@@ -330,6 +331,19 @@ async fn walk_capture<C: Connectors>(
             n_meta_updated += 1;
         }
 
+        // Compare backfill now that we have a validated resource path.
+        if let Some(last) = live_bindings_spec.get(path.as_slice()) {
+            if backfill < last.backfill {
+                Error::BindingBackfillDecrease {
+                    entity: "capture binding",
+                    resource: path.iter().join("."),
+                    draft: backfill,
+                    last: last.backfill,
+                }
+                .push(scope, errors);
+            }
+        }
+
         // Build a state key using the validated resource path.
         let state_key = assemble::encode_state_key(&path, backfill);
 
@@ -472,12 +486,11 @@ fn walk_capture_binding<'a>(
     };
 
     // Was this binding's target collection reset under its current backfill count?
-    let was_reset = live_bindings_spec
-        .get(model_path.as_slice())
-        .is_some_and(|live_spec| {
-            live_spec.backfill == model.backfill
-                && super::collection_was_reset(&target_spec, &live_spec.collection)
-        });
+    let live_spec = live_bindings_spec.get(model_path.as_slice());
+    let was_reset = live_spec.is_some_and(|live_spec| {
+        live_spec.backfill == model.backfill
+            && super::collection_was_reset(&target_spec, &live_spec.collection)
+    });
 
     if was_reset {
         model_fixes.push(format!("backfilled binding of reset collection {target}"));
