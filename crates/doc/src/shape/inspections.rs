@@ -23,16 +23,34 @@ pub enum Error {
     SetInvalidProperty(String),
     #[error("{0} default value is invalid: {1}")]
     InvalidDefaultValue(String, crate::FailedValidation),
+    #[error("'{0}' is required to prohibit additional properties, but instead allows them")]
+    AllowsAdditionalProperties(String),
 }
 
 impl Shape {
+    /// Inspect the shape for a number of statically-determinable errors.
     pub fn inspect(&self) -> Vec<Error> {
         let mut v = Vec::new();
-        self.inspect_inner(Location::Root, true, &mut v);
+        self.inspect_inner(Location::Root, true, false, &mut v);
         v
     }
 
-    fn inspect_inner(&self, loc: Location, must_exist: bool, out: &mut Vec<Error>) {
+    /// Inspect the shape for a number of statically-determinable errors,
+    /// and further require that the schema is "closed": that no schematized
+    /// object with properties allows for any additional properties.
+    pub fn inspect_closed(&self) -> Vec<Error> {
+        let mut v = Vec::new();
+        self.inspect_inner(Location::Root, true, true, &mut v);
+        v
+    }
+
+    fn inspect_inner(
+        &self,
+        loc: Location,
+        must_exist: bool,
+        must_be_closed: bool,
+        out: &mut Vec<Error>,
+    ) {
         // Enumerations over array sub-locations.
         let items = self.array.tuple.iter().enumerate().map(|(index, s)| {
             (
@@ -68,6 +86,22 @@ impl Shape {
 
         if self.type_ == types::INVALID && must_exist {
             out.push(Error::ImpossibleMustExist(loc.pointer_str().to_string()));
+        }
+
+        if must_be_closed
+            && self.type_.overlaps(types::OBJECT)
+            && !(self.object.properties.is_empty() && self.object.pattern_properties.is_empty())
+            && !matches!(
+                self.object.additional_properties.as_deref(),
+                Some(Self {
+                    type_: json::schema::types::INVALID,
+                    ..
+                })
+            )
+        {
+            out.push(Error::AllowsAdditionalProperties(
+                loc.pointer_str().to_string(),
+            ));
         }
 
         // Invalid values for default values.
@@ -128,7 +162,7 @@ impl Shape {
                 ))
             }
 
-            child.inspect_inner(loc, must_exist && child_must_exist, out);
+            child.inspect_inner(loc, must_exist && child_must_exist, must_be_closed, out);
         }
     }
 }
@@ -216,6 +250,43 @@ mod test {
                 Error::SumNotNumber("/sum-wrong-type".to_owned(), types::STRING),
                 Error::MergeNotObjectOrArray("/merge-wrong-type".to_owned(), types::BOOLEAN),
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_closed_shape() {
+        let obj = shape_from(
+            r#"
+        $defs:
+            foo:
+                type: object
+                properties:
+                    foo: {type: string}
+
+        type: object
+        additionalProperties: false
+        properties:
+            foo: { $ref: '#/$defs/foo' }
+            bar:
+                $ref: '#/$defs/foo'
+                additionalProperties: false
+            baz: { type: integer }
+            qux: { $ref: '#/$defs/foo/properties/foo' }
+            open-obj: { type: object }
+            open-arr: { type: array, items: true }
+            other:
+                type: array
+                items:
+                    patternProperties:
+                        thing: { type: integer }
+        "#,
+        );
+        assert_eq!(
+            obj.inspect_closed(),
+            vec![
+                Error::AllowsAdditionalProperties("/foo".to_owned()),
+                Error::AllowsAdditionalProperties("/other/-".to_owned()),
             ]
         );
     }

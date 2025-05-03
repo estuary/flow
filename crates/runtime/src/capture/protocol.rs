@@ -424,6 +424,13 @@ pub fn recv_connector_sourced_schema(
     })?;
     let sourced_shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
+    let errors = sourced_shape.inspect_closed();
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "connector implementation error: binding {binding} SourcedSchema has errors: {errors:?}"
+        );
+    }
+
     // Track this SourcedSchema by its binding, union-ing with another SourcedSchema if present.
     let entry = txn
         .sourced_schemas
@@ -460,7 +467,13 @@ pub fn apply_sourced_schemas(
         // By construction, we cannot capture documents which don't adhere to
         // the write schema. Intersect it to avoid generating incompatible
         // inference updates.
-        let sourced_shape = doc::Shape::intersect(sourced_shape, write_shape);
+        let mut sourced_shape = doc::Shape::intersect(sourced_shape, write_shape);
+
+        // Shape::union intersects annotations and retains only those having equal key/values.
+        sourced_shape.annotations.insert(
+            crate::X_GENERATION_ID.to_string(),
+            shapes[binding].annotations[crate::X_GENERATION_ID].clone(),
+        );
 
         shapes[binding] = doc::Shape::union(
             std::mem::replace(&mut shapes[binding], doc::Shape::nothing()),

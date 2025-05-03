@@ -1530,6 +1530,82 @@ mod test {
         assert!(shape.object.properties.iter().all(|p| p.is_required));
     }
 
+    #[test]
+    fn test_sql_sourced_schema_regression() {
+        let shape = shape_from(
+            r###"
+            $defs:
+                MyTable:
+                    $anchor: MyTable
+                    type: object
+                    required: [id]
+                    properties:
+                        data:
+                            description: "(source type: varchar)"
+                            type: string
+                        id:
+                            type: integer
+                            description: "(source type: non-nullable int)"
+            allOf:
+              - required: [_meta]
+                properties:
+                    _meta:
+                        type: object
+                        required: [op]
+                        additionalProperties: false
+                        properties:
+                            before:
+                                $ref: "#MyTable"
+                                unevaluatedProperties: false
+                            op: { type: string }
+              - $ref: "#MyTable"
+
+            unevaluatedProperties: false
+            "###,
+        );
+
+        // Expect there are no inspection errors.
+        assert_eq!(shape.inspect_closed(), Vec::new());
+
+        // Expect we round-trip to expected JSON schema.
+        insta::assert_yaml_snapshot!(super::schema::to_schema(shape), @r###"
+        ---
+        $schema: "https://json-schema.org/draft/2019-09/schema"
+        type: object
+        required:
+          - _meta
+          - id
+        properties:
+          _meta:
+            type: object
+            required:
+              - op
+            properties:
+              before:
+                type: object
+                required:
+                  - id
+                properties:
+                  data:
+                    description: "(source type: varchar)"
+                    type: string
+                  id:
+                    description: "(source type: non-nullable int)"
+                    type: integer
+                additionalProperties: false
+              op:
+                type: string
+            additionalProperties: false
+          data:
+            description: "(source type: varchar)"
+            type: string
+          id:
+            description: "(source type: non-nullable int)"
+            type: integer
+        additionalProperties: false
+        "###);
+    }
+
     fn enum_fixture(value: Value) -> Shape {
         let v = value.as_array().unwrap().clone();
         Shape {
