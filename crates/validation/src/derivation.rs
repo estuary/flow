@@ -747,12 +747,11 @@ fn walk_derive_transform<'a>(
     };
 
     // Was this transform's source collection reset under its current backfill count?
-    let was_reset = live_transforms_spec
-        .get(model.name.as_str())
-        .is_some_and(|live_spec| {
-            live_spec.backfill == model.backfill
-                && super::collection_was_reset(&source_spec, &live_spec.collection)
-        });
+    let live_spec = live_transforms_spec.get(model.name.as_str());
+    let was_reset = live_spec.is_some_and(|live_spec| {
+        live_spec.backfill == model.backfill
+            && super::collection_was_reset(&source_spec, &live_spec.collection)
+    });
 
     if was_reset {
         model_fixes.push(format!(
@@ -760,6 +759,21 @@ fn walk_derive_transform<'a>(
             model.name
         ));
         model.backfill += 1;
+    }
+
+    // We verify derivation backfill counters earlier in the validation flow
+    // than captures or materializations, because we don't need to await a
+    // validated resource path from the connector.
+    if let Some(last) = live_spec {
+        if model.backfill < last.backfill {
+            Error::BindingBackfillDecrease {
+                entity: "derivation transform",
+                resource: model.name.to_string(),
+                draft: model.backfill,
+                last: last.backfill,
+            }
+            .push(scope, errors);
+        }
     }
 
     let source_schema = schema::Schema::new(if source_spec.read_schema_json.is_empty() {

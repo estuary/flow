@@ -375,6 +375,19 @@ async fn walk_materialization<C: Connectors>(
             n_meta_updated += 1;
         }
 
+        // Compare backfill now that we have a validated resource path.
+        if let Some(last) = live_bindings_spec.get(path.as_slice()) {
+            if backfill < last.backfill {
+                Error::BindingBackfillDecrease {
+                    entity: "materialization binding",
+                    resource: path.iter().join("."),
+                    draft: backfill,
+                    last: last.backfill,
+                }
+                .push(scope, errors);
+            }
+        }
+
         let field_selection = Some(walk_materialization_response(
             scope,
             materialization,
@@ -608,12 +621,11 @@ fn walk_materialization_binding<'a>(
         .unwrap_or(default_on_incompatible_schema_change);
 
     // Was this binding's source collection reset under its current backfill count?
-    let was_reset = live_bindings_spec
-        .get(model_path.as_slice())
-        .is_some_and(|live_spec| {
-            live_spec.backfill == model.backfill
-                && super::collection_was_reset(&source_spec, &live_spec.collection)
-        });
+    let live_spec = live_bindings_spec.get(model_path.as_slice());
+    let was_reset = live_spec.is_some_and(|live_spec| {
+        live_spec.backfill == model.backfill
+            && super::collection_was_reset(&source_spec, &live_spec.collection)
+    });
 
     match (was_reset, on_incompatible_schema_change) {
         (false, _) => {}

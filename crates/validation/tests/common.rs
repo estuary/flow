@@ -167,6 +167,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                     ..Default::default()
                 }),
                 resource_path: validation::load_resource_meta_path(binding.resource.get()),
+                backfill: binding.backfill,
                 ..Default::default()
             })
             .collect();
@@ -242,6 +243,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                         }),
                         ..Default::default()
                     }),
+                    backfill: transform.backfill,
                     ..Default::default()
                 })
                 .collect();
@@ -315,6 +317,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                     ..Default::default()
                 }),
                 resource_path: validation::load_resource_meta_path(binding.resource.get()),
+                backfill: binding.backfill,
                 ..Default::default()
             })
             .collect();
