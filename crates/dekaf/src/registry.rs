@@ -1,19 +1,11 @@
 use super::App;
-use crate::{
-    from_downstream_topic_name,
-    log_appender::{GazetteWriter, SESSION_CLIENT_ID_FIELD_MARKER},
-    logging, to_downstream_topic_name, SessionAuthentication,
-};
+use crate::{from_downstream_topic_name, to_downstream_topic_name, SessionAuthentication};
 use anyhow::Context;
-use axum::{
-    http::header::USER_AGENT,
-    response::{IntoResponse, Response},
-};
+use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
 use itertools::Itertools;
 use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 use std::sync::Arc;
-use tracing_record_hierarchical::SpanExt;
 
 // Build an axum::Router which implements a subset of the Confluent Schema Registry API,
 // sufficient for decoding Avro-encoded topic data.
