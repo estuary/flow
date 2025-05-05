@@ -4,65 +4,68 @@ use crate::{
     topology::{self, fetch_dekaf_task_auth, Partition},
 };
 use anyhow::Context;
+use aws_config::imds::client;
 use futures::StreamExt;
 use gazette::{broker, journal};
 use itertools::Itertools;
 use proto_flow::flow::MaterializationSpec;
+use rand::Rng;
 use std::{
     collections::{HashMap, HashSet},
     fmt,
-    sync::{Arc, Weak},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Weak,
+    },
     time::Duration,
 };
 use tokio::sync::watch;
 
 // Define a custom cloneable error type
 #[derive(Debug, Clone)]
-pub struct TaskManagerError(Arc<String>);
+pub struct SharedError(Arc<anyhow::Error>);
 
-/// Creates a TaskManagerError from anyhow::Error, preserving its chain with Debug format.
-impl From<anyhow::Error> for TaskManagerError {
+impl From<anyhow::Error> for SharedError {
     fn from(error: anyhow::Error) -> Self {
-        // Use debug format to capture context and backtrace (if available)
-        TaskManagerError(Arc::new(format!("{:?}", error)))
+        SharedError(Arc::new(error))
     }
 }
 
-impl From<&anyhow::Error> for TaskManagerError {
-    fn from(error: &anyhow::Error) -> Self {
-        TaskManagerError(Arc::new(format!("{:?}", error)))
+// This makes SharedError itself a valid error type.
+impl std::error::Error for SharedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
     }
 }
 
-impl fmt::Display for TaskManagerError {
+impl fmt::Display for SharedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        self.0.fmt(f)
     }
 }
 
-// Implement the standard Error trait for TaskManagerError
-// Importantly, this allows conversion into `anyhow::Error` via `?`
-impl std::error::Error for TaskManagerError {}
+pub type Result<T> = core::result::Result<T, SharedError>;
 
-pub type TaskManagerResult<T> = Result<T, TaskManagerError>;
+const TASK_TIMEOUT: Duration = Duration::from_secs(60 * 3);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TaskState {
-    // Access token
+    // Control-plane access token
     pub access_token: String,
     pub access_token_claims: topology::AccessTokenClaims,
-    // ops_logs_journal
     pub ops_logs_journal: String,
-    // ops_stats_journal
     pub ops_stats_journal: String,
     pub spec: proto_flow::flow::MaterializationSpec,
     /// Sorted by collection's partition template name
-    pub partitions: Vec<(String, TaskManagerResult<Vec<topology::Partition>>)>,
+    pub partitions: Vec<(
+        String,
+        Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
+    )>,
 }
 
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
 /// So long as there is at least one `TaskStateReceiver` listening, the task manager will continue to run.
-pub struct TaskStateListener(Arc<watch::Receiver<Option<TaskManagerResult<TaskState>>>>);
+pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<TaskState>>>>);
 impl TaskStateListener {
     /// Gets the current state, waiting if it's not yet available.
     /// Returns a clone of the state or the cached error.
@@ -99,23 +102,30 @@ impl TaskStateListener {
 pub struct TaskManager {
     // Key: materialization/task name
     tasks: std::sync::Mutex<
-        HashMap<String, std::sync::Weak<watch::Receiver<Option<TaskManagerResult<TaskState>>>>>,
+        HashMap<
+            String,
+            (
+                // Activity signal to keep the task manager alive
+                Arc<AtomicBool>,
+                std::sync::Weak<watch::Receiver<Option<Result<TaskState>>>>,
+            ),
+        >,
     >,
-    ttl: Duration,
+    interval: Duration,
     client: flow_client::Client,
     data_plane_fqdn: String,
     data_plane_signer: jsonwebtoken::EncodingKey,
 }
 impl TaskManager {
     pub fn new(
-        ttl: Duration,
+        interval: Duration,
         client: flow_client::Client,
         data_plane_fqdn: String,
         data_plane_signer: jsonwebtoken::EncodingKey,
     ) -> Self {
         TaskManager {
             tasks: std::sync::Mutex::new(HashMap::new()),
-            ttl,
+            interval,
             client,
             data_plane_fqdn,
             data_plane_signer: data_plane_signer,
@@ -126,20 +136,29 @@ impl TaskManager {
     /// The receiver is weakly referenced, so it may be dropped if no one is listening.
     #[tracing::instrument(skip(self))]
     pub async fn get_listener(self: &std::sync::Arc<Self>, task_name: &str) -> TaskStateListener {
-        let mut tasks_guard = self.tasks.lock().unwrap();
-        if let Some(weak_receiver) = tasks_guard.get(task_name) {
-            if let Some(receiver) = weak_receiver.upgrade() {
-                return TaskStateListener(receiver.clone());
+        // Scope to force the `tasks` lock to be released before awaiting
+        let (sender, receiver, activity_signal) = {
+            let mut tasks_guard = self.tasks.lock().unwrap();
+            if let Some((activity, weak_receiver)) = tasks_guard.get(task_name) {
+                if let Some(receiver) = weak_receiver.upgrade() {
+                    activity.store(true, Ordering::Relaxed);
+                    return TaskStateListener(receiver.clone());
+                }
             }
-        }
 
-        let (sender, receiver) = watch::channel(None);
+            let (sender, receiver) = watch::channel(None);
 
-        let receiver = Arc::new(receiver);
+            let receiver = Arc::new(receiver);
 
-        let weak_receiver = Arc::downgrade(&receiver);
-        tasks_guard.insert(task_name.to_string(), weak_receiver.clone());
-        drop(tasks_guard);
+            let activity_signal = Arc::new(AtomicBool::new(true));
+
+            tasks_guard.insert(
+                task_name.to_string(),
+                (activity_signal.clone(), Arc::downgrade(&receiver)),
+            );
+
+            (sender, receiver, activity_signal)
+        };
 
         tracing::info!("Spawning new task processor");
 
@@ -160,8 +179,13 @@ impl TaskManager {
                 self.data_plane_signer.clone(),
             ),
             stop_signal.clone(),
-            self.clone()
-                .run_task_manager(weak_receiver, sender, stop_signal, task_name),
+            self.clone().run_task_manager(
+                receiver.clone(),
+                sender,
+                stop_signal,
+                activity_signal,
+                task_name,
+            ),
         ));
 
         TaskStateListener(receiver)
@@ -171,34 +195,53 @@ impl TaskManager {
     #[tracing::instrument(skip(self, receiver, sender, stop_signal))]
     async fn run_task_manager(
         self: std::sync::Arc<Self>,
-        receiver: Weak<watch::Receiver<Option<TaskManagerResult<TaskState>>>>,
-        // Hold onto a weak reference to the receiver so we can check if there are still listeners
-        sender: watch::Sender<Option<TaskManagerResult<TaskState>>>,
+        // Hold onto a strong reference to the receiver so we can keep it alive until the timeout runs out
+        receiver: Arc<watch::Receiver<Option<Result<TaskState>>>>,
+        sender: watch::Sender<Option<Result<TaskState>>>,
         stop_signal: tokio_util::sync::CancellationToken,
+        activity_signal: Arc<AtomicBool>,
         task_name: String,
     ) -> anyhow::Result<()> {
-        let mut interval = tokio::time::interval(self.ttl);
+        // Start the loop at some random point between now and the interval duration
+        let jittered_start = Duration::from_millis(
+            rand::thread_rng().gen_range(0..self.interval.as_millis() as u64),
+        );
+        let mut interval =
+            tokio::time::interval_at(tokio::time::Instant::now() + jittered_start, self.interval);
 
-        let journal_clients: Arc<
-            std::sync::Mutex<HashMap<String, (journal::Client, proto_gazette::Claims)>>,
-        > = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let mut partitions_and_clients: HashMap<
+            String,
+            Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>,
+        > = HashMap::new();
 
-        let mut partitions: HashMap<String, anyhow::Result<Vec<Partition>>> = HashMap::new();
+        let mut timeout_start = None;
 
         loop {
-            // No more receivers, time to shut down this task loop.
+            // No more receivers except us, time to shut down this task loop.
             // Note that we only do this after waiting out the interval.
             // This is to provide a grace period for any new receivers to be created
             // before we shut down the task loop and cause any new sessions to have to
             // block while the new task loop fetches its first state.
-            if Weak::strong_count(&receiver) == 0 {
-                tracing::info!(task_name, "No more receivers, exiting");
-                break;
+            if Arc::strong_count(&receiver) == 1 && timeout_start.is_none() {
+                timeout_start = Some(tokio::time::Instant::now());
+            }
+            if Arc::strong_count(&receiver) > 1 || activity_signal.load(Ordering::Relaxed) {
+                timeout_start = None;
+                activity_signal.store(false, Ordering::Relaxed);
             }
 
-            tracing::info!("Refreshing task spec");
+            if let Some(start) = timeout_start {
+                if start.elapsed() > TASK_TIMEOUT {
+                    let waited_for = start.elapsed();
+                    tracing::info!(
+                        ?waited_for,
+                        "TaskManager hasn't had any listeners for a while, shutting down"
+                    );
+                    break;
+                }
+            }
 
-            let loop_result: Result<(), anyhow::Error> = async {
+            let loop_result: Result<()> = async {
                 // For the moment, let's just refresh this every tick in order to have relatively
                 // fresh MaterializationSpecs, even if the access token may live for a while.
                 let (access_token, access_token_claims, ops_logs_journal, ops_stats_journal, spec) =
@@ -211,14 +254,15 @@ impl TaskManager {
                     .await
                     .context("error fetching dekaf task auth")?;
 
-                let _ = self
-                    .update_partition_info(
-                        &task_name,
-                        &spec,
-                        &mut partitions,
-                        journal_clients.clone(),
-                    )
-                    .await?;
+                let partitions_and_clients = update_partition_info(
+                    &self.client,
+                    &self.data_plane_fqdn,
+                    &self.data_plane_signer,
+                    &task_name,
+                    &spec,
+                    std::mem::take(&mut partitions_and_clients),
+                )
+                .await?;
 
                 let _ = sender.send(Some(Ok(TaskState {
                     access_token,
@@ -226,13 +270,13 @@ impl TaskManager {
                     ops_logs_journal,
                     ops_stats_journal,
                     spec,
-                    partitions: partitions
+                    partitions: partitions_and_clients
                         .iter()
                         .sorted_by_key(|(k, _)| k.as_str())
                         .map(|(k, v)| {
                             let mapped_val = match v {
                                 Ok(p) => Ok(p.clone()),
-                                Err(e) => Err(TaskManagerError::from(e)),
+                                Err(e) => Err(e.clone()),
                             };
                             let res = (k.clone(), mapped_val);
 
@@ -247,7 +291,7 @@ impl TaskManager {
 
             if let Err(e) = loop_result {
                 tracing::error!(task_name, error=%e, "Error in task manager loop");
-                let _ = sender.send(Some(Err(TaskManagerError::from(e))));
+                let _ = sender.send(Some(Err(SharedError::from(e))));
             }
 
             tokio::select! {
@@ -262,54 +306,59 @@ impl TaskManager {
 
         Ok(())
     }
+}
 
-    #[tracing::instrument(skip(self, spec, partitions, journal_clients))]
-    async fn update_partition_info(
-        self: &std::sync::Arc<Self>,
-        task_name: &str,
-        spec: &MaterializationSpec,
-        partitions: &mut HashMap<String, anyhow::Result<Vec<Partition>>>,
-        journal_clients: Arc<
-            std::sync::Mutex<HashMap<String, (journal::Client, proto_gazette::Claims)>>,
-        >,
-    ) -> anyhow::Result<()> {
-        let mut current_partition_template_names = HashSet::with_capacity(spec.bindings.len());
-        let mut tasks = Vec::with_capacity(spec.bindings.len());
+#[tracing::instrument(skip_all, fields(task_name))]
+async fn update_partition_info(
+    flow_client: &flow_client::Client,
+    data_plane_fqdn: &str,
+    data_plane_signer: &jsonwebtoken::EncodingKey,
+    task_name: &str,
+    spec: &MaterializationSpec,
+    mut info: HashMap<String, Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>>,
+) -> anyhow::Result<HashMap<String, Result<(journal::Client, proto_gazette::Claims, Vec<Partition>)>>>
+{
+    let mut tasks = Vec::with_capacity(spec.bindings.len());
 
-        for binding in &spec.bindings {
-            let collection_spec = binding
-                .collection
-                .as_ref()
-                .context("expected collection Spec")?;
-            let partition_template = collection_spec
-                .partition_template
-                .as_ref()
-                .context("expected partition template")?;
+    for binding in &spec.bindings {
+        let collection_spec = binding
+            .collection
+            .as_ref()
+            .context("expected collection Spec")?;
+        let partition_template = collection_spec
+            .partition_template
+            .as_ref()
+            .context("expected partition template")?;
 
-            let partition_selector = binding
-                .partition_selector
-                .as_ref()
-                .context("expected partition selector")?;
+        let partition_selector = binding
+            .partition_selector
+            .as_ref()
+            .context("expected partition selector")?;
 
-            current_partition_template_names.insert(partition_template.name.clone());
+        let template_name = partition_template.name.clone();
+        let task_name_clone = task_name.to_string();
 
-            let template_name = partition_template.name.clone();
-            let task_name_clone = task_name.to_string();
-            let journal_clients_clone = journal_clients.clone();
+        let existing_client = match info.remove(template_name.as_str()) {
+            Some(Ok((client, claims, _))) => Some((client, claims)),
+            _ => None,
+        };
 
-            tasks.push(async move {
-                let journal_client_result = self.get_or_refresh_journal_client(
+        tasks.push(async move {
+                let journal_client_result = get_or_refresh_journal_client(
+                    flow_client,
+                    data_plane_fqdn,
+                    data_plane_signer,
                     &task_name_clone,
                     &template_name,
-                    journal_clients_clone.clone(),
+                    existing_client
                 )
                 .await;
 
-                let journal_client = match journal_client_result {
+                let (journal_client, claims) = match journal_client_result {
                     Ok(jc) => jc,
                     Err(task_error) => {
                         tracing::warn!(task=%task_name_clone, template=%template_name, error=%task_error, "Failed to get journal client for binding");
-                        return (template_name, Err(task_error));
+                        return (template_name, Err(SharedError::from(task_error)));
                     }
                 };
 
@@ -319,98 +368,63 @@ impl TaskManager {
                     Some(partition_selector.clone()),
                 )
                 .await
+                .map(|partitions| {
+                    (journal_client, claims, partitions)
+                })
                 .map_err(|e| {
-                    e.context(format!("Partition fetch failed for collection '{}'", collection_spec.name))
+                    SharedError::from(e.context(format!("Partition fetch failed for collection '{}'", collection_spec.name)))
                 });
 
                 // Return the result associated with this template name
                 (template_name, partition_result)
             });
-        }
-
-        let results_vec = futures::stream::iter(tasks)
-            .buffer_unordered(10)
-            .collect::<Vec<_>>()
-            .await;
-
-        for (template_name, result) in results_vec {
-            current_partition_template_names.insert(template_name.clone());
-            partitions.insert(template_name, result.map_err(|e| anyhow::anyhow!(e)));
-        }
-
-        // Clear out any partition templates that are no longer in the spec
-        let mut journal_clients_guard = journal_clients.lock().expect("Mutex poisoned");
-
-        journal_clients_guard.retain(|k, _| current_partition_template_names.contains(k));
-        partitions.retain(|k, _| current_partition_template_names.contains(k));
-
-        Ok(())
     }
 
-    /// Gets a journal client from cache or fetches a new one if needed.
-    #[tracing::instrument(skip(self, journal_clients_cache))]
-    async fn get_or_refresh_journal_client(
-        self: &std::sync::Arc<Self>,
-        task_name: &str,
-        partition_template_name: &str,
-        journal_clients_cache: Arc<
-            std::sync::Mutex<HashMap<String, (journal::Client, proto_gazette::Claims)>>,
-        >,
-    ) -> anyhow::Result<journal::Client> {
-        // Scope the guard so it doesn't accidentally try to hold across the await point
-        {
-            let cache_guard = journal_clients_cache.lock().expect("Mutex poisoned");
+    Ok(futures::stream::iter(tasks)
+        .buffer_unordered(10)
+        .collect::<HashMap<String, _>>()
+        .await)
+}
 
-            if let Some((cached_client, claims)) = cache_guard.get(partition_template_name) {
-                let now_unix = time::OffsetDateTime::now_utc().unix_timestamp();
-                // Add a buffer to token expiry check
-                if claims.exp > now_unix as u64 + 60 {
-                    tracing::debug!(task=%task_name, template=%partition_template_name, "Re-using existing journal client.");
-                    return Ok(cached_client.clone());
-                } else {
-                    tracing::debug!(task=%task_name, template=%partition_template_name, "Journal client token expired or nearing expiry.");
-                }
-            }
-        }
-
-        tracing::debug!(task=%task_name, template=%partition_template_name, "Fetching new task authorization for journal client.");
-        let auth_result = flow_client::fetch_task_authorization(
-            &self.client,
-            &crate::dekaf_shard_template_id(task_name),
-            &self.data_plane_fqdn,
-            &self.data_plane_signer,
-            proto_flow::capability::AUTHORIZE
-                | proto_gazette::capability::LIST
-                | proto_gazette::capability::READ,
-            broker::LabelSelector {
-                include: Some(labels::build_set([(
-                    "name:prefix",
-                    format!("{partition_template_name}/").as_str(),
-                )])),
-                exclude: None,
-            },
-        )
-        .await;
-
-        match auth_result {
-            Ok((new_client, new_claims)) => {
-                tracing::info!(task=%task_name, template=%partition_template_name, "Successfully fetched new journal client authorization.");
-                let mut cache_guard = journal_clients_cache.lock().expect("Mutex poisoned");
-                cache_guard.insert(
-                    partition_template_name.to_string(),
-                    (new_client.clone(), new_claims),
-                );
-                Ok(new_client)
-            }
-            Err(e) => {
-                tracing::warn!(task=%task_name, template=%partition_template_name, error=%e, "Failed to fetch task authorization");
-                Err(e.context(format!(
-                    "Failed to fetch task authorization for template '{}'",
-                    partition_template_name
-                )))
-            }
+/// Gets a journal client from cache or fetches a new one if needed.
+#[tracing::instrument(skip_all, fields(task_name, partition_template_name))]
+async fn get_or_refresh_journal_client(
+    flow_client: &flow_client::Client,
+    data_plane_fqdn: &str,
+    data_plane_signer: &jsonwebtoken::EncodingKey,
+    task_name: &str,
+    partition_template_name: &str,
+    client: Option<(journal::Client, proto_gazette::Claims)>,
+) -> anyhow::Result<(journal::Client, proto_gazette::Claims)> {
+    if let Some((cached_client, claims)) = client {
+        let now_unix = time::OffsetDateTime::now_utc().unix_timestamp();
+        // Add a buffer to token expiry check
+        if claims.exp > now_unix as u64 + 60 {
+            tracing::debug!(task=%task_name, template=%partition_template_name, "Re-using existing journal client.");
+            return Ok((cached_client, claims));
+        } else {
+            tracing::debug!(task=%task_name, template=%partition_template_name, "Journal client token expired or nearing expiry.");
         }
     }
+
+    tracing::debug!(task=%task_name, template=%partition_template_name, "Fetching new task authorization for journal client.");
+    flow_client::fetch_task_authorization(
+        flow_client,
+        &crate::dekaf_shard_template_id(task_name),
+        data_plane_fqdn,
+        data_plane_signer,
+        proto_flow::capability::AUTHORIZE
+            | proto_gazette::capability::LIST
+            | proto_gazette::capability::READ,
+        broker::LabelSelector {
+            include: Some(labels::build_set([(
+                "name:prefix",
+                format!("{partition_template_name}/").as_str(),
+            )])),
+            exclude: None,
+        },
+    )
+    .await
 }
 
 /// Fetch the journals of a collection and map into stable-order partitions.
