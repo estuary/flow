@@ -190,14 +190,20 @@ impl Collection {
             .map(|spec| spec.name.to_owned())
             .ok_or(anyhow!("missing partition template"))?;
 
-        let journal_client =
-            Self::build_journal_client(app, &auth, collection_name, &partition_template_name)
-                .await?;
-
-        let partitions = match auth {
+        let (journal_client, partitions) = match auth {
             SessionAuthentication::User(_) => {
-                crate::task_manager::fetch_partitions(&journal_client, collection_name, None)
-                    .await?
+                let journal_client = Self::build_journal_client(
+                    app,
+                    &auth,
+                    collection_name,
+                    &partition_template_name,
+                )
+                .await?;
+                let parts =
+                    crate::task_manager::fetch_partitions(&journal_client, collection_name, None)
+                        .await?;
+
+                (journal_client, parts)
             }
             SessionAuthentication::Task(task_auth) => {
                 let state = task_auth.task_state_listener.get().await?;
@@ -207,7 +213,9 @@ impl Collection {
                     .find(|(name, _)| name == &partition_template_name)
                     .context("missing partition template")?;
 
-                parts.map_err(|e| anyhow::Error::from(e))?
+                parts
+                    .map(|(client, _, parts)| (client, parts))
+                    .map_err(|e| anyhow::Error::from(e))?
             }
         };
 

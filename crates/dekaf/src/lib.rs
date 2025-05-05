@@ -20,7 +20,7 @@ use read::Read;
 pub mod utils;
 
 mod task_manager;
-pub use task_manager::{TaskManager, TaskManagerResult, TaskState};
+pub use task_manager::{TaskManager, TaskState};
 
 mod session;
 pub use session::Session;
