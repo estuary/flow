@@ -8,9 +8,8 @@ use gazette::{
     broker::{self, journal_spec},
     journal, uuid,
 };
-use itertools::Itertools;
 use models::RawValue;
-use proto_flow::flow::{self, materialization_spec::binding};
+use proto_flow::flow;
 
 impl UserAuth {
     /// Fetch the names of all collections which the current user may read.

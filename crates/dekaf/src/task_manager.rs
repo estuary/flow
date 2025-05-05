@@ -4,14 +4,13 @@ use crate::{
     topology::{self, fetch_dekaf_task_auth, Partition},
 };
 use anyhow::Context;
-use aws_config::imds::client;
 use futures::StreamExt;
 use gazette::{broker, journal};
 use itertools::Itertools;
 use proto_flow::flow::MaterializationSpec;
 use rand::Rng;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
