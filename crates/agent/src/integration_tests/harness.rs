@@ -708,6 +708,33 @@ impl TestHarness {
         .unwrap();
     }
 
+    /// Change the timestamp of the last attempted config update publication in the history to simulate
+    /// the passage of time, so another config update publication can be attempted.
+    pub async fn push_back_last_config_update_pub_history_ts(
+        &mut self,
+        catalog_name: &str,
+        new_ts: DateTime<Utc>,
+    ) {
+        sqlx::query!(
+            r#"
+            UPDATE controller_jobs
+            SET status = jsonb_set(
+                status::jsonb,
+                '{config_updates,next_attempt}',
+                $2
+            )::json
+            WHERE live_spec_id = (
+                SELECT id FROM live_specs WHERE catalog_name::text = $1
+            );
+            "#,
+            catalog_name,
+            serde_json::Value::String(new_ts.to_rfc3339()),
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
+    }
+
     /// Returns a `ControllerState` representing the given live spec and
     /// controller status from the perspective of a controller.
     pub async fn get_controller_state(&mut self, name: &str) -> ControllerState {
