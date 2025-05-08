@@ -68,6 +68,9 @@ pub enum Command {
     BearerLogs(BearerLogs),
     /// Print information about the shards for a given task
     ListShards(TaskSelector),
+    /// Print environment variables for working with a given data-plane
+    /// and prefix using Gazette's `gazctl`.
+    GazctlEnv(GazctlEnv),
 }
 
 #[derive(Debug, clap::Args)]
@@ -229,6 +232,7 @@ impl Advanced {
             Command::Stats(stats) => stats.run(ctx).await,
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
+            Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
         }
     }
 }
@@ -401,6 +405,50 @@ async fn do_combine(
     );
 
     Ok(())
+}
+
+#[derive(clap::Args, Debug)]
+pub struct GazctlEnv {
+    /// Name of the data-plane to work with.
+    #[clap(long)]
+    pub data_plane: String,
+    /// Journal and shard prefix to request authorization for.
+    #[clap(long)]
+    pub prefix: String,
+    #[clap(long)]
+    pub admin: bool,
+}
+
+impl GazctlEnv {
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+        let models::authorizations::UserPrefixAuthorization {
+            broker_address,
+            broker_token,
+            reactor_address,
+            reactor_token,
+            retry_millis: _,
+        } = flow_client::fetch_user_prefix_authorization(
+            &ctx.client,
+            models::authorizations::UserPrefixAuthorizationRequest {
+                capability: if self.admin {
+                    models::Capability::Admin
+                } else {
+                    models::Capability::Read
+                },
+                data_plane: models::Name::new(&self.data_plane),
+                prefix: models::Prefix::new(&self.prefix),
+                started_unix: 0,
+            },
+        )
+        .await?;
+
+        println!("export BROKER_ADDRESS={broker_address}");
+        println!("export BROKER_AUTH_TOKEN={broker_token}");
+        println!("export CONSUMER_ADDRESS={reactor_address}");
+        println!("export CONSUMER_AUTH_TOKEN={reactor_token}");
+
+        Ok(())
+    }
 }
 
 fn parse_key_val<T, U>(s: &str) -> anyhow::Result<(T, U)>

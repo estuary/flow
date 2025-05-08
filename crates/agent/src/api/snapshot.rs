@@ -15,6 +15,8 @@ pub struct Snapshot {
     pub data_planes: tables::DataPlanes,
     // Indices of `data_planes`, indexed on `data_plane_fqdn`.
     pub data_planes_idx_fqdn: Vec<usize>,
+    // Indices of `data_planes`, indexed on `data_plane_name`.
+    pub data_planes_idx_name: Vec<usize>,
     // Data-plane migrations that are underway.
     pub migrations: Vec<SnapshotMigration>,
     // Platform role grants.
@@ -78,6 +80,7 @@ impl Snapshot {
             collections_idx_name: Vec::new(),
             data_planes: tables::DataPlanes::default(),
             data_planes_idx_fqdn: Vec::new(),
+            data_planes_idx_name: Vec::new(),
             migrations: Vec::new(),
             role_grants: tables::RoleGrants::default(),
             user_grants: tables::UserGrants::default(),
@@ -118,6 +121,7 @@ impl Snapshot {
 
         let mut collections_idx_name = Vec::from_iter(0..collections.len());
         let mut data_planes_idx_fqdn = Vec::from_iter(0..data_planes.len());
+        let mut data_planes_idx_name = Vec::from_iter(0..data_planes.len());
         let mut tasks_idx_name = Vec::from_iter(0..tasks.len());
 
         collections_idx_name.sort_by(|i1, i2| {
@@ -130,6 +134,11 @@ impl Snapshot {
                 .data_plane_fqdn
                 .cmp(&data_planes[*i2].data_plane_fqdn)
         });
+        data_planes_idx_name.sort_by(|i1, i2| {
+            data_planes[*i1]
+                .data_plane_name
+                .cmp(&data_planes[*i2].data_plane_name)
+        });
         tasks_idx_name.sort_by(|i1, i2| tasks[*i1].task_name.cmp(&tasks[*i2].task_name));
 
         Snapshot {
@@ -138,6 +147,7 @@ impl Snapshot {
             collections_idx_name,
             data_planes,
             data_planes_idx_fqdn,
+            data_planes_idx_name,
             migrations,
             role_grants,
             user_grants,
@@ -290,6 +300,18 @@ impl Snapshot {
             })
             .ok()
             .map(|index| &self.collections[index])
+    }
+
+    // Retrieve the data-plane having the exact catalog `name`.
+    pub fn data_plane_by_catalog_name<'s>(&'s self, name: &str) -> Option<&'s tables::DataPlane> {
+        self.data_planes_idx_name
+            .binary_search_by(|i| self.data_planes[*i].data_plane_name.as_str().cmp(name))
+            .ok()
+            .map(|index| {
+                let data_plane = &self.data_planes[self.data_planes_idx_name[index]];
+                assert_eq!(data_plane.data_plane_name.as_str(), name);
+                data_plane
+            })
     }
 
     pub fn verify_data_plane_token<'s>(
@@ -608,13 +630,30 @@ impl Snapshot {
                 object_role: models::Prefix::new("bobCo/"),
                 capability: models::Capability::Write,
             },
+            tables::RoleGrant {
+                subject_role: models::Prefix::new("bobCo/tires/"),
+                object_role: models::Prefix::new("acmeCo/shared/"),
+                capability: models::Capability::Read,
+            },
+            tables::RoleGrant {
+                subject_role: models::Prefix::new("bobCo/"),
+                object_role: models::Prefix::new("ops/dp/public/"),
+                capability: models::Capability::Read,
+            },
         ];
 
-        let user_grants = vec![tables::UserGrant {
-            user_id: uuid::Uuid::from_bytes([32; 16]),
-            object_role: models::Prefix::new("bobCo/"),
-            capability: models::Capability::Write,
-        }];
+        let user_grants = vec![
+            tables::UserGrant {
+                user_id: uuid::Uuid::from_bytes([32; 16]),
+                object_role: models::Prefix::new("bobCo/"),
+                capability: models::Capability::Write,
+            },
+            tables::UserGrant {
+                user_id: uuid::Uuid::from_bytes([32; 16]),
+                object_role: models::Prefix::new("bobCo/tires/"),
+                capability: models::Capability::Admin,
+            },
+        ];
 
         let tasks = [
             ("acmeCo/source-pineapple", models::CatalogType::Capture, 1),
@@ -775,6 +814,31 @@ mod tests {
         assert!(snapshot
             .collection_by_journal_name("bobCo/widgets/nonexistent/1122334455667788")
             .is_none());
+    }
+
+    #[test]
+    fn test_data_plane_lookups() {
+        let snapshot = Snapshot::build_fixture(None);
+
+        assert_eq!(
+            snapshot
+                .data_plane_by_catalog_name("ops/dp/public/plane-one")
+                .unwrap()
+                .data_plane_name
+                .as_str(),
+            "ops/dp/public/plane-one"
+        );
+        assert_eq!(
+            snapshot
+                .data_plane_by_catalog_name("ops/dp/public/plane-two")
+                .unwrap()
+                .data_plane_name
+                .as_str(),
+            "ops/dp/public/plane-two"
+        );
+        assert!(snapshot
+            .data_plane_by_catalog_name("ops/dp/public/plane-one/1")
+            .is_none()); // Non-existent name should not match.
     }
 
     #[test]

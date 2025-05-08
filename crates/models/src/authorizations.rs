@@ -70,6 +70,9 @@ pub struct UserCollectionAuthorizationRequest {
     /// # Collection name to be authorized.
     #[validate]
     pub collection: crate::Collection,
+    /// # Requested capability level of the authorization.
+    #[serde(default = "capability_read")]
+    pub capability: crate::Capability,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// If this is non-zero, it lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -92,8 +95,8 @@ pub struct UserCollectionAuthorization {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub broker_address: String,
     /// # JWT token which has been authorized for use with brokers.
-    /// The token is capable of LIST and READ for journals
-    /// of the requested collection.
+    /// The token is authorized for journal operations of the
+    /// requested collection and capability.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub broker_token: String,
     /// # Prefix of collection Journal names.
@@ -109,10 +112,60 @@ pub struct UserCollectionAuthorization {
     Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
 )]
 #[serde(rename_all = "camelCase")]
+pub struct UserPrefixAuthorizationRequest {
+    /// # Prefix to be authorized.
+    #[validate]
+    pub prefix: crate::Prefix,
+    /// # Name of the data-plane to be authorized.
+    #[validate]
+    pub data_plane: crate::Name,
+    /// # Requested capability level of the authorization.
+    #[serde(default = "capability_read")]
+    pub capability: crate::Capability,
+    /// # Unix timestamp, in seconds, at which the operation started.
+    /// This timestamp lower-bounds the time of an authorization
+    /// snapshot required to definitively reject an authorization.
+    ///
+    /// Snapshots taken prior to this time point that reject the request
+    /// will return a Response asking for the operation to be retried.
+    pub started_unix: u64,
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPrefixAuthorization {
+    /// # Address of Gazette brokers for the issued token.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub broker_address: String,
+    /// # JWT token which has been authorized for use with brokers.
+    /// The token is authorized for journal operations over the
+    /// requested prefix and capability.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub broker_token: String,
+    /// # Address of Reactors for the issued token.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reactor_address: String,
+    /// # JWT token which has been authorized for use with reactors.
+    /// The token is authorized for shard operations over the
+    /// requested prefix and capability.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reactor_token: String,
+    /// # Number of milliseconds to wait before retrying the request.
+    /// Non-zero if and only if token is not set.
+    pub retry_millis: u64,
+}
+
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema, validator::Validate,
+)]
+#[serde(rename_all = "camelCase")]
 pub struct UserTaskAuthorizationRequest {
     /// # Task name to be authorized.
     #[validate]
     pub task: crate::Name,
+    /// # Requested capability level of the authorization.
+    #[serde(default = "capability_read")]
+    pub capability: crate::Capability,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// If this is non-zero, it lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -146,7 +199,8 @@ pub struct UserTaskAuthorization {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reactor_address: String,
     /// # JWT token which has been authorized for use with reactors.
-    /// The token is capable of LIST, READ, and NETWORK_PROXY of task shards.
+    /// The token is authorized for shard operations of the
+    /// requested task and capability.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reactor_token: String,
     /// # Number of milliseconds to wait before retrying the request.
@@ -156,6 +210,7 @@ pub struct UserTaskAuthorization {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub shard_id_prefix: String,
 }
+
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DekafAuthResponse {
@@ -175,4 +230,8 @@ pub struct DekafAuthResponse {
     /// # Number of milliseconds to wait before retrying the request.
     /// Non-zero if and only if token is not set.
     pub retry_millis: u64,
+}
+
+const fn capability_read() -> crate::Capability {
+    crate::Capability::Read
 }
