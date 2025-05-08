@@ -288,6 +288,7 @@ pub async fn fetch_user_task_authorization(
                 &models::authorizations::UserTaskAuthorizationRequest {
                     started_unix,
                     task: models::Name::new(task),
+                    capability: models::Capability::Read,
                 },
             )
             .await?;
@@ -359,6 +360,7 @@ pub async fn fetch_user_collection_authorization(
                 &models::authorizations::UserCollectionAuthorizationRequest {
                     started_unix,
                     collection: models::Collection::new(collection),
+                    capability: models::Capability::Read,
                 },
             )
             .await?;
@@ -389,6 +391,35 @@ pub async fn fetch_user_collection_authorization(
         .with_endpoint_and_metadata(broker_address, md);
 
     Ok((journal_name_prefix, journal_client))
+}
+
+#[tracing::instrument(skip(client), err)]
+pub async fn fetch_user_prefix_authorization(
+    client: &Client,
+    mut request: models::authorizations::UserPrefixAuthorizationRequest,
+) -> anyhow::Result<models::authorizations::UserPrefixAuthorization> {
+    if request.started_unix == 0 {
+        request.started_unix = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+    }
+
+    loop {
+        let response: models::authorizations::UserPrefixAuthorization = client
+            .agent_unary("/authorize/user/prefix", &request)
+            .await?;
+
+        if response.retry_millis != 0 {
+            tracing::warn!(
+                secs = response.retry_millis as f64 / 1000.0,
+                "authorization service tentatively rejected our request, but we'll retry before failing"
+            );
+            () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
+            continue;
+        }
+        return Ok(response);
+    }
 }
 
 pub async fn refresh_authorizations(

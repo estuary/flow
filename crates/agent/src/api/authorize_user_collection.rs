@@ -21,10 +21,19 @@ pub async fn authorize_user_collection(
     }): axum::Extension<super::ControlClaims>,
     super::Request(Request {
         collection,
+        capability,
         started_unix,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
-    do_authorize_user_collection(&app.snapshot, user_id, email, collection, started_unix).await
+    do_authorize_user_collection(
+        &app.snapshot,
+        user_id,
+        email,
+        collection,
+        capability,
+        started_unix,
+    )
+    .await
 }
 
 pub async fn do_authorize_user_collection(
@@ -32,6 +41,7 @@ pub async fn do_authorize_user_collection(
     user_id: uuid::Uuid,
     email: Option<String>,
     collection: models::Collection,
+    capability: models::Capability,
     started_unix: u64,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let (has_started, started) = if started_unix == 0 {
@@ -45,7 +55,7 @@ pub async fn do_authorize_user_collection(
 
     loop {
         match Snapshot::evaluate(snapshot, started, |snapshot: &Snapshot| {
-            evaluate_authorization(snapshot, user_id, email.as_ref(), &collection)
+            evaluate_authorization(snapshot, user_id, email.as_ref(), &collection, capability)
         }) {
             Ok((exp, (encoding_key, mut claims, broker_address, journal_name_prefix))) => {
                 claims.inner.iat = started.timestamp() as u64;
@@ -81,6 +91,7 @@ fn evaluate_authorization(
     user_id: uuid::Uuid,
     user_email: Option<&String>,
     collection_name: &models::Collection,
+    capability: models::Capability,
 ) -> Result<
     (
         Option<chrono::DateTime<chrono::Utc>>,
@@ -93,10 +104,10 @@ fn evaluate_authorization(
         &snapshot.user_grants,
         user_id,
         collection_name,
-        models::Capability::Read,
+        capability,
     ) {
         return Err(anyhow::anyhow!(
-            "{} is not authorized to {collection_name}",
+            "{} is not authorized to {collection_name} for {capability:?}",
             user_email.map(String::as_str).unwrap_or("user")
         )
         .with_status(StatusCode::FORBIDDEN));
@@ -125,7 +136,7 @@ fn evaluate_authorization(
 
     let claims = super::DataClaims {
         inner: proto_gazette::Claims {
-            cap: proto_gazette::capability::LIST | proto_gazette::capability::READ,
+            cap: super::map_capability_to_gazette(capability),
             exp: 0, // Filled later.
             iat: 0, // Filled later.
             iss: data_plane.data_plane_fqdn.clone(),
@@ -166,6 +177,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Collection::new("bobCo/anvils/peaches"),
+            models::Capability::Write,
         )
         .await;
 
@@ -175,7 +187,7 @@ mod tests {
             "broker.2",
             "bobCo/anvils/peaches/1122334455667788/",
             {
-              "cap": 10,
+              "cap": 26,
               "exp": 0,
               "iat": 0,
               "iss": "fqdn2",
@@ -207,6 +219,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Collection::new("acmeCo/other/thing"),
+            models::Capability::Read,
         )
         .await;
 
@@ -214,7 +227,27 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/other/thing"
+            "error": "bob@bob is not authorized to acmeCo/other/thing for Read"
+          }
+        }
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_capability_to_high() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Collection::new("bobCo/anvils/peaches"),
+            models::Capability::Admin,
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "bob@bob is not authorized to bobCo/anvils/peaches for Admin"
           }
         }
         "###);
@@ -226,6 +259,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Collection::new("bobCo/widgets/not/found"),
+            models::Capability::Read,
         )
         .await;
 
@@ -245,6 +279,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Collection::new("bobCo/widgets/squashes"),
+            models::Capability::Read,
         )
         .await;
 
@@ -262,6 +297,7 @@ mod tests {
         user_id: uuid::Uuid,
         email: Option<String>,
         collection: models::Collection,
+        capability: models::Capability,
     ) -> Result<(String, String, proto_gazette::Claims), crate::api::ApiError> {
         let taken = chrono::Utc::now();
         let snapshot = Snapshot::build_fixture(Some(taken));
@@ -277,6 +313,7 @@ mod tests {
             user_id,
             email,
             collection,
+            capability,
             taken.timestamp() as u64 - 1,
         )
         .await?

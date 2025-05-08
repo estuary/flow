@@ -19,9 +19,21 @@ pub async fn authorize_user_task(
         email,
         ..
     }): axum::Extension<super::ControlClaims>,
-    super::Request(Request { task, started_unix }): super::Request<Request>,
+    super::Request(Request {
+        task,
+        capability,
+        started_unix,
+    }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
-    do_authorize_user_task(&app.snapshot, user_id, email, task, started_unix).await
+    do_authorize_user_task(
+        &app.snapshot,
+        user_id,
+        email,
+        task,
+        capability,
+        started_unix,
+    )
+    .await
 }
 
 pub async fn do_authorize_user_task(
@@ -29,6 +41,7 @@ pub async fn do_authorize_user_task(
     user_id: uuid::Uuid,
     email: Option<String>,
     task: models::Name,
+    capability: models::Capability,
     started_unix: u64,
 ) -> Result<axum::Json<Response>, crate::api::ApiError> {
     let (has_started, started) = if started_unix == 0 {
@@ -42,7 +55,7 @@ pub async fn do_authorize_user_task(
 
     loop {
         match Snapshot::evaluate(snapshot, started, |snapshot: &Snapshot| {
-            evaluate_authorization(snapshot, user_id, email.as_ref(), &task)
+            evaluate_authorization(snapshot, user_id, email.as_ref(), &task, capability)
         }) {
             Ok((
                 exp,
@@ -98,6 +111,7 @@ fn evaluate_authorization(
     user_id: uuid::Uuid,
     user_email: Option<&String>,
     task_name: &models::Name,
+    capability: models::Capability,
 ) -> Result<
     (
         Option<chrono::DateTime<chrono::Utc>>,
@@ -119,10 +133,10 @@ fn evaluate_authorization(
         &snapshot.user_grants,
         user_id,
         task_name,
-        models::Capability::Read,
+        capability,
     ) {
         return Err(anyhow::anyhow!(
-            "{} is not authorized to {task_name}",
+            "{} is not authorized to {task_name} for {capability:?}",
             user_email.map(String::as_str).unwrap_or("user")
         )
         .with_status(StatusCode::FORBIDDEN));
@@ -185,8 +199,7 @@ fn evaluate_authorization(
 
     let reactor_claims = super::DataClaims {
         inner: proto_gazette::Claims {
-            cap: proto_gazette::capability::LIST
-                | proto_gazette::capability::READ
+            cap: super::map_capability_to_gazette(capability)
                 | proto_flow::capability::NETWORK_PROXY,
             exp: 0, // Filled later.
             iat: 0, // Filled later.
@@ -228,6 +241,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
+            models::Capability::Read,
         )
         .await;
 
@@ -289,6 +303,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("acmeCo/other/thing"),
+            models::Capability::Read,
         )
         .await;
 
@@ -296,18 +311,38 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/other/thing"
+            "error": "bob@bob is not authorized to acmeCo/other/thing for Read"
           }
         }
         "###);
     }
 
     #[tokio::test]
+    async fn test_capability_to_high() {
+        let outcome = run(
+            uuid::Uuid::from_bytes([32; 16]),
+            Some("bob@bob".to_string()),
+            models::Name::new("bobCo/anvils/materialize-orange"),
+            models::Capability::Admin,
+        )
+        .await;
+
+        insta::assert_json_snapshot!(outcome, @r###"
+        {
+          "Err": {
+            "status": 403,
+            "error": "bob@bob is not authorized to bobCo/anvils/materialize-orange for Admin"
+          }
+        }
+        "###);
+    }
+    #[tokio::test]
     async fn test_not_found() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/not/found"),
+            models::Capability::Read,
         )
         .await;
 
@@ -327,6 +362,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/materialize-mango"),
+            models::Capability::Read,
         )
         .await;
 
@@ -344,6 +380,7 @@ mod tests {
         user_id: uuid::Uuid,
         email: Option<String>,
         task: models::Name,
+        capability: models::Capability,
     ) -> Result<
         (
             String,
@@ -374,6 +411,7 @@ mod tests {
             user_id,
             email,
             task,
+            capability,
             taken.timestamp() as u64 - 1,
         )
         .await?
