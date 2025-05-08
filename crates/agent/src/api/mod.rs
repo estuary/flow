@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 mod authorize_dekaf;
 mod authorize_task;
 mod authorize_user_collection;
+mod authorize_user_prefix;
 mod authorize_user_task;
 mod create_data_plane;
 mod error;
@@ -154,14 +155,20 @@ pub fn build_router(
         .route("/authorize/task", post(authorize_task::authorize_task))
         .route("/authorize/dekaf", post(authorize_dekaf::authorize_dekaf))
         .route(
-            "/authorize/user/task",
-            post(authorize_user_task::authorize_user_task)
+            "/authorize/user/collection",
+            post(authorize_user_collection::authorize_user_collection)
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
                 .options(preflight_handler),
         )
         .route(
-            "/authorize/user/collection",
-            post(authorize_user_collection::authorize_user_collection)
+            "/authorize/user/prefix",
+            post(authorize_user_prefix::authorize_user_prefix)
+                .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
+                .options(preflight_handler),
+        )
+        .route(
+            "/authorize/user/task",
+            post(authorize_user_task::authorize_user_task)
                 .route_layer(axum::middleware::from_fn_with_state(app.clone(), authorize))
                 .options(preflight_handler),
         )
@@ -354,5 +361,24 @@ fn maybe_rewrite_address(external: bool, address: &str) -> String {
         "https://us-central1.v1.estuary-data.dev".to_string()
     } else {
         address.to_string()
+    }
+}
+
+const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
+    match capability {
+        models::Capability::Read => {
+            proto_gazette::capability::LIST | proto_gazette::capability::READ
+        }
+        models::Capability::Write => {
+            proto_gazette::capability::LIST
+                | proto_gazette::capability::READ
+                | proto_gazette::capability::APPEND
+        }
+        models::Capability::Admin => {
+            proto_gazette::capability::LIST
+                | proto_gazette::capability::READ
+                | proto_gazette::capability::APPEND
+                | proto_gazette::capability::APPLY
+        }
     }
 }
