@@ -11,6 +11,16 @@ impl Client {
         self,
         mut req: broker::ReadRequest,
     ) -> impl futures::Stream<Item = crate::RetryResult<broker::ReadResponse>> + 'static {
+        // We give each long-lived read its own HTTP client, but do not share
+        // across reads. This is because fragment URLs will often have a
+        // shared storage endpoint, and a single endpoint connection will be
+        // re-used by the underlying HTTP client. However, it's possible to
+        // have many concurrent reads of fragments, and for those reads to
+        // have complex interdependencies where progress of one might block
+        // another, and this can interact poorly with HTTP/2 stream limits and
+        // flow control.
+        let http = reqwest::Client::default();
+
         coroutines::coroutine(move |mut co| async move {
             let mut write_head = i64::MAX;
             let mut attempt = 0;
@@ -25,7 +35,10 @@ impl Client {
                     return;
                 }
 
-                let err = match self.read_some(&mut co, &mut req, &mut write_head).await {
+                let err = match self
+                    .read_some(&mut co, &http, &mut req, &mut write_head)
+                    .await
+                {
                     Ok(()) => {
                         attempt = 0;
                         continue;
@@ -54,6 +67,7 @@ impl Client {
     async fn read_some(
         &self,
         co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
+        http: &reqwest::Client,
         req: &mut broker::ReadRequest,
         write_head: &mut i64,
     ) -> crate::Result<()> {
@@ -92,7 +106,7 @@ impl Client {
             *write_head = metadata.write_head;
             let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
             () = co.yield_(Ok(metadata)).await;
-            return read_fragment_url(co, fragment, fragment_url, &self.http, req).await;
+            return read_fragment_url(co, fragment, fragment_url, http, req).await;
         }
 
         tracing::trace!(req.offset, write_head, "started direct journal read");

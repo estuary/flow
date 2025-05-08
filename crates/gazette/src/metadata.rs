@@ -4,32 +4,36 @@ use std::ops::{Deref, DerefMut};
 pub struct Metadata(pub tonic::metadata::MetadataMap);
 
 impl Metadata {
-    /// Attaches an Authorization: Bearer token to the request.
-    pub fn bearer_token(&mut self, token: &str) -> crate::Result<()> {
+    pub fn new() -> Self {
+        Self(tonic::metadata::MetadataMap::new())
+    }
+
+    /// Attaches an Authorization: Bearer token to the Metadata.
+    pub fn with_bearer_token(mut self, token: &str) -> crate::Result<Self> {
         self.0.insert(
             "authorization",
             format!("Bearer {token}")
                 .parse()
                 .map_err(crate::Error::BearerToken)?,
         );
-        Ok(())
+        Ok(self)
     }
 
     /// Sign claims into an JWT suited for use as an Authorization: Bearer token.
-    pub fn signed_claims<S: AsRef<str>>(
-        &mut self,
-        capapbility: u32,
+    pub fn with_signed_claims<S: AsRef<str>>(
+        self,
+        capability: u32,
         data_plane_fqdn: &str,
         duration: std::time::Duration,
         hmac_keys: &[S],
         selector: proto_gazette::broker::LabelSelector,
         subject: &str,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<Self> {
         let unix_ts = jsonwebtoken::get_current_timestamp();
 
         let claims = proto_gazette::Claims {
             sel: selector,
-            cap: capapbility,
+            cap: capability,
             sub: subject.to_string(),
             iat: unix_ts,
             exp: unix_ts + duration.as_secs(),
@@ -44,7 +48,7 @@ impl Metadata {
         let hmac_key = jsonwebtoken::EncodingKey::from_base64_secret(hmac_key.as_ref())?;
         let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &hmac_key)?;
 
-        self.bearer_token(&token)
+        self.with_bearer_token(&token)
     }
 }
 

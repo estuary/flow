@@ -58,6 +58,8 @@ pub struct App {
     pub data_plane_signer: jsonwebtoken::EncodingKey,
     /// The manager responsible for maintaining fresh task metadata
     pub task_manager: Arc<TaskManager>,
+    /// Router which holds shared gazette gRPC channels.
+    pub router: gazette::Router,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
@@ -112,10 +114,10 @@ impl SessionAuthentication {
     pub fn refresh_gazette_clients(&mut self) {
         match self {
             SessionAuthentication::User(auth) => {
-                auth.client = auth.client.clone().with_fresh_gazette_client();
+                auth.client = auth.client.clone();
             }
             SessionAuthentication::Task(auth) => {
-                auth.client = auth.client.clone().with_fresh_gazette_client();
+                auth.client = auth.client.clone();
             }
         }
     }
@@ -141,11 +143,7 @@ impl UserAuth {
             self.access_token = access.clone();
             self.refresh_token = refresh;
 
-            self.client = self
-                .client
-                .clone()
-                .with_user_access_token(Some(access))
-                .with_fresh_gazette_client();
+            self.client = self.client.clone().with_user_access_token(Some(access));
         }
 
         Ok(&self.client)
@@ -182,11 +180,7 @@ impl TaskAuth {
                 )
                 .await?;
 
-            self.client = self
-                .client
-                .clone()
-                .with_user_access_token(Some(token))
-                .with_fresh_gazette_client();
+            self.client = self.client.clone().with_user_access_token(Some(token));
             self.exp =
                 time::OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(claims.exp as i64);
         }
@@ -263,10 +257,7 @@ impl App {
             logging::set_log_level(labels.log_level());
 
             Ok(SessionAuthentication::Task(TaskAuth::new(
-                self.client_base
-                    .clone()
-                    .with_user_access_token(Some(token))
-                    .with_fresh_gazette_client(),
+                self.client_base.clone().with_user_access_token(Some(token)),
                 username,
                 config,
                 listener,
@@ -292,8 +283,7 @@ impl App {
             let client = self
                 .client_base
                 .clone()
-                .with_user_access_token(Some(access.clone()))
-                .with_fresh_gazette_client();
+                .with_user_access_token(Some(access.clone()));
 
             let claims = flow_client::client::client_claims(&client)?;
 

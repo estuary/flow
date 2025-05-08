@@ -105,13 +105,16 @@ pub struct TaskManager {
     client: flow_client::Client,
     data_plane_fqdn: String,
     data_plane_signer: jsonwebtoken::EncodingKey,
+    router: gazette::Router,
 }
+
 impl TaskManager {
     pub fn new(
         ttl: Duration,
         client: flow_client::Client,
         data_plane_fqdn: String,
         data_plane_signer: jsonwebtoken::EncodingKey,
+        router: gazette::Router,
     ) -> Self {
         TaskManager {
             tasks: std::sync::Mutex::new(HashMap::new()),
@@ -119,6 +122,7 @@ impl TaskManager {
             client,
             data_plane_fqdn,
             data_plane_signer: data_plane_signer,
+            router,
         }
     }
 
@@ -158,6 +162,7 @@ impl TaskManager {
                 self.client.clone(),
                 self.data_plane_fqdn.clone(),
                 self.data_plane_signer.clone(),
+                self.router.clone(),
             ),
             stop_signal.clone(),
             self.clone()
@@ -393,12 +398,12 @@ impl TaskManager {
         .await;
 
         match auth_result {
-            Ok((new_client, new_claims)) => {
+            Ok((new_auth, new_claims)) => {
                 tracing::info!(task=%task_name, template=%partition_template_name, "Successfully fetched new journal client authorization.");
                 let mut cache_guard = journal_clients_cache.lock().expect("Mutex poisoned");
                 cache_guard.insert(
                     partition_template_name.to_string(),
-                    (new_client.clone(), new_claims),
+                    (new_auth.clone(), new_claims),
                 );
                 Ok(new_client)
             }

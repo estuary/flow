@@ -96,6 +96,7 @@ pub struct GazetteWriter {
     logs_appender: Option<GazetteAppender>,
     stats_appender: Option<GazetteAppender>,
     shard: Option<ops::ShardRef>,
+    router: gazette::Router,
 }
 
 #[async_trait]
@@ -140,6 +141,7 @@ impl GazetteWriter {
         client_base: flow_client::Client,
         data_plane_fqdn: String,
         data_plane_signer: jsonwebtoken::EncodingKey,
+        router: gazette::Router,
     ) -> Self {
         Self {
             client_base,
@@ -148,6 +150,7 @@ impl GazetteWriter {
             shard: None,
             logs_appender: None,
             stats_appender: None,
+            router,
         }
     }
 
@@ -169,6 +172,7 @@ impl GazetteWriter {
                 self.client_base.clone(),
                 self.data_plane_fqdn.clone(),
                 self.data_plane_signer.clone(),
+                self.router.clone(),
             )
             .await?,
             GazetteAppender::try_create(
@@ -177,6 +181,7 @@ impl GazetteWriter {
                 self.client_base.clone(),
                 self.data_plane_fqdn.clone(),
                 self.data_plane_signer.clone(),
+                self.router.clone(),
             )
             .await?,
         ))
@@ -201,6 +206,7 @@ impl GazetteAppender {
         client_base: flow_client::Client,
         data_plane_fqdn: String,
         data_plane_signer: jsonwebtoken::EncodingKey,
+        router: gazette::Router,
     ) -> anyhow::Result<Self> {
         let (client, exp) = Self::refresh_client(
             &task_name,
@@ -208,6 +214,7 @@ impl GazetteAppender {
             client_base.clone(),
             &data_plane_fqdn,
             data_plane_signer.clone(),
+            router,
         )
         .await?;
 
@@ -259,16 +266,21 @@ impl GazetteAppender {
     }
 
     async fn refresh(&mut self) -> anyhow::Result<()> {
+        let (_endpoint, _metadata, router) = self.client.clone().into_parts();
+
         let (client, exp) = Self::refresh_client(
             &self.task_name,
             &self.journal_name,
             self.client_base.clone(),
             &self.data_plane_fqdn,
             self.data_plane_signer.clone(),
+            router,
         )
         .await?;
+
         self.client = client;
         self.exp = exp;
+
         Ok(())
     }
 
@@ -278,13 +290,21 @@ impl GazetteAppender {
         client_base: flow_client::Client,
         data_plane_fqdn: &str,
         signer: jsonwebtoken::EncodingKey,
+        router: gazette::Router,
     ) -> anyhow::Result<(journal::Client, time::OffsetDateTime)> {
         let template_id = dekaf_shard_template_id(task_name);
 
         let (auth_token, _, _, _, _) =
             fetch_dekaf_task_auth(&client_base, task_name, data_plane_fqdn, &signer).await?;
 
-        let (new_client, new_claims) = fetch_task_authorization(
+        let (
+            models::authorizations::TaskAuthorization {
+                broker_address,
+                token,
+                ..
+            },
+            new_claims,
+        ) = fetch_task_authorization(
             &client_base.with_user_access_token(Some(auth_token)),
             &template_id,
             data_plane_fqdn,
@@ -297,6 +317,11 @@ impl GazetteAppender {
         )
         .await?;
 
+        let new_client = journal::Client::new(
+            broker_address,
+            gazette::Metadata::new().with_bearer_token(&token)?,
+            router,
+        );
         Ok((
             new_client,
             time::OffsetDateTime::UNIX_EPOCH + Duration::from_secs(new_claims.exp),

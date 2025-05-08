@@ -41,12 +41,32 @@ pub async fn read_task_ops_journal(
     collection: OpsCollection,
     bounds: &ReadBounds,
 ) -> anyhow::Result<()> {
-    let (_shard_id_prefix, ops_logs_journal, ops_stats_journal, _shard_client, journal_client) =
-        flow_client::fetch_user_task_authorization(client, task_name).await?;
+    let models::authorizations::UserTaskAuthorization {
+        broker_address,
+        broker_token,
+        ops_logs_journal,
+        ops_stats_journal,
+        ..
+    } = flow_client::fetch_user_task_authorization(
+        &ctx.client,
+        models::authorizations::UserTaskAuthorizationRequest {
+            task: selector.task.clone(),
+            capability: models::Capability::Read,
+            started_unix: 0,
+        },
+    )
+    .await?;
+
+    let journal_client = gazette::journal::Client::new(
+        broker_address,
+        gazette::Metadata::new().with_bearer_token(&broker_token)?,
+        ctx.router.clone(),
+    );
 
     let journal_name = match collection {
         OpsCollection::Logs => ops_logs_journal,
         OpsCollection::Stats => ops_stats_journal,
     };
+
     crate::collection::read::read_collection_journal(journal_client, &journal_name, bounds).await
 }

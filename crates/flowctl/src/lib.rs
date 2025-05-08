@@ -99,6 +99,7 @@ pub struct CliContext {
     client: Client,
     config: config::Config,
     output: output::Output,
+    router: gazette::Router,
 }
 
 impl CliContext {
@@ -161,6 +162,7 @@ impl Cli {
             client,
             config,
             output,
+            router: gazette::Router::new("local"),
         };
 
         match &self.cmd {

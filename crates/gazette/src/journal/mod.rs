@@ -17,7 +17,6 @@ type SubClient = proto_grpc::broker::journal_client::JournalClient<
 #[derive(Clone)]
 pub struct Client {
     default: broker::process_spec::Id,
-    http: reqwest::Client,
     metadata: crate::Metadata,
     router: crate::Router,
 }
@@ -32,22 +31,12 @@ impl Client {
                 suffix: endpoint,
             },
             metadata,
-            http: reqwest::Client::default(),
             router,
         }
     }
 
-    /// Build a new Client which uses a different endpoint and metadata but re-uses underlying connections.
-    pub fn with_endpoint_and_metadata(&self, endpoint: String, metadata: crate::Metadata) -> Self {
-        Self {
-            default: broker::process_spec::Id {
-                zone: String::new(),
-                suffix: endpoint,
-            },
-            http: self.http.clone(),
-            metadata,
-            router: self.router.clone(),
-        }
+    pub fn into_parts(self) -> (String, crate::Metadata, crate::Router) {
+        (self.default.suffix, self.metadata, self.router)
     }
 
     /// Invoke the Gazette journal Apply API.

@@ -648,9 +648,8 @@ async fn fetch_data_plane(pg_pool: &sqlx::PgPool, name: &str) -> anyhow::Result<
     .context("failed to fetch data-plane ops collections")?;
     let (ops_logs_template, ops_stats_template) = (r.logs.0, r.stats.0);
 
-    let mut metadata = gazette::Metadata::default();
-    metadata
-        .signed_claims(
+    let metadata = gazette::Metadata::new()
+        .with_signed_claims(
             proto_gazette::capability::APPEND
                 | proto_gazette::capability::APPLY
                 | proto_gazette::capability::LIST

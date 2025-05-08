@@ -15,7 +15,7 @@ use self::read::ReadArgs;
 pub struct CollectionJournalSelector {
     /// The full name of the Flow collection
     #[clap(long)]
-    pub collection: String,
+    pub collection: models::Collection,
     /// Selects a subset of collection partitions using the given selector.
     /// The selector is provided as JSON matching the same shape that's used
     /// in Flow catalog specs. For example:
@@ -184,8 +184,7 @@ async fn do_list_fragments(
         since,
     }: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
+    let (client, journal_name_prefix) = read_client(ctx, &selector.collection).await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -224,8 +223,7 @@ async fn do_list_journals(
     ctx: &mut crate::CliContext,
     selector: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection).await?;
+    let (client, journal_name_prefix) = read_client(ctx, &selector.collection).await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -241,4 +239,32 @@ async fn do_list_journals(
         .collect();
 
     ctx.write_all(journals?, ())
+}
+
+async fn read_client(
+    ctx: &mut crate::CliContext,
+    collection: &models::Collection,
+) -> anyhow::Result<(gazette::journal::Client, String)> {
+    let models::authorizations::UserCollectionAuthorization {
+        journal_name_prefix,
+        broker_address,
+        broker_token,
+        ..
+    } = flow_client::fetch_user_collection_authorization(
+        &ctx.client,
+        models::authorizations::UserCollectionAuthorizationRequest {
+            collection: selector.collection.clone(),
+            capability: models::Capability::Read,
+            started_unix: 0,
+        },
+    )
+    .await?;
+
+    let journal_client = gazette::journal::Client::new(
+        broker_address,
+        gazette::Metadata::new().with_bearer_token(&broker_token)?,
+        ctx.router.clone(),
+    );
+
+    Ok((journal_client, journal_name_prefix))
 }

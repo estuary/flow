@@ -13,10 +13,6 @@ pub struct Client {
     http_client: reqwest::Client,
     // User's access token, if authenticated.
     user_access_token: Option<String>,
-    // Base shard client which is cloned to build token-specific clients.
-    shard_client: gazette::shard::Client,
-    // Base journal client which is cloned to build token-specific clients.
-    journal_client: gazette::journal::Client,
     // Keep a single Postgrest and hand out clones of it in order to maintain
     // a single connection pool. The clones can have different headers while
     // still re-using the same connection pool, so this will work across refreshes.
@@ -31,30 +27,11 @@ impl Client {
         pg_url: Url,
         user_access_token: Option<String>,
     ) -> Self {
-        // Build journal and shard clients with an empty default service address.
-        // We'll use their with_endpoint_and_metadata() routines to cheaply clone
-        // new clients using dynamic addresses and access tokens, while re-using
-        // underlying connections.
-        let router = gazette::Router::new("local");
-
-        let journal_client = gazette::journal::Client::new(
-            String::new(),
-            gazette::Metadata::default(),
-            router.clone(),
-        );
-        let shard_client = gazette::shard::Client::new(
-            String::new(),
-            gazette::Metadata::default(),
-            router.clone(),
-        );
-
         Self {
             agent_endpoint,
             http_client: reqwest::Client::new(),
             pg_parent: postgrest::Postgrest::new(pg_url.as_str())
                 .insert_header("apikey", pg_api_token.as_str()),
-            journal_client,
-            shard_client,
             user_access_token,
         }
     }
@@ -62,30 +39,6 @@ impl Client {
     pub fn with_user_access_token(self, user_access_token: Option<String>) -> Self {
         Self {
             user_access_token,
-            ..self
-        }
-    }
-
-    /// Build a fresh `gazette::journal::Client` and `gazette::shard::Client`
-    /// There is a bug that causes these clients to hang under heavy/varied load,
-    /// so until that bug is found+fixed, this is the work-around.
-    #[deprecated]
-    pub fn with_fresh_gazette_client(self) -> Self {
-        let router = gazette::Router::new("local");
-
-        let journal_client = gazette::journal::Client::new(
-            String::new(),
-            gazette::Metadata::default(),
-            router.clone(),
-        );
-        let shard_client = gazette::shard::Client::new(
-            String::new(),
-            gazette::Metadata::default(),
-            router.clone(),
-        );
-        Self {
-            journal_client,
-            shard_client,
             ..self
         }
     }
@@ -183,7 +136,10 @@ pub async fn fetch_task_authorization(
     data_plane_signer: &jsonwebtoken::EncodingKey,
     capability: u32,
     selector: gazette::broker::LabelSelector,
-) -> anyhow::Result<(gazette::journal::Client, proto_gazette::Claims)> {
+) -> anyhow::Result<(
+    models::authorizations::TaskAuthorization,
+    proto_gazette::Claims,
+)> {
     let request_token = build_task_authorization_request_token(
         shard_template_id,
         data_plane_fqdn,
@@ -192,11 +148,7 @@ pub async fn fetch_task_authorization(
         selector,
     )?;
 
-    let models::authorizations::TaskAuthorization {
-        broker_address,
-        token,
-        retry_millis: _,
-    } = loop {
+    loop {
         let response: models::authorizations::TaskAuthorization = client
             .agent_unary(
                 "/authorize/task",
@@ -209,26 +161,14 @@ pub async fn fetch_task_authorization(
         if response.retry_millis != 0 {
             tracing::warn!(
                 secs = response.retry_millis as f64 / 1000.0,
-                "authorization service tentatively rejected our request, but will retry before failing"
+                "authorization service tentatively rejected our request, but we'll retry before failing"
             );
             () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
             continue;
         }
-        break response;
-    };
-
-    tracing::debug!(broker_address, "resolved task data-plane and authorization");
-
-    let parsed_claims: proto_gazette::Claims = parse_jwt_claims(&token)?;
-
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&token)?;
-
-    let journal_client = client
-        .journal_client
-        .with_endpoint_and_metadata(broker_address, md);
-
-    Ok((journal_client, parsed_claims))
+        let claims = parse_jwt_claims(&response.token)?;
+        return Ok((response, claims));
+    }
 }
 
 pub fn build_task_authorization_request_token(
@@ -259,138 +199,58 @@ pub fn build_task_authorization_request_token(
 #[tracing::instrument(skip(client), err)]
 pub async fn fetch_user_task_authorization(
     client: &Client,
-    task: &str,
-) -> anyhow::Result<(
-    String,
-    String,
-    String,
-    gazette::shard::Client,
-    gazette::journal::Client,
-)> {
-    let started_unix = std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    mut request: models::authorizations::UserTaskAuthorizationRequest,
+) -> anyhow::Result<models::authorizations::UserTaskAuthorization> {
+    if request.started_unix == 0 {
+        request.started_unix = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+    }
 
-    let models::authorizations::UserTaskAuthorization {
-        broker_address,
-        broker_token,
-        ops_logs_journal,
-        ops_stats_journal,
-        reactor_address,
-        reactor_token,
-        shard_id_prefix,
-        retry_millis: _,
-    } = loop {
-        let response: models::authorizations::UserTaskAuthorization = client
-            .agent_unary(
-                "/authorize/user/task",
-                &models::authorizations::UserTaskAuthorizationRequest {
-                    started_unix,
-                    task: models::Name::new(task),
-                    capability: models::Capability::Read,
-                },
-            )
-            .await?;
+    loop {
+        let response: models::authorizations::UserTaskAuthorization =
+            client.agent_unary("/authorize/user/task", &request).await?;
 
         if response.retry_millis != 0 {
             tracing::warn!(
                 secs = response.retry_millis as f64 / 1000.0,
-                "authorization service tentatively rejected our request, but will retry before failing"
+                "authorization service tentatively rejected our request, but we'll retry before failing"
             );
             () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
             continue;
         }
-        break response;
-    };
-
-    tracing::debug!(
-        broker_address,
-        broker_token,
-        ops_logs_journal,
-        ops_stats_journal,
-        reactor_address,
-        reactor_token,
-        shard_id_prefix,
-        "resolved task data-plane and authorization"
-    );
-
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&reactor_token)?;
-
-    let shard_client = client
-        .shard_client
-        .with_endpoint_and_metadata(reactor_address, md);
-
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&broker_token)?;
-
-    let journal_client = client
-        .journal_client
-        .with_endpoint_and_metadata(broker_address, md);
-
-    Ok((
-        shard_id_prefix,
-        ops_logs_journal,
-        ops_stats_journal,
-        shard_client,
-        journal_client,
-    ))
+        return Ok(response);
+    }
 }
 
 #[tracing::instrument(skip(client), err)]
 pub async fn fetch_user_collection_authorization(
     client: &Client,
-    collection: &str,
-) -> anyhow::Result<(String, gazette::journal::Client)> {
-    let started_unix = std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    mut request: models::authorizations::UserCollectionAuthorizationRequest,
+) -> anyhow::Result<models::authorizations::UserCollectionAuthorization> {
+    if request.started_unix == 0 {
+        request.started_unix = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+    }
 
-    let models::authorizations::UserCollectionAuthorization {
-        broker_address,
-        broker_token,
-        journal_name_prefix,
-        retry_millis: _,
-    } = loop {
+    loop {
         let response: models::authorizations::UserCollectionAuthorization = client
-            .agent_unary(
-                "/authorize/user/collection",
-                &models::authorizations::UserCollectionAuthorizationRequest {
-                    started_unix,
-                    collection: models::Collection::new(collection),
-                    capability: models::Capability::Read,
-                },
-            )
+            .agent_unary("/authorize/user/collection", &request)
             .await?;
 
         if response.retry_millis != 0 {
             tracing::warn!(
                 secs = response.retry_millis as f64 / 1000.0,
-                "authorization service tentatively rejected our request, but will retry before failing"
+                "authorization service tentatively rejected our request, but we'll retry before failing"
             );
             () = tokio::time::sleep(std::time::Duration::from_millis(response.retry_millis)).await;
             continue;
         }
-        break response;
-    };
-
-    tracing::debug!(
-        broker_address,
-        broker_token,
-        journal_name_prefix,
-        "resolved collection data-plane and authorization"
-    );
-
-    let mut md = gazette::Metadata::default();
-    md.bearer_token(&broker_token)?;
-
-    let journal_client = client
-        .journal_client
-        .with_endpoint_and_metadata(broker_address, md);
-
-    Ok((journal_name_prefix, journal_client))
+        return Ok(response);
+    }
 }
 
 #[tracing::instrument(skip(client), err)]

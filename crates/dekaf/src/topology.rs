@@ -419,9 +419,13 @@ impl Collection {
     ) -> anyhow::Result<journal::Client> {
         match auth {
             SessionAuthentication::User(user_auth) => {
-                let (_, journal_client) = flow_client::fetch_user_collection_authorization(
+                let (_response, journal_client) = flow_client::fetch_user_collection_authorization(
                     &user_auth.client,
-                    collection_name,
+                    models::authorizations::UserCollectionAuthorizationRequest {
+                        collection: models::Collection::new(collection_name),
+                        capability: models::Capability::Read,
+                        started_unix: 0,
+                    },
                 )
                 .await?;
 

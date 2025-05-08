@@ -1,9 +1,26 @@
 use crate::{ops::TaskSelector, CliContext};
 
 pub async fn do_list_shards(ctx: &mut CliContext, selector: &TaskSelector) -> anyhow::Result<()> {
-    let task_name = &selector.task;
-    let (shard_id_prefix, _, _, shard_client, _journal_client) =
-        flow_client::fetch_user_task_authorization(&ctx.client, task_name).await?;
+    let models::authorizations::UserTaskAuthorization {
+        reactor_address,
+        reactor_token,
+        shard_id_prefix,
+        ..
+    } = flow_client::fetch_user_task_authorization(
+        &ctx.client,
+        models::authorizations::UserTaskAuthorizationRequest {
+            task: selector.task.clone(),
+            capability: models::Capability::Read,
+            started_unix: 0,
+        },
+    )
+    .await?;
+
+    let shard_client = gazette::journal::Client::new(
+        reactor_address,
+        gazette::Metadata::new().with_bearer_token(&reactor_token)?,
+        ctx.router.clone(),
+    );
 
     let req = proto_gazette::consumer::ListRequest {
         selector: Some(proto_gazette::LabelSelector {

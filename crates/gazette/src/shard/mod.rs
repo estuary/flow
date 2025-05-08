@@ -28,16 +28,8 @@ impl Client {
         }
     }
 
-    /// Build a new Client which uses a different endpoint and metadata but re-uses underlying connections.
-    pub fn with_endpoint_and_metadata(&self, endpoint: String, metadata: crate::Metadata) -> Self {
-        Self {
-            default: broker::process_spec::Id {
-                zone: String::new(),
-                suffix: endpoint,
-            },
-            metadata,
-            router: self.router.clone(),
-        }
+    pub fn into_parts(self) -> (String, crate::Metadata, crate::Router) {
+        (self.default.suffix, self.metadata, self.router)
     }
 
     /// Invoke the Gazette shard List RPC.
