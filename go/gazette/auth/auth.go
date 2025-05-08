@@ -73,6 +73,22 @@ func (k *KeyedAuth) Verify(ctx context.Context, require pb.Capability) (context.
 	}
 }
 
+// NewBearerAuth returns a BearerAuth that implements Authorizer
+// using a pre-shared authorization token.
+func NewBearerAuth(token string) *BearerAuth {
+	return &BearerAuth{token: token}
+
+}
+
+// BearerAuth implements the pb.Authorizer interface.
+type BearerAuth struct {
+	token string
+}
+
+func (b *BearerAuth) Authorize(ctx context.Context, _claims pb.Claims, _exp time.Duration) (context.Context, error) {
+	return metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %s", b.token)), nil
+}
+
 // NewNoopAuth returns an Authorizer and Verifier which does nothing.
 func NewNoopAuth() interface {
 	pb.Authorizer

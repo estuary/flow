@@ -23,6 +23,7 @@ type AddressConfig struct {
 	CertKeyFile   string      `long:"cert-key-file" env:"CERT_KEY_FILE" default:"" description:"Path to the client TLS private key"`
 	TrustedCAFile string      `long:"trusted-ca-file" env:"TRUSTED_CA_FILE" default:"" description:"Path to the trusted CA for client verification of server certificates"`
 	AuthKeys      string      `long:"auth-keys" env:"AUTH_KEYS" description:"Whitespace or comma separated, base64-encoded keys. The first key is used to sign Authorization tokens." json:"-"`
+	AuthToken     string      `long:"auth-token" env:"AUTH_TOKEN" description:"Bearer token to use for authentication." json:"-"`
 }
 
 // MustDial dials the server address using a protocol.Dispatcher balancer, and panics on error.
@@ -65,6 +66,8 @@ func (c *AddressConfig) MustJournalClient(ctx context.Context) pb.JournalClient 
 	if c.AuthKeys != "" {
 		authorizer, err = auth.NewKeyedAuth(c.AuthKeys)
 		Must(err, "parsing authorization keys")
+	} else if c.AuthToken != "" {
+		authorizer = auth.NewBearerAuth(c.AuthToken)
 	} else {
 		authorizer = auth.NewNoopAuth()
 	}
@@ -87,6 +90,8 @@ func (c *AddressConfig) MustShardClient(ctx context.Context) pc.ShardClient {
 	if c.AuthKeys != "" {
 		authorizer, err = auth.NewKeyedAuth(c.AuthKeys)
 		Must(err, "parsing authorization keys")
+	} else if c.AuthToken != "" {
+		authorizer = auth.NewBearerAuth(c.AuthToken)
 	} else {
 		authorizer = auth.NewNoopAuth()
 	}
