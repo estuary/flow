@@ -583,7 +583,8 @@ pub fn task_changes<'a>(
         }));
     }
 
-    // Ensure existence of ops partitions iff there's a task shard upsert.
+    // Ensure existence of ops partitions iff there's a task shard upsert,
+    // or if the template is present and not disabled.
     if changes.iter().any(|change| {
         matches!(
             change,
@@ -592,7 +593,8 @@ pub fn task_changes<'a>(
                 ..
             })
         )
-    }) {
+    }) || matches!(template, Some(template) if !template.shard.disable)
+    {
         changes.extend(ops_journal_changes(ops_logs_spec, ops_logs_splits));
         changes.extend(ops_journal_changes(ops_stats_spec, ops_stats_splits));
     }
