@@ -592,9 +592,14 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, shuffles []shuffle,
 		return nil
 	}
 
+	// Scratch LabelSet which holds extended metadata labels of each journal.
+	var sourceLabels pb.LabelSet
+
 	for shuffleIndex, shuffle := range shuffles {
 		for _, listing := range shuffle.listing().Journals {
 			var source pb.JournalSpec = listing.Spec // Shallow by-value copy.
+			// LabelSetExt() truncates `sourceLabels` while re-using its storage.
+			sourceLabels = source.LabelSetExt(sourceLabels)
 
 			// start / stop is the range of `members` which are candidates for coordinating
 			// the read of this journal. We seek to select a start/stop range which minimizes
@@ -602,7 +607,7 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, shuffles []shuffle,
 			// be directly responsible for handling documents of the journal.
 			var start, stop int
 			// filtered indicates that the partition is excluded and not read by this shard.
-			var filtered = !shuffle.sourcePartitions.Matches(source.LabelSet)
+			var filtered = !shuffle.sourcePartitions.Matches(sourceLabels)
 			// suspended indicates that the partition is fully suspended and has no content.
 			var suspended = source.Suspend.GetLevel() == pb.JournalSpec_Suspend_FULL
 
