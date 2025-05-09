@@ -1305,6 +1305,13 @@ expression: "&schema"
           "enum": [
             "prefixSchema"
           ]
+        },
+        {
+          "description": "Like `prefixSchema`, except that it will omit the prefix for the following common default schema names: - public - dbo",
+          "type": "string",
+          "enum": [
+            "prefixNonDefaultSchema"
+          ]
         }
       ]
     },
