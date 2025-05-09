@@ -61,6 +61,7 @@ pub struct TaskState {
 
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
 /// So long as there is at least one `TaskStateReceiver` listening, the task manager will continue to run.
+#[derive(Clone)]
 pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<TaskState>>>>);
 impl TaskStateListener {
     /// Gets the current state, waiting if it's not yet available.
@@ -125,6 +126,8 @@ impl TaskManager {
     /// The receiver is weakly referenced, so it may be dropped if no one is listening.
     #[tracing::instrument(skip(self))]
     pub async fn get_listener(self: &std::sync::Arc<Self>, task_name: &str) -> TaskStateListener {
+        // Scope to force the `tasks` lock to be released before awaiting
+        let (sender, receiver) = {
         let mut tasks_guard = self.tasks.lock().unwrap();
         if let Some(weak_receiver) = tasks_guard.get(task_name) {
             if let Some(receiver) = weak_receiver.upgrade() {
@@ -136,9 +139,10 @@ impl TaskManager {
 
         let receiver = Arc::new(receiver);
 
-        let weak_receiver = Arc::downgrade(&receiver);
-        tasks_guard.insert(task_name.to_string(), weak_receiver.clone());
-        drop(tasks_guard);
+            tasks_guard.insert(task_name.to_string(), Arc::downgrade(&receiver));
+
+            (sender, receiver)
+        };
 
         tracing::info!("Spawning new task processor");
 
@@ -155,6 +159,7 @@ impl TaskManager {
         tokio::spawn(logging::forward_logs(
             GazetteWriter::new(
                 self.client.clone(),
+                self.clone(),
                 self.data_plane_fqdn.clone(),
                 self.data_plane_signer.clone(),
             ),
