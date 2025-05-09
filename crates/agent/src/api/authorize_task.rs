@@ -2,6 +2,7 @@ use super::{App, Snapshot};
 use crate::api::error::ApiErrorExt;
 use anyhow::Context;
 use axum::http::StatusCode;
+use rand::Rng;
 use std::sync::Arc;
 
 type Request = models::authorizations::TaskAuthorizationRequest;
@@ -77,7 +78,7 @@ async fn do_authorize_task(
         }
     };
 
-    match Snapshot::evaluate(
+    let (encoding_key, data_plane_fqdn, broker_address) = match Snapshot::evaluate(
         snapshot,
         chrono::DateTime::from_timestamp(claims.iat as i64, 0).unwrap_or_default(),
         |snapshot: &Snapshot| {
@@ -91,14 +92,13 @@ async fn do_authorize_task(
             )
         },
     ) {
-        Ok((exp, (encoding_key, data_plane_fqdn, broker_address, found))) => {
-            claims.iss = data_plane_fqdn;
+        Ok((exp, ok)) => {
             claims.exp = exp.timestamp() as u64;
+            ok
+        }
+        Err(Err(err)) if err.error.downcast_ref::<BlackHole>().is_some() => {
+            let BlackHole { ok } = err.error.downcast::<BlackHole>().unwrap();
 
-            // Was the request authorized, but its `journal_name_or_prefix`
-            // didn't map to a collection (either because the collection is
-            // deleted, or exists under a different generation ID)?
-            //
             // Return a "black hole" response by extending the request claims
             // with a label selector that never matches anything. This:
             // - Causes List RPCs to succeed, but return nothing:
@@ -113,29 +113,57 @@ async fn do_authorize_task(
             // Note that we're directing the task back to it's own data-plane,
             // since we have no idea what data-plane the collection might have
             // once lived in, as we couldn't find it.
-            if !found {
-                claims.sel.include = Some(labels::add_value(
-                    claims.sel.include.unwrap_or_default(),
-                    "estuary.dev/match-nothing",
-                    "1",
-                ));
-            }
+            claims.sel.include = Some(labels::add_value(
+                claims.sel.include.unwrap_or_default(),
+                "estuary.dev/match-nothing",
+                "1",
+            ));
+            // The request predates our latest snapshot, so the client cannot
+            // have prior knowledge of a generation ID we don't yet know about.
+            // Implication: the referenced collection was reset or deleted.
+            claims.exp = claims.iat + rand::thread_rng().gen_range(1800..3600);
 
-            let token =
-                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
-                    .context("failed to encode authorized JWT")?;
-
-            Ok(axum::Json(Response {
-                broker_address,
-                token,
+            ok
+        }
+        Err(Ok(backoff)) => {
+            return Ok(axum::Json(Response {
+                retry_millis: backoff.as_millis() as u64,
                 ..Default::default()
             }))
         }
-        Err(Ok(backoff)) => Ok(axum::Json(Response {
-            retry_millis: backoff.as_millis() as u64,
-            ..Default::default()
-        })),
-        Err(Err(err)) => Err(err),
+        Err(Err(err)) => return Err(err),
+    };
+
+    claims.iss = data_plane_fqdn;
+
+    let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &encoding_key)
+        .context("failed to encode authorized JWT")?;
+
+    Ok(axum::Json(Response {
+        broker_address,
+        token,
+        ..Default::default()
+    }))
+}
+
+// A BlackHole error is raised when a task request is authorized,
+// but its `journal_name_or_prefix` doesn't map to a collection
+// (either because the collection is deleted, or exists under a
+// different generation ID).
+//
+// We return an error (which triggers a snapshot, and is retried)
+// to preserve causality: the client may have prior knowledge of a
+// generation ID we don't yet and we cannot black-hole the request
+// without that knowledge.
+#[derive(thiserror::Error)]
+#[error("black hole")]
+struct BlackHole {
+    ok: (jsonwebtoken::EncodingKey, String, String),
+}
+
+impl std::fmt::Debug for BlackHole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self, f)
     }
 }
 
@@ -149,7 +177,7 @@ fn evaluate_authorization(
 ) -> Result<
     (
         Option<chrono::DateTime<chrono::Utc>>,
-        (jsonwebtoken::EncodingKey, String, String, bool),
+        (jsonwebtoken::EncodingKey, String, String),
     ),
     crate::api::ApiError,
 > {
@@ -246,18 +274,20 @@ fn evaluate_authorization(
         (None, None) => None,
     };
 
-    Ok((
-        cordon_at,
-        (
-            encoding_key,
-            collection_data_plane.data_plane_fqdn.clone(),
-            super::maybe_rewrite_address(
-                task.data_plane_id != collection_data_plane.control_id,
-                &collection_data_plane.broker_address,
-            ),
-            found,
+    let ok = (
+        encoding_key,
+        collection_data_plane.data_plane_fqdn.clone(),
+        super::maybe_rewrite_address(
+            task.data_plane_id != collection_data_plane.control_id,
+            &collection_data_plane.broker_address,
         ),
-    ))
+    );
+
+    if found {
+        Ok((cordon_at, ok))
+    } else {
+        Err(anyhow::anyhow!(BlackHole { ok }).with_status(StatusCode::INTERNAL_SERVER_ERROR))
+    }
 }
 
 #[cfg(test)]
@@ -438,8 +468,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_black_hole() {
-        let outcome = run(proto_gazette::Claims {
-            iat: 0,
+        let mut claims = proto_gazette::Claims {
+            iat: 1, // After current snapshot taken.
             exp: 0,
             cap: proto_flow::capability::AUTHORIZE | proto_gazette::capability::APPEND,
             iss: "fqdn1".to_string(),
@@ -451,10 +481,19 @@ mod tests {
                 exclude: None,
             },
             sub: "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000".to_string(),
-        })
-        .await;
+        };
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(run(claims.clone()).await, @r###"
+        {
+          "Err": {
+            "status": 500,
+            "error": "retry"
+          }
+        }
+        "###);
+
+        claims.iat = 0; // Now it's taken prior to current snapshot.
+        insta::assert_json_snapshot!(run(claims).await, @r###"
         {
           "Ok": [
             "broker.1",
@@ -491,7 +530,7 @@ mod tests {
         let snapshot = Snapshot::build_fixture(Some(taken));
         let snapshot = std::sync::RwLock::new(snapshot);
 
-        claims.iat = taken.timestamp() as u64;
+        claims.iat = claims.iat + taken.timestamp() as u64;
         claims.exp = taken.timestamp() as u64 + 100;
 
         let request_token = jsonwebtoken::encode(
