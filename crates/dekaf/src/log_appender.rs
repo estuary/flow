@@ -1,4 +1,4 @@
-use crate::{dekaf_shard_template_id, topology::fetch_dekaf_task_auth};
+use crate::{dekaf_shard_template_id, task_manager::TaskStateListener, TaskManager, TaskState};
 use anyhow::Context;
 use async_trait::async_trait;
 use flow_client::fetch_task_authorization;
@@ -91,6 +91,7 @@ pub trait TaskWriter: Send + Sync {
 #[derive(Clone)]
 pub struct GazetteWriter {
     client_base: flow_client::Client,
+    task_manager: Arc<TaskManager>,
     data_plane_fqdn: String,
     data_plane_signer: jsonwebtoken::EncodingKey,
     logs_appender: Option<GazetteAppender>,
@@ -138,11 +139,14 @@ impl TaskWriter for GazetteWriter {
 impl GazetteWriter {
     pub fn new(
         client_base: flow_client::Client,
+        task_manager: Arc<TaskManager>,
+        // TODO(jshearer): Remove these once we refactor `TaskManager` to be able to fetch APPEND tokens
         data_plane_fqdn: String,
         data_plane_signer: jsonwebtoken::EncodingKey,
     ) -> Self {
         Self {
             client_base,
+            task_manager,
             data_plane_fqdn,
             data_plane_signer,
             shard: None,
@@ -155,28 +159,33 @@ impl GazetteWriter {
         &self,
         task_name: &str,
     ) -> anyhow::Result<(GazetteAppender, GazetteAppender)> {
-        let (_, _, ops_logs, ops_stats, _) = fetch_dekaf_task_auth(
-            &self.client_base,
-            &task_name,
-            &self.data_plane_fqdn,
-            &self.data_plane_signer,
-        )
-        .await?;
+        let task_listener = self.task_manager.get_listener(task_name).await;
+
+        let TaskState {
+            ops_logs_journal,
+            ops_stats_journal,
+            ..
+        } = task_listener.get().await?;
+
         Ok((
             GazetteAppender::try_create(
-                ops_logs,
+                ops_logs_journal,
                 task_name.to_string(),
                 self.client_base.clone(),
                 self.data_plane_fqdn.clone(),
                 self.data_plane_signer.clone(),
+                task_listener.clone(),
+                self.task_manager.clone(),
             )
             .await?,
             GazetteAppender::try_create(
-                ops_stats,
+                ops_stats_journal,
                 task_name.to_string(),
                 self.client_base.clone(),
                 self.data_plane_fqdn.clone(),
                 self.data_plane_signer.clone(),
+                task_listener,
+                self.task_manager.clone(),
             )
             .await?,
         ))
@@ -191,6 +200,8 @@ struct GazetteAppender {
     client_base: flow_client::Client,
     data_plane_fqdn: String,
     data_plane_signer: jsonwebtoken::EncodingKey,
+    task_listener: TaskStateListener,
+    task_manager: Arc<TaskManager>,
     task_name: String,
 }
 
@@ -201,9 +212,12 @@ impl GazetteAppender {
         client_base: flow_client::Client,
         data_plane_fqdn: String,
         data_plane_signer: jsonwebtoken::EncodingKey,
+        task_listener: TaskStateListener,
+        task_manager: Arc<TaskManager>,
     ) -> anyhow::Result<Self> {
         let (client, exp) = Self::refresh_client(
             &task_name,
+            &task_listener,
             &journal_name,
             client_base.clone(),
             &data_plane_fqdn,
@@ -219,6 +233,8 @@ impl GazetteAppender {
             client_base,
             data_plane_fqdn,
             data_plane_signer,
+            task_listener,
+            task_manager,
         })
     }
 
@@ -261,6 +277,7 @@ impl GazetteAppender {
     async fn refresh(&mut self) -> anyhow::Result<()> {
         let (client, exp) = Self::refresh_client(
             &self.task_name,
+            &self.task_listener,
             &self.journal_name,
             self.client_base.clone(),
             &self.data_plane_fqdn,
@@ -274,6 +291,7 @@ impl GazetteAppender {
 
     async fn refresh_client(
         task_name: &str,
+        state_listener: &TaskStateListener,
         journal_name: &str,
         client_base: flow_client::Client,
         data_plane_fqdn: &str,
@@ -281,11 +299,10 @@ impl GazetteAppender {
     ) -> anyhow::Result<(journal::Client, time::OffsetDateTime)> {
         let template_id = dekaf_shard_template_id(task_name);
 
-        let (auth_token, _, _, _, _) =
-            fetch_dekaf_task_auth(&client_base, task_name, data_plane_fqdn, &signer).await?;
+        let TaskState { access_token, .. } = state_listener.get().await?;
 
         let (new_client, new_claims) = fetch_task_authorization(
-            &client_base.with_user_access_token(Some(auth_token)),
+            &client_base.with_user_access_token(Some(access_token)),
             &template_id,
             data_plane_fqdn,
             &signer,
