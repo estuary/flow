@@ -135,7 +135,7 @@ pub fn partition_template(
     // Use a supplied compression codec. Or, if none, then default to gzip.
     let compression_codec = compression_codec(codec.unwrap_or(models::CompressionCodec::Gzip));
 
-    // If an explicit flush interval isn't provided, default to 24 hours
+    // If an explicit flush interval isn't provided, default to 24 hours.
     let flush_interval = flush_interval
         .unwrap_or(std::time::Duration::from_secs(24 * 3600))
         .into();
@@ -210,8 +210,8 @@ pub fn recovery_log_template(
     // TODO(johnny): Switch gazette to https://github.com/klauspost/compress/tree/master/s2
     let compression_codec = compression_codec(models::CompressionCodec::Snappy);
 
-    // Never set a flush interval for recovery logs.
-    let flush_interval = None;
+    // Flush recovery logs at least once every 48 hours.
+    let flush_interval = Some(std::time::Duration::from_secs(48 * 3600).into());
 
     // We hard-code a 256MB fragment size, which matches the typical RocksDB SST size.
     let length = 1 << 28;
