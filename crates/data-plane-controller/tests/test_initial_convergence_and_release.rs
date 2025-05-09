@@ -13,7 +13,8 @@ async fn test() {
 
     let controller = data_plane_controller::Controller {
         dns_ttl: std::time::Duration::ZERO,
-        git_remote: "git@github.com:estuary/est-dry-dock.git".to_string(),
+        infra_remote: "git@github.com:estuary/est-dry-dock.git".to_string(),
+        ops_remote: "git@github.com:estuary/ops.git".to_string(),
         secrets_provider: "testing".to_string(),
         state_backend: "file:///tmp/pulumi-test-state".parse().unwrap(),
         emit_log_fn: mock_emit_log_fn(trace.clone()),

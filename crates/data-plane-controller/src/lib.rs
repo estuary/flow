@@ -51,6 +51,13 @@ pub struct Args {
         default_value = "git@github.com:estuary/est-dry-dock.git"
     )]
     git_repo: String,
+    /// Repository to clone for ops validation
+    #[clap(
+        long = "ops-git-repo",
+        env = "DPC_OPS_GIT_REPO",
+        default_value = "git@github.com:estuary/ops.git"
+    )]
+    ops_git_repo: String,
     /// Pulumi secrets provider for encryption of stack secrets.
     #[clap(
         long = "secrets-provider",
@@ -163,7 +170,8 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     let controller = controller::Controller {
         dns_ttl,
-        git_remote: args.git_repo,
+        infra_remote: args.git_repo,
+        ops_remote: args.ops_git_repo,
         secrets_provider: args.secrets_provider,
         state_backend: args.state_backend,
         emit_log_fn,

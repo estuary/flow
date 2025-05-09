@@ -1,6 +1,7 @@
 use super::stack::{self, State, Status};
 use anyhow::Context;
 use futures::future::BoxFuture;
+use serde_json::json;
 use sqlx::types::uuid;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -31,8 +32,10 @@ pub type RunCmdFn = Box<
 pub struct Controller {
     // How long to wait for DNS propagation.
     pub dns_ttl: std::time::Duration,
-    // Remote git repository to clone.
-    pub git_remote: String,
+    // Remote git repository to clone for infrastructure (pulumi and ansible).
+    pub infra_remote: String,
+    // Remote git repository to clone for ops validation.
+    pub ops_remote: String,
     // Secrets provider to use for Pulumi.
     pub secrets_provider: String,
     // State backend URL for Pulumi.
@@ -140,6 +143,12 @@ impl Controller {
         };
         let state = state.as_mut().unwrap();
 
+        let mut none = None;
+        let ops_checkout = self
+            .git_checkout(state, &self.ops_remote, &mut none)
+            .await?;
+        validate_state(ops_checkout, state).await?;
+
         // TODO(johnny): Unconditionally overwrite
         // `state.stack.config.model.private_links` with that of `row_state`.
 
@@ -154,6 +163,8 @@ impl Controller {
             Status::PulumiUp2 => self.on_pulumi_up_2(state, maybe_checkout).await?,
             Status::AwaitDNS2 => self.on_await_dns_2(state).await?,
         };
+
+        validate_state(ops_checkout, state).await?;
 
         // We publish an updated stack only when transitioning back to Idle.
         let publish_stack = if matches!(state.status, Status::Idle) {
@@ -288,7 +299,7 @@ impl Controller {
         state: &mut State,
         maybe_checkout: &mut Option<tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, maybe_checkout).await?;
 
         () = self
             .run_cmd(
@@ -338,7 +349,7 @@ impl Controller {
         state: &mut State,
         maybe_checkout: &mut Option<tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, maybe_checkout).await?;
 
         () = self
             .run_cmd(
@@ -370,7 +381,7 @@ impl Controller {
         state: &mut State,
         maybe_checkout: &mut Option<tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, maybe_checkout).await?;
 
         // Refresh, expecting to see no changes. We'll check exit status to see if there were.
         let result = self
@@ -416,7 +427,7 @@ impl Controller {
         state: &mut State,
         maybe_checkout: &mut Option<tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, maybe_checkout).await?;
 
         () = self
             .run_cmd(
@@ -482,7 +493,7 @@ impl Controller {
         state: &mut State,
         maybe_checkout: &mut Option<tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, maybe_checkout).await?;
 
         // Load exported Pulumi state.
         let output = self
@@ -581,7 +592,7 @@ impl Controller {
         state: &mut State,
         maybe_checkout: &mut Option<tempfile::TempDir>,
     ) -> anyhow::Result<std::time::Duration> {
-        let checkout = self.checkout(state, maybe_checkout).await?;
+        let checkout = self.infra_checkout(state, maybe_checkout).await?;
 
         () = self
             .run_cmd(
@@ -638,9 +649,10 @@ impl Controller {
         }
     }
 
-    async fn checkout<'c>(
+    async fn git_checkout<'c>(
         &self,
         state: &State,
+        remote: &str,
         maybe_checkout: &'c mut Option<tempfile::TempDir>,
     ) -> anyhow::Result<&'c tempfile::TempDir> {
         let checkout = if let Some(checkout) = maybe_checkout {
@@ -657,7 +669,7 @@ impl Controller {
 
             checkout
         } else {
-            *maybe_checkout = Some(self.create_clone(state.logs_token).await?);
+            *maybe_checkout = Some(self.create_clone(remote, state.logs_token).await?);
             maybe_checkout.as_mut().unwrap()
         };
 
@@ -671,6 +683,11 @@ impl Controller {
             )
             .await?;
 
+        let branch = if remote == self.infra_remote {
+            &state.deploy_branch
+        } else {
+            "mahdi/data-plane-jsonschema"
+        };
         () = self
             .run_cmd(
                 async_process::Command::new("git")
@@ -678,9 +695,35 @@ impl Controller {
                     .arg("--detach")
                     .arg("--force")
                     .arg("--quiet")
-                    .arg(format!("origin/{}", state.deploy_branch))
+                    .arg(format!("origin/{}", branch))
                     .current_dir(checkout.path()),
                 "git-checkout",
+                state.logs_token,
+            )
+            .await?;
+
+        tracing::info!(branch=branch, dir=?checkout.path(), "prepared checkout");
+
+        Ok(checkout)
+    }
+
+    async fn infra_checkout<'c>(
+        &self,
+        state: &State,
+        maybe_checkout: &'c mut Option<tempfile::TempDir>,
+    ) -> anyhow::Result<&'c tempfile::TempDir> {
+        let checkout = self
+            .git_checkout(state, &self.infra_remote, maybe_checkout)
+            .await?;
+
+        () = self
+            .run_cmd(
+                async_process::Command::new("python3.12")
+                    .arg("-m")
+                    .arg("venv")
+                    .arg("./venv")
+                    .current_dir(checkout.path()),
+                "python-venv",
                 state.logs_token,
             )
             .await?;
@@ -697,8 +740,6 @@ impl Controller {
             )
             .await?;
 
-        tracing::info!(branch=state.deploy_branch, dir=?checkout.path(), "prepared checkout");
-
         // Write out stack YAML file for Pulumi CLI.
         std::fs::write(
             &checkout
@@ -711,7 +752,11 @@ impl Controller {
         Ok(checkout)
     }
 
-    async fn create_clone(&self, logs_token: uuid::Uuid) -> anyhow::Result<tempfile::TempDir> {
+    async fn create_clone(
+        &self,
+        remote: &str,
+        logs_token: uuid::Uuid,
+    ) -> anyhow::Result<tempfile::TempDir> {
         let dir = tempfile::TempDir::with_prefix(format!("dpc_checkout_"))
             .context("failed to create temp directory")?;
 
@@ -719,7 +764,7 @@ impl Controller {
             .run_cmd(
                 async_process::Command::new("git")
                     .arg("clone")
-                    .arg(&self.git_remote)
+                    .arg(remote)
                     .arg(".")
                     .current_dir(dir.path()),
                 "git-clone",
@@ -727,19 +772,7 @@ impl Controller {
             )
             .await?;
 
-        () = self
-            .run_cmd(
-                async_process::Command::new("python3.12")
-                    .arg("-m")
-                    .arg("venv")
-                    .arg("./venv")
-                    .current_dir(dir.path()),
-                "python-venv",
-                logs_token,
-            )
-            .await?;
-
-        tracing::info!(repo=self.git_remote, dir=?dir.path(), "created repo clone");
+        tracing::info!(repo=remote, dir=?dir.path(), "created repo clone");
 
         Ok(dir)
     }
@@ -798,6 +831,20 @@ impl Controller {
 
         (self.run_cmd_fn)(owned, true, stream, logs_token).await
     }
+}
+
+async fn validate_state(ops_checkout: &tempfile::TempDir, state: &State) -> anyhow::Result<()> {
+    // Read jsonschema validation schema for data planes
+    let schema = serde_yaml::from_slice(
+        &std::fs::read(&ops_checkout.path().join("data-planes-schema.yaml"))
+            .context("failed to read data-planes-schema.yaml")?,
+    )
+    .context("failed to parse data-planes-schema.yaml")?;
+
+    if let Err(e) = jsonschema::validate(&schema, &json!(state)) {
+        anyhow::bail!("failed to validate data-plane state: {e}");
+    }
+    Ok(())
 }
 
 async fn fetch_row_state(
