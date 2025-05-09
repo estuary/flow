@@ -47,6 +47,9 @@ pub struct DekafConfig {
     #[serde(default)]
     #[schemars(title = "Strict Topic Names")]
     pub strict_topic_names: bool,
+    #[serde(default)]
+    #[schemars(title = "Advanced")]
+    pub advanced: Advanced,
 }
 
 /// Configures a particular binding in a Dekaf-type materialization
@@ -56,6 +59,28 @@ pub struct DekafResourceConfig {
     /// will be exposed through the Kafka metadata/discovery APIs.
     #[schemars(schema_with = "collection_name")]
     pub topic_name: String,
+}
+
+/// Advanced settings
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Advanced {
+    /// Whether or not to use namespaced IDs for the Kafka topic names and group IDs.
+    /// This is only here temporarily to allow a gradual roll-out, and will become the
+    /// default in the future.
+    #[schemars(title = "Namespaced IDs Feature Flag", default = "false_fn")]
+    pub namespaced_ids: bool,
+}
+
+impl Default for Advanced {
+    fn default() -> Self {
+        Self {
+            namespaced_ids: false,
+        }
+    }
+}
+
+fn false_fn() -> bool {
+    false
 }
 
 fn collection_name(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
