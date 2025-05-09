@@ -102,10 +102,10 @@ impl SessionAuthentication {
         }
     }
 
-    pub async fn flow_client(&mut self, app: &App) -> anyhow::Result<&flow_client::Client> {
+    pub async fn flow_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         match self {
             SessionAuthentication::User(auth) => auth.authenticated_client().await,
-            SessionAuthentication::Task(auth) => auth.authenticated_client(app).await,
+            SessionAuthentication::Task(auth) => auth.authenticated_client().await,
         }
     }
 
@@ -168,19 +168,13 @@ impl TaskAuth {
             exp,
         }
     }
-    pub async fn authenticated_client(
-        &mut self,
-        app: &App,
-    ) -> anyhow::Result<&flow_client::Client> {
+    pub async fn authenticated_client(&mut self) -> anyhow::Result<&flow_client::Client> {
         if (self.exp - time::OffsetDateTime::now_utc()).whole_seconds() < 60 {
-            let (token, claims, _ops_logs_journal, _ops_stats_journal, _task_spec) =
-                topology::fetch_dekaf_task_auth(
-                    &self.client,
-                    &self.task_name,
-                    &app.data_plane_fqdn,
-                    &app.data_plane_signer,
-                )
-                .await?;
+            let TaskState {
+                access_token: token,
+                access_token_claims: claims,
+                ..
+            } = self.task_state_listener.get().await?;
 
             self.client = self
                 .client
