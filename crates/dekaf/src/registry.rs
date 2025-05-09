@@ -1,19 +1,11 @@
 use super::App;
-use crate::{
-    from_downstream_topic_name,
-    log_appender::{GazetteWriter, SESSION_CLIENT_ID_FIELD_MARKER},
-    logging, to_downstream_topic_name, SessionAuthentication,
-};
+use crate::{from_downstream_topic_name, to_downstream_topic_name, SessionAuthentication};
 use anyhow::Context;
-use axum::{
-    http::header::USER_AGENT,
-    response::{IntoResponse, Response},
-};
+use axum::response::{IntoResponse, Response};
 use axum_extra::headers;
 use itertools::Itertools;
 use kafka_protocol::{messages::TopicName, protocol::StrBytes};
 use std::sync::Arc;
-use tracing_record_hierarchical::SpanExt;
 
 // Build an axum::Router which implements a subset of the Confluent Schema Registry API,
 // sufficient for decoding Avro-encoded topic data.
@@ -92,7 +84,7 @@ async fn get_subject_latest(
             anyhow::bail!("expected subject to end with -key or -value")
         };
 
-        let client = &auth.flow_client(&app).await?.pg_client();
+        let client = &auth.flow_client().await?.pg_client();
 
         let collection = super::Collection::new(
             &app,
@@ -140,7 +132,7 @@ async fn get_schema_by_id(
 ) -> Response {
     wrap(async move {
         let mut auth = app.authenticate(auth.username(), auth.password()).await?;
-        let client = &auth.flow_client(&app).await?.pg_client();
+        let client = &auth.flow_client().await?.pg_client();
 
         #[derive(serde::Deserialize)]
         struct Row {

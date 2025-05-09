@@ -2,8 +2,8 @@ use crate::log_appender::{self, GazetteWriter, TaskForwarder};
 use futures::Future;
 use lazy_static::lazy_static;
 use rand::Rng;
+use tracing::level_filters::LevelFilter;
 use tracing::Instrument;
-use tracing::{level_filters::LevelFilter, Level};
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 

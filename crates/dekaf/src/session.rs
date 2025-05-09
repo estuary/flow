@@ -262,7 +262,7 @@ impl Session {
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         let app = &self.app;
-        let pg_client = &auth.flow_client(app).await?.pg_client();
+        let pg_client = &auth.flow_client().await?.pg_client();
 
         // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
@@ -350,7 +350,7 @@ impl Session {
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         let app = &self.app;
-        let pg_client = &auth.flow_client(app).await?.pg_client();
+        let pg_client = &auth.flow_client().await?.pg_client();
 
         // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
@@ -572,7 +572,7 @@ impl Session {
                 }
 
                 let auth = self.auth.as_mut().unwrap();
-                let pg_client = auth.flow_client(&self.app).await?.pg_client();
+                let pg_client = auth.flow_client().await?.pg_client();
                 let Some(collection) =
                     Collection::new(&self.app, &auth, &pg_client, &key.0).await?
                 else {
@@ -1384,7 +1384,7 @@ impl Session {
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
         let app = &self.app;
-        let flow_client = &auth.flow_client(app).await?.pg_client();
+        let flow_client = &auth.flow_client().await?.pg_client();
 
         // Re-declare here to drop mutable reference
         let auth = self.auth.as_ref().unwrap();
@@ -1412,7 +1412,7 @@ impl Session {
             .as_mut()
             .ok_or(anyhow::anyhow!("Session not authenticated"))?;
 
-        let client = auth.flow_client(&self.app).await?.clone();
+        let client = auth.flow_client().await?.clone();
 
         tracing::debug!(
             "Loading latest offset for this partition to check if session is data-preview"
