@@ -740,3 +740,24 @@ where
         }
     }
 }
+
+async fn expect_eof<'a, R>(
+    scope: Scope<'a>,
+    mut response_rx: impl futures::Stream<Item = anyhow::Result<R>> + Unpin,
+    errors: &mut tables::Errors,
+) where
+    R: std::fmt::Debug,
+{
+    use futures::StreamExt;
+
+    let response = match response_rx.next().await {
+        None => Ok(()),
+        Some(Ok(response)) => Err(anyhow::anyhow!(
+            "Expected connector to send closing EOF, but read {response:?}",
+        )),
+        Some(Err(err)) => Err(err),
+    };
+    if let Err(err) = response {
+        Error::Connector { detail: err }.push(scope, errors);
+    }
+}
