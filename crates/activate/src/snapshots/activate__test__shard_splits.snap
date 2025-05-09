@@ -218,6 +218,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           "flags": 4,
           "fragment": {
             "compressionCodec": "SNAPPY",
+            "flushInterval": "172800s",
             "length": "268435456",
             "refreshInterval": "300s",
             "stores": [
@@ -329,6 +330,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           "flags": 4,
           "fragment": {
             "compressionCodec": "SNAPPY",
+            "flushInterval": "172800s",
             "length": "268435456",
             "refreshInterval": "300s",
             "stores": [
@@ -443,6 +445,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           "flags": 4,
           "fragment": {
             "compressionCodec": "SNAPPY",
+            "flushInterval": "172800s",
             "length": "268435456",
             "refreshInterval": "300s",
             "stores": [
@@ -554,6 +557,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           "flags": 4,
           "fragment": {
             "compressionCodec": "SNAPPY",
+            "flushInterval": "172800s",
             "length": "268435456",
             "refreshInterval": "300s",
             "stores": [
