@@ -448,7 +448,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 172800,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "",
                             },
                         ),
@@ -1159,7 +1164,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 172800,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "",
                             },
                         ),
@@ -2336,7 +2346,12 @@ Outcome {
                                             },
                                         ),
                                         retention: None,
-                                        flush_interval: None,
+                                        flush_interval: Some(
+                                            Duration {
+                                                seconds: 172800,
+                                                nanos: 0,
+                                            },
+                                        ),
                                         path_postfix_template: "",
                                     },
                                 ),
@@ -3847,7 +3862,12 @@ Outcome {
                                             },
                                         ),
                                         retention: None,
-                                        flush_interval: None,
+                                        flush_interval: Some(
+                                            Duration {
+                                                seconds: 172800,
+                                                nanos: 0,
+                                            },
+                                        ),
                                         path_postfix_template: "",
                                     },
                                 ),
@@ -4533,7 +4553,12 @@ Outcome {
                                             },
                                         ),
                                         retention: None,
-                                        flush_interval: None,
+                                        flush_interval: Some(
+                                            Duration {
+                                                seconds: 172800,
+                                                nanos: 0,
+                                            },
+                                        ),
                                         path_postfix_template: "",
                                     },
                                 ),
@@ -6249,7 +6274,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 172800,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "",
                             },
                         ),
@@ -7282,7 +7312,12 @@ Outcome {
                                     },
                                 ),
                                 retention: None,
-                                flush_interval: None,
+                                flush_interval: Some(
+                                    Duration {
+                                        seconds: 172800,
+                                        nanos: 0,
+                                    },
+                                ),
                                 path_postfix_template: "",
                             },
                         ),

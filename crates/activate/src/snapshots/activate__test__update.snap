@@ -293,7 +293,8 @@ expression: "(partition_changes, task_changes)"
             "stores": [
               "gs://example-bucket/"
             ],
-            "refreshInterval": "300s"
+            "refreshInterval": "300s",
+            "flushInterval": "172800s"
           },
           "flags": 4,
           "maxAppendRate": "4194304",
@@ -403,7 +404,8 @@ expression: "(partition_changes, task_changes)"
             "stores": [
               "gs://example-bucket/"
             ],
-            "refreshInterval": "300s"
+            "refreshInterval": "300s",
+            "flushInterval": "172800s"
           },
           "flags": 4,
           "maxAppendRate": "4194304",
@@ -518,7 +520,8 @@ expression: "(partition_changes, task_changes)"
             "stores": [
               "gs://example-bucket/"
             ],
-            "refreshInterval": "300s"
+            "refreshInterval": "300s",
+            "flushInterval": "172800s"
           },
           "flags": 1,
           "maxAppendRate": "4194304",
