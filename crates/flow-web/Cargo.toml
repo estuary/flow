@@ -2,7 +2,7 @@
 name = "flow-web"
 
 # wasm-pack isn't yet fully compatible with workspace inheritance, so we can't use that for these fields
-version = "0.5.11"
+version = "0.5.12"
 authors = ["Estuary developers  <engineering@estuary.dev>"]
 edition = "2021"
 license = "BSL"
