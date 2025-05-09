@@ -308,20 +308,19 @@ fn handle_deleted_dependencies(
     deleted: &BTreeSet<String>,
     mut model: models::MaterializationDef,
 ) -> (String, models::MaterializationDef) {
-    if let Some(source_capture) = model
-        .source_capture
-        .take_if(|sc| deleted.contains(sc.capture_name().as_str()))
-    {
-        (
-            format!(
-                r#"removed sourceCapture: "{}" because the capture was deleted"#,
-                source_capture.capture_name()
-            ),
-            model,
-        )
-    } else {
-        (String::new(), model)
+    let mut description = String::new();
+    if let Some(sources_model) = model.sources.as_mut() {
+        if let Some(deleted_capture) = sources_model
+            .capture_name()
+            .filter(|c| deleted.contains(c.as_str()))
+        {
+            description = format!("removed source Capture: '{deleted_capture}'");
+            *sources_model = models::Sources::Configured(
+                sources_model.to_normalized_def().without_source_capture(),
+            );
+        }
     }
+    (description, model)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

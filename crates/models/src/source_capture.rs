@@ -28,11 +28,17 @@ pub enum TargetNaming {
     /// materialize the collection `acmeCo/mySchema/myTable` to a table called
     /// `mySchema_myTable`.
     PrefixSchema,
+
+    /// Like `prefixSchema`, except that it will omit the prefix for the
+    /// following common default schema names:
+    /// - public
+    /// - dbo
+    PrefixNonDefaultSchema,
 }
 
 impl Default for TargetNaming {
     fn default() -> Self {
-        TargetNaming::NoSchema
+        TargetNaming::PrefixNonDefaultSchema
     }
 }
 
@@ -56,6 +62,13 @@ pub struct SourcesDef {
     /// bindings be marked as delta updates
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub delta_updates: bool,
+}
+
+impl SourcesDef {
+    pub fn without_source_capture(mut self) -> Self {
+        self.capture.take();
+        self
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
