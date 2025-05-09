@@ -97,6 +97,33 @@
             ],
             "recommended": false
           }
+        },
+        {
+          "resource": {"table":"config_updates"},
+          "source": {
+            "name": "ops.us-central1.v1/events/L2",
+            "partitions": {
+              "include": {
+                "event_type": [
+                  "configUpdate"
+                ]
+              },
+              "exclude": {}
+            }
+          },
+          "fields": {
+            "include": {
+              "build": {"DDL":"flowid"},
+              "catalog_name": {},
+              "flow_document": {},
+              "ts": {}
+            },
+            "exclude": [
+              "event_type",
+              "fields/eventType"
+            ],
+            "recommended": false
+          }
         }
       ]
     }

@@ -554,6 +554,21 @@ expression: schema
       ],
       "type": "object"
     },
+    "PendingConfigUpdateStatus": {
+      "description": "Information on the config updates performed by the controller. This does not include any information on user-initiated config updates.",
+      "properties": {
+        "next_attempt": {
+          "format": "date-time",
+          "type": [
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "next_attempt"
+      ],
+      "type": "object"
+    },
     "PublicationInfo": {
       "description": "Summary of a publication that was attempted by a controller.",
       "properties": {
@@ -776,6 +791,12 @@ expression: schema
             }
           ]
         },
+        "config_updates": {
+          "$ref": "#/definitions/PendingConfigUpdateStatus",
+          "default": {
+            "next_attempt": null
+          }
+        },
         "publications": {
           "$ref": "#/definitions/PublicationStatus",
           "default": {
@@ -835,6 +856,12 @@ expression: schema
         "activation": {
           "$ref": "#/definitions/ActivationStatus",
           "default": {}
+        },
+        "config_updates": {
+          "$ref": "#/definitions/PendingConfigUpdateStatus",
+          "default": {
+            "next_attempt": null
+          }
         },
         "publications": {
           "$ref": "#/definitions/PublicationStatus",

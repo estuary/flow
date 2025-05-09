@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::activation::ActivationStatus;
 use super::publications::PublicationStatus;
+use super::config_updates::PendingConfigUpdateStatus;
 
 /// Status of a materialization controller
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, JsonSchema)]
@@ -15,6 +16,8 @@ pub struct MaterializationStatus {
     pub publications: PublicationStatus,
     #[serde(default)]
     pub activation: ActivationStatus,
+    #[serde(default)]
+    pub config_updates: PendingConfigUpdateStatus
 }
 
 /// Status information about the `sourceCapture`
