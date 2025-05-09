@@ -2,7 +2,7 @@ use super::{LockFailure, UncommittedBuild};
 use agent_sql::publications::{LiveRevision, LiveSpecUpdate};
 use agent_sql::Capability;
 use anyhow::Context;
-use models::{split_image_tag, Id, ModelDef, SourceCapture, SourceCaptureSchemaMode};
+use models::{split_image_tag, Id, ModelDef, Sources, TargetNaming};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -315,7 +315,7 @@ pub async fn check_source_capture_annotations(
         };
         let (image_name, image_tag) = split_image_tag(&image);
 
-        let Some(source_capture) = &model.source_capture else {
+        let Some(source_capture) = &model.sources else {
             continue;
         };
 
@@ -331,7 +331,7 @@ pub async fn check_source_capture_annotations(
             });
             continue;
         };
-        if let SourceCapture::Configured(source_capture_def) = source_capture {
+        if let Sources::Configured(source_capture_def) = source_capture {
             let resource_config_schema = connector_spec.resource_config_schema;
             let resource_spec_pointers = utils::pointer_for_schema(resource_config_schema.0.get())?;
 
@@ -343,7 +343,7 @@ pub async fn check_source_capture_annotations(
                 });
             }
 
-            if source_capture_def.target_schema == SourceCaptureSchemaMode::FromSourceName
+            if source_capture_def.target_naming == TargetNaming::WithSchema
                 && resource_spec_pointers.x_schema_name.is_none()
             {
                 errors.insert(tables::Error {

@@ -56,7 +56,7 @@ pub use references::{
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
-pub use source_capture::{SourceCapture, SourceCaptureDef, SourceCaptureSchemaMode};
+pub use source_capture::{Sources, SourcesDef, TargetNaming};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 
 /// Uniquely identifies a resource in an external system that can be either
