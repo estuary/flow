@@ -97,6 +97,15 @@ impl DiscoverConnectors for DataPlaneConnectors {
                 serde_json::to_string(&response).unwrap()
             ),
         };
+        match response_rx.try_next().await? {
+            None => (), // Expected EOF.
+            Some(response) => {
+                anyhow::bail!(
+                    "expected connector to send closing EOF, but got {}",
+                    serde_json::to_string(&response).unwrap()
+                );
+            }
+        }
 
         Ok((spec, discovered))
     }

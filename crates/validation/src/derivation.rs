@@ -668,6 +668,9 @@ async fn walk_derivation<C: Connectors>(
         using,
     };
 
+    std::mem::drop(request_tx);
+    () = super::expect_eof(scope, response_rx, errors).await;
+
     Some((
         built_index,
         model,

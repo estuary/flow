@@ -428,6 +428,9 @@ async fn walk_capture<C: Connectors>(
         delete: false,
     };
 
+    std::mem::drop(request_tx);
+    () = super::expect_eof(scope, response_rx, errors).await;
+
     // Compute the dependency hash, now that we're done with any modifications of the model
     let dependency_hash = dependencies.compute_hash(&model);
     Some(tables::BuiltCapture {

@@ -462,4 +462,80 @@ mod test {
             models::Capability::Read
         ));
     }
+
+    #[test]
+    fn test_data_plane_user_visibility() {
+        use models::Capability::*;
+
+        let role_grants = RoleGrants::from_iter(
+            [
+                ("acmeCo/", "acmeCo/", Write),
+                ("acmeCo/", "ops/private/dp/acmeCo/", Read),
+            ]
+            .into_iter()
+            .map(|(sub, obj, cap)| RoleGrant {
+                subject_role: models::Prefix::new(sub),
+                object_role: models::Prefix::new(obj),
+                capability: cap,
+            }),
+        );
+        let user_grants = UserGrants::from_iter(
+            [
+                (uuid::Uuid::from_bytes([1; 16]), "acmeCo/", Admin),
+                (uuid::Uuid::from_bytes([2; 16]), "acmeCo/nested/", Admin),
+            ]
+            .into_iter()
+            .map(|(user_id, obj, cap)| UserGrant {
+                user_id,
+                object_role: models::Prefix::new(obj),
+                capability: cap,
+            }),
+        );
+
+        insta::assert_json_snapshot!(
+            UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::from_bytes([1;16])).collect::<Vec<_>>(),
+            @r###"
+        [
+          {
+            "subject_role": "",
+            "object_role": "acmeCo/",
+            "capability": "admin"
+          },
+          {
+            "subject_role": "acmeCo/",
+            "object_role": "acmeCo/",
+            "capability": "write"
+          },
+          {
+            "subject_role": "acmeCo/",
+            "object_role": "ops/private/dp/acmeCo/",
+            "capability": "read"
+          }
+        ]
+        "###,
+        );
+
+        insta::assert_json_snapshot!(
+            UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::from_bytes([2;16])).collect::<Vec<_>>(),
+            @r###"
+        [
+          {
+            "subject_role": "",
+            "object_role": "acmeCo/nested/",
+            "capability": "admin"
+          },
+          {
+            "subject_role": "acmeCo/",
+            "object_role": "acmeCo/",
+            "capability": "write"
+          },
+          {
+            "subject_role": "acmeCo/",
+            "object_role": "ops/private/dp/acmeCo/",
+            "capability": "read"
+          }
+        ]
+        "###,
+        );
+    }
 }
