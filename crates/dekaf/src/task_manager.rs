@@ -64,6 +64,7 @@ pub struct TaskState {
 
 /// A wrapper around a TaskManager receiver that provides a method to get the current state.
 /// So long as there is at least one `TaskStateReceiver` listening, the task manager will continue to run.
+#[derive(Clone)]
 pub struct TaskStateListener(Arc<watch::Receiver<Option<Result<TaskState>>>>);
 impl TaskStateListener {
     /// Gets the current state, waiting if it's not yet available.
@@ -174,6 +175,7 @@ impl TaskManager {
         tokio::spawn(logging::forward_logs(
             GazetteWriter::new(
                 self.client.clone(),
+                self.clone(),
                 self.data_plane_fqdn.clone(),
                 self.data_plane_signer.clone(),
             ),
