@@ -84,7 +84,7 @@ async fn get_subject_latest(
             anyhow::bail!("expected subject to end with -key or -value")
         };
 
-        let client = &auth.flow_client(&app).await?.pg_client();
+        let client = &auth.flow_client().await?.pg_client();
 
         let collection = super::Collection::new(
             &app,
@@ -132,7 +132,7 @@ async fn get_schema_by_id(
 ) -> Response {
     wrap(async move {
         let mut auth = app.authenticate(auth.username(), auth.password()).await?;
-        let client = &auth.flow_client(&app).await?.pg_client();
+        let client = &auth.flow_client().await?.pg_client();
 
         #[derive(serde::Deserialize)]
         struct Row {
