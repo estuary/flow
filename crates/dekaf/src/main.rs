@@ -351,6 +351,7 @@ async fn main() -> anyhow::Result<()> {
                         logging::forward_logs(
                             GazetteWriter::new(
                                 app.client_base.clone(),
+                                app.task_manager.clone(),
                                 app.data_plane_fqdn.clone(),
                                 app.data_plane_signer.clone(),
                             ),
@@ -400,6 +401,7 @@ async fn main() -> anyhow::Result<()> {
                         logging::forward_logs(
                             GazetteWriter::new(
                                 app.client_base.clone(),
+                                app.task_manager.clone(),
                                 app.data_plane_fqdn.clone(),
                                 app.data_plane_signer.clone(),
                             ),
