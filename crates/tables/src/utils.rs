@@ -31,32 +31,20 @@ pub fn update_materialization_resource_spec(
 
     let maybe_x_schema_name = match source_capture_def.target_naming {
         TargetNaming::WithSchema => Some(split[1].to_string()),
-        TargetNaming::NoSchema | TargetNaming::PrefixSchema => None,
+        TargetNaming::NoSchema
+        | TargetNaming::PrefixSchema
+        | TargetNaming::PrefixNonDefaultSchema => None,
     };
 
     let x_collection_name = match source_capture_def.target_naming {
         TargetNaming::NoSchema | TargetNaming::WithSchema => split[0].to_string(),
-        TargetNaming::PrefixSchema => format!("{}_{}", split[1], split[0]),
+        TargetNaming::PrefixNonDefaultSchema if is_default_schema_name(&split[1]) => {
+            split[0].to_string()
+        }
+        TargetNaming::PrefixNonDefaultSchema | TargetNaming::PrefixSchema => {
+            format!("{}_{}", split[1], split[0])
+        }
     };
-
-    // // If we're setting the schema name as a separate property, then the
-    // // x-collection-name will be only the last path component of the full
-    // // collection name. But if there isn't a separate schema name property, or
-    // // if the user does not wish to use it, then concatenate the last two path
-    // // components to end up with something like `schema_table`, which helps to
-    // // avoid conflicts arising from capturing identically named tables from
-    // // different schemas, and then materializing them into the same schema.
-    // let set_schema_name = {
-    //     //extra braces prevent rustfmt from doing bad things here
-    //     source_capture_def.target_naming == TargetNaming::WithSchema
-    //         && resource_spec_pointers.x_schema_name.is_some()
-    // };
-
-    // let x_collection_name = if set_schema_name {
-    //     split[0].to_string()
-    // } else {
-    //     format!("{}_{}", split[1], split[0])
-    // };
 
     let x_collection_name_ptr = &resource_spec_pointers.x_collection_name;
     let Some(x_collection_name_prev) = x_collection_name_ptr.create_value(resource_spec) else {
@@ -69,7 +57,7 @@ pub fn update_materialization_resource_spec(
     if let Some(x_schema_name) = maybe_x_schema_name {
         let Some(x_schema_name_ptr) = &resource_spec_pointers.x_schema_name else {
             anyhow::bail!(
-                "sourceCapture.targetSchema set on a materialization which does not have x-schema-name annotation"
+                "sources.targetNaming requires a schema but the materialization connector does not support schemas"
             );
         };
         let Some(x_schema_name_prev) = x_schema_name_ptr.create_value(resource_spec) else {
@@ -83,7 +71,7 @@ pub fn update_materialization_resource_spec(
     if source_capture_def.delta_updates {
         let Some(x_delta_updates_ptr) = &resource_spec_pointers.x_delta_updates else {
             anyhow::bail!(
-                "sourceCapture.deltaUpdates set on a materialization which does not have x-delta-updates annotation"
+                "sources.deltaUpdates is true, but the materialization connector does not support it"
             );
         };
         let Some(x_delta_updates_prev) = x_delta_updates_ptr.create_value(resource_spec) else {
@@ -137,31 +125,137 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<ResourceSpecPoint
     }
 }
 
+fn is_default_schema_name(schema_name: &str) -> bool {
+    schema_name == "public" || schema_name == "dbo"
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_updating_materialization_resource_spec() {
-        let pointers = ResourceSpecPointers {
-            x_collection_name: doc::Pointer::new("/collectionName"),
-            x_schema_name: doc::Pointer::new("/schemaName"),
-            x_delta_updates: doc::Pointer::new("/deltaUpdates"),
+        let pointers_full = ResourceSpecPointers {
+            x_collection_name: doc::Pointer::from_str("/collectionName"),
+            x_schema_name: Some(doc::Pointer::from_str("/schemaName")),
+            x_delta_updates: Some(doc::Pointer::from_str("/deltaUpdates")),
+        };
+        let pointers_no_schema = ResourceSpecPointers {
+            x_collection_name: doc::Pointer::from_str("/collectionName"),
+            x_schema_name: None,
+            x_delta_updates: Some(doc::Pointer::from_str("/deltaUpdates")),
+        };
+        let pointers_sparse = ResourceSpecPointers {
+            x_collection_name: doc::Pointer::from_str("/collectionName"),
+            x_schema_name: None,
+            x_delta_updates: None,
         };
 
-        let sources = models::SourceType::Configured(models::SourcesDef {
+        // A non-default schema name gets added as a prefix
+        let result = test_update(
+            json!({}),
+            "test/skeema/kollection",
+            models::TargetNaming::PrefixNonDefaultSchema,
+            true,
+            &pointers_no_schema,
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "skeema_kollection", "deltaUpdates": true}),
+            result
+        );
+
+        // Update the existing resource and expect that it no longer has the schema prefix
+        let result = test_update(
+            result,
+            "test/public/differentCollection",
+            models::TargetNaming::PrefixNonDefaultSchema,
+            true,
+            &pointers_no_schema,
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "differentCollection", "deltaUpdates": true}),
+            result,
+        );
+        // The default dbo schema also doesn't get added as a prefix
+        let result = test_update(
+            json!({}),
+            "test/dbo/kollection",
+            models::TargetNaming::PrefixNonDefaultSchema,
+            false,
+            &pointers_sparse,
+        )
+        .expect("failed to update");
+        assert_eq!(json!({"collectionName": "kollection"}), result,);
+
+        let result = test_update(
+            json!({}),
+            "test/dbo/kollection",
+            models::TargetNaming::WithSchema,
+            false,
+            &pointers_full,
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "kollection", "schemaName": "dbo"}),
+            result,
+        );
+
+        let result = test_update(
+            json!({}),
+            "test/public/kollection",
+            models::TargetNaming::PrefixSchema,
+            true,
+            &pointers_no_schema,
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "public_kollection", "deltaUpdates": true}),
+            result,
+        );
+
+        // Error cases:
+        // ResourceSpecPointers are missing x-schema-name
+        let err = test_update(
+            json!({}),
+            "test/public/kollection",
+            models::TargetNaming::WithSchema,
+            true,
+            &pointers_no_schema,
+        )
+        .expect_err("should fail");
+        assert_eq!("sources.targetNaming requires a schema but the materialization connector does not support schemas", err.to_string());
+
+        // ResourceSpecPointers are missing x-delta-updates
+        let err = test_update(
+            json!({}),
+            "test/public/kollection",
+            models::TargetNaming::NoSchema,
+            true,
+            &pointers_sparse,
+        )
+        .expect_err("should fail");
+        assert_eq!(
+            "sources.deltaUpdates is true, but the materialization connector does not support it",
+            err.to_string()
+        );
+    }
+
+    fn test_update(
+        mut existing: serde_json::Value,
+        collection_name: &str,
+        target_naming: models::TargetNaming,
+        delta_updates: bool,
+        pointers: &ResourceSpecPointers,
+    ) -> anyhow::Result<serde_json::Value> {
+        let sources = models::SourceType::Configured(models::SourceDef {
             capture: None,
-            target_naming: models::TargetNaming::PrefixSchema,
-            delta_updates: true,
+            target_naming,
+            delta_updates,
         });
-
-        unimplemented!("write this test");
-        /*
-
-        source_capture: &Sources,
-        resource_spec: &mut Value,
-        resource_spec_pointers: &ResourceSpecPointers,
-        full_collection_name: &str,
-        */
+        update_materialization_resource_spec(&sources, &mut existing, pointers, collection_name)?;
+        Ok(existing)
     }
 }
