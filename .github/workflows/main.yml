@@ -8,7 +8,7 @@ on:
     paths-ignore:
       - "site/**"
   pull_request:
-    branches: [master]
+    branches: [johnny/agent-revert-base]
     paths-ignore:
       - "site/**"
 

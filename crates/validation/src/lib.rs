@@ -624,3 +624,17 @@ where
         }
     }
 }
+
+// Strip /_meta from a resource config, before sending it to a connector.
+// TODO(johnny): We intend to remove this once connectors are updated.
+fn strip_resource_meta(resource: &models::RawValue) -> String {
+    type Skim = std::collections::BTreeMap<String, models::RawValue>;
+
+    let Ok(mut resource) = serde_json::from_str::<Skim>(resource.get()) else {
+        return resource.get().to_string();
+    };
+    _ = resource.remove("_meta");
+
+    let resource: Box<str> = serde_json::value::to_raw_value(&resource).unwrap().into();
+    resource.into()
+}
