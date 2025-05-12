@@ -75,7 +75,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -252,7 +252,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -366,7 +366,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -492,7 +492,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -620,7 +620,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -970,7 +970,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -1096,7 +1096,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -1224,7 +1224,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -1594,7 +1594,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -1720,7 +1720,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -1848,7 +1848,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -2210,7 +2210,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -2336,7 +2336,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
@@ -2464,7 +2464,7 @@ expression: trace.lock().unwrap().as_slice()
   {
     "Cmd": [
       "git-checkout",
-      "git checkout --detach --force --quiet origin/main"
+      "git checkout --detach --force --quiet origin/test-branch"
     ]
   },
   {
