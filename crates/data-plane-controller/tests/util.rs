@@ -126,7 +126,7 @@ pub fn initial_state() -> stack::State {
 
     stack::State {
         data_plane_id: models::Id::new([32; 8]),
-        deploy_branch: "main".to_string(),
+        deploy_branch: "test-branch".to_string(),
         last_pulumi_up: chrono::DateTime::default(),
         last_refresh: chrono::DateTime::default(),
         logs_token: uuid::uuid!("12345678-1234-5678-1234-567812345678"),

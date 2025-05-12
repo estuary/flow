@@ -170,7 +170,7 @@ properties:
   deploy_branch:
     type: string
     enum:
-      - main
+      - test-branch
   last_pulumi_up:
     type: string
   private_links:
