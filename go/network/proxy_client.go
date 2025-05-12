@@ -2,13 +2,16 @@ package network
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"math/rand/v2"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
+	flowLabels "github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -34,7 +37,7 @@ func dialShard(
 	parsed parsedSNI,
 	resolved resolvedSNI,
 	userAddr string,
-) (*proxyClient, error) {
+) (proxyConn, error) {
 	var labels = []string{resolved.taskName, parsed.port, resolved.portProtocol}
 	shardStartedCounter.WithLabelValues(labels...).Inc()
 
@@ -51,13 +54,33 @@ func dialShard(
 	rand.Shuffle(len(fetched), func(i, j int) { fetched[i], fetched[j] = fetched[j], fetched[i] })
 
 	var primary = -1
+	var cordon string
+
 	for i := range fetched {
 		if fetched[i].Route.Primary != -1 {
 			primary = i
 			break
 		}
+		// `cordon`, when non-empty, is the FQDN of migrated data-plane reactors.
+		// '/' is its port separator instead of ':' (which isn't allowed in label values).
+		cordon = strings.Replace(
+			fetched[i].Spec.LabelSet.ValueOf(flowLabels.Cordon),
+			"/", ":", 1,
+		)
 	}
-	if primary == -1 {
+
+	if primary != -1 {
+		// There's a current primary. Fall through to dial it.
+	} else if cordon != "" {
+		// Prefix the migrated service address with the parsed SNI.
+		var conn, err = tls.Dial("tcp", fmt.Sprintf("%s.%s", parsed, cordon),
+			&tls.Config{NextProtos: []string{resolved.portProtocol}})
+
+		if err != nil {
+			shardHandledCounter.WithLabelValues(append(labels, "ErrMigratedDial")...).Inc()
+		}
+		return conn, err
+	} else {
 		shardHandledCounter.WithLabelValues(append(labels, "ErrNoPrimary")...).Inc()
 		return nil, fmt.Errorf("task has no ready primary shard assignment")
 	}
@@ -165,6 +188,10 @@ func (pc *proxyClient) Read(b []byte) (n int, err error) {
 	var i = copy(b, pc.buf)
 	pc.buf = pc.buf[i:]
 	return i, nil
+}
+
+func (pc *proxyClient) CloseWrite() error {
+	return pc.rpc.CloseSend()
 }
 
 // Close the proxy client. MAY be called concurrently with Read.

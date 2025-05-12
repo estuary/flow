@@ -125,7 +125,7 @@ local_resource(
         "BROKER_TRUSTED_CA_FILE": CA_CERT_PATH,
         "CONSUMER_ALLOW_ORIGIN": "http://localhost:3000",
         "CONSUMER_AUTH_KEYS": AUTH_KEYS,
-        "CONSUMER_HOST": "reactor.flow.localhost",
+        "CONSUMER_HOST": "flow.localhost", # Connector networking must match *.flow.localhost.
         "CONSUMER_LIMIT": "1024",
         "CONSUMER_PEER_CA_FILE": CA_CERT_PATH,
         "CONSUMER_PORT": "%d" % port,
@@ -141,8 +141,9 @@ local_resource(
         "FLOW_DATA_PLANE_FQDN": "local-cluster.dp.estuary-data.com",
         "FLOW_NETWORK": "supabase_network_flow",
         "LOG_LEVEL": "info",
+        "SSL_CERT_FILE": CA_CERT_PATH,
     },
-    links='https://reactor.flow.localhost:%d/debug/pprof' % port,
+    links='https://flow.localhost:%d/debug/pprof' % port,
     resource_deps=['etcd'],
     readiness_probe=probe(
         initial_delay_secs=5,
@@ -182,7 +183,7 @@ local_resource(
             "category": {\
                 "manual": {\
                     "brokerAddress": "https://gazette.flow.localhost:8080",\
-                    "reactorAddress": "https://reactor.flow.localhost:9000",\
+                    "reactorAddress": "https://flow.localhost:9000",\
                     "hmacKeys": ["%s"]\
                 }\
             }\
@@ -287,7 +288,7 @@ local_resource(
 #        "BROKER_TRUSTED_CA_FILE": CA_CERT_PATH,
 #        "CONSUMER_ALLOW_ORIGIN": "http://localhost:3000",
 #        "CONSUMER_AUTH_KEYS": OTHER_AUTH_KEYS,
-#        "CONSUMER_HOST": "other-reactor.flow.localhost",
+#        "CONSUMER_HOST": "flow.localhost", # Connector networking must match *.flow.localhost.
 #        "CONSUMER_LIMIT": "1024",
 #        "CONSUMER_PEER_CA_FILE": CA_CERT_PATH,
 #        "CONSUMER_PORT": "%d" % port,
@@ -303,8 +304,9 @@ local_resource(
 #        "FLOW_DATA_PLANE_FQDN": "other-cluster.dp.estuary-data.com",
 #        "FLOW_NETWORK": "supabase_network_flow",
 #        "LOG_LEVEL": "info",
+#        "SSL_CERT_FILE": CA_CERT_PATH,
 #    },
-#    links='https://other-reactor.flow.localhost:%d/debug/pprof' % port,
+#    links='https://flow.localhost:%d/debug/pprof' % port,
 #    resource_deps=['etcd'],
 #    readiness_probe=probe(
 #        initial_delay_secs=5,
@@ -323,7 +325,7 @@ local_resource(
 #            "category": {\
 #                "manual": {\
 #                    "brokerAddress": "https://other-gazette.flow.localhost:8180",\
-#                    "reactorAddress": "https://other-reactor.flow.localhost:9100",\
+#                    "reactorAddress": "https://flow.localhost:9100",\
 #                    "hmacKeys": ["%s"]\
 #                }\
 #            }\
