@@ -355,9 +355,8 @@ impl Snapshot {
         // We must release our read-lock before we can acquire a write lock.
         std::mem::drop(guard);
 
-        if let Some(tx) = mu.write().unwrap().refresh_tx.take() {
-            () = tx.send(()).unwrap(); // Begin a refresh.
-        }
+        // Take `refresh_tx` and drop to awake receiver.
+        std::mem::drop(mu.write().unwrap().refresh_tx.take());
     }
 
     // If there is a migration which covers `catalog_name`, running in `data_plane`,
